@@ -107,7 +107,7 @@ describe('mensajes propuestos', () => {
   const KNOWN = new Set(['nombre', 'chances', 'ganadores_doble', 'premio', 'premio_singular', 'premio_vip', 'por_etiqueta', 'max_etiquetas',
     'bonus_historia', 'bonus_compra_amigo', 'multiplicador', 'porcentaje', 'horas', 'cupon', 'porcentaje_amigo', 'codigo_amigo',
     'link_invitar', 'fecha_sorteo', 'link_bases', 'evento', 'lista_regalos', 'codigo_premio', 'plazo',
-    'congelado_hasta', 'link_elegir', 'monto_devolucion', 'faltante', 'link_reel', 'frase', 'puntos_texto', 'comentarios', 'hito_porcentaje', 'hito_codigo', 'proximo_hito', 'proximo_porcentaje', 'faltan', 'puntos_quiz', 'puntos_total', 'aciertos', 'total_preguntas', 'intentos', 's', 'max_intentos', 'puesto', 'premio_flash', 'codigo_flash', 'porcentaje_flash', 'ganadores', 'vendidas', 'ganadores_actuales', 'proxima_meta', 'proximos_ganadores', 'faltan_meta', 'meta_texto', 'link_compra', 'max_fotos']);
+    'congelado_hasta', 'link_elegir', 'monto_devolucion', 'faltante', 'link_reel', 'frase', 'puntos_texto', 'comentarios', 'hito_porcentaje', 'hito_codigo', 'proximo_hito', 'proximo_porcentaje', 'faltan', 'puntos_quiz', 'puntos_total', 'aciertos', 'total_preguntas', 'intentos', 's', 'max_intentos', 'puesto', 'premio_flash', 'codigo_flash', 'porcentaje_flash', 'ganadores', 'vendidas', 'ganadores_actuales', 'proxima_meta', 'proximos_ganadores', 'faltan_meta', 'meta_texto', 'link_compra', 'max_fotos', 'link_posicion']);
   it('solo usan variables que existen', () => {
     const all = Object.values(DEFAULT_CONTEST_CONFIG.messages).flat().join('\n');
     const used = Array.from(all.matchAll(/\{\{\s*([a-z_]+)\s*\}\}/g)).map((m) => m[1]);

@@ -26,15 +26,21 @@ export function milestoneState(count: number, steps: ContestMilestoneStep[]): Mi
   };
 }
 
-export function milestoneCommentText(input: { count: number; percent: number; code: string; until: string; next: ContestMilestoneStep | null; remaining: number; link: string }): string {
+/** Comentario público del reel: NO lleva el código (es solo para participantes). */
+export function milestoneCommentText(input: { count: number; percent: number; until: string; next: ContestMilestoneStep | null; remaining: number; link: string }): string {
   return [
-    `🔥 ¡${input.count} comentarios! Desbloqueamos ${input.percent}% de descuento para TODOS 🎉`,
-    `Código: ${input.code} (válido hasta ${input.until})`,
+    `🔥 ¡${input.count} comentarios! Desbloqueamos ${input.percent}% de descuento para quienes participan 🎉`,
+    `Si ya comentaste, tu código te llega por DM (o escribe HITO por DM). Válido hasta ${input.until}.`,
     input.next
       ? `Faltan ${input.remaining} comentarios para subirlo a ${input.next.percent}%. ¡Comenta y comparte para desbloquearlo! 🚀`
       : '¡Llegamos al máximo! Aprovecha antes de que venza 💥',
     input.link,
   ].join('\n').slice(0, 2200);
+}
+
+/** ¿Pide su código del hito por DM? ("hito", "código", "cupón"). */
+export function asksForMilestoneCode(text: string): boolean {
+  return /^\s*(hito|c[oó]digo|cup[oó]n|descuento)\s*[.!?]*\s*$/i.test(text);
 }
 
 export function milestoneDmText(input: { name: string; count: number; percent: number; code: string; until: string; next: ContestMilestoneStep | null; remaining: number; link: string }): string {

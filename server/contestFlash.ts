@@ -9,7 +9,7 @@ import { contestLog, contestParticipants, contestWinners, contests, customers, t
 import { adjustPlaycoinsManually, findCustomersByInstagram } from './db';
 import { commentOnOwnMedia } from './instagramSend';
 import {
-  checkoutUrl, claimLog, createCode, createParticipant, drawDateText, grantFreeItem, isTicketPrize, reload, runContestDraw,
+  checkoutUrl, claimLog, createCode, createParticipant, drawDateText, findHolderOrder, grantFreeItem, isTicketPrize, markHolder, reload, runContestDraw,
   safeActivateWinner, send, templateVars, type Channel, type ContestCtx, type Db,
 } from './contests';
 import { extractEmail, renderContestTemplate } from '../shared/contest';
@@ -157,17 +157,24 @@ export async function deliverFlashPrize(
     return;
   }
   if (prize.kind === 'product' && prize.ticketTypeId) {
+    // Los códigos de descuento solo rebajan accesos, no productos: el producto se carga
+    // gratis en la entrada del ganador (si aún no tiene, compra la suya y nos escribe su correo).
     const name = await names();
-    if (p.orderId && await grantFreeItem(db, p.orderId, prize.ticketTypeId).catch(() => false)) {
-      detail = `${describePrize(prize, { product: name })}. Ya quedó cargado en tu entrada: muéstralo en caja.`;
-    } else {
-      prizeCode = await createCode(db, {
-        prefix: 'PREMIO', type: 'percentage', value: 100, maxUses: 1, validUntil: eventEnd(ctx), eventId: ctx.event.id,
-        applicableTicketTypeIds: [prize.ticketTypeId], description: `Reto relámpago «${ctx.contest.title}»: ${row.position}º (@${p.username ?? p.igUserId})`,
-      });
-      detail = `${describePrize(prize, { product: name })}. Canjéalo con el código ${prizeCode}: ${checkoutUrl(ctx, { code: prizeCode, content: 'flash-premio' })}`;
+    let orderId = p.orderId;
+    if (!orderId) {
+      const holder = await findHolderOrder(db, ctx.event.id, { email: (text && extractEmail(text)) || p.email, username: p.username });
+      if (holder) {
+        await markHolder(db, ctx, p.id, holder);
+        orderId = holder.orderId;
+      }
     }
-    await finish();
+    if (orderId && await grantFreeItem(db, orderId, prize.ticketTypeId).catch(() => false)) {
+      detail = `${describePrize(prize, { product: name })}. Ya quedó cargado en tu entrada: muéstralo en caja.`;
+      await finish();
+      return;
+    }
+    await db.update(contestWinners).set({ status: 'notified', notifiedAt: row.notifiedAt ?? new Date(), claimDeadline: new Date(ctx.event.eventDate) }).where(eq(contestWinners.id, row.id));
+    await send(channel, `${win(describePrize(prize, { product: name }))}\n\nAún no encontramos tu entrada: compra la tuya y respóndenos con el correo de tu compra para cargarte el producto 💌`).catch(() => {});
     return;
   }
   if (prize.kind === 'code') {

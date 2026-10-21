@@ -21,6 +21,7 @@ import {
   type ContestCtx,
 } from './contests';
 import { contestPhase, parseKeywords } from '../shared/contest';
+import { CONTEST_EMAIL_DAILY_LIMIT } from '../shared/emailQuota';
 import { chileDateKey, chileHourOf } from '../shared/chileDate';
 import {
   approxWinProbabilityWithLeader, asksAboutRanking, dmTipsText, personalTips, rankDmKey, rankMailKey, rankPostKey, rankReplyCandidates,
@@ -31,7 +32,7 @@ type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 
 /** Correos del día a partir de los cuales no se manda el aviso de ranking:
  * quedan los últimos 30 de los 100 para las confirmaciones de compra. */
-const RANKING_EMAIL_DAILY_LIMIT = 70;
+const RANKING_EMAIL_DAILY_LIMIT = CONTEST_EMAIL_DAILY_LIMIT;
 
 async function claim(db: Db, contestId: number, refId: string, participantId: number | null = null): Promise<boolean> {
   try {
@@ -102,9 +103,19 @@ export async function getPersonalPosition(rawCode: string) {
   if (!p) return null;
   const ctx = await getCtxById(p.contestId);
   if (!ctx) return null;
+  // Retos por hitos: su página muestra el descuento desbloqueado (el código no se publica en el reel).
+  const log = (ctx.contest.drawLog ?? {}) as { code?: string | null; percent?: number; validUntil?: string | null; count?: number };
+  const milestone = ctx.contest.template === 'milestones' && !p.disqualified
+    ? {
+      count: Number(log.count ?? 0), percent: Number(log.percent ?? 0), code: log.code ?? null, validUntil: log.validUntil ?? null,
+      live: !!log.code && !!log.validUntil && new Date(log.validUntil).getTime() > Date.now(),
+      steps: ctx.config.milestones.steps,
+    }
+    : null;
   const { ranking } = await loadRankingFor(db, ctx);
-  const view = personalView(ctx, ranking, p);
+  const view = milestone ? null : personalView(ctx, ranking, p);
   return {
+    milestone,
     username: p.username,
     disqualified: !!p.disqualified,
     eventTitle: ctx.event.title,
@@ -205,6 +216,7 @@ async function publicReplies(db: Db, ctx: ContestCtx, ranking: Ranking, particip
     const commentIds = Array.from(new Set([p.spareCommentId, p.firstCommentId].filter((x): x is string => !!x)));
     let delivered = false;
     let permanent = true;
+    const dead: string[] = [];
     for (const commentId of commentIds) {
       try {
         await replyToComment(commentId, rankReplyText(t, positionLink(p.inviteCode)));
@@ -215,7 +227,13 @@ async function publicReplies(db: Db, ctx: ContestCtx, ranking: Ranking, particip
         // Código 100 = el comentario ya no existe o no se puede responder: no
         // sirve reintentar. Cualquier otro error puede ser pasajero.
         if ((err as { code?: number })?.code !== 100) permanent = false;
+        else dead.push(commentId);
       }
+    }
+    // Comentarios que Meta dice que ya no existen: se descartan para no volver a intentarlos.
+    for (const id of dead) {
+      if (p.spareCommentId === id) await db.update(contestParticipants).set({ spareCommentId: null, spareCommentAt: null }).where(eq(contestParticipants.id, p.id));
+      if (p.firstCommentId === id) await db.update(contestParticipants).set({ firstCommentId: null }).where(eq(contestParticipants.id, p.id));
     }
     if (delivered) sent++;
     // Un comentario borrado no se reintenta cada 15 minutos (ocuparía el cupo de respuestas).
