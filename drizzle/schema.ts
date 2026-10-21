@@ -1812,6 +1812,10 @@ export const expenses = mysqlTable("expenses", {
   // debe volver a restarse del resultado. Se registra igual -- hace falta para
   // el libro de compras y el crédito fiscal -- pero marcada con esto en 1.
   excludeFromPnl: int("excludeFromPnl").default(0).notNull(),
+  // El dueño revisó el aviso de doble conteo y confirmó que este gasto de
+  // barra/merch NO es la misma mercadería costeada en la carta: deja de
+  // avisar por él (sin cambiar cuánto resta).
+  cogsReviewed: int("cogsReviewed").default(0).notNull(),
   // Gasto general que NO se reparte entre eventos (una multa, un gasto
   // personal del socio): entra al resumen del mes pero no ensucia el margen
   // de ninguna fiesta.

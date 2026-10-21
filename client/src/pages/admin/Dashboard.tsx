@@ -22,6 +22,8 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Home, Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff, ArrowRight, Car, Send, ShieldAlert, Zap, Cake, Calculator, Star, Copy, ArrowUpCircle, BellOff, FlaskConical, CalendarClock, Palette, UserCheck, Banknote, Landmark, Link2, RotateCcw, Headphones, ListChecks, Image as ImageIcon, PartyPopper } from 'lucide-react';
+import { PnlWarnings } from '@/components/admin/PnlWarnings';
+import { AdminPasswordDialog } from '@/components/admin/AdminPasswordDialog';
 import { ExpenseTerminal } from '@/components/admin/expenses/ExpenseTerminal';
 import { ExpensesToday } from '@/components/admin/expenses/ExpensesToday';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
@@ -8264,6 +8266,13 @@ function ExpensesList({ events, refreshKey, onChanged }: { events: any[]; refres
     onSuccess: () => { refetch(); onChanged(); toast.success('Gasto eliminado'); },
     onError: onMutationError,
   });
+  // Cambiar "ya contado en el costo del producto" en un gasto existente (antes
+  // solo se podía al crearlo: había que borrarlo y cargarlo de nuevo).
+  const [costToggle, setCostToggle] = useState<{ id: number; description: string; toExcluded: boolean } | null>(null);
+  const reviewCogs = trpc.expenses.reviewCogs.useMutation({
+    onSuccess: (_r, v) => { refetch(); onChanged(); toast.success(v.decision === 'same' ? 'Marcado: ya no resta del resultado' : 'Listo: vuelve a restar del resultado'); },
+    onError: onMutationError,
+  });
 
   useEffect(() => { refetch(); }, [refreshKey, refetch]);
 
@@ -8343,6 +8352,13 @@ function ExpensesList({ events, refreshKey, onChanged }: { events: any[]; refres
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <span className="font-semibold tabular-nums">${r.amountTotal.toLocaleString('es-CL')}</span>
+                    {(r.excludeFromPnl === 1 || r.category === 'barra' || r.category === 'merch') && !coarse && (
+                      <button type="button" onClick={() => setCostToggle({ id: r.id, description: r.description, toExcluded: r.excludeFromPnl !== 1 })}
+                        className="rounded-lg px-2 py-1 text-xs text-[var(--admin-muted)] hover:bg-white/5 hover:text-white"
+                        title={r.excludeFromPnl === 1 ? 'Volver a restar del resultado' : 'Marcar como ya contado en el costo del producto'}>
+                        {r.excludeFromPnl === 1 ? 'Volver a restar' : 'Ya contado en costo'}
+                      </button>
+                    )}
                     {r.receiptUrl && (
                       <a href={r.receiptUrl} target="_blank" rel="noreferrer" aria-label={`Ver boleta de ${r.description}`} title="Ver boleta"
                         className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--admin-muted)] hover:bg-white/5 hover:text-white">
@@ -8370,6 +8386,16 @@ function ExpensesList({ events, refreshKey, onChanged }: { events: any[]; refres
           </div>
         )}
       </CardContent>
+      <AdminPasswordDialog
+        open={!!costToggle}
+        title={costToggle?.toExcluded ? '¿Ya está contado en el costo del producto?' : '¿Volver a restar este gasto?'}
+        description={costToggle?.toExcluded
+          ? `"${costToggle.description}" va a dejar de restar del resultado del evento (sigue en el libro de compras y para el SII).`
+          : `"${costToggle?.description ?? ''}" vuelve a restar del resultado del evento.`}
+        actionLabel={costToggle?.toExcluded ? 'Sí, ya está contado' : 'Sí, volver a restar'}
+        onConfirm={(adminPassword) => reviewCogs.mutateAsync({ id: costToggle!.id, decision: costToggle!.toExcluded ? 'same' : 'reset', adminPassword })}
+        onClose={() => setCostToggle(null)}
+      />
     </Card>
   );
 }
@@ -8420,13 +8446,7 @@ function EventPnlReport({ eventId, refreshKey }: { eventId: number; refreshKey: 
           </div>
         )}
 
-        {data.warnings.length > 0 && (
-          <div className="admin-clay-sm bg-[var(--admin-warning-bg)] px-4 py-3 space-y-1.5">
-            {data.warnings.map((w: string, i: number) => (
-              <p key={i} className="text-sm text-[var(--admin-warning-text)]">⚠️ {w}</p>
-            ))}
-          </div>
-        )}
+        <PnlWarnings warnings={data.warnings} merchCheck={data.merchCheck} />
 
         <div className="text-sm">
           <PnlRow label="Plata que entró" amount={data.grossIncome} hint="Órdenes aprobadas, con descuentos ya aplicados y los copagos de Misión 300 incluidos." />
@@ -9604,6 +9624,8 @@ function AdminAuditPanel() {
     'events.deleteTicketType': 'Eliminó un tipo de entrada',
     'expenses.delete': 'Eliminó un gasto',
     'expenses.update': 'Editó un gasto',
+    'expenses.reviewCogs': 'Revisó doble conteo de un gasto',
+    'expenses.undo': 'Deshizo un gasto recién cargado',
     'blockedCustomers.delete': 'Sacó un RUT de la lista de bloqueo',
     'discounts.update': 'Editó un código de descuento',
     'discounts.delete': 'Eliminó un código de descuento',
@@ -10745,12 +10767,7 @@ function EventOverview() {
         </BentoTile>
       </BentoGrid>
 
-      {(pnl?.warnings?.length ?? 0) > 0 && (
-        <div className="admin-clay-sm bg-[var(--admin-warning-bg)] p-4 space-y-1">
-          <p className="text-sm font-semibold text-[var(--admin-warning-text)]">Ojo con estos números</p>
-          {pnl!.warnings.map((w: string, i: number) => <p key={i} className="text-sm text-[var(--admin-warning-text)]">{w}</p>)}
-        </div>
-      )}
+      <PnlWarnings warnings={pnl?.warnings} merchCheck={pnl?.merchCheck} />
 
       <Card className="admin-clay border-0">
         <CardHeader><CardTitle>La caja de esa noche</CardTitle></CardHeader>

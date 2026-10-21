@@ -4209,6 +4209,21 @@ export async function updateExpense(id: number, input: any) {
   return { success: true };
 }
 
+/** Resuelve el aviso de doble conteo de un gasto de barra/merch:
+ * - 'same': es la misma mercadería costeada en la carta -> deja de restar
+ *   del resultado (excludeFromPnl), igual queda para el libro de compras.
+ * - 'different': es otra cosa -> sigue restando, pero no avisa más.
+ * - 'reset': vuelve a como estaba (resta y avisa). */
+export async function setExpenseCogsDecision(id: number, decision: 'same' | 'different' | 'reset') {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const values = decision === 'same' ? { excludeFromPnl: 1, cogsReviewed: 1 }
+    : decision === 'different' ? { excludeFromPnl: 0, cogsReviewed: 1 }
+    : { excludeFromPnl: 0, cogsReviewed: 0 };
+  await db.update(expenses).set(values).where(eq(expenses.id, id));
+  return { success: true };
+}
+
 export async function getExpenseById(id: number) {
   const db = await getDb();
   if (!db) return null;
@@ -4284,14 +4299,29 @@ export async function getEventPnl(eventId: number, opts: { excludeGeneral?: bool
   const itemRows = await db.select({
     quantity: orderItems.quantity,
     unitCost: orderItems.unitCost,
+    ticketTypeId: orderItems.ticketTypeId,
+    name: ticketTypes.name,
+    channel: orders.channel,
   }).from(orderItems)
     .innerJoin(orders, eq(orders.id, orderItems.orderId))
+    .leftJoin(ticketTypes, eq(ticketTypes.id, orderItems.ticketTypeId))
     .where(and(eq(orders.eventId, eventId), eq(orders.paymentStatus, 'approved')));
   let cogs = 0, unitsWithCost = 0, unitsTotal = 0;
+  // Qué productos forman ese costo (para el aviso de doble conteo).
+  const costByProduct = new Map<number, { name: string; quantity: number; total: number; channels: Set<string> }>();
   for (const r of itemRows as any[]) {
     unitsTotal += r.quantity;
-    if (r.unitCost != null) { cogs += Number(r.unitCost) * r.quantity; unitsWithCost += r.quantity; }
+    if (r.unitCost != null) {
+      const line = Number(r.unitCost) * r.quantity;
+      cogs += line; unitsWithCost += r.quantity;
+      const p = costByProduct.get(r.ticketTypeId) ?? { name: r.name ?? `Producto #${r.ticketTypeId}`, quantity: 0, total: 0, channels: new Set<string>() };
+      p.quantity += r.quantity; p.total += line; p.channels.add(r.channel ?? 'web');
+      costByProduct.set(r.ticketTypeId, p);
+    }
   }
+  const costProducts = Array.from(costByProduct.values())
+    .map((p) => ({ name: p.name, quantity: p.quantity, unitCost: p.quantity ? Math.round(p.total / p.quantity) : 0, total: Math.round(p.total), channels: Array.from(p.channels) }))
+    .sort((a, b) => b.total - a.total);
   const cogsCoverage = unitsTotal > 0 ? Math.round((unitsWithCost / unitsTotal) * 100) : 0;
 
   // Comisiones de embajadores: un costo real que hasta ahora no se restaba en
@@ -4346,8 +4376,16 @@ export async function getEventPnl(eventId: number, opts: { excludeGeneral?: bool
     cogsCoverage,
     ...pnl,
     staffRetentionTotal: staffPay.retention,
-    warnings: await buildPnlWarnings({ eventId, cogs, directRows: directRows as any[], monthKey, grossIncome, staffCostsTotal }),
+    ...(await buildPnlWarnings({ eventId, cogs, directRows: directRows as any[], monthKey, grossIncome, staffCostsTotal, costProducts })),
   };
+}
+
+/** Detalle del aviso de doble conteo de mercadería: qué gastos de
+ * barra/merch y qué productos con costo lo disparan, para decidir uno por uno. */
+export interface MerchDoubleCountCheck {
+  expenses: { id: number; description: string; supplier: string | null; category: string; amountTotal: number; expenseDate: Date | string; receiptUrl: string | null }[];
+  products: { name: string; quantity: number; unitCost: number; total: number; channels: string[] }[];
+  cogs: number;
 }
 
 /** Avisos de "este número puede estar mal" que se muestran arriba del reporte.
@@ -4355,7 +4393,8 @@ export async function getEventPnl(eventId: number, opts: { excludeGeneral?: bool
  * son silenciosos. */
 async function buildPnlWarnings(params: {
   eventId: number; cogs: number; directRows: any[]; monthKey: string; grossIncome: number; staffCostsTotal?: number;
-}): Promise<string[]> {
+  costProducts?: MerchDoubleCountCheck['products'];
+}): Promise<{ warnings: string[]; merchCheck: MerchDoubleCountCheck | null }> {
   const db = await getDb();
   const warnings: string[] = [];
 
@@ -4369,12 +4408,22 @@ async function buildPnlWarnings(params: {
     );
   }
 
-  const merchandiseExpenses = params.directRows.filter((e) => e.category === 'barra' || e.category === 'merch');
+  // Los que el dueño ya revisó ("no es la misma mercadería") no avisan más.
+  const merchandiseExpenses = params.directRows.filter((e) => (e.category === 'barra' || e.category === 'merch') && !e.cogsReviewed);
+  let merchCheck: MerchDoubleCountCheck | null = null;
   if (params.cogs > 0 && merchandiseExpenses.length > 0) {
     warnings.push(
       `Hay ${merchandiseExpenses.length} gasto(s) de barra/merch y además costo de producto cargado en la carta. ` +
       `Si es la misma mercadería la estás contando dos veces: marcá esos gastos como "ya contado en el costo del producto".`,
     );
+    merchCheck = {
+      expenses: merchandiseExpenses.map((e) => ({
+        id: e.id, description: e.description, supplier: e.supplier ?? null, category: e.category,
+        amountTotal: Number(e.amountTotal), expenseDate: e.expenseDate, receiptUrl: e.receiptUrl ?? null,
+      })),
+      products: params.costProducts ?? [],
+      cogs: Math.round(params.cogs),
+    };
   }
 
   if (db) {
@@ -4406,7 +4455,7 @@ async function buildPnlWarnings(params: {
     }
   }
 
-  return warnings;
+  return { warnings, merchCheck };
 }
 
 /** Comparativa de resultado entre todos los eventos. Se resuelve en consultas
