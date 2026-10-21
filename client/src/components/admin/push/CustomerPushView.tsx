@@ -28,7 +28,7 @@ export function CustomerPushView() {
       <div>
         <h2 className="flex items-center gap-2 font-heading text-2xl"><BellRing className="h-6 w-6 text-primary" /> Notificaciones push</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Avisos directo al teléfono de quienes activaron las notificaciones del sitio (desde su entrada, después de pagar, la home, concursos o Mis puntos). En iPhone solo llegan si agregaron el sitio a su inicio. Máximo un aviso de promoción al día por persona.
+          Avisos directo al teléfono de quienes activaron las notificaciones del sitio (desde su entrada, después de pagar, la home, concursos o Mis puntos). En iPhone solo llegan si agregaron el sitio a su inicio. Máximo un aviso de promoción al día por persona y nunca entre las 23:00 y las 09:00.
         </p>
       </div>
 

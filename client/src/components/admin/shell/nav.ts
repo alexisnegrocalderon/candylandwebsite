@@ -70,6 +70,7 @@ export const SECTION_KEYWORDS: Record<string, string> = {
   leads: 'interesados prospectos',
   winback: 'reactivar recuperar clientes inactivos',
   birthdays: 'cumpleaños cumpleañeros',
+  members: 'socios cuenta mi cuenta cupones preventa anticipada login beneficios',
   'blocked-customers': 'bloqueo lista negra vetados',
   instagram: 'dm mensajes chat agente ig comentarios',
   whatsapp: 'wsp chat mensajes',

@@ -1201,6 +1201,7 @@ export async function updateSiteSettings(data: {
   emailTemplateConfig?: EmailTemplateConfig;
   adminAlertsConfig?: AdminAlertsConfig;
   customerPushConfig?: unknown;
+  memberConfig?: unknown;
   instagramAgentConfig?: import('../shared/instagramAgentConfig').InstagramAgentConfig;
   whatsappAgentConfig?: import('../shared/whatsappAgentConfig').WhatsAppAgentConfig;
   agentCoachReport?: import('../shared/agentCoach').AgentCoachReport;

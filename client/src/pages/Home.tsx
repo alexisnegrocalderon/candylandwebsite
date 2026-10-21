@@ -52,6 +52,7 @@ import { reveal, revealGroup, revealItemProps, useRevealWatchdog } from '@/lib/r
 import { eventSchema, faqSchema } from '@shared/structuredData';
 import { getArticle, articlePath, ALL_ARTICLES, STANDALONE_PAGES } from '@/content';
 import { PushBanner } from '@/components/site/PushPrompt';
+import { MemberSheet } from '@/components/site/MemberPrompt';
 
 // Mismo criterio que Navbar.tsx: los 8 títulos reales (guías + blog +
 // standalone) en vez de los links genéricos "Panoramas"/"Blog" que había
@@ -2191,6 +2192,7 @@ function Footer() {
             <Link href="/politica-de-reembolso" className="hover:text-foreground transition-colors">Política de reembolso</Link>
             <Link href="/politica-de-privacidad" className="hover:text-foreground transition-colors">Política de privacidad</Link>
             <Link href="/embajadores" className="hover:text-foreground transition-colors">Embajadores</Link>
+            <Link href="/cuenta" className="hover:text-foreground transition-colors">Mi cuenta</Link>
           </div>
         </div>
       </div>
@@ -2421,6 +2423,7 @@ export default function Home() {
       <Footer />
       <StickyMobileCTA salesEnd={!missionActive ? (tanda?.salesEnd ?? null) : null} soldOut={!!tanda?.soldOut} />
       <PushBanner />
+      <MemberSheet />
       <ExitIntentModal />
     </MotionConfig>
   );

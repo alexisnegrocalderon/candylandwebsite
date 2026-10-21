@@ -4,6 +4,7 @@ import { Ticket, Mail, Sparkles, AlertTriangle } from 'lucide-react';
 import { useSeo } from '@/hooks/useSeo';
 import { ContestBuyerInvite } from '@/components/ContestBuyerInvite';
 import { PushPrompt } from '@/components/site/PushPrompt';
+import { MemberPrompt } from '@/components/site/MemberPrompt';
 
 /* Bienvenida post-pago: el momento en que la persona queda oficialmente
  * "adentro" de Candyland. La animación del dulce sumándose es deliberadamente
@@ -86,6 +87,7 @@ export default function PaymentSuccess() {
 
         <ContestBuyerInvite />
 
+        <MemberPrompt source="pago" orderNumber={orderNumber} className="mb-4" />
         <PushPrompt source="pago" orderNumber={orderNumber} className="mb-8" />
 
         <Link

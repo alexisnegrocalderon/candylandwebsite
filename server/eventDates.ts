@@ -7,13 +7,13 @@
  * guardado entero con "value.toISOString is not a function" -- y con eso no se
  * podía ni cambiar el flyer de esos eventos.
  *
- *  - `doorsOpen` / `eventEnd`: '' o null → null (se borra la fecha); texto con
+ *  - `doorsOpen` / `eventEnd` / `memberEarlyUntil`: '' o null → null (se borra la fecha); texto con
  *    fecha → Date; ausente → no se toca.
  *  - `eventDate` es obligatoria: vacía se ignora (conserva la que ya tenía). */
 export function normalizeEventDates<T extends Record<string, any>>(data: T): T {
   const out: Record<string, any> = { ...data };
 
-  for (const key of ['doorsOpen', 'eventEnd'] as const) {
+  for (const key of ['doorsOpen', 'eventEnd', 'memberEarlyUntil'] as const) {
     if (!(key in out) || out[key] === undefined) continue;
     const value = out[key];
     if (value === null || value === '') {

@@ -108,7 +108,11 @@ import { normalizeAdminAlertsConfig } from "../shared/adminAlertsConfig";
 import * as customerPush from "./customerPush";
 import { notifyEventLaunch } from "./customerPush";
 import * as appDevices from "./appDevices";
-import { SEGMENT_TYPES } from "../shared/pushSegments";
+import * as members from "./members";
+import { getMemberEmail, setMemberSession, clearMemberSession, verifyMemberCode, normalizeMemberEmail } from "./memberAuth";
+import { normalizeMemberConfig } from "../shared/memberConfig";
+import { isMemberEarlyAccess } from "../shared/memberConfig";
+import { draftPushCopy } from "./pushAi";
 import { normalizeCustomerPushConfig } from "../shared/customerPushConfig";
 import { normalizeInstagramAgentConfig, normalizeIgUsername, DEFAULT_INSTAGRAM_AGENT_CONFIG, IG_MAX_REPLY_CHARS } from "../shared/instagramAgentConfig";
 import { sendManualInstagramReply } from "./instagram";
@@ -754,11 +758,8 @@ const pushSubscriptionSchema = z.object({
   endpoint: z.string().url().max(512),
   keys: z.object({ p256dh: z.string().max(255), auth: z.string().max(255) }),
 });
-const pushSegmentSchema = z.object({
-  type: z.enum(SEGMENT_TYPES),
-  eventId: z.number().int().positive().optional(),
-  days: z.number().int().min(1).max(730).optional(),
-});
+// La forma real la valida normalizeSegment (shared/pushSegments.ts): acepta reglas combinadas y las formas antiguas.
+const pushSegmentSchema = z.record(z.string(), z.any());
 const pushCampaignSchema = z.object({
   title: z.string().trim().min(1).max(80),
   body: z.string().trim().min(1).max(255),
@@ -766,6 +767,12 @@ const pushCampaignSchema = z.object({
   imageUrl: z.string().url().max(500).nullish(),
   segment: pushSegmentSchema,
   scheduledAt: z.string().datetime().nullish(),
+  titleB: z.string().trim().max(80).nullish(),
+  bodyB: z.string().trim().max(255).nullish(),
+  abPercent: z.number().int().min(0).max(50).optional(),
+  abWaitMin: z.number().int().min(30).max(1440).optional(),
+  smartHour: z.boolean().optional(),
+  actions: z.array(z.object({ label: z.string().trim().max(24), url: z.string().trim().max(500) })).max(2).optional(),
 });
 
 export const appRouter = router({
@@ -1167,6 +1174,8 @@ export const appRouter = router({
       ivaApplies: z.number().optional(),
       taxIssuer: z.enum(['mansion', 'tercero', 'exento', 'por_revisar']).optional(),
       taxNote: z.string().max(255).nullish(),
+      // Preventa anticipada para socios: hasta esta fecha solo compran quienes entraron a «Mi cuenta». Vacío = sin preventa.
+      memberEarlyUntil: z.string().nullable().optional(),
       // Escala de descuentos por fase de este evento -- ver
       // shared/tandaSchedule.ts (TandaPhase[]: % + fecha límite opcional
       // por fase, para el avance automático). Editable desde el admin, por
@@ -1413,10 +1422,21 @@ export const appRouter = router({
       // Link de campaña aliada (/electronica), ver server/partnerCampaigns.ts.
       partnerSlug: z.string().max(50).optional(),
       partnerRef: z.string().max(32).optional(),
-    })).mutation(async ({ input }) => {
+    })).mutation(async ({ input, ctx }) => {
       const target = await db.getEventBySlug(input.eventSlug);
       if (target && await coproductionSvc.isEventHiddenByCoproduction(target.id)) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'Las entradas de este evento todavía no están a la venta.' });
+      }
+      // Preventa anticipada de socios: hasta la fecha del evento solo compra quien entró a «Mi cuenta» con el mismo correo.
+      if (target && isMemberEarlyAccess(target)) {
+        const me = getMemberEmail(ctx.req);
+        if (!me || me !== normalizeMemberEmail(input.buyerEmail) || !(await members.isMember(me))) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Preventa anticipada para socios: entra a tu cuenta con el correo de tu compra para comprar ahora. Las entradas se abren para todos más tarde.' });
+        }
+      }
+      // Un cupón personal solo lo usa su dueño.
+      try { await members.assertCouponOwner(input.discountCode, input.buyerEmail); } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'Cupón no válido' });
       }
       const result = await db.createOrder(input);
       // Descuento del 100%: la orden ya quedó aprobada en createOrder (sin
@@ -4010,6 +4030,100 @@ export const appRouter = router({
 
   /* Baja de correos de promociones desde el link del pie (página pública /baja).
    * El link lleva el correo y una firma: sin firma válida no se da de baja a nadie. */
+  /* «Mi cuenta» de los socios (server/members.ts): entrar con un código al
+   * correo y ver saldo, Playcoins, entradas y cupones. Opcional: nadie la
+   * necesita para comprar. */
+  member: router({
+    // Liviano: ¿hay sesión en este navegador? (para el menú, el checkout y la preventa de socios).
+    session: publicProcedure.query(async ({ ctx }) => {
+      const email = getMemberEmail(ctx.req);
+      if (!email) return { loggedIn: false as const };
+      const c = await members.findCustomer(email);
+      return c ? { loggedIn: true as const, email: c.email, fullName: c.fullName, isMember: !!c.memberSince } : { loggedIn: false as const };
+    }),
+    // Lo que se regala al entrar por primera vez (para que el texto de los avisos no prometa lo que no existe).
+    perks: publicProcedure.query(async () => {
+      const c = await members.getMemberConfig();
+      return { welcome: c.welcome.enabled ? c.welcome.percent : 0 };
+    }),
+    // Manda el código al correo (solo si es cliente). SIEMPRE responde lo mismo, para que nadie averigüe quién es cliente.
+    requestCode: publicProcedure.input(z.object({ email: z.string().email().max(200) })).mutation(async ({ input, ctx }) => {
+      const email = normalizeMemberEmail(input.email);
+      const ipKey = `member-send-ip:${clientIp(ctx)}`;
+      const emailKey = `member-send:${email}`;
+      if (!(await db.checkIpRateLimit(ipKey)) || !(await db.checkIpRateLimit(emailKey))) {
+        throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Pediste muchos códigos. Espera un rato e intenta de nuevo.' });
+      }
+      await db.recordIpAttempt(ipKey, 10, 60 * 60 * 1000);
+      await db.recordIpAttempt(emailKey, 5, 60 * 60 * 1000);
+      await members.sendMemberCode(email);
+      return { ok: true as const };
+    }),
+    // Desde una entrada o un pago: el código va al correo de ESA compra (nunca a uno que escriba quien pide) y se devuelve enmascarado.
+    requestCodeForPurchase: publicProcedure.input(z.object({ ticketCode: z.string().max(64).optional(), orderNumber: z.string().max(32).optional() })).mutation(async ({ input, ctx }) => {
+      const ipKey = `member-send-ip:${clientIp(ctx)}`;
+      if (!(await db.checkIpRateLimit(ipKey))) throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Pediste muchos códigos. Espera un rato e intenta de nuevo.' });
+      await db.recordIpAttempt(ipKey, 10, 60 * 60 * 1000);
+      const email = await members.emailForTicketOrOrder(input);
+      if (!email) throw new TRPCError({ code: 'NOT_FOUND', message: 'No encontramos esa compra.' });
+      const emailKey = `member-send:${email}`;
+      if (!(await db.checkIpRateLimit(emailKey))) throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Pediste muchos códigos. Espera un rato e intenta de nuevo.' });
+      await db.recordIpAttempt(emailKey, 5, 60 * 60 * 1000);
+      await members.sendMemberCode(email);
+      return { maskedEmail: members.maskMemberEmail(email) };
+    }),
+    // Canjea el código por la sesión (cookie de 90 días). Los cupones de bienvenida/nivel/cumpleaños se entregan acá.
+    verifyCode: publicProcedure.input(z.object({
+      email: z.string().email().max(200).optional(),
+      // Si el código se pidió desde una entrada o un pago, el correo se resuelve acá (nunca viaja al navegador).
+      ticketCode: z.string().max(64).optional(),
+      orderNumber: z.string().max(32).optional(),
+      code: z.string().min(1).max(20),
+    })).mutation(async ({ input, ctx }) => {
+      const email = input.email ? normalizeMemberEmail(input.email) : await members.emailForTicketOrOrder(input);
+      if (!email) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Código incorrecto o vencido.' });
+      const emailKey = `member-verify:${email}`;
+      const ipKey = `member-verify-ip:${clientIp(ctx)}`;
+      if (!(await db.checkIpRateLimit(emailKey)) || !(await db.checkIpRateLimit(ipKey))) {
+        throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos. Espera unos minutos y pide un código nuevo.' });
+      }
+      const customer = await members.findCustomer(email);
+      if (!customer || !verifyMemberCode(email, input.code)) {
+        await db.recordIpAttempt(emailKey, 5, 15 * 60 * 1000);
+        await db.recordIpAttempt(ipKey, 20, 15 * 60 * 1000);
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Código incorrecto o vencido.' });
+      }
+      setMemberSession(ctx.req, ctx.res, email);
+      const r = await members.completeLogin(email);
+      return { ok: true as const, isNew: r.isNew, granted: r.granted.map((g) => ({ title: g.title, percent: g.percent, days: g.days })) };
+    }),
+    me: publicProcedure.query(async ({ ctx }) => {
+      const email = getMemberEmail(ctx.req);
+      return email ? members.getMemberHome(email) : null;
+    }),
+    logout: publicProcedure.mutation(async ({ ctx }) => {
+      clearMemberSession(ctx.req, ctx.res);
+      return { ok: true as const };
+    }),
+
+    // ── Panel (Clientes → Socios) ──
+    adminStats: adminReadProcedure.query(() => members.memberStats()),
+    config: adminReadProcedure.query(() => members.getMemberConfig()),
+    setConfig: adminProcedure.input(z.record(z.string(), z.any())).mutation(async ({ input }) => {
+      const config = normalizeMemberConfig(input);
+      await db.updateSiteSettings({ memberConfig: config });
+      return config;
+    }),
+    grantCoupon: adminProcedure.input(z.object({ email: z.string().email(), percent: z.number().int().min(1).max(100), days: z.number().int().min(1).max(365), title: z.string().max(100).optional() })).mutation(async ({ input }) => {
+      try {
+        const g = await members.grantManualCoupon(input.email, input.percent, input.days, input.title ?? '');
+        return { code: g.code, percent: g.percent, days: g.days };
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo crear el cupón' });
+      }
+    }),
+  }),
+
   unsubscribe: router({
     confirm: publicProcedure.input(z.object({ e: z.string().max(500), t: z.string().max(64), push: z.boolean().optional() })).mutation(async ({ input, ctx }) => {
       const ipKey = `unsubscribe:${clientIp(ctx)}`;
@@ -4059,8 +4173,8 @@ export const appRouter = router({
       await customerPush.resubscribeCustomer(input.oldEndpoint, input.subscription);
       return { success: true };
     }),
-    click: publicProcedure.input(z.object({ campaignId: z.number().int().positive() })).mutation(async ({ input }) => {
-      await customerPush.recordPushClick(input.campaignId);
+    click: publicProcedure.input(z.object({ campaignId: z.number().int().positive(), subscriptionId: z.number().int().positive().optional() })).mutation(async ({ input }) => {
+      await customerPush.recordPushClick(input.campaignId, input.subscriptionId);
       return { success: true };
     }),
     // El sitio se abrió como app instalada (una vez por apertura): "¿quién tiene la app?".
@@ -4068,6 +4182,8 @@ export const appRouter = router({
       deviceId: z.string().regex(/^[A-Za-z0-9_-]{16,64}$/),
       platform: z.enum(['ios', 'android', 'desktop']),
       ticketCode: z.string().max(64).optional(),
+      // Dispositivo con avisos activos: suma la hora de apertura a su historial (mejor hora por persona).
+      endpoint: z.string().url().max(512).optional(),
     })).mutation(async ({ input }) => {
       await appDevices.recordAppOpen(input);
       return { success: true };
@@ -4102,6 +4218,22 @@ export const appRouter = router({
         return await customerPush.sendPushTest(input.email, { title: input.title, body: input.body, url: input.url, image: input.imageUrl });
       } catch (err) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo enviar' });
+      }
+    }),
+    presets: adminReadProcedure.input(z.object({ kind: z.enum(['template', 'audience']) })).query(({ input }) => customerPush.listPresets(input.kind)),
+    savePreset: adminProcedure.input(z.object({ kind: z.enum(['template', 'audience']), name: z.string().trim().min(1).max(80), data: z.any() })).mutation(async ({ input }) => {
+      return { id: await customerPush.savePreset(input.kind, input.name, input.data) };
+    }),
+    deletePreset: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+      await customerPush.deletePreset(input.id);
+      return { success: true };
+    }),
+    aiDraft: adminProcedure.input(z.object({ idea: z.string().trim().min(3).max(400), eventId: z.number().optional(), audience: z.string().max(300).optional() })).mutation(async ({ input }) => {
+      const ev = input.eventId ? await db.getEventById(input.eventId) : null;
+      try {
+        return { drafts: await draftPushCopy({ idea: input.idea, eventTitle: ev?.title ?? null, audience: input.audience ?? null }) };
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo redactar' });
       }
     }),
     config: adminReadProcedure.query(() => customerPush.getCustomerPushConfig()),
@@ -5903,7 +6035,12 @@ export const appRouter = router({
   // sin login, igual que referrals.getByCode: el sitio no tiene cuentas de
   // comprador, el email es lo único necesario.
   playcoins: router({
-    getBalanceByEmail: publicProcedure.input(z.object({ email: z.string().email() })).query(async ({ input }) => {
+    // Ya no es una consulta abierta por correo: solo la ve su dueño (con su sesión de «Mi cuenta»),
+    // la caja (operador) o un admin. Para el público, ver /cuenta.
+    getBalanceByEmail: publicProcedure.input(z.object({ email: z.string().email() })).query(async ({ input, ctx }) => {
+      const me = getMemberEmail(ctx.req);
+      const allowed = !!ctx.operator || ctx.user?.role === 'admin' || (!!me && me === normalizeMemberEmail(input.email));
+      if (!allowed) return null;
       return db.getPlaycoinsBalance(input.email);
     }),
   }),

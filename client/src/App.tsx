@@ -43,7 +43,7 @@ const PrintShifts = lazy(() => import("./pages/admin/print/PrintShifts"));
 const CajaApp = lazy(() => import("./pages/caja"));
 const GastosApp = lazy(() => import("./pages/gastos"));
 const MyReferrals = lazy(() => import("./pages/MyReferrals"));
-const MisPuntos = lazy(() => import("./pages/MisPuntos"));
+const Cuenta = lazy(() => import("./pages/Cuenta"));
 const Ticket = lazy(() => import("./pages/Ticket"));
 const Survey = lazy(() => import("./pages/Survey"));
 const Party = lazy(() => import("./pages/Party"));
@@ -66,6 +66,7 @@ const Prices = lazy(() => import("./pages/Prices"));
 const RefundPolicy = lazy(() => import("./pages/RefundPolicy"));
 const Baja = lazy(() => import("./pages/Baja"));
 const MiEntrada = lazy(() => import("./pages/MiEntrada"));
+const AppInstall = lazy(() => import("./pages/AppInstall"));
 const Concurso = lazy(() => import("./pages/Concurso"));
 const ConcursoPremio = lazy(() => import("./pages/ConcursoPremio"));
 const ConcursoPosicion = lazy(() => import("./pages/ConcursoPosicion"));
@@ -129,9 +130,11 @@ function Router() {
           <Route path="/pago/error" component={PaymentFailure} />
           <Route path="/nosotros" component={About} />
           <Route path="/mis-referidos" component={MyReferrals} />
-          <Route path="/mis-puntos" component={MisPuntos} />
+          <Route path="/cuenta" component={Cuenta} />
+          <Route path="/mis-puntos" component={Cuenta} />
           <Route path="/verificar/:ticketCode" component={Ticket} />
           <Route path="/mi-entrada" component={MiEntrada} />
+          <Route path="/app" component={AppInstall} />
           <Route path="/encuesta/:token" component={Survey} />
           <Route path="/recargar" component={Recargar} />
           <Route path="/fiesta/:ticketCode" component={Party} />

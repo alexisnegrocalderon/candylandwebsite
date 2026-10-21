@@ -15,6 +15,8 @@ export type PushState = 'loading' | 'unsupported' | 'ios-install' | 'denied' | '
 const SW_URL = '/sw-site.js';
 const DISMISS_KEY = 'push-prompt.dismissed';
 const DISMISS_MS = 30 * 86_400_000;
+/** En la app instalada el aviso vuelve antes: ahí es donde de verdad se pueden activar los avisos. */
+const DISMISS_APP_MS = 5 * 86_400_000;
 
 export function isIos(): boolean {
   if (typeof navigator === 'undefined') return false;
@@ -57,7 +59,7 @@ export function lastTicketCode(): string | null {
 }
 
 export function promptDismissed(): boolean {
-  try { return Date.now() - Number(localStorage.getItem(DISMISS_KEY) ?? 0) < DISMISS_MS; } catch { return false; }
+  try { return Date.now() - Number(localStorage.getItem(DISMISS_KEY) ?? 0) < (isStandalone() ? DISMISS_APP_MS : DISMISS_MS); } catch { return false; }
 }
 
 export function dismissPrompt(): void {
@@ -81,12 +83,15 @@ export function reportAppOpen(ticketCode?: string): void {
     }
     sessionStorage.setItem(OPENED_KEY, '1');
     const code = ticketCode ?? lastTicketCode() ?? undefined;
-    fetch('/api/trpc/customerPush.appOpen', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ json: { deviceId, platform: pushPlatform(), ...(code ? { ticketCode: code } : {}) } }),
-      keepalive: true,
-    }).catch(() => {});
+    // Con avisos activos, se manda también su suscripción: así el servidor aprende a qué hora la abre.
+    currentSubscription().catch(() => null).then((sub) => {
+      fetch('/api/trpc/customerPush.appOpen', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ json: { deviceId, platform: pushPlatform(), ...(code ? { ticketCode: code } : {}), ...(sub ? { endpoint: sub.endpoint } : {}) } }),
+        keepalive: true,
+      }).catch(() => {});
+    });
   } catch { /* sin storage: no se cuenta esta apertura */ }
 }
 

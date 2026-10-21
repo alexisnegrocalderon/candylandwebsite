@@ -5,20 +5,21 @@
  * la última entrada abierta en ese teléfono (resolveEmail de customerPush). */
 import { and, desc, gte, inArray, isNull, sql } from 'drizzle-orm';
 import { getDb } from './db';
-import { resolveEmail } from './customerPush';
+import { recordSubscriptionOpen, resolveEmail } from './customerPush';
 import { appDevices, customerPushSubscriptions, customers } from '../drizzle/schema';
 import { emailKey } from '../shared/blockedMatch';
 
 /** Ventana con la que se considera que alguien "tiene la app". */
 export const APP_ACTIVE_DAYS = 60;
 
-export async function recordAppOpen(input: { deviceId: string; platform: 'ios' | 'android' | 'desktop'; ticketCode?: string }): Promise<void> {
+export async function recordAppOpen(input: { deviceId: string; platform: 'ios' | 'android' | 'desktop'; ticketCode?: string; endpoint?: string }): Promise<void> {
   const db = await getDb();
   if (!db) return;
   const who = input.ticketCode ? await resolveEmail({ ticketCode: input.ticketCode }) : null;
   const link = who ? { email: who.email, emailNorm: emailKey(who.email) || null, orderId: who.orderId } : {};
   await db.insert(appDevices).values({ deviceId: input.deviceId, platform: input.platform, ...link })
     .onDuplicateKeyUpdate({ set: { platform: input.platform, lastSeenAt: new Date(), opens: sql`${appDevices.opens} + 1`, ...link } });
+  if (input.endpoint) await recordSubscriptionOpen(input.endpoint);
 }
 
 /** Emails con la app abierta en los últimos APP_ACTIVE_DAYS días. Si la tabla

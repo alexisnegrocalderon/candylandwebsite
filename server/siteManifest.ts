@@ -1,9 +1,10 @@
-/* Manifest del sitio instalable con la entrada adentro: la página de la
+/* Manifest del sitio instalable con la entrada adentro (y el QR para instalar): la página de la
  * entrada (/verificar/:code) apunta su <link rel="manifest"> acá, así quien
  * agrega el sitio a inicio desde su QR abre la app ya sabiendo cuál es su
  * entrada (`t`, ver client/src/lib/customerPush.ts) y sus avisos quedan
  * ligados a su compra. La app igual abre en la home. */
 import type { Express, Request, Response } from "express";
+import QRCode from "qrcode";
 
 // Copia de client/public/site.webmanifest (el archivo no viaja con la función).
 const MANIFEST = {
@@ -19,5 +20,16 @@ export function registerSiteManifestRoute(app: Express) {
     res.setHeader("Content-Type", "application/manifest+json");
     res.setHeader("Cache-Control", "private, no-store");
     res.send(JSON.stringify(manifest));
+  });
+
+  // QR para imprimir (puerta, caja, flyers): lleva a /app, la página que enseña a instalar.
+  app.get("/api/app-qr.png", async (req: Request, res: Response) => {
+    const src = typeof req.query.src === "string" && /^[a-z0-9_-]{1,20}$/i.test(req.query.src) ? req.query.src : "qr";
+    const base = process.env.APP_URL || "https://mansionplayroom.cl";
+    const buf = await QRCode.toBuffer(`${base}/app?src=${src}`, { type: "png", width: 900, margin: 2, errorCorrectionLevel: "H", color: { dark: "#0b0612", light: "#ffffff" } });
+    res.setHeader("Content-Type", "image/png");
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    if (req.query.download === "1") res.setHeader("Content-Disposition", 'attachment; filename="qr-instalar-app-playroom.png"');
+    res.send(buf);
   });
 }

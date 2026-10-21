@@ -74,6 +74,7 @@ function ChipContent({ emoji, label }: { emoji: string; label: string }) {
 // llegando por el link de los correos y por URL directa.
 const secondaryNavLinks = [
   { href: '/nosotros', label: 'Nosotros' },
+  { href: '/cuenta', label: 'Mi cuenta' },
   { href: '/politica-de-reembolso', label: 'Política de reembolso' },
   { href: '/politica-de-privacidad', label: 'Política de privacidad' },
 ];

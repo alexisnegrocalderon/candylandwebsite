@@ -848,6 +848,20 @@
       "when": 1792730000000,
       "tag": "0120_app_devices",
       "breakpoints": true
+    },
+    {
+      "idx": 121,
+      "version": "5",
+      "when": 1792740000000,
+      "tag": "0121_push_smart",
+      "breakpoints": true
+    },
+    {
+      "idx": 122,
+      "version": "5",
+      "when": 1792750000000,
+      "tag": "0122_members",
+      "breakpoints": true
     }
   ]
 }
