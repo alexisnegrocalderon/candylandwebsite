@@ -480,6 +480,40 @@ function ContestDetail({ id }: { id: number }) {
             </CardContent>
           </Card>
 
+          {data.contest.template === 'milestones' && (
+            <Card>
+              <CardHeader><CardTitle className="text-base">Hitos de comentarios</CardTitle></CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-xs text-muted-foreground">
+                  Al llegar a cada cantidad de comentarios (con la palabra clave) se desbloquea ese % para todos con un código compartido.
+                  El % más alto reemplaza al anterior y el código dura las horas indicadas desde el último hito.
+                </p>
+                {config.milestones.steps.map((step, i) => (
+                  <div key={i} className="grid sm:grid-cols-[1fr_1fr_auto] gap-3 items-end">
+                    <NumberField label={`Hito ${i + 1}: comentarios`} value={step.comments} min={1}
+                      onChange={(n) => patch((c) => ({ ...c, milestones: { ...c.milestones, steps: c.milestones.steps.map((s, k) => (k === i ? { ...s, comments: n } : s)) } }))} />
+                    <NumberField label="Descuento para todos" value={step.percent} min={1} suffix="%"
+                      onChange={(n) => patch((c) => ({ ...c, milestones: { ...c.milestones, steps: c.milestones.steps.map((s, k) => (k === i ? { ...s, percent: n } : s)) } }))} />
+                    <Button type="button" variant="ghost" size="sm" disabled={config.milestones.steps.length <= 1}
+                      onClick={() => patch((c) => ({ ...c, milestones: { ...c.milestones, steps: c.milestones.steps.filter((_, k) => k !== i) } }))}><X className="w-4 h-4" /></Button>
+                  </div>
+                ))}
+                <div className="flex flex-wrap items-end gap-4">
+                  <Button type="button" variant="outline" size="sm" disabled={config.milestones.steps.length >= 6}
+                    onClick={() => patch((c) => {
+                      const last = c.milestones.steps[c.milestones.steps.length - 1];
+                      return { ...c, milestones: { ...c.milestones, steps: [...c.milestones.steps, { comments: (last?.comments ?? 0) + 250, percent: Math.min(100, (last?.percent ?? 0) + 5) }] } };
+                    })}><Plus className="w-4 h-4" /> Agregar hito</Button>
+                  <div className="w-48"><NumberField label="El código dura" value={config.milestones.hours} min={1} suffix="horas"
+                    onChange={(n) => patch((c) => ({ ...c, milestones: { ...c.milestones, hours: n } }))} /></div>
+                </div>
+                {!!data.contest.drawLog && (data.contest.drawLog as { count?: number }).count !== undefined && (
+                  <p className="text-sm">Avance: <b>{(data.contest.drawLog as { count?: number }).count}</b> comentarios{(data.contest.drawLog as { code?: string }).code ? ` · código vigente ${(data.contest.drawLog as { code?: string }).code} (${(data.contest.drawLog as { percent?: number }).percent}%)` : ''}.</p>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
           <Card>
             <CardHeader><CardTitle className="text-base">Premios</CardTitle></CardHeader>
             <CardContent className="space-y-5">
@@ -718,6 +752,12 @@ function WinnersPanel({ data, onChanged, onWheel }: { data: AdminData; onChanged
             <p className="text-muted-foreground">
               Al cierre ganan quienes más compras lograron con su link (empate = quien entró antes) y se publica la tabla final en el reel.
               {data.config.ranking.dailyComment ? ` Cada día desde las ${data.config.ranking.dailyHour}:00 se comenta la tabla parcial.` : ''} Cada ganador pasa por la verificación antes de recibir el premio.
+            </p>
+          )}
+          {data.contest.template === 'milestones' && (
+            <p className="text-muted-foreground">
+              No hay ganadores: cada vez que los comentarios llegan a un hito ({data.config.milestones.steps.map((s) => `${s.comments} → ${s.percent}%`).join(', ')}) se desbloquea ese descuento para todos con un código compartido
+              (dura {data.config.milestones.hours} h desde el último hito), se anuncia en el reel y se avisa por DM a quien tenga la ventana abierta. Al cierre se publica el resultado.
             </p>
           )}
           {(data.contest.template === 'ranking' || data.contest.template === 'draw') && <p className="text-muted-foreground">
