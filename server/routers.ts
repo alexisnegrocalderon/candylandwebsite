@@ -3759,7 +3759,7 @@ export const appRouter = router({
     }),
     create: adminProcedure.input(z.object({
       eventId: z.number().int(), title: z.string().max(160).optional(),
-      template: z.enum(['ranking', 'draw', 'likes', 'referrals', 'milestones', 'quiz', 'flash', 'countdown']).optional(),
+      template: z.enum(['ranking', 'draw', 'likes', 'referrals', 'milestones', 'quiz', 'flash', 'countdown', 'photo']).optional(),
       prizeTicketTypeId: z.number().int().nullable().optional(),
       mediaId: z.string().max(64).nullable().optional(), mediaPermalink: z.string().max(300).nullable().optional(), mediaImage: z.string().nullable().optional(),
       startsAt: z.string().optional(), drawAt: z.string().optional(),
@@ -3840,6 +3840,21 @@ export const appRouter = router({
         return result;
       } catch (err) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo ajustar.' });
+      }
+    }),
+    photoEntries: adminReadProcedure.input(z.object({ id: z.number().int() })).query(async ({ input }) => (await import('./contestPhoto')).listPhotoEntries(input.id)),
+    hidePhotoEntry: adminProcedure.input(z.object({ entryId: z.number().int(), hidden: z.boolean() })).mutation(async ({ input, ctx }) => {
+      await (await import('./contestPhoto')).setPhotoHidden(input.entryId, input.hidden);
+      await db.recordAdminAudit({ action: 'contest.hidePhoto', targetType: 'contestEntry', targetId: input.entryId, payload: input, ip: clientIp(ctx) });
+      return { success: true };
+    }),
+    pickPhotoWinners: adminProcedure.input(z.object({ id: z.number().int(), entryIds: z.array(z.number().int()).min(1).max(30) })).mutation(async ({ input, ctx }) => {
+      try {
+        const result = await (await import('./contestPhoto')).pickPhotoWinners(input.id, input.entryIds);
+        await db.recordAdminAudit({ action: 'contest.pickPhotoWinners', targetType: 'contest', targetId: input.id, payload: { ...input, ...result }, ip: clientIp(ctx) });
+        return result;
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudieron elegir los ganadores.' });
       }
     }),
     holderInviteStatus: adminReadProcedure.input(z.object({ id: z.number().int() })).query(({ input }) => contestSvc.getHolderInviteStatus(input.id)),

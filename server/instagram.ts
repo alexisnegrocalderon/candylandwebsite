@@ -26,6 +26,7 @@ import { runInstagramAgent } from './instagramAgent';
 import { handleIncomingComment } from './instagramComments';
 import { handleContestComment, handleContestMessage } from './contests';
 import { handleRankingDm } from './contestRanking';
+import { extractPhotos } from '../shared/contestPhoto';
 import { sendInstagramMessage, sendPrivateReply, sendButtonMessage, sendImageMessage, fetchInstagramProfile, canReplyWithinWindow } from './instagramSend';
 import { resolveInstagramBuyLink, resolveEventCardImage } from './instagramInteractive';
 import { resolvePageLink, splitIntoBubbles } from './agentLinks';
@@ -288,6 +289,7 @@ async function handleMessagingEvent(event: MetaMessaging): Promise<void> {
     mid: message.mid ?? null,
     storyMention,
     storyReply: !!message.reply_to?.story,
+    photos: extractPhotos(attachments),
     hasImage: Array.isArray(attachments) && attachments.some((x) => (x as { type?: string } | null)?.type === 'image'),
   })) return;
 

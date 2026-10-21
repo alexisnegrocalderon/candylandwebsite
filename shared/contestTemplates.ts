@@ -4,7 +4,7 @@ import { normalizeContestConfig, type ContestConfig } from './contest';
  * armada (puntos, premios, textos, avisos automáticos). Al crear un concurso
  * se elige una y todo queda editable. Los textos usan solo variables
  * (`{{evento}}`, `{{premio}}`, `{{frase}}`…), nada fijo de un evento. */
-export type ContestTemplateKey = 'ranking' | 'draw' | 'likes' | 'referrals' | 'milestones' | 'quiz' | 'flash' | 'countdown';
+export type ContestTemplateKey = 'ranking' | 'draw' | 'likes' | 'referrals' | 'milestones' | 'quiz' | 'flash' | 'countdown' | 'photo';
 
 export interface ContestTemplate {
   key: ContestTemplateKey;
@@ -198,6 +198,25 @@ export const CONTEST_TEMPLATES: ContestTemplate[] = [
         storyToReel:
           '⏳ {{nombre}}, la cuenta regresiva es en el reel: comenta "{{frase}}" y entras al sorteo 👉 {{link_reel}}',
       },
+    },
+  },
+  {
+    key: 'photo',
+    name: 'Concurso de fotos o disfraz',
+    emoji: '📸',
+    tagline: 'La gente manda su foto y tú, como jurado, eliges a los ganadores',
+    description:
+      'Participan mencionando la cuenta en una historia con su foto o mandándola por DM (sirve con cuentas privadas). Las fotos quedan en una galería del panel '
+      + 'y tú eliges a los ganadores y suplentes; el sistema les avisa y los verifica. Todos reciben su cupón de consuelo.',
+    typicalHours: 72,
+    durationPresets: [48, 72, 24 * 5],
+    overrides: {
+      keyword: '',
+      keywordPhrase: '',
+      publicReply: false,
+      chances: { base: 1, perMention: 0, maxMentions: 0, storyBonus: 0, perInvitedPurchase: 0, buyerMultiplier: 1 },
+      prizes: { doubleWinners: 1, doubleAlternates: 1, vipWinners: 0, vipAlternates: 0, guaranteedLeader: false },
+      ranking: { dailyComment: false, publicReplies: false, dmTips: false, emailBuyers: false },
     },
   },
 ];

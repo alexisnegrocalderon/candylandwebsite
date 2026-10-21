@@ -813,6 +813,13 @@
       "when": 1792689200000,
       "tag": "0115_attendee_contacts",
       "breakpoints": true
+    },
+    {
+      "idx": 116,
+      "version": "5",
+      "when": 1792679200000,
+      "tag": "0116_contest_entries",
+      "breakpoints": true
     }
   ]
 }
