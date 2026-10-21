@@ -126,7 +126,12 @@ export const DEFAULT_CONTEST_MESSAGES: ContestMessages = {
     + 'Tus regalos:\n{{lista_regalos}}\n\n'
     + '💌 Trae a tu gente: {{porcentaje_amigo}}% con {{codigo_amigo}} o tu link {{link_invitar}} (+{{bonus_compra_amigo}} puntos por cada amigo que compre).',
   storyToReel:
-    '¡Estás dentro, {{nombre}}! 🔥 Ya sumas {{chances}} punto en el ranking. Para subir: comenta "{{frase}}" en el reel y etiqueta amigos (+{{por_etiqueta}} por cada uno) 👉 {{link_reel}}',
+    '🔥 {{nombre}}, ya estás dentro… pero con {{puntos_texto}} 😏\n'
+    + 'El 1º del ranking se lleva su entrada SEGURO. ¿Vas a dejar que otro te la quite?\n\n'
+    + 'Sube ahora:\n'
+    + '👥 +{{por_etiqueta}} por cada amigo que etiquetes\n'
+    + '🛒 +{{bonus_compra_amigo}} por cada amigo que compre con tu link\n'
+    + '👉 Comenta "{{frase}}" en el reel: {{link_reel}}',
   winnerVerify:
     '🎉 ¡{{nombre}}, quedaste entre los ganadores de {{evento}}! 🍬\n\n'
     + 'Antes de entregarte el premio verificamos que cumples los requisitos para asistir a Playroom (evento +18). Respóndenos en un solo mensaje:\n'

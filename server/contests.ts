@@ -655,8 +655,9 @@ export async function handleContestMessage(input: {
       const vars = templateVars(ctx, created, {
         frase: ctx.config.keywordPhrase.trim() || parseKeywords(ctx.config.keyword).join(' '),
         link_reel: ctx.contest.mediaPermalink ?? '',
+        puntos_texto: chancesOf(created, ctx.config) === 1 ? '1 solo punto' : `${chancesOf(created, ctx.config)} puntos`,
       });
-      const positionLine = ctx.contest.drawnAt ? '' : `\n\n📊 Mira tu posición y cómo subir: ${positionLink(created.inviteCode)}`;
+      const positionLine = ctx.contest.drawnAt ? '' : `\n\n📊 Mira quién va arriba y cómo subir: ${positionLink(created.inviteCode)}`;
       await send(channel, `${renderContestTemplate(ctx.config.messages.storyToReel, vars)}${positionLine}`, { title: 'Comprar a mi precio', url: `${APP_URL}/p/${created.inviteCode}` });
       return true;
     }
