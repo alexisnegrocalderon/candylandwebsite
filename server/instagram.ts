@@ -288,6 +288,7 @@ async function handleMessagingEvent(event: MetaMessaging): Promise<void> {
     mid: message.mid ?? null,
     storyMention,
     storyReply: !!message.reply_to?.story,
+    hasImage: Array.isArray(attachments) && attachments.some((x) => (x as { type?: string } | null)?.type === 'image'),
   })) return;
 
   // Ranking del concurso: si el participante pregunta por sus puntos se le

@@ -244,31 +244,46 @@ export interface MediaComment {
   igUserId: string | null;
   username: string | null;
   timestamp: string | null;
+  /** "Me gusta" del comentario (0 si Meta no lo entrega). */
+  likes: number;
 }
 
 /** Comentarios de una publicación propia (concursos: recoger los que ya
  * estaban antes de lanzarlo y los que el webhook no haya avisado). Recorre
  * las páginas hasta `maxPages`. Necesita `instagram_business_manage_comments`. */
-export async function fetchMediaComments(mediaId: string, maxPages = 20): Promise<MediaComment[]> {
+export async function fetchMediaComments(mediaId: string, maxPages = 20, opts: { withReplies?: boolean } = {}): Promise<MediaComment[]> {
   if (!ENV.igAccessToken) throw new InstagramApiError('Falta IG_ACCESS_TOKEN en el servidor.');
+  type Raw = { id?: string; text?: string; timestamp?: string; username?: string; like_count?: number; from?: { id?: string; username?: string } };
+  const toComment = (c: Raw): MediaComment | null => (c.id ? {
+    id: c.id,
+    text: c.text ?? '',
+    igUserId: c.from?.id ?? null,
+    username: c.from?.username ?? c.username ?? null,
+    timestamp: c.timestamp ?? null,
+    likes: typeof c.like_count === 'number' ? c.like_count : 0,
+  } : null);
+  const base = `${GRAPH_BASE}/${encodeURIComponent(mediaId)}/comments?limit=50&access_token=${encodeURIComponent(ENV.igAccessToken)}`;
+  const fields = 'id,text,timestamp,username,from,like_count';
+  // Con respuestas es opcional: si Meta rechaza la expansión, se sigue sin ellas.
+  let withReplies = !!opts.withReplies;
   const out: MediaComment[] = [];
-  let url: string | null = `${GRAPH_BASE}/${encodeURIComponent(mediaId)}/comments?fields=id,text,timestamp,username,from&limit=50&access_token=${encodeURIComponent(ENV.igAccessToken)}`;
+  let url: string | null = `${base}&fields=${fields}${withReplies ? `,replies{${fields}}` : ''}`;
   for (let page = 0; url && page < maxPages; page++) {
-    const response: Response = await fetch(url);
+    let response: Response = await fetch(url);
+    if (!response.ok && withReplies && page === 0) {
+      withReplies = false;
+      url = `${base}&fields=${fields}`;
+      response = await fetch(url);
+    }
     if (!response.ok) throw new InstagramApiError(`Meta no entregó los comentarios (${response.status}).`);
-    const body = await response.json() as {
-      data?: Array<{ id?: string; text?: string; timestamp?: string; username?: string; from?: { id?: string; username?: string } }>;
-      paging?: { next?: string };
-    };
+    const body = await response.json() as { data?: Array<Raw & { replies?: { data?: Raw[] } }>; paging?: { next?: string } };
     for (const c of body.data ?? []) {
-      if (!c.id) continue;
-      out.push({
-        id: c.id,
-        text: c.text ?? '',
-        igUserId: c.from?.id ?? null,
-        username: c.from?.username ?? c.username ?? null,
-        timestamp: c.timestamp ?? null,
-      });
+      const top = toComment(c);
+      if (top) out.push(top);
+      for (const r of c.replies?.data ?? []) {
+        const reply = toComment(r);
+        if (reply) out.push(reply);
+      }
     }
     url = body.paging?.next ?? null;
   }

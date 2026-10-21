@@ -3759,7 +3759,7 @@ export const appRouter = router({
     }),
     create: adminProcedure.input(z.object({
       eventId: z.number().int(), title: z.string().max(160).optional(),
-      template: z.enum(['ranking', 'draw']).optional(),
+      template: z.enum(['ranking', 'draw', 'likes', 'referrals']).optional(),
       prizeTicketTypeId: z.number().int().nullable().optional(),
       mediaId: z.string().max(64).nullable().optional(), mediaPermalink: z.string().max(300).nullable().optional(), mediaImage: z.string().nullable().optional(),
       startsAt: z.string().optional(), drawAt: z.string().optional(),
@@ -3832,6 +3832,24 @@ export const appRouter = router({
       await contestSvc.setParticipantDisqualified(input.participantId, input.disqualified, input.reason);
       await db.recordAdminAudit({ action: 'contest.disqualify', targetType: 'contestParticipant', targetId: input.participantId, payload: input, ip: clientIp(ctx) });
       return { success: true };
+    }),
+    adjustParticipant: adminProcedure.input(z.object({ participantId: z.number().int(), story: z.boolean().optional(), mentionsDelta: z.number().int().min(-50).max(50).optional() })).mutation(async ({ input, ctx }) => {
+      try {
+        const result = await contestSvc.adjustParticipant(input.participantId, { story: input.story, mentionsDelta: input.mentionsDelta });
+        await db.recordAdminAudit({ action: 'contest.adjustParticipant', targetType: 'contestParticipant', targetId: input.participantId, payload: { ...input, ...result }, ip: clientIp(ctx) });
+        return result;
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo ajustar.' });
+      }
+    }),
+    recalcMentions: adminProcedure.input(z.object({ id: z.number().int() })).mutation(async ({ input, ctx }) => {
+      try {
+        const result = await contestSvc.recalcMentions(input.id);
+        await db.recordAdminAudit({ action: 'contest.recalcMentions', targetType: 'contest', targetId: input.id, payload: result, ip: clientIp(ctx) });
+        return result;
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo recalcular.' });
+      }
     }),
     markHolder: adminProcedure.input(z.object({ participantId: z.number().int(), email: z.string().trim().email().max(320) })).mutation(async ({ input }) => {
       try {

@@ -30,6 +30,19 @@ describe('plantillas de concurso', () => {
     expect(c.messages.winnerVerify).toBe(DEFAULT_CONTEST_CONFIG.messages.winnerVerify);
   });
 
+  it('likes y referidos: sin puntos, sin premio seguro ni ranking de puntos, con parcial diario', () => {
+    for (const key of ['likes', 'referrals'] as const) {
+      const c = buildTemplateConfig(key, input);
+      expect(c.prizes.guaranteedLeader, key).toBe(false);
+      expect(c.chances.perMention, key).toBe(0);
+      expect(c.ranking, key).toMatchObject({ dailyComment: true, publicReplies: false, dmTips: false, emailBuyers: false });
+      expect(c.verify.enabled, key).toBe(true);
+    }
+    expect(buildTemplateConfig('likes', input).prizes.doubleWinners).toBe(1);
+    expect(buildTemplateConfig('referrals', input).prizes.doubleWinners).toBe(2);
+    expect(buildTemplateConfig('referrals', input).chances.perInvitedPurchase).toBe(1);
+  });
+
   it('los textos de cada plantilla solo usan variables que existen y no nombran un evento', () => {
     const known = new Set(['nombre', 'chances', 'ganadores_doble', 'premio', 'premio_singular', 'premio_vip', 'por_etiqueta', 'max_etiquetas',
       'bonus_historia', 'bonus_compra_amigo', 'multiplicador', 'porcentaje', 'horas', 'cupon', 'porcentaje_amigo', 'codigo_amigo', 'link_invitar',
