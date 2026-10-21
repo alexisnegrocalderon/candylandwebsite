@@ -955,11 +955,11 @@ describe('normalizeInstagramAgentConfig', () => {
     expect(normalizeInstagramAgentConfig({ thanksMessage: 'gracias a ti!' }).thanksMessage).toBe('gracias a ti!');
   });
 
-  it('la reactivación arranca en 24 horas y acota valores raros', () => {
-    expect(normalizeInstagramAgentConfig({}).autoResumeHours).toBe(24);
+  it('la reactivación arranca en 3 horas y acota valores raros', () => {
+    expect(normalizeInstagramAgentConfig({}).autoResumeHours).toBe(3);
     expect(normalizeInstagramAgentConfig({ autoResumeHours: 0 }).autoResumeHours).toBe(0);
     expect(normalizeInstagramAgentConfig({ autoResumeHours: 99999 }).autoResumeHours).toBe(720);
-    expect(normalizeInstagramAgentConfig({ autoResumeHours: -3 }).autoResumeHours).toBe(24);
+    expect(normalizeInstagramAgentConfig({ autoResumeHours: -3 }).autoResumeHours).toBe(3);
   });
 
   it('trae una guía de ventas por defecto y respeta la del dueño (aunque la deje vacía)', () => {

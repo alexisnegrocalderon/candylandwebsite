@@ -22,3 +22,16 @@ describe('trustedAccounts en la config del agente', () => {
     expect(config.trustedAccounts).toEqual(['otra.org']);
   });
 });
+
+describe('cuentas de confianza sin IA', () => {
+  it('se normalizan (sin @, minúsculas, sin repetir) y por defecto no hay ninguna', () => {
+    expect(normalizeInstagramAgentConfig({}).noAiAccounts).toEqual([]);
+    expect(normalizeInstagramAgentConfig({ noAiAccounts: ['@Amiga.Uno', 'amiga.uno', ' ', 'no valido!', 'Otro_Amigo'] }).noAiAccounts).toEqual(['amiga.uno', 'otro_amigo']);
+  });
+  it('la reactivación arranca en 3 horas y la marca de migración no viene puesta', () => {
+    const c = normalizeInstagramAgentConfig({});
+    expect(c.autoResumeHours).toBe(3);
+    expect(c.autoResumeMigrated).toBe(false);
+    expect(normalizeInstagramAgentConfig({ autoResumeMigrated: true }).autoResumeMigrated).toBe(true);
+  });
+});
