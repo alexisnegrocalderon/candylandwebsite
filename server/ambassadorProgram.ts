@@ -739,6 +739,7 @@ export async function sendWeeklyAmbassadorEmails(now: Date = new Date()) {
       });
 
       const res = await sendEmail({
+        marketing: true,
         to: a.email,
         subject: stats.nextTarget && stats.eventSales > 0
           ? `🍬 ${a.name}, te faltan ${stats.nextTarget.salesNeeded} ventas para el ${stats.nextTarget.nextPercent}% en ${featured.title}`

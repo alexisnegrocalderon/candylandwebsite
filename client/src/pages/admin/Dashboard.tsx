@@ -5236,6 +5236,7 @@ function DailyEmailUsageCard() {
   if (!data) return null;
 
   const pct = Math.min(100, Math.round((data.sentToday / data.dailyCap) * 100));
+  const monthPct = Math.min(100, Math.round((data.sentMonth / data.monthlyLimit) * 100));
   // Amarillo pasados los 2/3 del cupo, rojo pasado el 90% -- para que el
   // dueño vea venir el límite antes de que un correo empiece a rebotar.
   const tone = pct >= 90 ? 'bg-destructive' : pct >= 66 ? 'bg-amber-500' : 'bg-primary';
@@ -5253,10 +5254,19 @@ function DailyEmailUsageCard() {
         <div className="w-full h-2 bg-secondary/20 rounded-full overflow-hidden">
           <div className={`h-full transition-all ${tone}`} style={{ width: `${pct}%` }} />
         </div>
+        <div className="flex items-center justify-between pt-2">
+          <p className="text-sm font-medium">Correos del mes (Resend Pro)</p>
+          <p className="text-sm">
+            <span className="font-semibold">{data.sentMonth.toLocaleString('es-CL')}</span>
+            <span className="text-muted-foreground"> / {data.monthlyLimit.toLocaleString('es-CL')}</span>
+          </p>
+        </div>
+        <div className="w-full h-2 bg-secondary/20 rounded-full overflow-hidden">
+          <div className={`h-full transition-all ${monthPct >= 90 ? 'bg-destructive' : monthPct >= 80 ? 'bg-amber-500' : 'bg-primary'}`} style={{ width: `${monthPct}%` }} />
+        </div>
         <p className="text-xs text-muted-foreground">
-          Cuenta cualquier correo del sistema (compras, tickets, recordatorios, mailing) -- es el número real contra el
-          cupo diario del plan de Resend.
-          {pct >= 90 && ' Queda muy poco cupo: los envíos de marketing de hoy se pueden empezar a rechazar.'}
+          Cuenta cualquier correo del sistema (compras, tickets, recordatorios, mailing). Resend Pro no tiene tope diario: el límite es de {data.monthlyLimit.toLocaleString('es-CL')} al mes y se renueva el 21.
+          {pct >= 90 && ' Hoy vas muy por sobre lo normal: revisa que no haya un envío masivo repetido.'}
         </p>
       </CardContent>
     </Card>

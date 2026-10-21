@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { invokeLLM } from './_core/llm';
 import * as db from './db';
 import * as email from './email';
+import { AUTOMATED_EMAIL_DAILY_CAP } from './mailing';
+import { RESEND_DAILY_DEFAULT, TRANSACTIONAL_RESERVE } from '../shared/emailQuota';
 import { analyzeEventSurvey, getEventSurveyPanel, runSurveyDispatch, sendEventSurveys, sendSurveyTestEmail, surveyUrl } from './eventSurvey';
 
 vi.mock('./_core/llm', async (importOriginal) => {
@@ -89,11 +91,11 @@ describe('sendEventSurveys', () => {
     expect(db.listPendingSurveys).toHaveBeenCalledWith(7, 25, 3);
   });
 
-  // El plan de Resend tiene ~100 correos al día y las confirmaciones de compra
+  // Se reparte el mes de Resend Pro (50.000) y las confirmaciones de compra
   // con el QR no pueden quedarse sin cupo por una encuesta: las encuestas
   // comparten el tope diario de correos automáticos con el mailing.
   it('respeta el cupo diario compartido: manda solo lo que queda del día', async () => {
-    vi.mocked(db.countAutomatedEmailsSentToday).mockResolvedValue(50); // tope 60 -> quedan 10
+    vi.mocked(db.countAutomatedEmailsSentToday).mockResolvedValue(AUTOMATED_EMAIL_DAILY_CAP - 10); // quedan 10
     vi.mocked(db.listPendingSurveys).mockResolvedValue([invite(1)] as any);
     vi.mocked(db.getSurveyOverview).mockResolvedValue({ invited: 100, sent: 1, pending: 99, responses: [] });
     const r = await sendEventSurveys(7, 40);
@@ -102,11 +104,11 @@ describe('sendEventSurveys', () => {
   });
 
   it('también mira el total real del día y deja la reserva para las confirmaciones de compra', async () => {
-    // El cupo automático está casi vacío (5 de 60)... pero hoy ya salieron 65
-    // correos de todo tipo (avisos de tanda, confirmaciones): con tope 100 y
-    // reserva 30 quedan 100 - 30 - 65 = 5.
+    // El cupo automático está casi vacío (5)... pero hoy ya salieron muchos
+    // correos de todo tipo (avisos de tanda, confirmaciones): con el tope diario
+    // y la reserva para transaccionales quedan 5.
     vi.mocked(db.countAutomatedEmailsSentToday).mockResolvedValue(5);
-    vi.mocked(db.countEmailsSentToday).mockResolvedValue(65);
+    vi.mocked(db.countEmailsSentToday).mockResolvedValue(RESEND_DAILY_DEFAULT - TRANSACTIONAL_RESERVE - 5);
     vi.mocked(db.getSurveyOverview).mockResolvedValue({ invited: 100, sent: 0, pending: 100, responses: [] });
     const r = await sendEventSurveys(7, 40);
     expect(db.listPendingSurveys).toHaveBeenCalledWith(7, 5, 3);
@@ -114,14 +116,14 @@ describe('sendEventSurveys', () => {
   });
 
   it('con el total del día en la reserva no manda ninguna', async () => {
-    vi.mocked(db.countEmailsSentToday).mockResolvedValue(70);
+    vi.mocked(db.countEmailsSentToday).mockResolvedValue(RESEND_DAILY_DEFAULT - TRANSACTIONAL_RESERVE);
     vi.mocked(db.getSurveyOverview).mockResolvedValue({ invited: 100, sent: 0, pending: 100, responses: [] });
     await sendEventSurveys(7, 40);
     expect(sendEmailMock).not.toHaveBeenCalled();
   });
 
   it('con el cupo agotado no manda ninguno, pero igual deja preparadas las invitaciones', async () => {
-    vi.mocked(db.countAutomatedEmailsSentToday).mockResolvedValue(60);
+    vi.mocked(db.countAutomatedEmailsSentToday).mockResolvedValue(AUTOMATED_EMAIL_DAILY_CAP);
     vi.mocked(db.getSurveyOverview).mockResolvedValue({ invited: 100, sent: 0, pending: 100, responses: [] });
     const r = await sendEventSurveys(7, 40);
     expect(db.createSurveyInvites).toHaveBeenCalled();

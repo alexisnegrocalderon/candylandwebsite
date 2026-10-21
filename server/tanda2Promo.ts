@@ -39,7 +39,7 @@ export const TANDA2_PROMO_TAG = 'promo-2da-tanda';
 export const TANDA2_PHASE_INDEX = 1;
 
 /** Cuántos correos de aviso de tanda (1ª + 2ª juntos) salen como máximo por día. */
-export const TANDA2_PROMO_DAILY_TARGET = Number(process.env.TANDA2_PROMO_DAILY_CAP) || 50;
+export const TANDA2_PROMO_DAILY_TARGET = Number(process.env.TANDA2_PROMO_DAILY_CAP) || 300;
 
 export type Tanda2PromoRunResult =
   | { ran: false; reason: 'disabled' | 'no-event' | 'wrong-phase' | 'phase-ended' | 'no-price' | 'audience-exhausted' | 'daily-cap-reached' }

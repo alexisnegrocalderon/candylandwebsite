@@ -221,6 +221,15 @@ export function emailFooter() {
     </div>`;
 }
 
+/** Pie de los correos de promociones: link para darse de baja (obligatorio para
+ * que Gmail/Yahoo no marquen los envíos como spam). Lo agrega `sendEmail`. */
+export function unsubscribeFooterHtml(url: string): string {
+  return `<div style="max-width:600px;margin:0 auto;text-align:center;padding:0 24px 32px;">
+      <p style="color:${FAINT};font-size:11px;line-height:1.6;margin:0;">Recibes este correo porque compraste o dejaste tus datos en ${BRAND.nombre}.
+      Si no quieres recibir más correos de promociones, <a href="${url}" style="color:${FAINT};text-decoration:underline;">puedes darte de baja aquí</a>.</p>
+    </div>`;
+}
+
 export interface ShellOptions {
   /** Texto de vista previa (lo que se lee en la bandeja antes de abrir). */
   preheader?: string;
