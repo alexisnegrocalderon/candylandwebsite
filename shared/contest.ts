@@ -699,7 +699,11 @@ export function randomContestCode(prefix: string, length = 5, random: () => numb
 }
 
 /** Código corto del link personal para invitar amigos (/c/<código>). */
-export function randomInviteCode(random: () => number = Math.random): string {
+/** Número en [0, 1) con aleatoriedad criptográfica (los códigos de invitación
+ * dan acceso a la página personal: no deben ser predecibles). */
+const secureRandom = () => globalThis.crypto.getRandomValues(new Uint32Array(1))[0] / 2 ** 32;
+
+export function randomInviteCode(random: () => number = secureRandom): string {
   let s = '';
   for (let i = 0; i < 6; i++) s += CODE_ALPHABET[Math.floor(random() * CODE_ALPHABET.length)].toLowerCase();
   return s;

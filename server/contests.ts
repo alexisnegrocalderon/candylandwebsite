@@ -1999,6 +1999,17 @@ export async function loadRankingFor(db: Db, ctx: ContestCtx) {
 }
 
 /** Datos públicos para la página de bases (/concurso). */
+let publicCache: { at: number; value: Awaited<ReturnType<typeof getPublicContest>> } | null = null;
+
+/** El checkout, la compra y la entrada piden esto en cada visita: se guarda 30 s
+ * para no recalcular el ranking completo por cada persona que mira. */
+export async function getPublicContestCached() {
+  if (publicCache && Date.now() - publicCache.at < 30_000) return publicCache.value;
+  const value = await getPublicContest();
+  publicCache = { at: Date.now(), value };
+  return value;
+}
+
 export async function getPublicContest() {
   const ctx = await getActiveContestCtx();
   if (!ctx) return null;
