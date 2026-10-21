@@ -244,6 +244,8 @@ export interface MediaComment {
   igUserId: string | null;
   username: string | null;
   timestamp: string | null;
+  /** "Me gusta" del comentario (0 si Meta no lo entrega). */
+  likes: number;
 }
 
 /** Comentarios de una publicación propia (concursos: recoger los que ya
@@ -252,12 +254,12 @@ export interface MediaComment {
 export async function fetchMediaComments(mediaId: string, maxPages = 20): Promise<MediaComment[]> {
   if (!ENV.igAccessToken) throw new InstagramApiError('Falta IG_ACCESS_TOKEN en el servidor.');
   const out: MediaComment[] = [];
-  let url: string | null = `${GRAPH_BASE}/${encodeURIComponent(mediaId)}/comments?fields=id,text,timestamp,username,from&limit=50&access_token=${encodeURIComponent(ENV.igAccessToken)}`;
+  let url: string | null = `${GRAPH_BASE}/${encodeURIComponent(mediaId)}/comments?fields=id,text,timestamp,username,from,like_count&limit=50&access_token=${encodeURIComponent(ENV.igAccessToken)}`;
   for (let page = 0; url && page < maxPages; page++) {
     const response: Response = await fetch(url);
     if (!response.ok) throw new InstagramApiError(`Meta no entregó los comentarios (${response.status}).`);
     const body = await response.json() as {
-      data?: Array<{ id?: string; text?: string; timestamp?: string; username?: string; from?: { id?: string; username?: string } }>;
+      data?: Array<{ id?: string; text?: string; timestamp?: string; username?: string; like_count?: number; from?: { id?: string; username?: string } }>;
       paging?: { next?: string };
     };
     for (const c of body.data ?? []) {
@@ -268,6 +270,7 @@ export async function fetchMediaComments(mediaId: string, maxPages = 20): Promis
         igUserId: c.from?.id ?? null,
         username: c.from?.username ?? c.username ?? null,
         timestamp: c.timestamp ?? null,
+        likes: typeof c.like_count === 'number' ? c.like_count : 0,
       });
     }
     url = body.paging?.next ?? null;

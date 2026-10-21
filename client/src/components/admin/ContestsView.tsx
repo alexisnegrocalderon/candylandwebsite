@@ -708,13 +708,25 @@ function WinnersPanel({ data, onChanged, onWheel }: { data: AdminData; onChanged
       <Card>
         <CardContent className="pt-6 space-y-2 text-sm">
           <p>El sorteo se hace solo el <b>{data.config.drawAt ? new Date(data.config.drawAt).toLocaleString('es-CL', { dateStyle: 'full', timeStyle: 'short' }) : '—'}</b>.</p>
-          <p className="text-muted-foreground">
+          {data.contest.template === 'likes' && (
+            <p className="text-muted-foreground">
+              Al cierre se leen los "me gusta" de los comentarios del reel (1 por persona, solo con la palabra clave, empate = el más antiguo), gana el más votado y se publica el top 3 con @ en el reel.
+              {data.config.ranking.dailyComment ? ` Cada día desde las ${data.config.ranking.dailyHour}:00 se comenta cómo va el top.` : ''} Cada ganador pasa por la verificación antes de recibir el premio.
+            </p>
+          )}
+          {data.contest.template === 'referrals' && (
+            <p className="text-muted-foreground">
+              Al cierre ganan quienes más compras lograron con su link (empate = quien entró antes) y se publica la tabla final en el reel.
+              {data.config.ranking.dailyComment ? ` Cada día desde las ${data.config.ranking.dailyHour}:00 se comenta la tabla parcial.` : ''} Cada ganador pasa por la verificación antes de recibir el premio.
+            </p>
+          )}
+          {(data.contest.template === 'ranking' || data.contest.template === 'draw') && <p className="text-muted-foreground">
             Boletos hoy: {data.stats.tickets.double} en el sorteo de entradas dobles (sin entrada o compraron durante el concurso) y {data.stats.tickets.vip} en el VIP (ya tenían entrada).
             El 1º del ranking de cada tabla gana uno de los premios seguro (si hay empate arriba se sortea entre los empatados) y el resto se sortea.
             Si gana alguien que compró durante el concurso, elige devolución o una entrada para regalar.
             A cada ganador sin entrada se le pide por DM RUT, fecha de nacimiento y ACEPTO, y el premio se entrega solo cuando lo apruebas aquí (+18, sin bloqueo, sigue la cuenta); a quien ya tenía entrada se le avisa directo. Si no se le puede escribir, se le responde el comentario pidiéndole que escriba
             y, si no reclama en {data.config.claimHours} h, pasa el suplente.
-          </p>
+          </p>}
         </CardContent>
       </Card>
     );
@@ -726,7 +738,7 @@ function WinnersPanel({ data, onChanged, onWheel }: { data: AdminData; onChanged
   const log = (data.contest.drawLog ?? {}) as Record<string, { participants: number; tickets: number; guaranteed?: number | null }>;
   return (
     <div className="space-y-4">
-      <Button variant="outline" onClick={onWheel}><Dices className="w-4 h-4" /> Abrir ruleta para grabar</Button>
+      {(data.contest.template === 'ranking' || data.contest.template === 'draw') && <Button variant="outline" onClick={onWheel}><Dices className="w-4 h-4" /> Abrir ruleta para grabar</Button>}
       {pools.map((pool) => {
         const rows = data.winners.filter((w) => w.pool === pool.key);
         return (

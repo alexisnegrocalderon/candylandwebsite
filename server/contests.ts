@@ -48,7 +48,7 @@ const APP_URL = (process.env.APP_URL || 'https://mansionplayroom.cl').replace(/\
 /** Meta deja mandar un DM privado a un comentario hasta 7 días después. */
 const PRIVATE_REPLY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
-type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
+export type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 
 export interface ContestCtx {
   contest: Contest;
@@ -112,7 +112,7 @@ export async function getCtxById(id: number): Promise<ContestCtx | null> {
 
 let ownUsernameCache: { value: string; at: number } | null = null;
 /** @ de la propia cuenta, para que etiquetarla no sume. Se cachea 1 h. */
-async function ownUsername(): Promise<string> {
+export async function ownUsername(): Promise<string> {
   if (ownUsernameCache && Date.now() - ownUsernameCache.at < 60 * 60 * 1000) return ownUsernameCache.value;
   try {
     const profile = await fetchOwnProfile();
@@ -426,7 +426,7 @@ async function markHolder(db: Db, ctx: ContestCtx, participantId: number, holder
 
 /* ── Participantes ───────────────────────────────────────────────────────── */
 
-async function getParticipant(db: Db, contestId: number, igUserId: string): Promise<ContestParticipant | null> {
+export async function getParticipant(db: Db, contestId: number, igUserId: string): Promise<ContestParticipant | null> {
   const [row] = await db.select().from(contestParticipants)
     .where(and(eq(contestParticipants.contestId, contestId), eq(contestParticipants.igUserId, igUserId))).limit(1);
   return row ?? null;
@@ -438,7 +438,7 @@ async function reload(db: Db, id: number): Promise<ContestParticipant> {
 }
 
 /** Registra un "pasó esto" una sola vez. `false` = ya estaba procesado. */
-async function claimLog(db: Db, contestId: number, kind: 'comment' | 'story' | 'order', refId: string, participantId: number | null): Promise<boolean> {
+export async function claimLog(db: Db, contestId: number, kind: 'comment' | 'story' | 'order', refId: string, participantId: number | null): Promise<boolean> {
   try {
     await db.insert(contestLog).values({ contestId, kind, refId: refId.slice(0, 100), participantId });
     return true;
@@ -869,6 +869,10 @@ export async function runContestDraw(contestId: number): Promise<{ double: numbe
   ctx.contest = { ...ctx.contest, drawnAt: new Date() };
 
   try {
+    if (ctx.contest.template === 'likes' || ctx.contest.template === 'referrals') {
+      const races = await import('./contestRaces');
+      return await (ctx.contest.template === 'likes' ? races.drawLikes(db, ctx) : races.drawReferrals(db, ctx));
+    }
     return await drawPools(db, ctx);
   } catch (err) {
     // Si falló antes de elegir a nadie, se libera para que el próximo cron
@@ -932,7 +936,7 @@ async function drawPools(db: Db, ctx: ContestCtx): Promise<{ double: number; vip
 /** Como `activateWinner`, pero un error de Meta o del correo no corta el
  * sorteo: el ganador queda "esperando que escriba" con su plazo, y si no
  * reclama, pasa el suplente como siempre. */
-async function safeActivateWinner(db: Db, ctx: ContestCtx, row: ContestWinner): Promise<void> {
+export async function safeActivateWinner(db: Db, ctx: ContestCtx, row: ContestWinner): Promise<void> {
   try {
     await activateWinner(db, ctx, row);
   } catch (err) {
@@ -1383,6 +1387,10 @@ async function runContestCronFor(db: Db, ctx: ContestCtx, now: Date): Promise<Re
     } catch (err) {
       result.sync = { error: err instanceof Error ? err.message : 'Error' };
     }
+  }
+  if ((ctx.contest.template === 'likes' || ctx.contest.template === 'referrals') && !ctx.contest.drawnAt && contestPhase(ctx.contest, ctx.config, now) === 'live') {
+    const races = await import('./contestRaces');
+    result.race = await races.runRaceDaily(db, ctx, now).catch((err) => `error: ${err instanceof Error ? err.message : err}`);
   }
   if (!ctx.contest.drawnAt && ctx.config.drawAt && new Date(ctx.config.drawAt).getTime() <= now.getTime()) {
     result.draw = await runContestDraw(ctx.contest.id);
