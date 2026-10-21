@@ -3743,7 +3743,7 @@ export const appRouter = router({
   /* Concursos de Instagram (admin → Comunidad → Concursos). El motor que
    * corre solo (webhook, compras, sorteo) vive en server/contests.ts. */
   contests: router({
-    public: publicProcedure.query(() => contestSvc.getPublicContest().catch(() => null)),
+    public: publicProcedure.query(() => contestSvc.getPublicContestCached().catch(() => null)),
     list: adminReadProcedure.query(() => contestSvc.listContests().catch(() => {
       throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Falta correr la migración 0109 (concursos) en la base.' });
     })),
@@ -3804,7 +3804,13 @@ export const appRouter = router({
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo publicar el ranking.' });
       }
     }),
-    position: publicProcedure.input(z.object({ code: z.string().max(32) })).query(({ input }) => rankingSvc.getPersonalPosition(input.code).catch(() => null)),
+    position: publicProcedure.input(z.object({ code: z.string().max(32) })).query(async ({ input, ctx }) => {
+      // Los códigos son cortos: se limitan las consultas por IP para que nadie los recorra.
+      const ipKey = `contest-position:${clientIp(ctx)}`;
+      if (!(await db.checkIpRateLimit(ipKey))) throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Demasiadas consultas. Prueba de nuevo en un rato.' });
+      await db.recordIpAttempt(ipKey, 120, 10 * 60 * 1000);
+      return rankingSvc.getPersonalPosition(input.code).catch(() => null);
+    }),
     resendWelcomes: adminProcedure.input(z.object({ id: z.number().int() })).mutation(async ({ input, ctx }) => {
       try {
         const result = await contestSvc.resendWelcomeDms(input.id);

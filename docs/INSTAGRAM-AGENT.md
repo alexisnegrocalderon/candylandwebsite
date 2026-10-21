@@ -336,3 +336,26 @@ Motor en `server/contests.ts`, reglas puras en `shared/contest.ts`, migración `
   en el reel, respuestas públicas con tope diario, correo a compradores el día antes del sorteo y, por DM,
   tips una vez al día cuando el participante escribe (Instagram no permite DMs por iniciativa propia). Los
   controles de "una sola vez" van en `contestLog` (refId `rank-*`), sin migración.
+
+### Plantillas de concurso (`contests.template`, migraciones `0113` y `0116`)
+
+Se elige al crear (asistente "Nuevo concurso"); la configuración base de cada una vive en
+`shared/contestTemplates.ts` y todo queda editable. Pueden correr varios concursos a la vez (cada uno con su
+reel; el cron los recorre todos y los DM se reparten por premio pendiente → palabras clave/respuestas → participación).
+
+| Plantilla | Cómo se gana | Motor |
+|---|---|---|
+| `ranking` | puntos, 1º de cada tabla seguro + sorteo ponderado | `server/contests.ts`, `contestRanking.ts` |
+| `draw` | sorteo entre quienes comentan, cupón para todos | `contests.ts` |
+| `likes` | comentario con más "me gusta" al cierre | `contestRaces.ts` |
+| `referrals` | más compras con su link | `contestRaces.ts` |
+| `milestones` | % para todos al llegar a N comentarios (código compartido) | `contestMilestones.ts` |
+| `quiz` | preguntas por DM/comentario, sorteo con boletos = puntos | `contestQuiz.ts` |
+| `flash` | los 3 primeros en acertar, premio por puesto | `contestFlash.ts` |
+| `countdown` | metas de entradas vendidas desbloquean ganadores | `contestCountdown.ts` |
+| `photo` | galería de fotos, el admin elige (tabla `contestEntries`) | `contestPhoto.ts` |
+
+Reglas comunes: la verificación del ganador (RUT, +18, ACEPTO) aplica a las entradas
+(`config.verify.enabled`); las "una sola vez" van en `contestLog` (refId `milestone:*`, `flash-slot:*`,
+`quiz:*`, `holder-mail:*`, `recalc:*`…); cada hora se recalculan las etiquetas desde los comentarios (solo suma).
+Reglas puras (testeables) en `shared/contest*.ts`.
