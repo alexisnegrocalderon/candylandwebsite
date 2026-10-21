@@ -63,7 +63,7 @@ const fromLocalInput = (v: string) => (v ? new Date(v).toISOString() : null);
 
 function NumberField({ label, value, onChange, help, min = 0, suffix }: { label: string; value: number; onChange: (n: number) => void; help?: string; min?: number; suffix?: string }) {
   return (
-    <div>
+    <div className="min-w-0">
       <Label>{label}</Label>
       <div className="mt-1 flex items-center gap-2">
         <Input type="number" min={min} value={value} onChange={(e) => onChange(Number(e.target.value))} className="w-28" />
@@ -79,12 +79,16 @@ function TicketTypeSelect({ label, value, onChange, types, categories, help, all
   types: { id: number; name: string; category: string; price: string | number }[]; categories: string[]; help?: string; allowNone?: boolean;
 }) {
   const options = types.filter((t) => categories.includes(t.category));
+  // `min-w-0` + `w-full`: sin esto el botón mide lo que mida el nombre del
+  // producto ("MESA VIP CON 2 ESPUMANTES PARA 4 PERSONAS · $30.000") y se
+  // monta sobre la casilla de al lado. Los nombres largos se cortan con "…" y
+  // se ven completos al abrir la lista.
   return (
-    <div>
+    <div className="min-w-0">
       <Label>{label}</Label>
       <Select value={value ? String(value) : 'none'} onValueChange={(v) => onChange(v === 'none' ? null : Number(v))}>
-        <SelectTrigger className="mt-1"><SelectValue placeholder="Elegir" /></SelectTrigger>
-        <SelectContent>
+        <SelectTrigger className="mt-1 w-full min-w-0"><SelectValue placeholder="Elegir" /></SelectTrigger>
+        <SelectContent className="max-w-[min(32rem,calc(100vw-2rem))]">
           {allowNone && <SelectItem value="none">— Ninguno —</SelectItem>}
           {options.map((t) => <SelectItem key={t.id} value={String(t.id)}>{t.name} · {clp(Number(t.price))}</SelectItem>)}
         </SelectContent>
@@ -520,8 +524,9 @@ function ContestDetail({ id }: { id: number }) {
                     help="Se carga gratis en su entrada y se canjea en caja." />
                   <NumberField label="PlayCoins de regalo" value={config.prizes.holderPlaycoins} onChange={(n) => patch((c) => ({ ...c, prizes: { ...c.prizes, holderPlaycoins: n } }))} help="1 PlayCoin = $1." />
                 </div>
-                <div className="grid sm:grid-cols-4 gap-4">
-                  <div>
+                {/* El producto lleva más ancho que los números: sus nombres son largos. */}
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)_7.5rem_7.5rem]">
+                  <div className="min-w-0">
                     <Label>Premio del sorteo VIP</Label>
                     <Input className="mt-1" value={config.prizes.vipPrizeLabel} onChange={(e) => patch((c) => ({ ...c, prizes: { ...c.prizes, vipPrizeLabel: e.target.value } }))} />
                   </div>
