@@ -988,14 +988,23 @@ export async function loadBlockedRows(): Promise<any[]> {
   if (blockedCache && Date.now() - blockedCache.at < 30_000) return blockedCache.rows;
   const db = await getDb();
   if (!db) return [];
-  let rows = await db.select().from(blockedCustomers).where(eq(blockedCustomers.isActive, 1));
-  const stale = rows.filter((r: any) => (r.nameFold == null && r.fullName) || (r.rutNorm == null && r.rut));
-  if (stale.length) {
-    for (const r of stale as any[]) {
-      const v = blockedValues(r);
-      await db.update(blockedCustomers).set({ rutNorm: v.rutNorm, nameFold: v.nameFold, emailNorm: v.emailNorm, phoneNorm: v.phoneNorm, igNorm: v.igNorm }).where(eq(blockedCustomers.id, r.id));
-    }
+  let rows: any[];
+  try {
     rows = await db.select().from(blockedCustomers).where(eq(blockedCustomers.isActive, 1));
+    const stale = rows.filter((r: any) => (r.nameFold == null && r.fullName) || (r.rutNorm == null && r.rut));
+    if (stale.length) {
+      for (const r of stale as any[]) {
+        const v = blockedValues(r);
+        await db.update(blockedCustomers).set({ rutNorm: v.rutNorm, nameFold: v.nameFold, emailNorm: v.emailNorm, phoneNorm: v.phoneNorm, igNorm: v.igNorm }).where(eq(blockedCustomers.id, r.id));
+      }
+      rows = await db.select().from(blockedCustomers).where(eq(blockedCustomers.isActive, 1));
+    }
+  } catch {
+    // La migración 0118 (columnas nuevas) todavía no se aplicó: se sigue
+    // bloqueando por RUT con las columnas de siempre, en vez de romper la compra.
+    const legacy = await db.select({ id: blockedCustomers.id, rut: blockedCustomers.rut, fullName: blockedCustomers.fullName, isActive: blockedCustomers.isActive })
+      .from(blockedCustomers).where(eq(blockedCustomers.isActive, 1));
+    rows = (legacy as any[]).map((r) => ({ ...r, ...blockedKeysFor({ rut: r.rut, fullName: r.fullName }), sourceVenue: null }));
   }
   blockedCache = { at: Date.now(), rows };
   return rows;
