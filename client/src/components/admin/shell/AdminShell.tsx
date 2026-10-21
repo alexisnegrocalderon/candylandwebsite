@@ -5,6 +5,7 @@ import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { ADMIN_HUBS, hubBadgeCount, type AdminHub, type AdminHubId, type ShellSection } from './nav';
 import { CommandPalette } from './CommandPalette';
+import { hideSplash } from '@/lib/splash';
 
 const COLLAPSED_KEY = 'admin-sidebar-collapsed';
 
@@ -56,6 +57,8 @@ interface AdminShellProps {
  * renderiza cada sección -- solo de ids, hubs y burbujas. */
 export function AdminShell({ sections, activeSection, onOpenSection, badgeCounts, userName, roleLabel: roleLabelProp, isDemo, onLogout, children }: AdminShellProps) {
   useDarkGlassDocument();
+  // El panel ya está listo: se va el splash de apertura (client/src/lib/splash.ts).
+  useEffect(() => { hideSplash(); }, []);
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const [searchOpen, setSearchOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);

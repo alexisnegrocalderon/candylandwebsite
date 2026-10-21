@@ -1,3 +1,4 @@
+import { hasDarkSplash } from "@/lib/splash";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
@@ -69,6 +70,9 @@ const ConcursoPosicion = lazy(() => import("./pages/ConcursoPosicion"));
 const PrivacyPolicy = lazy(() => import("./pages/PrivacyPolicy"));
 
 function PageLoader() {
+  // En el panel y las terminales el splash oscuro del HTML sigue a la vista
+  // mientras baja el chunk: un círculo encima sería un segundo loader.
+  if (hasDarkSplash()) return null;
   return (
     <div className="min-h-screen flex items-center justify-center">
       <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
@@ -212,8 +216,11 @@ function App() {
   // React exista, para que nunca haya un instante en blanco) apenas React
   // hace su primer commit -- de ahí en más el spinner de Suspense (mismo
   // look) toma la posta mientras carga el chunk de la página.
+  // En el panel y las terminales (`<html data-splash="dark">`) el splash se
+  // queda hasta que la pantalla está lista: lo quita la propia pantalla con
+  // hideSplash() (ver client/src/lib/splash.ts).
   useEffect(() => {
-    document.getElementById('initial-loader')?.remove();
+    if (!hasDarkSplash()) document.getElementById('initial-loader')?.remove();
   }, []);
 
   return (
