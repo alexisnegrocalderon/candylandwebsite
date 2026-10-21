@@ -2,6 +2,7 @@ import express, { type Express } from "express";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { registerAdminRoutes } from "../adminRoutes";
+import { registerSiteManifestRoute } from "../siteManifest";
 import { registerCronRoutes } from "../cronRoutes";
 import { registerTicketAssetRoutes } from "../calendar";
 import { registerBlobUploadRoutes } from "../blobUpload";
@@ -59,6 +60,7 @@ export function createApp(): Express {
   registerOAuthRoutes(app);
   registerAdminRoutes(app);
   registerCronRoutes(app);
+  registerSiteManifestRoute(app);
   registerTicketAssetRoutes(app);
   registerBlobUploadRoutes(app);
   registerStudioAiRoutes(app);

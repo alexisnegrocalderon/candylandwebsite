@@ -8,6 +8,7 @@ import App from "./App";
 import { startLogin } from "./const";
 import { captureUtmParams } from "@/lib/utm";
 import { captureAmbassadorRef } from "@/lib/ambassadorRef";
+import { rememberTicketCode } from "@/lib/lastTicketCode";
 import "./index.css";
 
 // Atribución UTM (ver client/src/lib/utm.ts): tiene que correr apenas carga
@@ -59,12 +60,30 @@ if (window.location.pathname === '/') {
 // inequívocamente ese registro viejo (los legítimos son /caja/ o /gastos/),
 // así que se desregistra apenas arranca el sitio, antes de que /caja llegue
 // a registrar el suyo (bien acotado) más adelante -- sin condición de carrera.
+// Ahora el sitio tiene un worker legítimo en '/' (/sw-site.js, avisos push a
+// clientes), así que solo se borra el que corre el script de Caja (/sw.js).
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.getRegistrations().then((registrations) => {
     for (const reg of registrations) {
-      if (reg.scope === `${window.location.origin}/`) reg.unregister();
+      const script = (reg.active ?? reg.waiting ?? reg.installing)?.scriptURL ?? '';
+      if (reg.scope === `${window.location.origin}/` && !script.endsWith('/sw-site.js')) reg.unregister();
     }
   }).catch(() => {});
+}
+
+// La app del sitio instalada desde la página de una entrada abre con
+// ?t=<código> (server/siteManifest.ts): se recuerda como "mi entrada" de este
+// teléfono (para ligar los avisos y para /mi-entrada) y se limpia la URL.
+{
+  const params = new URLSearchParams(window.location.search);
+  const t = params.get('t');
+  if (params.get('source') === 'app') {
+    if (t && /^[A-Za-z0-9_-]{4,64}$/.test(t)) rememberTicketCode(t);
+    params.delete('t');
+    params.delete('source');
+    const qs = params.toString();
+    window.history.replaceState(null, '', `${window.location.pathname}${qs ? `?${qs}` : ''}${window.location.hash}`);
+  }
 }
 
 const queryClient = new QueryClient();

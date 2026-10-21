@@ -1200,6 +1200,7 @@ export async function updateSiteSettings(data: {
   kitchenVendorName?: string | null; kitchenVendorEmail?: string | null; ogImageUrl?: string | null; foundersPromoEnabled?: boolean; tanda2PromoEnabled?: boolean; salesDripEnabled?: boolean; salesDripIntervalDays?: number; halloweenModeEnabled?: boolean;
   emailTemplateConfig?: EmailTemplateConfig;
   adminAlertsConfig?: AdminAlertsConfig;
+  customerPushConfig?: unknown;
   instagramAgentConfig?: import('../shared/instagramAgentConfig').InstagramAgentConfig;
   whatsappAgentConfig?: import('../shared/whatsappAgentConfig').WhatsAppAgentConfig;
   agentCoachReport?: import('../shared/agentCoach').AgentCoachReport;

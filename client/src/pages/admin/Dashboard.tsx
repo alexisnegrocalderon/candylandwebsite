@@ -23,7 +23,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Home, Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff, ArrowRight, Car, Send, ShieldAlert, Zap, Cake, Calculator, Star, Copy, ArrowUpCircle, BellOff, FlaskConical, CalendarClock, Palette, UserCheck, Banknote, Landmark, Link2, RotateCcw, Headphones, ListChecks, Image as ImageIcon, PartyPopper } from 'lucide-react';
+import { Home, Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff, ArrowRight, Car, Send, ShieldAlert, Zap, Cake, Calculator, Star, Copy, ArrowUpCircle, BellOff, FlaskConical, CalendarClock, Palette, UserCheck, Banknote, Landmark, Link2, RotateCcw, Headphones, ListChecks, Image as ImageIcon, PartyPopper, BellRing } from 'lucide-react';
 import { PnlWarnings } from '@/components/admin/PnlWarnings';
 import { AdminPasswordDialog } from '@/components/admin/AdminPasswordDialog';
 import { ExpenseTerminal } from '@/components/admin/expenses/ExpenseTerminal';
@@ -51,6 +51,7 @@ import { AdminLoginForm } from '@/components/admin/AdminLoginForm';
 import { CustomerDrawer } from '@/components/admin/CustomerDrawer';
 import { CUSTOMER_LEVEL_META, GENDER_OPTIONS, SOURCE_OPTIONS, daysBetween, recencyTone } from '@shared/customerInsights';
 import { MailingComposer } from '@/components/admin/MailingComposer';
+import { CustomerPushView } from '@/components/admin/push/CustomerPushView';
 import { InstagramInbox } from '@/components/admin/InstagramInbox';
 import { SalesStrategyView } from '@/components/admin/SalesStrategyView';
 import { EventSurveyView } from '@/components/admin/EventSurveyView';
@@ -11019,6 +11020,7 @@ const ADMIN_SECTIONS = [
   { id: 'whatsapp', label: 'WhatsApp', hub: 'mensajes', icon: MessageCircle, render: () => <WhatsAppInbox /> },
   { id: 'mailing', label: 'Mailing', hub: 'mensajes', icon: Mail, render: () => <MailingSection /> },
   { id: 'mailing-history', label: 'Historial de Mailing', hub: 'mensajes', icon: History, render: () => <MailingHistoryView /> },
+  { id: 'push-clientes', label: 'Notificaciones push', hub: 'mensajes', icon: BellRing, render: () => <CustomerPushView /> },
   { id: 'email-templates', label: 'Plantillas de correo', hub: 'mensajes', icon: Send, render: () => <EmailTemplatesManager /> },
 
   { id: 'content-plan', label: 'Plan de contenido', hub: 'contenido', icon: Calendar, render: () => <ContentPlanView /> },

@@ -5,6 +5,7 @@ import { orders, events } from '../drizzle/schema';
 import { invokeLLM, extractContent } from './_core/llm';
 import { sendEmail, buildPendingReminderEmail } from './email';
 import { AUTOMATED_EMAIL_DAILY_CAP } from './mailing';
+import { pushAbandonedCarts } from './customerPush';
 
 /* Recordatorio a quien dejó la compra a medio camino.
  *
@@ -136,7 +137,7 @@ const ABANDONED_CART_CRON_CAP = Number(process.env.ABANDONED_CART_CRON_CAP) || 1
  * - Si ya recibió un recordatorio, que hayan pasado al menos
  *   `ABANDONED_CART_REMINDER_GAP_MS` desde el último, y que no haya llegado
  *   ya a `ABANDONED_CART_MAX_REMINDERS`. */
-async function getOrdersDueForAbandonedCartReminder(): Promise<number[]> {
+async function getOrdersDueForAbandonedCartReminder(): Promise<{ id: number; createdAt: number; first: boolean }[]> {
   const db = await getDb();
   if (!db) return [];
   const now = Date.now();
@@ -166,7 +167,7 @@ async function getOrdersDueForAbandonedCartReminder(): Promise<number[]> {
       if (o.reminderSentAt && now - new Date(o.reminderSentAt).getTime() < ABANDONED_CART_REMINDER_GAP_MS) return false;
       return true;
     })
-    .map((o) => o.id);
+    .map((o) => ({ id: o.id, createdAt: new Date(o.createdAt).getTime(), first: !(o.reminderCount ?? 0) }));
 }
 
 export type AbandonedCartCronResult = ReminderResult & { eligible: number };
@@ -175,7 +176,15 @@ export type AbandonedCartCronResult = ReminderResult & { eligible: number };
  * corrida del cron de mailing (Vercel Hobby solo permite 2 crons y los dos
  * ya están ocupados -- ver el comentario en cronRoutes.ts). */
 export async function runAbandonedCartCron(): Promise<AbandonedCartCronResult> {
-  const eligible = await getOrdersDueForAbandonedCartReminder();
+  const due = await getOrdersDueForAbandonedCartReminder();
+  const eligible = due.map((o) => o.id);
+
+  // Push al teléfono (si ese email activó avisos): una sola vez por pedido, en
+  // la corrida en que cumple la edad mínima -- el cron corre cada hora, así
+  // que cada pedido cae en exactamente una ventana. Va aparte del tope de
+  // correos: no gasta cuota de Resend.
+  const windowStart = Date.now() - ABANDONED_CART_MIN_AGE_MS - 3_600_000;
+  await pushAbandonedCarts(due.filter((o) => o.first && o.createdAt > windowStart).map((o) => o.id));
 
   // Presupuesto diario compartido con el mailing masivo. Al pasar el cron de
   // diario a cada hora (Vercel Pro), el tope por corrida dejó de ser el tope

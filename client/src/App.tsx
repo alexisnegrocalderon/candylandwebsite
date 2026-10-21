@@ -1,4 +1,4 @@
-import { hasDarkSplash } from "@/lib/splash";
+import { hasDarkSplash, hideSplash, isSiteApp } from "@/lib/splash";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
@@ -64,6 +64,7 @@ const Guardarropia = lazy(() => import("./pages/Guardarropia"));
 const Prices = lazy(() => import("./pages/Prices"));
 const RefundPolicy = lazy(() => import("./pages/RefundPolicy"));
 const Baja = lazy(() => import("./pages/Baja"));
+const MiEntrada = lazy(() => import("./pages/MiEntrada"));
 const Concurso = lazy(() => import("./pages/Concurso"));
 const ConcursoPremio = lazy(() => import("./pages/ConcursoPremio"));
 const ConcursoPosicion = lazy(() => import("./pages/ConcursoPosicion"));
@@ -129,6 +130,7 @@ function Router() {
           <Route path="/mis-referidos" component={MyReferrals} />
           <Route path="/mis-puntos" component={MisPuntos} />
           <Route path="/verificar/:ticketCode" component={Ticket} />
+          <Route path="/mi-entrada" component={MiEntrada} />
           <Route path="/encuesta/:token" component={Survey} />
           <Route path="/recargar" component={Recargar} />
           <Route path="/fiesta/:ticketCode" component={Party} />
@@ -218,9 +220,11 @@ function App() {
   // look) toma la posta mientras carga el chunk de la página.
   // En el panel y las terminales (`<html data-splash="dark">`) el splash se
   // queda hasta que la pantalla está lista: lo quita la propia pantalla con
-  // hideSplash() (ver client/src/lib/splash.ts).
+  // hideSplash() (ver client/src/lib/splash.ts). El sitio instalado como app
+  // lo convierte en la intro de neón corta mientras baja la página.
   useEffect(() => {
-    if (!hasDarkSplash()) document.getElementById('initial-loader')?.remove();
+    if (isSiteApp()) hideSplash();
+    else if (!hasDarkSplash()) document.getElementById('initial-loader')?.remove();
   }, []);
 
   return (

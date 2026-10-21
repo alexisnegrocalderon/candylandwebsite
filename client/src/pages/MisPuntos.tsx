@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { canRedeem, PLAYCOINS_MIN_REDEEM_BALANCE } from '@shared/playcoins';
 import { useSeo } from '@/hooks/useSeo';
 import { WalletCard } from '@/components/wallet/WalletCard';
+import { PushPrompt } from '@/components/site/PushPrompt';
 
 /** Consulta pública de saldo prepagado + Playcoins (pedido explícito del
  * dueño) -- sin login (el sitio no tiene cuentas de comprador), mismo patrón
@@ -117,6 +118,8 @@ export default function MisPuntos() {
               </CardContent>
             </Card>
           )}
+
+          <PushPrompt source="puntos" className="mt-6" />
 
           <Button variant="outline" className="interactive mt-6" onClick={() => { setSubmittedEmail(''); setEmailInput(''); }}>
             Consultar otro email

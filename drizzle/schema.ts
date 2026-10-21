@@ -646,6 +646,10 @@ export const siteSettings = mysqlTable("siteSettings", {
   // el agente SABE (notas de marca, tono, mensaje de derivación) se comparte
   // con el de Instagram. null = APAGADO, mismo criterio que arriba.
   whatsappAgentConfig: json("whatsappAgentConfig"),
+  // Avisos push automáticos a clientes (recordatorio del evento, nuevo evento,
+  // carrito abandonado) -- forma en shared/customerPushConfig.ts. null = todo
+  // APAGADO, mismo criterio que arriba.
+  customerPushConfig: json("customerPushConfig"),
   // Último reporte del coach semanal del agente (server/agentCoach.ts): qué
   // preguntan más, dónde se enfría la gente y qué agregarle al conocimiento.
   agentCoachReport: json("agentCoachReport"),
@@ -1989,6 +1993,68 @@ export const partyPushSubscriptions = mysqlTable("partyPushSubscriptions", {
 
 export type PartyPushSubscriptionRow = typeof partyPushSubscriptions.$inferSelect;
 export type InsertPartyPushSubscription = typeof partyPushSubscriptions.$inferInsert;
+
+// Suscripciones push de CLIENTES del sitio público (instalado como app o, en
+// Android/computador, desde el navegador) -- server/customerPush.ts. El email
+// sale de la entrada o el pedido desde donde se activó; desde la home queda
+// anónima (null) hasta que el mismo dispositivo abre su entrada.
+export const customerPushSubscriptions = mysqlTable("customerPushSubscriptions", {
+  id: int("id").autoincrement().primaryKey(),
+  endpoint: varchar("endpoint", { length: 512 }).notNull().unique(),
+  p256dh: varchar("p256dh", { length: 255 }).notNull(),
+  auth: varchar("auth", { length: 255 }).notNull(),
+  email: varchar("email", { length: 320 }),
+  emailNorm: varchar("emailNorm", { length: 320 }),
+  orderId: int("orderId"),
+  // Dónde lo activó: ticket | pago | home | concurso | puntos | app.
+  source: varchar("source", { length: 20 }).notNull(),
+  // ios | android | desktop.
+  platform: varchar("platform", { length: 10 }).notNull(),
+  standalone: int("standalone").default(0).notNull(),
+  // Se dio de baja (desde el sitio o /baja): la fila queda para no volver a
+  // preguntarle, pero nunca recibe nada.
+  optedOutAt: timestamp("optedOutAt"),
+  // Último aviso de marketing (campañas, nuevo evento): tope de uno al día.
+  lastMarketingAt: timestamp("lastMarketingAt"),
+  lastSentAt: timestamp("lastSentAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  emailIdx: index("customer_push_email_idx").on(table.emailNorm),
+}));
+
+export type CustomerPushSubscription = typeof customerPushSubscriptions.$inferSelect;
+
+// Campañas push a clientes: las manuales del compositor del admin y las que
+// arman los automáticos (recordatorio del evento, nuevo evento/preventa),
+// que quedan en el mismo historial con sus números.
+export const pushCampaigns = mysqlTable("pushCampaigns", {
+  id: int("id").autoincrement().primaryKey(),
+  title: varchar("title", { length: 80 }).notNull(),
+  body: varchar("body", { length: 255 }).notNull(),
+  url: varchar("url", { length: 500 }).notNull(),
+  imageUrl: varchar("imageUrl", { length: 500 }),
+  // Forma en shared/pushSegments.ts (PushSegment).
+  segment: json("segment").notNull(),
+  // manual | recordatorio | evento | preventa
+  kind: varchar("kind", { length: 20 }).default("manual").notNull(),
+  // draft | scheduled | sending | sent | cancelled
+  status: varchar("status", { length: 20 }).default("draft").notNull(),
+  eventId: int("eventId"),
+  scheduledAt: timestamp("scheduledAt"),
+  sentAt: timestamp("sentAt"),
+  targeted: int("targeted").default(0).notNull(),
+  sent: int("sent").default(0).notNull(),
+  failed: int("failed").default(0).notNull(),
+  clicks: int("clicks").default(0).notNull(),
+  createdBy: varchar("createdBy", { length: 120 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  statusIdx: index("push_campaigns_status_idx").on(table.status, table.scheduledAt),
+}));
+
+export type PushCampaign = typeof pushCampaigns.$inferSelect;
 
 // ---------------------------------------------------------------------------
 // Agente de IA del Instagram de la productora (server/instagram.ts).

@@ -75,6 +75,7 @@ export const SECTION_KEYWORDS: Record<string, string> = {
   whatsapp: 'wsp chat mensajes',
   mailing: 'correo email newsletter campaña',
   'mailing-history': 'correos enviados historial',
+  'push-clientes': 'notificaciones push avisos telefono app promociones clientes',
   'email-templates': 'plantillas correo email',
   'content-plan': 'calendario publicaciones posts',
   studio: 'diseño carrusel slides historias',

@@ -51,6 +51,7 @@ import { useSeo } from '@/hooks/useSeo';
 import { reveal, revealGroup, revealItemProps, useRevealWatchdog } from '@/lib/reveal';
 import { eventSchema, faqSchema } from '@shared/structuredData';
 import { getArticle, articlePath, ALL_ARTICLES, STANDALONE_PAGES } from '@/content';
+import { PushBanner } from '@/components/site/PushPrompt';
 
 // Mismo criterio que Navbar.tsx: los 8 títulos reales (guías + blog +
 // standalone) en vez de los links genéricos "Panoramas"/"Blog" que había
@@ -2419,6 +2420,7 @@ export default function Home() {
       <InstagramShowcase />
       <Footer />
       <StickyMobileCTA salesEnd={!missionActive ? (tanda?.salesEnd ?? null) : null} soldOut={!!tanda?.soldOut} />
+      <PushBanner />
       <ExitIntentModal />
     </MotionConfig>
   );
