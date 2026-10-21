@@ -447,6 +447,20 @@ export async function claimLog(db: Db, contestId: number, kind: 'comment' | 'sto
   }
 }
 
+/** Quien mencionó la cuenta en su historia ANTES de inscribirse conserva el
+ * bonus: la mención se guardó como pendiente y se aplica al entrar. */
+async function applyPendingStory(db: Db, ctx: ContestCtx, p: ContestParticipant): Promise<ContestParticipant> {
+  if (p.storyMentioned) return p;
+  const [pending] = await db.select({ id: contestLog.id }).from(contestLog).where(and(
+    eq(contestLog.contestId, ctx.contest.id), eq(contestLog.kind, 'story'), eq(contestLog.refId, pendingStoryKey(p.igUserId)),
+  )).limit(1);
+  if (!pending) return p;
+  await db.update(contestParticipants).set({ storyMentioned: 1 }).where(eq(contestParticipants.id, p.id));
+  return { ...p, storyMentioned: 1 };
+}
+
+const pendingStoryKey = (igUserId: string) => `pending:${igUserId}`.slice(0, 100);
+
 async function createParticipant(db: Db, ctx: ContestCtx, input: {
   igUserId: string; username: string | null; source: 'comment' | 'story' | 'dm' | 'purchase'; commentId?: string | null; mentions?: string[];
 }): Promise<{ participant: ContestParticipant; created: boolean }> {
@@ -462,7 +476,7 @@ async function createParticipant(db: Db, ctx: ContestCtx, input: {
       mentions: mergeMentions(placeholder.mentions ?? [], input.mentions ?? []),
       ...(input.source === 'story' ? { storyMentioned: 1 } : {}),
     }).where(eq(contestParticipants.id, placeholder.id));
-    return { participant: await reload(db, placeholder.id), created: true };
+    return { participant: await applyPendingStory(db, ctx, await reload(db, placeholder.id)), created: true };
   }
   for (let attempt = 0; attempt < 4; attempt++) {
     try {
@@ -485,7 +499,7 @@ async function createParticipant(db: Db, ctx: ContestCtx, input: {
       if (attempt === 3) throw err;
     }
   }
-  let participant = (await getParticipant(db, ctx.contest.id, input.igUserId))!;
+  let participant = await applyPendingStory(db, ctx, (await getParticipant(db, ctx.contest.id, input.igUserId))!);
   const holder = await findHolderOrder(db, ctx.event.id, { username: input.username });
   if (holder) {
     await markHolder(db, ctx, participant.id, holder);
@@ -666,7 +680,11 @@ export async function handleContestMessage(input: {
     // 2. Mención en historia: solo suma el bonus a quien YA participa (una
     // mención suelta de la cuenta no inscribe ni manda nada).
     if (input.storyMention) {
-      if (!participant) return false;
+      if (!participant) {
+        // Aún no participa: la mención queda guardada y suma cuando comente.
+        if (accepting(ctx)) await claimLog(db, ctx.contest.id, 'story', pendingStoryKey(input.igUserId), null);
+        return false;
+      }
       if (!accepting(ctx) || !(await claimLog(db, ctx.contest.id, 'story', input.mid ?? `${input.igUserId}-${Date.now()}`, participant.id))) return true;
       if (participant.storyMentioned) return true;
       await db.update(contestParticipants).set({ storyMentioned: 1 }).where(eq(contestParticipants.id, participant.id));
