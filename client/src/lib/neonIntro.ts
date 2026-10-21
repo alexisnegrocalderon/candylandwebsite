@@ -7,11 +7,13 @@
  * pantalla (que ya está montada debajo). Estilos en client/src/admin.css
  * (`.neon-intro`).
  *
- * Reglas del dueño: solo la primera apertura del día de cada app (después
- * abre rápido), un toque la salta, vibración suave al encenderse, versión
+ * Reglas del dueño: cada vez que se abre la app (después de cerrarla), pero no
+ * de nuevo mientras sigue abierta -- por eso la marca va en sessionStorage,
+ * que el sistema borra al cerrar la app y que sobrevive a una recarga
+ * mientras está abierta. Un toque la salta, vibración suave al encenderse, versión
  * corta en las terminales y versión quieta con "Reducir movimiento". */
 
-const DAY_KEY = 'neon-intro.day.';
+const SEEN_KEY = 'neon-intro.seen.';
 
 /** Duración total en ms: panel completo, terminales corta. */
 const FULL_MS = 3000;
@@ -23,19 +25,13 @@ function appKey(): string {
   return (typeof location !== 'undefined' ? location.pathname.split('/')[1] : '') || 'app';
 }
 
-function today(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
-/** ¿Toca la intro? Solo la primera apertura del día de esta app. La marca de
- * "ya se vio hoy" se guarda al reproducirla. */
+/** ¿Toca la intro? Sí al abrir la app; no si ya se vio con la app abierta. */
 export function introDue(): boolean {
-  try { return localStorage.getItem(DAY_KEY + appKey()) !== today(); } catch { return false; }
+  try { return sessionStorage.getItem(SEEN_KEY + appKey()) !== '1'; } catch { return false; }
 }
 
 function markSeen() {
-  try { localStorage.setItem(DAY_KEY + appKey(), today()); } catch { /* sin storage: se verá de nuevo, no pasa nada */ }
+  try { sessionStorage.setItem(SEEN_KEY + appKey(), '1'); } catch { /* sin storage: se verá de nuevo, no pasa nada */ }
 }
 
 // Solo "PLAYROOM" (pedido del dueño), sin el "MANSION" de arriba.
