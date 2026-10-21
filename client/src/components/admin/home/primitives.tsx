@@ -1,36 +1,22 @@
-import { useState, type ReactNode } from 'react';
-import { ArrowRight, ChevronDown, type LucideIcon } from 'lucide-react';
+import type { ReactNode } from 'react';
+import { ArrowRight, type LucideIcon } from 'lucide-react';
 
 export const clp = (n: number) => `${n < 0 ? '-' : ''}$${Math.abs(Math.round(n)).toLocaleString('es-CL')}`;
 
-const COLLAPSED_KEY = 'home.collapsed';
-const loadCollapsed = (): Set<string> => {
-  try { return new Set(JSON.parse(localStorage.getItem(COLLAPSED_KEY) ?? '[]')); } catch { return new Set(); }
-};
-
-/** Bloque de Inicio (Evento, Plata, Gente): se puede plegar y recuerda cómo lo dejaste. */
-export function HomeBlock({ id, title, subtitle, icon: Icon, children }: { id: string; title: string; subtitle?: string; icon: LucideIcon; children: ReactNode }) {
-  const [collapsed, setCollapsed] = useState(() => loadCollapsed().has(id));
-  const toggle = () => {
-    const next = !collapsed;
-    setCollapsed(next);
-    try {
-      const set = loadCollapsed();
-      next ? set.add(id) : set.delete(id);
-      localStorage.setItem(COLLAPSED_KEY, JSON.stringify(Array.from(set)));
-    } catch { /* sin storage: no se recuerda */ }
-  };
+/** Panel de detalle de un resumen (Evento, Plata, Gente): lo abre su tarjeta
+ * de arriba (SummaryTabs); acá solo va el contenido y un botón para cerrar. */
+export function HomeBlock({ title, subtitle, icon: Icon, onClose, children }: { id?: string; title: string; subtitle?: string; icon: LucideIcon; onClose?: () => void; children: ReactNode }) {
   return (
     <section className="admin-clay p-4 md:p-5">
-      <button type="button" onClick={toggle} aria-expanded={!collapsed} className="flex w-full items-center gap-3 text-left">
+      <div className="flex items-center gap-3">
         <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-[oklch(0.6_0.2_290)] text-white"><Icon className="h-5 w-5" /></span>
         <span className="min-w-0 flex-1">
           <span className="block font-heading text-lg leading-tight">{title}</span>
           {subtitle && <span className="block truncate text-xs text-muted-foreground">{subtitle}</span>}
         </span>
-        <ChevronDown className={`h-5 w-5 shrink-0 text-muted-foreground transition-transform ${collapsed ? '-rotate-90' : ''}`} />
-      </button>
-      {!collapsed && <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">{children}</div>}
+        {onClose && <button type="button" onClick={onClose} className="shrink-0 rounded-full px-3 py-1.5 text-xs text-muted-foreground hover:bg-white/10 hover:text-foreground">Cerrar ✕</button>}
+      </div>
+      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">{children}</div>
     </section>
   );
 }

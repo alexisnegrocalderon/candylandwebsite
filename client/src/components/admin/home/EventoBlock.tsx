@@ -14,8 +14,8 @@ export function useEvento(eventId: number | undefined) {
   });
 }
 
-export function EventoBlock({ data, loading, onOpen }: { data: EventoData; loading: boolean; onOpen: (s: string) => void }) {
-  if (loading && !data) return <HomeBlock id="evento" title="Evento" subtitle="Cargando…" icon={Radio}><p className="text-sm text-muted-foreground">Cargando…</p></HomeBlock>;
+export function EventoBlock({ data, loading, onOpen, onClose }: { data: EventoData; loading: boolean; onOpen: (s: string) => void; onClose?: () => void }) {
+  if (loading && !data) return <HomeBlock onClose={onClose} id="evento" title="Evento" subtitle="Cargando…" icon={Radio}><p className="text-sm text-muted-foreground">Cargando…</p></HomeBlock>;
   if (!data) return null;
   const { pulse, caja, tickets, parking, manual, shifts, cajaAlerts } = data;
   const inside = caja?.insideCount ?? 0;
@@ -24,7 +24,7 @@ export function EventoBlock({ data, loading, onOpen }: { data: EventoData; loadi
   const maxHour = Math.max(1, ...(caja?.salesByHour ?? []).map((h: any) => h.total));
 
   return (
-    <HomeBlock id="evento" title="Evento" subtitle={data.live ? 'En vivo ahora' : 'Resumen del evento'} icon={Radio}>
+    <HomeBlock onClose={onClose} id="evento" title="Evento" subtitle={data.live ? 'En vivo ahora' : 'Resumen del evento'} icon={Radio}>
       <Widget title="Pulso de la noche" onMore={() => onOpen('overview')} moreLabel="En vivo">
         {!pulse && !caja ? <Unavailable /> : (
           <div className="space-y-4">

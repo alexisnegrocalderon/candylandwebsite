@@ -13,9 +13,10 @@ import { EmptyState } from '@/components/admin/EmptyState';
 import { useIsDemo } from '@/lib/demoMode';
 import { buildHomeAlerts } from '@shared/homeAlerts';
 import { AlertsStrip } from '@/components/admin/home/AlertsStrip';
-import { EventoBlock, useEvento } from '@/components/admin/home/EventoBlock';
-import { PlataBlock, usePlata } from '@/components/admin/home/PlataBlock';
-import { GenteBlock, useGente } from '@/components/admin/home/GenteBlock';
+import { useEvento } from '@/components/admin/home/EventoBlock';
+import { usePlata } from '@/components/admin/home/PlataBlock';
+import { useGente } from '@/components/admin/home/GenteBlock';
+import { SummaryTabs } from '@/components/admin/home/SummaryTabs';
 
 /** Pantalla de entrada del panel: cómo va el próximo evento, qué está
  * esperando una respuesta y atajos a lo que más se usa. Solo lee -- toda
@@ -135,6 +136,12 @@ export function HomeView({ badgeCounts, onOpen }: { badgeCounts: Record<string, 
       </section>
 
       <AlertsStrip alerts={alerts} onOpen={onOpen} />
+
+      {/* Resumen de todas las secciones: tarjetas cerradas, se abre una a la vez */}
+      <SummaryTabs
+        evento={evento.data} eventoLoading={evento.isLoading} plata={plata.data} plataLoading={plata.isLoading} gente={gente.data} genteLoading={gente.isLoading}
+        hasEvent={!!eventId} isDemo={isDemo} badgeCounts={badgeCounts} onOpen={onOpen}
+      />
 
       {/* KPIs */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 md:gap-4">
@@ -262,10 +269,6 @@ export function HomeView({ badgeCounts, onOpen }: { badgeCounts: Record<string, 
         </section>
       </div>
 
-      {/* Resumen de todas las secciones */}
-      {eventId && <EventoBlock data={evento.data} loading={evento.isLoading} onOpen={onOpen} />}
-      {!isDemo && <PlataBlock data={plata.data} loading={plata.isLoading} onOpen={onOpen} />}
-      <GenteBlock data={gente.data} loading={gente.isLoading} badgeCounts={badgeCounts} onOpen={onOpen} />
     </div>
   );
 }
