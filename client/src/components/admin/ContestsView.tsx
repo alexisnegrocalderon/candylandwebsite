@@ -116,7 +116,7 @@ const MESSAGE_FIELDS: { key: Exclude<keyof ContestMessages, 'publicReplies'>; la
   { key: 'afterDraw', label: 'DM a quien comenta después del sorteo', help: '' },
 ];
 
-const PLACEHOLDERS = '{{nombre}} {{chances}} {{cupon}} {{porcentaje}} {{horas}} {{link_invitar}} {{fecha_sorteo}} {{link_bases}} {{premio}} {{premio_singular}} {{premio_vip}} {{ganadores_doble}} {{codigo_amigo}} {{porcentaje_amigo}} {{lista_regalos}} {{codigo_premio}} {{plazo}} {{evento}} {{por_etiqueta}} {{max_etiquetas}} {{bonus_historia}} {{bonus_compra_amigo}} {{multiplicador}} {{congelado_hasta}} {{link_elegir}} {{monto_devolucion}} {{link_reel}} {{frase}} {{faltante}}';
+const PLACEHOLDERS = '{{nombre}} {{chances}} {{cupon}} {{porcentaje}} {{horas}} {{link_invitar}} {{fecha_sorteo}} {{link_bases}} {{premio}} {{premio_singular}} {{premio_vip}} {{ganadores_doble}} {{codigo_amigo}} {{porcentaje_amigo}} {{lista_regalos}} {{codigo_premio}} {{plazo}} {{evento}} {{por_etiqueta}} {{max_etiquetas}} {{bonus_historia}} {{bonus_compra_amigo}} {{multiplicador}} {{congelado_hasta}} {{link_elegir}} {{monto_devolucion}} {{link_reel}} {{frase}} {{faltante}} {{puntos_texto}}';
 
 /* ── Ruleta para grabar el sorteo ─────────────────────────────────────────── */
 
