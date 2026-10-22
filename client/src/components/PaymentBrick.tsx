@@ -43,9 +43,28 @@ export function loadMercadoPagoSdk(): Promise<void> {
   });
 }
 
-export function PaymentBrick({ orderNumber, amount, containerId = 'mp-payment-brick', onResult, onError }: {
+/** Colores del Brick sobre fondos oscuros (billetera, «Mi cuenta»): mismo vidrio oscuro y rosa de la marca. */
+const DARK_BRICK_STYLE = {
+  theme: 'dark',
+  customVariables: {
+    formBackgroundColor: 'transparent', baseColor: '#ec4899', baseColorFirstVariant: '#db2777', baseColorSecondVariant: '#be185d',
+    textPrimaryColor: '#ffffff', textSecondaryColor: 'rgba(255,255,255,0.6)', inputBackgroundColor: 'rgba(255,255,255,0.06)',
+    outlinePrimaryColor: 'rgba(255,255,255,0.14)', outlineSecondaryColor: 'rgba(255,255,255,0.08)', buttonTextColor: '#ffffff',
+    borderRadiusSmall: '10px', borderRadiusMedium: '14px', borderRadiusLarge: '18px', borderRadiusFull: '999px',
+    formPadding: '0px', inputVerticalPadding: '14px', inputHorizontalPadding: '14px', errorColor: '#fb7185',
+  },
+};
+
+export function PaymentBrick({ orderNumber, amount, containerId = 'mp-payment-brick', onResult, onError, variant = 'payment', tone = 'light', payerEmail }: {
   orderNumber: string;
   amount: number;
+  /** 'card': formulario de tarjeta en una sola pantalla (detecta sola crédito/débito, sin el paso «Medios de pago»).
+   * Si el socio tiene tarjetas guardadas se usa igual el Brick completo, que es el que las muestra. */
+  variant?: 'payment' | 'card';
+  /** 'dark': colores del vidrio oscuro (billetera y «Mi cuenta»). */
+  tone?: 'light' | 'dark';
+  /** Correo de quien paga (si se conoce): el Brick no lo vuelve a pedir. El cobro igual usa el de la orden. */
+  payerEmail?: string;
   /** Solo hace falta si hubiera dos Bricks vivas en la misma pantalla. */
   containerId?: string;
   onResult: (status: PaymentOutcome, statusDetail?: string) => void;
@@ -71,19 +90,25 @@ export function PaymentBrick({ orderNumber, amount, containerId = 'mp-payment-br
       await loadMercadoPagoSdk();
       if (cancelled) return;
       const mp = new (window as any).MercadoPago(publicKey, { locale: 'es-CL' });
-      const controller = await mp.bricks().create('payment', containerId, {
+      const hasSaved = !!(member?.customerId && member.cardIds.length > 0);
+      const kind = variant === 'card' && !hasSaved ? 'cardPayment' : 'payment';
+      const visual = tone === 'dark' ? { hideFormTitle: true, style: DARK_BRICK_STYLE } : undefined;
+      const controller = await mp.bricks().create(kind, containerId, {
         initialization: {
           amount,
-          ...(member?.customerId && member.cardIds.length > 0 ? { payer: { customerId: member.customerId, cardsIds: member.cardIds } } : {}),
+          ...(hasSaved ? { payer: { customerId: member!.customerId, cardsIds: member!.cardIds, ...(payerEmail ? { email: payerEmail } : {}) } } : payerEmail ? { payer: { email: payerEmail } } : {}),
         },
         customization: {
+          ...(visual ? { visual } : {}),
           // No incluir `mercadoPago`/`ticket` acá: la Brick los oculta si no
           // aparecen en el objeto (pasar 'none' no es un valor válido de la API).
-          paymentMethods: { creditCard: 'all', debitCard: 'all', prepaidCard: 'all' },
+          ...(kind === 'payment' ? { paymentMethods: { creditCard: 'all', debitCard: 'all', prepaidCard: 'all' } } : {}),
         },
         callbacks: {
           onReady: () => {},
-          onSubmit: ({ formData }: any) => new Promise<void>((resolve, reject) => {
+          // El Brick completo entrega `{ formData }`; el de tarjeta entrega los datos directo.
+          onSubmit: (arg: any) => new Promise<void>((resolve, reject) => {
+            const formData = arg?.formData ?? arg;
             processCardPayment.mutate(
               {
                 orderNumber,
@@ -128,7 +153,7 @@ export function PaymentBrick({ orderNumber, amount, containerId = 'mp-payment-br
       controllerRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orderNumber, containerId, payInit.isLoading, member?.customerId, member?.cardIds.join(',')]);
+  }, [orderNumber, containerId, payInit.isLoading, member?.customerId, member?.cardIds.join(','), variant, tone, payerEmail]);
 
   return (
     <>

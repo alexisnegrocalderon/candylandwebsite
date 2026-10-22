@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { CheckCircle2, Loader2 } from 'lucide-react';
+import { CheckCircle2, Loader2, Lock } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { PaymentBrick, type PaymentOutcome } from '@/components/PaymentBrick';
 import { ForgotPinPanel } from './ForgotPinPanel';
@@ -22,6 +22,9 @@ export function TopupPanel({ access, onPaid }: { access: TopupAccess; onPaid?: (
   const utils = trpc.useUtils();
   const { data: options, isLoading, error } = trpc.playcardTopup.getOptions.useQuery(access, { retry: false });
   const createTopup = trpc.playcardTopup.create.useMutation();
+  // Desde «Mi cuenta» el correo ya se sabe: el formulario de tarjeta no lo vuelve a pedir.
+  const { data: session } = trpc.member.session.useQuery(undefined, { enabled: 'member' in access, staleTime: 60_000, retry: false });
+  const payerEmail = 'member' in access && session?.loggedIn ? session.email : undefined;
 
   const [stage, setStage] = useState<Stage>('choose');
   const [tierId, setTierId] = useState<number | null>(null);
@@ -102,17 +105,23 @@ export function TopupPanel({ access, onPaid }: { access: TopupAccess; onPaid?: (
   if (stage === 'pay' && order) {
     return (
       <div>
-        <p className="font-bold mb-1">Pagar {clp(order.total)}</p>
-        <p className="wcard-hint mb-4">Recarga {order.orderNumber}. Pago seguro con Mercado Pago.</p>
-        <div className="rounded-2xl overflow-hidden bg-white p-2">
-          <PaymentBrick
-            orderNumber={order.orderNumber}
-            amount={order.total}
-            containerId="mp-topup-brick"
-            onResult={handleResult}
-            onError={setPayError}
-          />
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl border p-4" style={{ borderColor: 'var(--wcard-line)', background: 'rgba(255,255,255,0.04)' }}>
+          <div>
+            <p className="text-xs" style={{ color: 'var(--wcard-muted)' }}>Recarga de PlayCard</p>
+            <p className="text-2xl font-extrabold tracking-tight">{clp(order.total)}</p>
+          </div>
+          <p className="flex items-center gap-1.5 text-[11px]" style={{ color: 'var(--wcard-muted)' }}><Lock className="h-3.5 w-3.5" /> Pago seguro<br />Mercado Pago</p>
         </div>
+        <PaymentBrick
+          orderNumber={order.orderNumber}
+          amount={order.total}
+          containerId="mp-topup-brick"
+          onResult={handleResult}
+          onError={setPayError}
+          variant="card"
+          tone="dark"
+          payerEmail={payerEmail}
+        />
         {payError && <p className="wcard-error">{payError}</p>}
         <button type="button" className="wcard-link mt-4" onClick={reset}>Cambiar monto</button>
       </div>
