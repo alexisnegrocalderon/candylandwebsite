@@ -22,7 +22,7 @@ export function hasDarkSplash(): boolean {
 }
 
 /** ¿El sitio público abierto como app instalada? (lo marca un script inline
- * de client/index.html). Ahí el loader es el oscuro y abre con la intro corta. */
+ * de client/index.html). Ahí el loader es el oscuro y abre con la intro de neón (espera el toque). */
 export function isSiteApp(): boolean {
   return typeof document !== 'undefined' && document.documentElement.dataset.splash === 'site';
 }
