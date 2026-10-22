@@ -160,7 +160,7 @@ export function PushComposer({ initial, onDone }: { initial: ComposerDraft; onDo
         toast.success(r.testing
           ? `Prueba A/B enviada a una muestra de ${r.targeted} personas; el ganador sale al resto en ${d.ab.waitMin} min`
           : `${r.sentNow} enviados ahora${r.later ? `, ${r.later} a su hora (se reparten en el día o salen a las 09:00)` : ''}${r.cappedOut ? ` · ${r.cappedOut} ya recibieron uno hoy` : ''}`);
-      } else toast.success(payload.scheduledAt ? 'Campaña programada' : 'Borrador guardado');
+      } else toast.success(payload.id ? 'Cambios guardados' : payload.scheduledAt ? 'Campaña programada' : 'Borrador guardado');
       refresh();
       onDone();
     } catch { /* onErr ya avisó */ }
@@ -305,7 +305,7 @@ export function PushComposer({ initial, onDone }: { initial: ComposerDraft; onDo
         </div>
         <div className="space-y-2">
           <WriteButton className="w-full" disabled={!valid || save.isPending || send.isPending} onClick={() => onSave(true)}>
-            {d.scheduledAt ? <><CalendarClock className="mr-1.5 h-4 w-4" /> Programar</> : <><Send className="mr-1.5 h-4 w-4" /> {d.ab.on ? 'Enviar prueba A/B' : d.smartHour ? 'Enviar a su mejor hora' : 'Enviar ahora'}</>}
+            {d.scheduledAt ? <><CalendarClock className="mr-1.5 h-4 w-4" /> {d.id ? 'Guardar cambios' : 'Programar'}</> : <><Send className="mr-1.5 h-4 w-4" /> {d.ab.on ? 'Enviar prueba A/B' : d.smartHour ? 'Enviar a su mejor hora' : 'Enviar ahora'}</>}
           </WriteButton>
           <WriteButton variant="outline" className="w-full" disabled={!d.title.trim() || !d.body.trim() || save.isPending} onClick={() => onSave(false)}>Guardar borrador</WriteButton>
         </div>
