@@ -68,6 +68,7 @@ export function newSlide(layout: StudioSlide['layout']): StudioSlide {
     case 'resultados': return s({ layout, title: 'Tus resultados', items: [{ badge: '✨', title: 'Resultado', body: 'Descripción corta' }] });
     case 'pasos': return s({ layout, script: 'Paso a paso', title: 'Cómo funciona', items: [{ badge: 'Paso 1', title: 'Primer paso', body: 'Explicación corta.' }] });
     case 'cierre': return s({ layout, title: '¿Y tú?', body: 'Cuéntanos en los comentarios.', cta: 'Comenta', footnote: '' });
+    case 'foto': return s({ layout, title: 'Tu título acá', body: 'Una etiqueta corta' });
     default: return s({ layout });
   }
 }

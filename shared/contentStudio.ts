@@ -31,8 +31,16 @@ export const STUDIO_THEMES = ['bubble', 'azul', 'pastel', 'playcard'] as const;
 export const DEFAULT_STUDIO_THEME: StudioTheme = 'bubble';
 export type StudioTheme = (typeof STUDIO_THEMES)[number];
 
-export const STUDIO_LAYOUTS = ['portada', 'pregunta', 'resultados', 'pasos', 'cierre', 'imagen'] as const;
+export const STUDIO_LAYOUTS = ['portada', 'pregunta', 'resultados', 'pasos', 'cierre', 'imagen', 'foto'] as const;
 export type StudioLayout = (typeof STUDIO_LAYOUTS)[number];
+
+/** Cómo va la foto en la lámina «foto» (foto con texto, en cualquier plantilla):
+ * - sangre: la foto llena la lámina y el texto va encima, sobre un degradé.
+ * - marco: la foto en una tarjeta con borde sobre el fondo de la plantilla.
+ * - circulo: la foto recortada en círculo, con el título como sticker.
+ * - polaroid: la foto inclinada con marco blanco, como una instantánea. */
+export const STUDIO_PHOTO_STYLES = ['sangre', 'marco', 'circulo', 'polaroid'] as const;
+export type StudioPhotoStyle = (typeof STUDIO_PHOTO_STYLES)[number];
 
 export const STUDIO_IMAGE_SIDES = ['auto', 'left', 'right'] as const;
 export type StudioImageSide = (typeof STUDIO_IMAGE_SIDES)[number];
@@ -81,6 +89,8 @@ export interface StudioSlide {
   heroBelow: boolean;
   /** Muestra "Desliza →" abajo. */
   swipeHint: boolean;
+  /** Solo en la lámina «foto»: cómo va la foto. */
+  photoStyle: StudioPhotoStyle;
 }
 
 export interface StudioDesign {
@@ -145,6 +155,7 @@ export function emptySlide(layout: StudioLayout = 'pregunta'): StudioSlide {
     hero: '',
     heroBelow: false,
     swipeHint: false,
+    photoStyle: 'sangre',
   };
 }
 
@@ -174,6 +185,7 @@ export function normalizeStudioSlide(raw: unknown): StudioSlide | null {
     hero: str(r.hero, LIMITS.hero).trim(),
     heroBelow: r.heroBelow === true,
     swipeHint: r.swipeHint === true,
+    photoStyle: oneOf(r.photoStyle, STUDIO_PHOTO_STYLES, 'sangre'),
   };
 }
 

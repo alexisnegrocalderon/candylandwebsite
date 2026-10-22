@@ -190,6 +190,11 @@ export async function shareItems(items: ExportItem[], title: string): Promise<bo
 
 /* --- Plantillas fijas (se dibujan en la página principal, no en un iframe) --- */
 
+/** Una lámina ya dibujada (a tamaño real) a PNG. */
+export function captureSlide(node: HTMLElement): Promise<Blob> {
+  return capture(node);
+}
+
 export async function downloadSlide(node: HTMLElement, name: string) {
   download(await capture(node), name);
 }

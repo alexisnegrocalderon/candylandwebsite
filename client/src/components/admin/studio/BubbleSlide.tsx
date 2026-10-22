@@ -53,7 +53,7 @@ function BubbleLine({ text, size, tone }: { text: string; size: number; tone: To
 }
 
 /** El titular completo: líneas alternadas rosa / blanco. */
-function BubbleHeadline({ text, box, max = 190, tone0 = 'pink' }: { text: string; box: { width: number; height: number }; max?: number; tone0?: Tone }) {
+export function BubbleHeadline({ text, box, max = 190, tone0 = 'pink' }: { text: string; box: { width: number; height: number }; max?: number; tone0?: Tone }) {
   const { lines, size } = layoutBubbleHeadline(text, box, { max, min: 64, maxLines: 5 });
   if (lines.length === 0) return null;
   return (
@@ -70,7 +70,7 @@ function pillSize(text: string, size: number, maxChars: number) {
   return text.length > maxChars ? Math.max(26, Math.round(size * (maxChars / text.length))) : size;
 }
 
-function OutlinePill({ text, size: base = 40 }: { text: string; size?: number }) {
+export function OutlinePill({ text, size: base = 40 }: { text: string; size?: number }) {
   if (!text) return null;
   const size = pillSize(text, base, 26);
   return (
@@ -84,7 +84,7 @@ function OutlinePill({ text, size: base = 40 }: { text: string; size?: number })
 }
 
 /** Botón grande relleno ("COMENTA PLAYROOM"). */
-function BigPill({ text, color }: { text: string; color: string }) {
+export function BigPill({ text, color }: { text: string; color: string }) {
   if (!text) return null;
   const size = pillSize(text, 74, 18);
   return (
@@ -98,7 +98,7 @@ function BigPill({ text, color }: { text: string; color: string }) {
   );
 }
 
-function Caption({ text, size = 34, style }: { text: string; size?: number; style?: CSSProperties }) {
+export function Caption({ text, size = 34, style }: { text: string; size?: number; style?: CSSProperties }) {
   if (!text) return null;
   return (
     <div style={{ fontFamily: BODY, fontWeight: 600, fontSize: size, letterSpacing: '0.24em', textTransform: 'uppercase', color: '#FFFFFF', textAlign: 'center', whiteSpace: 'nowrap', ...style }}>

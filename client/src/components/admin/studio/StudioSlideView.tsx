@@ -3,6 +3,7 @@ import '@fontsource-variable/josefin-sans/wght.css';
 import '@fontsource-variable/josefin-sans/wght-italic.css';
 import './studio-fonts.css';
 import { BubbleSlide } from './BubbleSlide';
+import { FotoSlide } from './FotoSlide';
 import { resolveBubblePalette } from '@shared/studioBubble';
 import {
   fitFontSize,
@@ -114,6 +115,8 @@ export const StudioSlideView = forwardRef<HTMLDivElement, StudioSlideViewProps>(
     body = slide.imageUrl
       ? <img src={slide.imageUrl} alt="" crossOrigin="anonymous" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
       : <Placeholder style={{ position: 'absolute', inset: 0 }} label="Sube tu imagen (hecha en Claude Design u otra)" />;
+  } else if (slide.layout === 'foto') {
+    body = <FotoSlide theme={theme} slide={slide} format={format} width={width} height={height} />;
   } else if (theme === 'bubble') {
     body = <BubbleSlide slide={slide} index={index} format={format} width={width} height={height} showBrand={props.showBrand === true} />;
   } else if (theme === 'azul') {
