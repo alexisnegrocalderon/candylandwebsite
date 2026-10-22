@@ -2,7 +2,7 @@ import { Component, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { toast } from 'sonner';
-import { Calendar, Check, Copy, Crown, Gift, LogOut, Sparkles, Ticket as TicketIcon, ArrowRight, Download, Loader2, X, QrCode, CreditCard, Coins, MoreHorizontal, Home, Wallet, Plus } from 'lucide-react';
+import { Calendar, Check, Copy, Crown, Gift, LogOut, Sparkles, Ticket as TicketIcon, ArrowRight, Download, Loader2, X, QrCode, CreditCard, Coins, MoreHorizontal, Home, Wallet, Plus, RefreshCw } from 'lucide-react';
 import { Link } from 'wouter';
 import { trpc } from '@/lib/trpc';
 import type { inferRouterOutputs } from '@trpc/server';
@@ -158,23 +158,76 @@ function TicketWallet({ ev, holder, prepaidBalance, playcoins, movements, compac
   const t = ev ? ev.tickets[Math.min(i, ev.tickets.length - 1)] : null;
   const usable = !!(ev && t?.qrImageUrl && t.status !== 'used');
 
+  const [flipSignal, setFlipSignal] = useState(0);
+  const card = (
+    <TiltCard>
+      <WalletCard
+        eventTitle={ev?.eventTitle ?? ''}
+        eventDateShort=""
+        holderName={t?.holderName || holder}
+        ticketCode={t?.ticketCode ?? null}
+        qrImageUrl={t?.status === 'used' ? null : t?.qrImageUrl ?? null}
+        prepaidBalance={prepaidBalance}
+        playcoins={playcoins}
+        movements={movements.map((m) => ({ ...m, createdAt: new Date(m.createdAt) })) as any}
+        onCardClick={usable ? () => { tapHaptic(); setShowQr(true); } : undefined}
+        hideFlipHint={compact}
+        flipSignal={flipSignal}
+      />
+    </TiltCard>
+  );
+  const holderPills = ev && ev.tickets.length > 1 && ev.tickets.map((x, n) => (
+    <button key={x.ticketCode} type="button" onClick={() => { tapHaptic(); setI(n); }} className={`h-9 rounded-full px-4 text-sm font-semibold interactive ${n === i ? 'lg-pill text-white' : 'text-white/60'}`}>
+      {x.status === 'used' ? '✅ ' : ''}{x.holderName ? x.holderName.split(' ')[0] : `Entrada ${n + 1}`}
+    </button>
+  ));
+  // Acciones secundarias como mosaicos iguales (ícono arriba, texto abajo): fila simétrica que llena el ancho.
+  const tiles = [
+    usable && t ? { key: 'entrada', label: 'Mi entrada', icon: TicketIcon, href: `/verificar/${t.ticketCode}` } : null,
+    onPayCaja ? { key: 'caja', label: 'Pagar en caja', icon: Wallet, onClick: onPayCaja } : null,
+    onTopup ? { key: 'recarga', label: 'Recargar', icon: Plus, onClick: onTopup } : null,
+  ].filter(Boolean) as { key: string; label: string; icon: typeof Wallet; href?: string; onClick?: () => void }[];
+  const tileClass = 'account-glass flex h-[76px] flex-col items-center justify-center gap-1.5 rounded-[22px] text-[13px] font-semibold text-white interactive';
+
+  if (compact) {
+    return (
+      <div className="space-y-4">
+        {ev && <EventStrip ev={ev} />}
+        {card}
+        {(holderPills || t) && (
+          <div className="flex items-center justify-center gap-2">
+            {holderPills && <div className="flex items-center gap-1 rounded-full bg-white/[0.06] p-1">{holderPills}</div>}
+            {t && (
+              <button type="button" onClick={() => { tapHaptic(); setFlipSignal((n) => n + 1); }} aria-label="Ver el reverso de la tarjeta" className="lg-pill grid h-11 w-11 place-items-center rounded-full text-white/80 interactive">
+                <RefreshCw className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+        )}
+        {usable && (
+          <button type="button" onClick={() => { tapHaptic(); setShowQr(true); }} className="inline-flex h-14 w-full items-center justify-center gap-2.5 rounded-full bg-gradient-to-r from-pink-500 via-fuchsia-500 to-sky-500 text-[15px] font-bold text-white shadow-[0_10px_30px_-8px_rgba(236,72,153,0.6),inset_0_1px_0_rgba(255,255,255,0.35)] interactive">
+            <QrCode className="h-5 w-5" /> Mostrar QR
+          </button>
+        )}
+        {tiles.length > 0 && (
+          <div className="grid gap-2.5" style={{ gridTemplateColumns: `repeat(${tiles.length}, minmax(0, 1fr))` }}>
+            {tiles.map(({ key, label, icon: Icon, href, onClick }) => href ? (
+              <Link key={key} href={href} className={tileClass}><Icon className="h-5 w-5 text-pink-300" />{label}</Link>
+            ) : (
+              <button key={key} type="button" onClick={() => { tapHaptic(); onClick?.(); }} className={tileClass}><Icon className="h-5 w-5 text-pink-300" />{label}</button>
+            ))}
+          </div>
+        )}
+        {createPortal(<AnimatePresence>{showQr && ev && t && <QrViewer ev={ev} t={t} holder={holder} onClose={() => setShowQr(false)} />}</AnimatePresence>, document.body)}
+      </div>
+    );
+  }
+
   return (
-    <div className={compact ? 'space-y-3' : 'space-y-4'}>
+    <div className="space-y-4">
       {ev && <EventStrip ev={ev} />}
       <div className={`rounded-[28px] ${compact ? 'p-3' : 'p-5 md:p-8'}`} style={{ background: 'radial-gradient(120% 120% at 20% 0%, #241432, #0d0712 70%)' }}>
-        <TiltCard>
-        <WalletCard
-          eventTitle={ev?.eventTitle ?? ''}
-          eventDateShort=""
-          holderName={t?.holderName || holder}
-          ticketCode={t?.ticketCode ?? null}
-          qrImageUrl={t?.status === 'used' ? null : t?.qrImageUrl ?? null}
-          prepaidBalance={prepaidBalance}
-          playcoins={playcoins}
-          movements={movements.map((m) => ({ ...m, createdAt: new Date(m.createdAt) })) as any}
-          onCardClick={usable ? () => { tapHaptic(); setShowQr(true); } : undefined}
-        />
-        </TiltCard>
+        {card}
         {ev && ev.tickets.length > 1 && (
           <div className={`flex flex-wrap justify-center gap-2 ${compact ? 'mt-2' : 'mt-4'}`}>
             {ev.tickets.map((x, n) => (
@@ -221,7 +274,7 @@ function EventStrip({ ev }: { ev: MeEvent }) {
   const countdown = useCountdown(ev.eventDate);
   return (
     <div className={`rounded-3xl p-[1.5px] ${NEON_RING}`}>
-      <div className="flex items-center justify-between gap-3 rounded-[23px] bg-[#0d0712]/95 px-4 py-3">
+      <div className="flex items-center justify-between gap-3 rounded-[23px] bg-[#0d0712]/55 px-4 py-3 backdrop-blur-xl">
         <div className="min-w-0">
           <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-pink-300">Tu próximo evento</p>
           <p className="truncate font-heading text-base font-extrabold text-white">{ev.eventTitle}</p>
@@ -510,7 +563,7 @@ function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | nu
           <>
             <motion.div className="fixed inset-0 z-30 bg-black/50" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setMore(false)} />
             <motion.div
-              className="lg-sheet fixed inset-x-0 bottom-0 z-40 max-h-[85dvh] overflow-y-auto rounded-t-[32px] px-4 pb-[max(20px,env(safe-area-inset-bottom))] pt-3"
+              className="lg-sheet fixed inset-x-0 bottom-0 z-40 max-h-[88dvh] overflow-y-auto overscroll-contain rounded-t-[32px] px-4 pb-[calc(env(safe-area-inset-bottom)+28px)] pt-3"
               initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 30, stiffness: 320 }}
               drag="y" dragConstraints={{ top: 0, bottom: 0 }} dragElastic={{ top: 0, bottom: 0.6 }} onDragEnd={(_, info) => { if (info.offset.y > 80) setMore(false); }}
             >
@@ -526,15 +579,22 @@ function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | nu
                 <PushPrompt source="puntos" tone="dark" />
                 <EarlyCard me={me} />
                 {me.nextEvent && (
-                  <Link href={`/checkout/${me.nextEvent.slug}`} className="account-glass flex h-12 items-center justify-center gap-2 rounded-2xl text-sm font-semibold"><TicketIcon className="h-4 w-4 text-pink-300" /> Comprar entrada · {me.nextEvent.title}</Link>
+                  <Link href={`/checkout/${me.nextEvent.slug}`} className="flex min-h-[60px] items-center gap-3 rounded-[22px] bg-gradient-to-r from-pink-500/90 via-fuchsia-500/90 to-sky-500/90 px-4 py-2.5 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.35)]">
+                    <TicketIcon className="h-5 w-5 shrink-0" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[15px] font-bold leading-tight">Comprar entrada</span>
+                      <span className="block truncate text-xs text-white/85">{me.nextEvent.title}</span>
+                    </span>
+                    <ArrowRight className="h-4 w-4 shrink-0" />
+                  </Link>
                 )}
                 {pay.savedCards && <SavedCardsSection />}
                 <PerksCard me={me} />
                 <div className="grid grid-cols-2 gap-2">
-                  <Link href="/eventos" className="account-glass flex h-12 items-center justify-center gap-2 rounded-2xl text-sm font-semibold"><Calendar className="h-4 w-4" /> Eventos</Link>
-                  <Link href="/" className="account-glass flex h-12 items-center justify-center gap-2 rounded-2xl text-sm font-semibold"><Home className="h-4 w-4" /> Ir al sitio</Link>
+                  <Link href="/eventos" className="account-glass flex h-[76px] flex-col items-center justify-center gap-1.5 rounded-[22px] text-[13px] font-semibold"><Calendar className="h-5 w-5 text-pink-300" /> Eventos</Link>
+                  <Link href="/" className="account-glass flex h-[76px] flex-col items-center justify-center gap-1.5 rounded-[22px] text-[13px] font-semibold"><Home className="h-5 w-5 text-pink-300" /> Ir al sitio</Link>
                 </div>
-                <button type="button" onClick={onLogout} className="account-glass flex h-12 w-full items-center justify-center gap-2 rounded-2xl text-sm font-semibold text-rose-300"><LogOut className="h-4 w-4" /> Cerrar sesión</button>
+                <button type="button" onClick={onLogout} className="flex h-12 w-full items-center justify-center gap-2 rounded-full text-sm font-semibold text-rose-300/90"><LogOut className="h-4 w-4" /> Cerrar sesión</button>
               </div>
             </motion.div>
           </>
