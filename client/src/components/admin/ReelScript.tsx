@@ -7,6 +7,8 @@ import { WriteButton } from '@/components/admin/WriteButton';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { beatSheet, formatSecs, scoreHookEs } from '@shared/reelScript';
+import { scriptVideo } from '@shared/studioVideo';
+import { openVideoInStudio } from '@/components/admin/studio/handoff';
 import { hookFormulaName } from '@shared/reelHooks';
 
 /* Guion de Reel (server/reelScript.ts): 3 ganchos puntuados, la tabla de
@@ -85,6 +87,7 @@ function ScriptView({ script }: { script: Script }) {
         <Button variant="outline" size="sm" onClick={() => copy(fullScript, 'Guion')}><Copy className="mr-2 h-4 w-4" /> Copiar guion</Button>
         {screenTexts && <Button variant="outline" size="sm" onClick={() => copy(screenTexts, 'Textos en pantalla')}><Copy className="mr-2 h-4 w-4" /> Copiar textos en pantalla</Button>}
         {script.caption && <Button variant="outline" size="sm" onClick={() => copy(script.caption, 'Texto del post')}><Copy className="mr-2 h-4 w-4" /> Copiar texto del post</Button>}
+        <Button variant="outline" size="sm" onClick={() => openVideoInStudio(scriptVideo({ hook, beats: script.beats, caption: script.caption }))}><Clapperboard className="mr-2 h-4 w-4" /> Hacer video (sin IA)</Button>
       </div>
     </div>
   );

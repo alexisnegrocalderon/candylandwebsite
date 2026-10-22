@@ -1,4 +1,5 @@
 import { normalizeStudioDesign, type StudioDesign } from '@shared/contentStudio';
+import { normalizeStudioVideo, type StudioVideo } from '@shared/studioVideo';
 
 /* "Abrir en Estudio" desde el Plan de contenido: el diseño armado con la pieza
  * se deja en sessionStorage y se le pide al panel que cambie de sección
@@ -20,6 +21,27 @@ export function takeQueuedDesign(): StudioDesign | null {
     if (!raw) return null;
     window.sessionStorage.removeItem(KEY);
     return normalizeStudioDesign(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+}
+
+/* Lo mismo para un video (p. ej. «Hacer video» desde un guion de Reel). */
+const VIDEO_KEY = 'admin-studio-pending-video';
+
+export function openVideoInStudio(video: StudioVideo) {
+  try {
+    window.sessionStorage.setItem(VIDEO_KEY, JSON.stringify(video));
+  } catch { /* sin sessionStorage: el Estudio abre igual, sin el video */ }
+  window.dispatchEvent(new CustomEvent(OPEN_SECTION_EVENT, { detail: 'studio' }));
+}
+
+export function takeQueuedVideo(): StudioVideo | null {
+  try {
+    const raw = window.sessionStorage.getItem(VIDEO_KEY);
+    if (!raw) return null;
+    window.sessionStorage.removeItem(VIDEO_KEY);
+    return normalizeStudioVideo(JSON.parse(raw), normalizeStudioDesign);
   } catch {
     return null;
   }
