@@ -14,6 +14,8 @@ export type PushState = 'loading' | 'unsupported' | 'ios-install' | 'denied' | '
 
 const SW_URL = '/sw-site.js';
 const DISMISS_KEY = 'push-prompt.dismissed';
+/** Cuánto se espera para saber si el dispositivo ya tiene los avisos activados. */
+const SUBSCRIPTION_LOOKUP_MS = 4000;
 const DISMISS_MS = 30 * 86_400_000;
 /** En la app instalada el aviso vuelve antes: ahí es donde de verdad se pueden activar los avisos. */
 const DISMISS_APP_MS = 5 * 86_400_000;
@@ -113,7 +115,12 @@ export function useCustomerPush(opts: { source: PushSource; ticketCode?: string;
       if (isIos() && !isStandalone()) return setState('ios-install');
       if (!pushSupported()) return setState('unsupported');
       if (Notification.permission === 'denied') return setState('denied');
-      const sub = await currentSubscription().catch(() => null);
+      // Si el navegador no responde al mirar la suscripción (pasa en algunos
+      // Android), se da por «sin activar» en vez de quedar cargando para siempre.
+      const sub = await Promise.race([
+        currentSubscription().catch(() => null),
+        new Promise<null>((resolve) => window.setTimeout(() => resolve(null), SUBSCRIPTION_LOOKUP_MS)),
+      ]);
       if (!alive) return;
       setState(sub && Notification.permission === 'granted' ? 'enabled' : 'ask');
       // Ya activado desde la home (anónimo) y ahora abre su entrada: se liga a su correo.
