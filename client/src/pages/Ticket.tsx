@@ -1,4 +1,6 @@
 import { TiltCard } from '@/components/site/TiltCard';
+import { useDarkChrome } from '@/lib/darkChrome';
+import { BackButton } from '@/components/site/BackButton';
 import { useEffect, useRef, useState } from 'react';
 import { useRoute, Link } from 'wouter';
 import { motion } from 'framer-motion';
@@ -23,6 +25,7 @@ import { MemberPrompt } from '@/components/site/MemberPrompt';
  * asistentes y los datos del evento. No marca nada como usado — eso queda
  * para la futura pantalla de staff (tarea aparte). */
 export default function Ticket() {
+  useDarkChrome();
   const [, params] = useRoute('/verificar/:ticketCode');
   const ticketCode = params?.ticketCode ?? '';
   useSeo({
@@ -119,7 +122,9 @@ export default function Ticket() {
 
   return (
     <div className="wcard-page min-h-dvh">
-      <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
+      <BackButton />
+      {/* pt-12: deja sitio al botón «Volver» fijo arriba, para que no se monte sobre «Entrada válida». */}
+      <motion.div className="pt-12" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
         <div className="text-center mb-6">
           <span className={`wcard-status ${statusClass}`}>
             <ShieldCheck className="w-3.5 h-3.5" />

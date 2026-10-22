@@ -23,6 +23,7 @@ import { isFinePointer, resetScrollPosition } from "./lib/smoothScroll";
 // sitio lo hace desde el celular (tráfico de Instagram/WhatsApp), así que
 // era peso muerto para la mayoría de las visitas.
 import { lazy, Suspense, useEffect } from "react";
+import { DARK_CHROME_BG, isDarkRoute } from "@/lib/darkChrome";
 // La portada "/" pasa por HalloweenHome: renderiza la Home oficial tal cual,
 // y solo le agrega la paleta Halloween si el switch del admin está prendido
 // (o siempre en /halloween, la vista previa).
@@ -72,10 +73,12 @@ const ConcursoPremio = lazy(() => import("./pages/ConcursoPremio"));
 const ConcursoPosicion = lazy(() => import("./pages/ConcursoPosicion"));
 const PrivacyPolicy = lazy(() => import("./pages/PrivacyPolicy"));
 
-function PageLoader() {
+function PageLoader({ path }: { path: string }) {
   // En el panel y las terminales el splash oscuro del HTML sigue a la vista
   // mientras baja el chunk: un círculo encima sería un segundo loader.
   if (hasDarkSplash()) return null;
+  // «Mi cuenta» y la entrada son oscuras: cargar en pastel daba un destello blanco al navegar.
+  if (isDarkRoute(path)) return <div className="fixed inset-0" style={{ background: DARK_CHROME_BG }} />;
   return (
     <div className="min-h-screen flex items-center justify-center">
       <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
@@ -93,7 +96,7 @@ function Router() {
     resetScrollPosition();
   }, [location]);
   return (
-    <Suspense fallback={<PageLoader />}>
+    <Suspense fallback={<PageLoader path={location} />}>
       {/* Transición de entrada al cambiar de ruta: fade+rise corto. Antes esto
        * usaba AnimatePresence con mode="popLayout" para animar también la
        * salida de la página anterior, pero eso probó ser un bug reproducible

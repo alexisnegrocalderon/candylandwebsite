@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, motion, useDragControls } from 'framer-motion';
 import QRCode from 'qrcode';
 import { toast } from 'sonner';
 import { CreditCard, Loader2, Star, Trash2, X } from 'lucide-react';
@@ -26,6 +26,7 @@ const WCARD_VARS = {
 
 /** Hoja que sube desde abajo (mismo gesto que «Más»). */
 export function BottomSheet({ open, onClose, title, children }: { open: boolean; onClose: () => void; title: string; children: React.ReactNode }) {
+  const drag = useDragControls();
   if (typeof document === 'undefined') return null;
   return createPortal(
     <AnimatePresence>
@@ -36,9 +37,9 @@ export function BottomSheet({ open, onClose, title, children }: { open: boolean;
             role="dialog" aria-label={title}
             className="lg-sheet account-font fixed inset-x-0 bottom-0 z-[71] mx-auto max-h-[90dvh] max-w-lg overflow-y-auto rounded-t-[32px] px-4 pb-[max(20px,env(safe-area-inset-bottom))] pt-3 text-white"
             initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 30, stiffness: 320 }}
-            drag="y" dragConstraints={{ top: 0, bottom: 0 }} dragElastic={{ top: 0, bottom: 0.6 }} onDragEnd={(_, info) => { if (info.offset.y > 90) onClose(); }}
+            drag="y" dragControls={drag} dragListener={false} dragConstraints={{ top: 0, bottom: 0 }} dragElastic={{ top: 0, bottom: 0.6 }} onDragEnd={(_, info) => { if (info.offset.y > 90) onClose(); }}
           >
-            <div className="mx-auto mb-3 h-1.5 w-10 rounded-full bg-white/20" />
+            <div onPointerDown={(e) => drag.start(e)} className="-mx-4 mb-2 flex h-8 cursor-grab touch-none items-center justify-center"><div className="h-1.5 w-10 rounded-full bg-white/25" /></div>
             <div className="mb-4 flex items-center justify-between gap-3">
               <p className="font-heading text-lg font-bold">{title}</p>
               <button type="button" onClick={onClose} aria-label="Cerrar" className="grid h-10 w-10 place-items-center rounded-full bg-white/10"><X className="h-4 w-4" /></button>

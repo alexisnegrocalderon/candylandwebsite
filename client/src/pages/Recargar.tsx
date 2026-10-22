@@ -1,3 +1,4 @@
+import { useDarkChrome } from '@/lib/darkChrome';
 import { useEffect, useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import { motion } from 'framer-motion';
@@ -35,6 +36,7 @@ function storeSession(token: string) {
 }
 
 export default function Recargar() {
+  useDarkChrome();
   useSeo({
     title: 'Recarga tu PlayCard — Mansion Playroom',
     description: 'Carga saldo a tu Tarjeta PlayCard cuando quieras, aunque ya hayas comprado tu entrada.',
