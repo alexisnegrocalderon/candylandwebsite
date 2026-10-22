@@ -12,6 +12,7 @@ import Navbar from "./components/Navbar";
 import { AppTopBar } from "./components/site/AppTopBar";
 import { InstallAppPrompt } from "./components/site/InstallAppPrompt";
 import { isInstalledApp } from "./lib/appInstall";
+import { holdAppDark } from "./lib/darkChrome";
 import { useMemberSession } from "./lib/member";
 import { isFinePointer, resetScrollPosition } from "./lib/smoothScroll";
 
@@ -118,8 +119,11 @@ function useMemberAppMode(location: string, hideChrome: boolean) {
     if (loggedIn) navigate('/cuenta', { replace: true });
     setFirstLoad(false);
   }, [firstLoad, isLoading, loggedIn, navigate]);
+  const memberApp = loggedIn && !hideChrome;
+  // En modo app todo es oscuro y con su propia barra arriba: sin la franja de la barra de estado.
+  useEffect(() => (memberApp ? holdAppDark() : undefined), [memberApp]);
   return {
-    memberApp: loggedIn && !hideChrome,
+    memberApp,
     onAccount: location.startsWith('/cuenta'),
     holdForAccount: firstLoad && (isLoading || loggedIn),
   };
