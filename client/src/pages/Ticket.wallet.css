@@ -20,6 +20,8 @@
   --wcard-mono: ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, monospace;
 
   min-height: 100dvh;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, "Space Grotesk", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
   background:
     radial-gradient(38% 34% at 78% 8%, rgba(140, 123, 255, 0.5), transparent 62%),
     radial-gradient(34% 30% at 14% 26%, rgba(255, 63, 142, 0.42), transparent 60%),
@@ -46,7 +48,7 @@
 .wcard-status.is-used { background: var(--wcard-panel); color: var(--wcard-muted); border-color: var(--wcard-line); }
 .wcard-status.is-cancelled { background: rgba(255, 63, 142, 0.14); color: var(--wcard-magenta); border-color: rgba(255, 63, 142, 0.3); }
 
-.wcard-section { max-width: 440px; margin: 22px auto 0; background: rgba(36, 20, 50, 0.4); backdrop-filter: blur(14px) saturate(150%); -webkit-backdrop-filter: blur(14px) saturate(150%); border: 1px solid var(--wcard-line); border-radius: 18px; padding: 18px 20px; }
+.wcard-section { max-width: 440px; margin: 22px auto 0; background: linear-gradient(140deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.03) 45%, rgba(255, 255, 255, 0.07)); backdrop-filter: blur(28px) saturate(185%); -webkit-backdrop-filter: blur(28px) saturate(185%); border: 1px solid rgba(255, 255, 255, 0.12); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 24px 60px -24px rgba(0, 0, 0, 0.7); border-radius: 22px; padding: 18px 20px; }
 .wcard-section-label { font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--wcard-muted-2); margin: 0 0 10px; }
 .wcard-extra-row { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; color: var(--wcard-gold); }
 .wcard-extra-row + .wcard-extra-row { margin-top: 6px; }
@@ -54,12 +56,12 @@
 .wcard-actions { max-width: 440px; margin: 18px auto 0; display: flex; flex-direction: column; gap: 10px; }
 .wcard-btn { height: 52px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-weight: 700; font-size: 15px; text-decoration: none; }
 .wcard-btn-primary { background: linear-gradient(100deg, var(--wcard-magenta), var(--wcard-violet)); color: #fff; box-shadow: 0 10px 24px -10px rgba(255, 63, 142, 0.55); }
-.wcard-btn-ghost { background: rgba(36, 20, 50, 0.4); backdrop-filter: blur(10px) saturate(150%); -webkit-backdrop-filter: blur(10px) saturate(150%); border: 1px solid var(--wcard-line); color: var(--wcard-paper); }
+.wcard-btn-ghost { background: linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.05)); backdrop-filter: blur(28px) saturate(190%); -webkit-backdrop-filter: blur(28px) saturate(190%); border: 1px solid rgba(255, 255, 255, 0.14); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3); color: var(--wcard-paper); }
 
 /* Recarga de saldo (TopupPanel + /recargar) */
 .wcard-btn:disabled { opacity: 0.5; }
 .wcard-btn-block { width: 100%; }
-.wcard-amount { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-radius: 14px; border: 1px solid var(--wcard-line); background: rgba(36, 20, 50, 0.4); color: var(--wcard-paper); font-weight: 700; font-size: 16px; text-align: left; }
+.wcard-amount { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-radius: 16px; border: 1px solid rgba(255, 255, 255, 0.12); background: linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.03)); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2); color: var(--wcard-paper); font-weight: 700; font-size: 16px; text-align: left; }
 .wcard-amount small { display: block; font-size: 11.5px; font-weight: 600; color: var(--wcard-gold); margin-top: 2px; }
 .wcard-amount[aria-pressed="true"] { border-color: var(--wcard-gold); background: rgba(240, 198, 116, 0.12); box-shadow: 0 0 0 1px var(--wcard-gold); }
 .wcard-input { width: 100%; height: 52px; border-radius: 14px; border: 1px solid var(--wcard-line); background: rgba(13, 7, 18, 0.6); color: var(--wcard-paper); padding: 0 16px; font-size: 16px; outline: none; }

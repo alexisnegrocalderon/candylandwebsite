@@ -214,12 +214,12 @@
   --admin-body-size: 16px;
   --admin-radius: 22px;
   --admin-radius-sm: 14px;
-  --admin-shadow-clay: 0 24px 60px -18px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.08);
-  --admin-shadow-clay-sm: 0 12px 30px -12px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.07);
-  --admin-glass-bg: rgba(255, 255, 255, 0.055);
+  --admin-shadow-clay: 0 24px 60px -18px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  --admin-shadow-clay-sm: 0 12px 30px -12px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  --admin-glass-bg: rgba(255, 255, 255, 0.065);
   --admin-glass-bg-solid: rgba(24, 15, 34, 0.94);
   --admin-glass-border: rgba(255, 255, 255, 0.12);
-  --admin-glass-blur: blur(22px) saturate(150%);
+  --admin-glass-blur: blur(28px) saturate(180%);
   --admin-surface-solid: #1b1226;
 
   --admin-success-bg: rgba(34, 197, 94, 0.16);   --admin-success-text: #86efac;
@@ -283,10 +283,13 @@ html[data-admin-theme="dark-glass"] body {
  * a propósito: ver la nota de Safari en `.admin-clay-shell` (light-pro) --
  * el chrome se re-renderiza en cada navegación. Casi opaco + brillo interno. */
 .admin-glass-panel {
-  background: linear-gradient(180deg, rgba(40, 26, 56, 0.86), rgba(20, 13, 30, 0.9));
-  border: 1px solid rgba(255, 255, 255, 0.13);
+  /* Reflejo arriba (vidrio líquido) sin backdrop-filter: ver nota de Safari arriba. */
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0) 38%),
+    linear-gradient(180deg, rgba(40, 26, 56, 0.86), rgba(20, 13, 30, 0.9));
+  border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 28px;
-  box-shadow: 0 30px 70px -25px rgba(0, 0, 0, 0.75), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  box-shadow: 0 30px 70px -25px rgba(0, 0, 0, 0.75), inset 0 1px 0 rgba(255, 255, 255, 0.22), inset 0 -1px 0 rgba(255, 255, 255, 0.04);
 }
 .admin-glass-panel-sm { border-radius: 20px; }
 .admin-glass-sheet {
