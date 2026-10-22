@@ -28,6 +28,7 @@ Reglas:
 - Si la respuesta es solo para el caso de UNA persona (confirmar su compra, devolverle plata, agendarla, "ya te lo envié"), no es reutilizable: marca reusable=false.
 - Nunca incluyas nombres de clientes, teléfonos, correos, RUT ni cuentas de Instagram de personas: si el dato depende de eso, marca personalData=true.
 - topic: "precios" si habla de montos, descuentos, cupones o formas de pago; "reglas" si habla de reembolsos, devoluciones, edad mínima, ingreso, disfraz, dress code, bloqueos o derecho de admisión; "general" para todo lo demás.
+- Solo importa lo relacionado con la productora y sus eventos: entradas, precios, fechas, lugar, ingreso, reglas, disfraces, estacionamiento, cómo llegar, etc. Si la conversación es entre amigos o conocidos, social, un chiste, un meme, un plan personal o cualquier tema ajeno a la productora, marca offTopic=true y devuelve la lista vacía. Ante la duda, si menciona algo de la fiesta, NO es offTopic.
 - Si no hay ningún dato reutilizable, devuelve la lista vacía.
 Responde ÚNICAMENTE con el JSON pedido.`;
 
@@ -37,8 +38,9 @@ const FACTS_SCHEMA = {
   schema: {
     type: 'object',
     additionalProperties: false,
-    required: ['facts'],
+    required: ['offTopic', 'facts'],
     properties: {
+      offTopic: { type: 'boolean', description: 'true si la conversación es personal/social y no trata de la productora ni de sus eventos.' },
       facts: {
         type: 'array',
         items: {
@@ -60,13 +62,14 @@ const FACTS_SCHEMA = {
 export const FACTS_SCHEMA_FOR_TEST = FACTS_SCHEMA;
 
 const FactsOut = z.object({
+  offTopic: z.boolean(),
   facts: z.array(z.object({ text: z.string(), topic: z.enum(['general', 'precios', 'reglas']), reusable: z.boolean(), personalData: z.boolean() })),
 });
 
 export interface DistilledFact { text: string; topic: KnowledgeTopic }
 
 /** La IA convierte pregunta + respuesta en datos reutilizables. Descarta lo no reutilizable y lo que trae datos de personas. */
-export async function distillFacts(input: { question: string; answer: string }): Promise<DistilledFact[]> {
+export async function distillFacts(input: { question: string; answer: string }): Promise<{ facts: DistilledFact[]; offTopic: boolean }> {
   const result = await invokeLLM({
     feature: 'agentLearning',
     messages: [
@@ -80,10 +83,11 @@ export async function distillFacts(input: { question: string; answer: string }):
   try { parsed = JSON.parse(raw); } catch { throw new Error('La IA no devolvió un formato válido'); }
   const out = FactsOut.safeParse(parsed);
   if (!out.success) throw new Error('La IA no devolvió datos válidos');
-  return out.data.facts
+  const facts = out.data.facts
     .filter((f) => f.reusable && !f.personalData)
     .map((f) => ({ text: cleanFactText(f.text), topic: f.topic as KnowledgeTopic }))
     .filter((f) => f.text.length >= 8 && !hasPersonalData(f.text));
+  return { facts: out.data.offTopic ? [] : facts, offTopic: out.data.offTopic };
 }
 
 /** Guarda datos nuevos (sin repetir uno que ya existe). Devuelve los que quedaron guardados. */
@@ -124,7 +128,8 @@ export async function teachFromOwner(input: { idea: string; handoffId?: number |
   let facts: DistilledFact[] = [];
   let usedAi = true;
   try {
-    facts = await distillFacts({ question, answer: idea });
+    // offTopic se ignora: lo que el dueño escribe a propósito se guarda igual.
+    facts = (await distillFacts({ question, answer: idea })).facts;
   } catch (err) {
     console.error('[AgentLearning] No se pudo destilar; se guarda tal cual lo escribió el dueño:', err);
     usedAi = false;
@@ -222,7 +227,13 @@ export async function learnFromOwnerReplies(now = new Date(), maxPerRun = 12): P
     if (replies.length === 0) continue;
     used++;
     try {
-      const facts = await distillFacts({ question: h.incomingText, answer: replies.join('\n') });
+      const { facts, offTopic } = await distillFacts({ question: h.incomingText, answer: replies.join('\n') });
+      if (offTopic) {
+        // Charla de amigos o fuera de los eventos: no hay nada que aprender ni que revisar.
+        await resolveHandoff(h.id, 'descartado');
+        out.answered++;
+        continue;
+      }
       const saved = await saveFacts(facts, 'respuesta', h.id);
       await resolveHandoff(h.id, saved.length > 0 ? 'ensenado' : 'respondida');
       if (saved.length > 0) out.learned += saved.length; else out.answered++;
