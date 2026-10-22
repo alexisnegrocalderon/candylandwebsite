@@ -4,7 +4,7 @@ import { useLocation } from 'wouter';
 import { Gift, X } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { MemberLogin } from '@/components/site/MemberLogin';
-import { useMemberSession } from '@/lib/member';
+import { useMemberInvite, useMemberSession } from '@/lib/member';
 import { isStandalone, promptDismissed as pushPromptDismissed } from '@/lib/customerPush';
 
 /* Invitaciones discretas a «Mi cuenta» (opcional): en la entrada, después de
@@ -29,8 +29,9 @@ export function MemberPrompt({ source, ticketCode, orderNumber, tone = 'light', 
   const { data: perks } = trpc.member.perks.useQuery(undefined, { staleTime: 5 * 60_000 });
   const [, navigate] = useLocation();
   const [open, setOpen] = useState(false);
+  const invite = useMemberInvite();
   const dark = tone === 'dark';
-  if (isLoading || (session?.loggedIn && session.isMember)) return null;
+  if (!invite || isLoading || (session?.loggedIn && session.isMember)) return null;
   // Sin una compra identificada no hay a dónde mandar el código.
   if (!ticketCode && !orderNumber) return null;
 
@@ -64,6 +65,7 @@ export function MemberSheet() {
   const { data: session, isLoading } = useMemberSession();
   const [, navigate] = useLocation();
   const [show, setShow] = useState(false);
+  const invite = useMemberInvite();
 
   useEffect(() => {
     if (!isStandalone() || dismissedRecently()) return;
@@ -82,7 +84,7 @@ export function MemberSheet() {
     return () => window.clearTimeout(t);
   }, []);
 
-  if (isLoading || session?.loggedIn) return null;
+  if (!invite || isLoading || session?.loggedIn) return null;
   return (
     <AnimatePresence>
       {show && (
