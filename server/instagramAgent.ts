@@ -13,6 +13,8 @@ import { cleanAiMarks } from '../shared/captionCheck';
 import { AI_PHRASES_ES } from '../shared/aiPhrasesEs';
 import { EVENT_BRAND } from '../shared/eventBrand';
 import { dropSupersededTickets } from '../shared/liveTickets';
+import { buildKnowledgeBlock } from '../shared/agentKnowledge';
+import { activeKnowledgeFacts } from './agentLearning';
 
 /* El cerebro del agente que contesta los mensajes directos del Instagram.
  *
@@ -325,7 +327,7 @@ const WARM_SALES_RULES = [
  * solo en una cuenta pública. */
 function buildSystemPrompt(
   config: InstagramAgentConfig,
-  opts: { isFinalReplyOfDay?: boolean; channel?: AgentChannel; customerNotes?: string | null; welcome?: string | null; isFan?: boolean; extra?: string | null } = {},
+  opts: { isFinalReplyOfDay?: boolean; channel?: AgentChannel; customerNotes?: string | null; welcome?: string | null; isFan?: boolean; extra?: string | null; learned?: { text: string }[] } = {},
 ): { stable: string; volatile: string } {
   const channel = opts.channel ?? 'instagram';
   const name = CHANNEL_NAME[channel];
@@ -343,6 +345,7 @@ function buildSystemPrompt(
     ...(config.salesPlaybook.trim().length > 0
       ? ['GUÍA DE VENTAS DEL DUEÑO (tipos de cliente y objeciones -- úsala para leer a quién le hablas y cómo acompañarlo):', config.salesPlaybook, '']
       : []),
+    ...buildKnowledgeBlock(opts.learned ?? []),
     buildSiteLinksBlock(),
     '',
     'REGLAS QUE NO SE NEGOCIAN:',
@@ -506,7 +509,8 @@ async function runAgentOnce(input: {
     const context = await buildInstagramContext(input.now ?? new Date());
     const history = toLlmMessages(input.history).slice(-config.historyLimit);
 
-    const systemPrompt = buildSystemPrompt(config, { isFinalReplyOfDay: input.isFinalReplyOfDay, channel, customerNotes: input.customerNotes, welcome: input.welcome, isFan: input.isFan, extra });
+    const learned = await activeKnowledgeFacts();
+    const systemPrompt = buildSystemPrompt(config, { learned, isFinalReplyOfDay: input.isFinalReplyOfDay, channel, customerNotes: input.customerNotes, welcome: input.welcome, isFan: input.isFan, extra });
     const result = await invokeLLM({ feature: "instagramAgent",
       messages: [
         { role: 'system', content: systemPrompt.stable, cache: true },

@@ -22,6 +22,7 @@ import { InstagramAutomations } from '@/components/admin/InstagramAutomations';
 import { InstagramComments } from '@/components/admin/InstagramComments';
 import { InstagramLinkKit } from '@/components/admin/InstagramLinkKit';
 import { formatChileDateTime } from '@shared/chileDate';
+import { classifyHandoffNoise, NOISE_LABEL } from '@shared/agentKnowledge';
 import { IG_MAX_REPLY_CHARS, type InstagramAgentConfig } from '@shared/instagramAgentConfig';
 
 /* Bandeja del agente que contesta el Instagram (server/instagram.ts).
@@ -156,6 +157,7 @@ export function InstagramInbox() {
               <AgentSalesCard />
               <FansCard onOpen={openThread} />
               <AgentCoachCard />
+              <KnowledgeCard />
               <HandoffLogCard />
             </TabsContent>
             <TabsContent value="automatizaciones" className="pt-3">
@@ -697,18 +699,29 @@ function AgentSalesCard() {
   );
 }
 
-/** El loop real de "seguir entrenando al agente" (pedido del dueño, 23/09):
- * cada vez que el agente deriva una conversación (en Instagram O WhatsApp,
- * comparten el mismo cerebro) queda acá, aunque después el hilo se
- * reactive desde la bandeja y el `handoffReason` del hilo se borre. Sin
- * esto, la única forma de enterarse de qué no supo responder el agente era
- * abrir hilo por hilo antes de que se reactivara -- fácil de perderse justo
- * la pregunta real de un cliente. */
+/** Preguntas que el agente derivó. El dueño puede enseñarle la respuesta con
+ * sus palabras (la IA la convierte en datos que el agente usa después) o
+ * descartarla. Lo que es ruido (adjuntos sin texto, solo emojis, mensajes
+ * personales) se descarta solo y queda en un grupo plegado. Además el agente
+ * aprende solo de lo que el dueño contesta a mano en la conversación. */
 function HandoffLogCard() {
   const utils = trpc.useUtils();
   const { data, isLoading } = trpc.instagram.listHandoffLog.useQuery();
-  const resolve = trpc.instagram.resolveHandoffLog.useMutation({
-    onSuccess: () => { utils.instagram.listHandoffLog.invalidate(); },
+  const { data: dismissed } = trpc.instagram.listDismissedHandoffLog.useQuery();
+  const [drafts, setDrafts] = useState<Record<number, string>>({});
+  const refresh = () => {
+    utils.instagram.listHandoffLog.invalidate();
+    utils.instagram.listDismissedHandoffLog.invalidate();
+    utils.instagram.listKnowledge.invalidate();
+  };
+  const resolve = trpc.instagram.resolveHandoffLog.useMutation({ onSuccess: refresh, onError });
+  const teach = trpc.instagram.teach.useMutation({
+    onSuccess: (res, vars) => {
+      refresh();
+      setDrafts((d) => { const n = { ...d }; if (vars.handoffId != null) delete n[vars.handoffId]; return n; });
+      const first = res.saved[0];
+      toast.success(res.saved.length === 0 ? 'Ya lo sabía.' : res.saved.length === 1 && first ? `Aprendido: ${first.text}` : `El agente aprendió ${res.saved.length} datos.`);
+    },
     onError,
   });
 
@@ -719,25 +732,138 @@ function HandoffLogCard() {
       </CardHeader>
       <CardContent className="space-y-3">
         <p className="text-sm text-muted-foreground">
-          Cada derivación del agente (Instagram o WhatsApp) queda acá, aunque después reactives la conversación. Revísalo
-          de vez en cuando y decide qué agregar a "Qué tiene que saber el agente" (pestaña "Conocimiento y tono").
+          Escribe con tus palabras lo que el agente debería saber y lo guarda como conocimiento: la próxima vez responde solo,
+          sin repetir tu mensaje tal cual. Si contestas tú la conversación, también aprende de tu respuesta sin que hagas nada.
         </p>
         {isLoading ? null : !data || data.length === 0 ? (
           <p className="text-sm text-muted-foreground">Nada pendiente por ahora -- buena señal.</p>
         ) : (
           <ul className="space-y-3">
             {data.map((row) => (
-              <li key={row.id} className="rounded-2xl border p-3 space-y-1.5">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-medium text-muted-foreground">
-                    {row.channel === 'instagram' ? 'Instagram' : 'WhatsApp'} · {row.who} · {formatChileDateTime(row.createdAt)}
-                  </span>
-                  <Button variant="ghost" size="sm" onClick={() => resolve.mutate({ id: row.id })} disabled={resolve.isPending}>
-                    Ya lo agregué
-                  </Button>
-                </div>
+              <li key={row.id} className="rounded-2xl border p-3 space-y-2">
+                <span className="text-xs font-medium text-muted-foreground">
+                  {row.channel === 'instagram' ? 'Instagram' : 'WhatsApp'} · {row.who} · {formatChileDateTime(row.createdAt)}
+                </span>
                 <p className="text-sm">"{row.incomingText}"</p>
                 <p className="text-xs text-amber-600">{row.reason}</p>
+                <Textarea
+                  value={drafts[row.id] ?? ''}
+                  onChange={(e) => setDrafts((d) => ({ ...d, [row.id]: e.target.value }))}
+                  placeholder="¿Qué debería saber el agente para responder esto? Ej.: sí se puede entrar con coche de guagua hasta las 8 pm"
+                  rows={2}
+                  maxLength={1000}
+                />
+                <div className="flex gap-2 justify-end">
+                  <Button variant="ghost" size="sm" onClick={() => resolve.mutate({ id: row.id })} disabled={resolve.isPending}>Descartar</Button>
+                  <Button
+                    size="sm"
+                    onClick={() => teach.mutate({ handoffId: row.id, idea: (drafts[row.id] ?? '').trim() })}
+                    disabled={teach.isPending || (drafts[row.id] ?? '').trim().length < 3}
+                  >
+                    Enseñarle
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+        {dismissed && dismissed.length > 0 && (
+          <details className="rounded-2xl border p-3">
+            <summary className="cursor-pointer text-sm text-muted-foreground">Descartados automáticamente ({dismissed.length})</summary>
+            <ul className="mt-2 space-y-1.5">
+              {dismissed.map((row) => {
+                const kind = classifyHandoffNoise({ incomingText: row.incomingText, reason: row.reason });
+                return (
+                  <li key={row.id} className="text-xs text-muted-foreground">
+                    {kind ? NOISE_LABEL[kind] : 'Descartado'} · {row.who} · {formatChileDateTime(row.createdAt)}
+                    {row.incomingText ? ` · "${row.incomingText.slice(0, 80)}"` : ''}
+                  </li>
+                );
+              })}
+            </ul>
+          </details>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+const STATUS_LABEL = { activo: 'Activo', revisar: 'Por revisar', pausado: 'Pausado' } as const;
+const TOPIC_LABEL = { general: 'General', precios: 'Precios y descuentos', reglas: 'Reglas e ingreso' } as const;
+
+/** Lo que el agente ha aprendido. Lo general se activa solo; precios,
+ * descuentos, reembolsos y reglas de ingreso esperan tu aprobación. */
+function KnowledgeCard() {
+  const utils = trpc.useUtils();
+  const { data } = trpc.instagram.listKnowledge.useQuery();
+  const [draft, setDraft] = useState('');
+  const [editing, setEditing] = useState<{ id: number; text: string } | null>(null);
+  const refresh = () => utils.instagram.listKnowledge.invalidate();
+  const add = trpc.instagram.teach.useMutation({
+    onSuccess: () => { refresh(); setDraft(''); toast.success('Guardado en el conocimiento del agente.'); },
+    onError,
+  });
+  const setStatus = trpc.instagram.setKnowledgeStatus.useMutation({ onSuccess: refresh, onError });
+  const saveText = trpc.instagram.updateKnowledgeText.useMutation({ onSuccess: () => { refresh(); setEditing(null); }, onError });
+  const remove = trpc.instagram.deleteKnowledge.useMutation({ onSuccess: refresh, onError });
+  const pending = (data ?? []).filter((k) => k.status === 'revisar').length;
+
+  return (
+    <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2"><Lightbulb className="w-5 h-5" /> Lo que el agente aprendió</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-sm text-muted-foreground">
+          Datos que aprendió de ti, activos de inmediato. Lo que toque precios, descuentos, reembolsos o reglas de ingreso
+          queda "Por revisar" hasta que lo apruebes. Nunca guarda datos de personas.
+          {pending > 0 ? ` Tienes ${pending} por revisar.` : ''}
+        </p>
+        <div className="flex gap-2">
+          <Input
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && draft.trim().length >= 3) add.mutate({ idea: draft.trim() }); }}
+            placeholder="Agregar un dato: ej. los coches de guagua pueden entrar hasta las 8 pm"
+            maxLength={1000}
+          />
+          <Button onClick={() => add.mutate({ idea: draft.trim() })} disabled={add.isPending || draft.trim().length < 3}>Agregar</Button>
+        </div>
+        {!data || data.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Todavía no ha aprendido nada.</p>
+        ) : (
+          <ul className="space-y-2">
+            {data.map((k) => (
+              <li key={k.id} className="rounded-2xl border p-3 space-y-1.5">
+                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                  <span className={k.status === 'activo' ? 'text-emerald-600 font-medium' : k.status === 'revisar' ? 'text-amber-600 font-medium' : ''}>
+                    {STATUS_LABEL[k.status as keyof typeof STATUS_LABEL] ?? k.status}
+                  </span>
+                  <span>· {TOPIC_LABEL[k.topic as keyof typeof TOPIC_LABEL] ?? k.topic}</span>
+                  <span>· {k.source === 'dueno' ? 'tú' : 'de tu respuesta'}</span>
+                </div>
+                {editing?.id === k.id ? (
+                  <div className="flex gap-2">
+                    <Input value={editing.text} onChange={(e) => setEditing({ id: k.id, text: e.target.value })} maxLength={1000} />
+                    <Button size="sm" onClick={() => saveText.mutate({ id: k.id, text: editing.text.trim() })} disabled={saveText.isPending || editing.text.trim().length < 3}>Guardar</Button>
+                    <Button size="sm" variant="ghost" onClick={() => setEditing(null)}>Cancelar</Button>
+                  </div>
+                ) : (
+                  <p className="text-sm whitespace-pre-wrap break-words">{k.text}</p>
+                )}
+                <div className="flex flex-wrap gap-1 justify-end">
+                  {k.status === 'revisar' && (
+                    <Button size="sm" onClick={() => setStatus.mutate({ id: k.id, status: 'activo' })}>Aprobar</Button>
+                  )}
+                  {k.status === 'activo' && (
+                    <Button size="sm" variant="ghost" onClick={() => setStatus.mutate({ id: k.id, status: 'pausado' })}>Pausar</Button>
+                  )}
+                  {k.status === 'pausado' && (
+                    <Button size="sm" variant="ghost" onClick={() => setStatus.mutate({ id: k.id, status: 'activo' })}>Activar</Button>
+                  )}
+                  <Button size="sm" variant="ghost" onClick={() => setEditing({ id: k.id, text: k.text })}>Editar</Button>
+                  <Button size="sm" variant="ghost" className="text-destructive" onClick={() => remove.mutate({ id: k.id })}>Eliminar</Button>
+                </div>
               </li>
             ))}
           </ul>

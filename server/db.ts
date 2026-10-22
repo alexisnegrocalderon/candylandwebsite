@@ -4,6 +4,7 @@ import { randomBytes } from "crypto";
 import { normalizeStatusCounts } from "../shared/ordersPagination";
 import { creditAvailability, creditDiscount, normalizeCreditCode, type CreditAvailability } from "../shared/accessCredit";
 import { computeCodeDiscount } from "../shared/discountCode";
+import { classifyHandoffNoise } from "../shared/agentKnowledge";
 import { BLOCK_BY_LABEL, blockedKeysFor, hasHardKey, matchBlocked, type BlockedRow, type BlockMatchBy, type Identity } from "../shared/blockedMatch";
 import { findExistingMatch, mergeFields, type ImportFields } from "../shared/blockedImport";
 import { ambassadorBuyerDiscount, bestBuyerDiscount, effectiveBuyerDiscountPercent, type GeneralBuyerDiscount } from "../shared/ambassadorDiscount";
@@ -8219,12 +8220,16 @@ export async function logAgentHandoff(input: {
 }): Promise<void> {
   const db = await getDb();
   if (!db) return;
+  // Adjuntos sin texto, mensajes personales y solo emojis no enseñan nada: entran ya descartados
+  // (quedan en el grupo plegado «Descartados automáticamente», no en la lista de pendientes).
+  const noise = classifyHandoffNoise({ incomingText: input.incomingText, reason: input.reason });
   await db.insert(agentHandoffLog).values({
     channel: input.channel,
     threadId: input.threadId,
     who: input.who.slice(0, 255),
     incomingText: input.incomingText.slice(0, 2000),
     reason: input.reason.slice(0, 500),
+    ...(noise ? { resolvedAt: new Date(), outcome: 'descartado' } : {}),
   });
 }
 
@@ -8246,10 +8251,17 @@ export async function listAgentHandoffLog(opts: { onlyPending?: boolean; limit?:
 /** El dueño ya revisó esta derivación (agregó la respuesta a brandNotes, o
  * decidió que no hacía falta) -- la saca de la lista de pendientes sin
  * borrar la fila. */
-export async function resolveAgentHandoffLog(id: number): Promise<void> {
+export async function resolveAgentHandoffLog(id: number, outcome: 'manual' | 'ensenado' | 'respondida' | 'descartado' = 'manual'): Promise<void> {
   const db = await getDb();
   if (!db) return;
-  await db.update(agentHandoffLog).set({ resolvedAt: new Date() }).where(eq(agentHandoffLog.id, id));
+  await db.update(agentHandoffLog).set({ resolvedAt: new Date(), outcome }).where(eq(agentHandoffLog.id, id));
+}
+
+/** Derivaciones que se descartaron solas (adjuntos, mensajes personales, solo emojis), las más nuevas primero. */
+export async function listDismissedHandoffLog(limit = 30): Promise<AgentHandoffLog[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(agentHandoffLog).where(eq(agentHandoffLog.outcome, 'descartado')).orderBy(desc(agentHandoffLog.createdAt)).limit(limit);
 }
 
 // ---------------------------------------------------------------------------

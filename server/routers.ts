@@ -7,6 +7,7 @@ import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, adminReadProcedure, partnerProcedure, operatorProcedure, supervisorProcedure, deviceProcedure, doorProcedure, kitchenProcedure, guardarropiaProcedure, router } from "./_core/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
+import { teachFromOwner, listKnowledge, setKnowledgeStatus, updateKnowledgeText, deleteKnowledge } from "./agentLearning";
 import { nanoid } from "nanoid";
 import * as db from "./db";
 import { getMission300Status, evaluateMission300, processCardPaymentForOrder, confirmFreeOrder, resendConfirmationEmail, approveMissionTopupWithoutPayment, settleUpgradeAndNotify, settleAddonAndNotify } from "./webhooks";
@@ -3201,6 +3202,29 @@ export const appRouter = router({
     }),
     resolveHandoffLog: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
       await db.resolveAgentHandoffLog(input.id);
+      return { success: true };
+    }),
+    listDismissedHandoffLog: adminProcedure.query(async () => db.listDismissedHandoffLog()),
+    /* El dueño escribe la idea con sus palabras; la IA la convierte en datos
+     * cortos que el agente usa al responder (server/agentLearning.ts). */
+    teach: adminProcedure
+      .input(z.object({ handoffId: z.number().optional(), idea: z.string().trim().min(3).max(1000) }))
+      .mutation(async ({ input }) => {
+        try {
+          return await teachFromOwner({ idea: input.idea, handoffId: input.handoffId });
+        } catch (err) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo guardar' });
+        }
+      }),
+    listKnowledge: adminProcedure.query(async () => listKnowledge()),
+    setKnowledgeStatus: adminProcedure
+      .input(z.object({ id: z.number(), status: z.enum(['activo', 'revisar', 'pausado']) }))
+      .mutation(async ({ input }) => { await setKnowledgeStatus(input.id, input.status); return { success: true }; }),
+    updateKnowledgeText: adminProcedure
+      .input(z.object({ id: z.number(), text: z.string().trim().min(3).max(1000) }))
+      .mutation(async ({ input }) => { await updateKnowledgeText(input.id, input.text); return { success: true }; }),
+    deleteKnowledge: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+      await deleteKnowledge(input.id);
       return { success: true };
     }),
   }),

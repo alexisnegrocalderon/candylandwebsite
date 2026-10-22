@@ -7,6 +7,7 @@ import { sendEmail, buildCheckinSummaryEmail } from "./email";
 import { getProgramConfig, sendWeeklyAmbassadorEmails } from "./ambassadorProgram";
 import { runAbandonedCartCron } from "./orderReminders";
 import { runPushQueue } from "./pushAutomations";
+import { runAgentLearning } from './agentLearning';
 import { checkAndAdvanceTandaIfNeeded } from "./tandaAutoAdvance";
 import { runFoundersPromoDaily } from "./foundersPromo";
 import { runTanda2PromoDaily } from "./tanda2Promo";
@@ -91,6 +92,18 @@ export function registerCronRoutes(app: Express) {
       res.json({ success: true, ...(await runPushQueue()) });
     } catch (err) {
       console.error('[Cron] Error en la cola de push a clientes:', err);
+      res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Error desconocido' });
+    }
+  });
+
+  /* El agente aprende de las respuestas del dueño y descarta el ruido de la
+   * lista de preguntas sin resolver (server/agentLearning.ts). */
+  app.get("/api/cron/agent-learning", async (req: Request, res: Response) => {
+    if (!requireCronSecret(req, res)) return;
+    try {
+      res.json({ success: true, ...(await runAgentLearning()) });
+    } catch (err) {
+      console.error('[Cron] Error en el aprendizaje del agente:', err);
       res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Error desconocido' });
     }
   });
