@@ -32,7 +32,7 @@ concurrency:
 jobs:
   render:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
         with:
@@ -43,12 +43,54 @@ jobs:
         with:
           node-version: 22
 
-      - name: FFmpeg y emojis
+      # Lo pesado se guarda entre grabaciones: el navegador de HyperFrames
+      # (~270 MB), lo que baja npm, FFmpeg y la fuente de emojis. Con eso, una
+      # grabación tarda 1 a 3 minutos; la primera (o si cambia la versión) baja todo.
+      - name: Caché de herramientas
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/hyperframes
+            ~/.npm
+            ~/ffmpeg-static
+            ~/emoji-font
+          key: render-studio-${{ runner.os }}-hf0.8.185-v1
+
+      # FFmpeg: un binario estático (bajan ~40 MB en segundos). Si esa descarga
+      # falla, se instala con apt, con tiempo límite: ningún paso se queda colgado.
+      - name: FFmpeg
+        timeout-minutes: 5
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg fonts-noto-color-emoji
+          if [ ! -x "$HOME/ffmpeg-static/ffmpeg" ] || [ ! -x "$HOME/ffmpeg-static/ffprobe" ]; then
+            mkdir -p "$HOME/ffmpeg-static"
+            if ! curl -fsSL --retry 3 --max-time 90 https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz \
+                | tar -xJ -C "$HOME/ffmpeg-static" --strip-components=1 --wildcards '*/ffmpeg' '*/ffprobe'; then
+              echo "No se pudo bajar FFmpeg estático; se instala con apt."
+              rm -rf "$HOME/ffmpeg-static"
+              sudo timeout 150 apt-get install -y -qq --no-install-recommends ffmpeg \
+                || { sudo timeout 120 apt-get update -qq && sudo timeout 200 apt-get install -y -qq --no-install-recommends ffmpeg; }
+            fi
+          fi
+          echo "$HOME/ffmpeg-static" >> "$GITHUB_PATH"
+
+      # Emojis (✅ ❌ 🔥…): si no se logra, se graba igual, solo que sin ellos.
+      - name: Fuente de emojis
+        continue-on-error: true
+        timeout-minutes: 4
+        run: |
+          if [ -f "$HOME/emoji-font/NotoColorEmoji.ttf" ]; then
+            mkdir -p "$HOME/.fonts" && cp "$HOME/emoji-font/NotoColorEmoji.ttf" "$HOME/.fonts/" && fc-cache -f "$HOME/.fonts"
+            exit 0
+          fi
+          if ! fc-list | grep -qi "color emoji"; then
+            sudo timeout 100 apt-get install -y -qq --no-install-recommends fonts-noto-color-emoji \
+              || { sudo timeout 60 apt-get update -qq && sudo timeout 100 apt-get install -y -qq --no-install-recommends fonts-noto-color-emoji; }
+          fi
+          font="$(fc-list | grep -i "color emoji" | head -1 | cut -d: -f1)"
+          if [ -n "$font" ]; then mkdir -p "$HOME/emoji-font" && cp "$font" "$HOME/emoji-font/NotoColorEmoji.ttf"; fi
 
       - name: Grabar y subir
+        timeout-minutes: 10
         env:
           VIDEO_ID: ${{ inputs.video_id }}
           JOB_ID: ${{ inputs.job_id }}
