@@ -60,7 +60,7 @@ import { WinbackView } from '@/components/admin/WinbackView';
 import { ContentPlanView } from '@/components/admin/ContentPlanView';
 import { ContestsView } from '@/components/admin/ContestsView';
 import { ProfileAuditView } from '@/components/admin/ProfileAuditView';
-import { OPEN_SECTION_EVENT } from '@/components/admin/studio/handoff';
+import { OPEN_SECTION_EVENT, openEventPackInStudio } from '@/components/admin/studio/handoff';
 import { parseAdminDeepLink } from '@shared/adminDeepLink';
 import { deliverAdminDeepLink } from '@/lib/adminDeepLink';
 
@@ -1095,6 +1095,9 @@ function EventCard({ event, onDeleted, expanded, onToggleExpand }: { event: any;
             <p className="text-muted-foreground text-sm truncate">/{event.slug} | {event.status} | {new Date(event.eventDate).toLocaleDateString('es-CL', { timeZone: 'America/Santiago' })}</p>
           </button>
           <div className="flex items-center gap-2 shrink-0">
+            <Button variant="outline" size="sm" onClick={() => openEventPackInStudio(event.id)} title="Imágenes y videos de este evento (Estudio)" aria-label="Contenido del evento">
+              <Palette className="w-3 h-3 md:mr-1" /><span className="hidden md:inline">Contenido</span>
+            </Button>
             {!expanded && (
               <Button
                 variant="outline"

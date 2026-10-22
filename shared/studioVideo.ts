@@ -147,6 +147,13 @@ export function starterPointsVideo(): StudioVideo {
   });
 }
 
+/** El código de un embajador tal como se escribe al comprar: letras, números,
+ * guion y guion bajo (2 a 32), en mayúsculas. Cualquier otra cosa = sin código. */
+export function cleanAmbassadorCode(value: unknown): string {
+  const code = typeof value === 'string' ? value.trim().toUpperCase() : '';
+  return /^[A-Z0-9_-]{2,32}$/.test(code) ? code : '';
+}
+
 /** Lo que hace falta de un evento para anunciarlo. */
 export interface VideoEvent {
   id: number;
@@ -162,9 +169,11 @@ function capitalize(text: string): string {
 
 /** Anuncio del evento con sus datos reales (hora de Chile). La dirección no
  * va nunca: se entrega solo a quien compró. */
-export function eventVideo(event: VideoEvent): StudioVideo {
+export function eventVideo(event: VideoEvent, opts: { code?: string; format?: VideoFormat } = {}): StudioVideo {
   const date = event.eventDate;
+  const code = cleanAmbassadorCode(opts.code);
   return base({
+    format: opts.format ?? 'reel',
     title: `Anuncio ${event.title}`,
     template: 'anuncio',
     eventId: event.id,
@@ -174,9 +183,33 @@ export function eventVideo(event: VideoEvent): StudioVideo {
       { title: capitalize(formatChileDate(date)), body: `${formatChileTime(event.doorsOpen ?? date)} hrs`, secs: 2.6 },
       { title: 'Cupos limitados', body: 'Compra tu entrada antes', secs: 2.2 },
     ],
-    cta: 'Entradas en mansionplayroom.cl',
-    ctaLine: '¿Vienes?',
-    caption: `${event.title} · ${capitalize(formatChileDate(date))}\n\n🎟️ Entradas en mansionplayroom.cl (link en la bio)\n\n#MansionPlayroom #FiestaLiberal #VinaDelMar`,
+    // Con código de embajador, el botón es el código (es lo que se escribe al comprar).
+    cta: code ? `Mi código: ${code}` : 'Entradas en mansionplayroom.cl',
+    ctaLine: code ? 'Entradas en mansionplayroom.cl' : '¿Vienes?',
+    caption: [
+      `${event.title} · ${capitalize(formatChileDate(date))}`,
+      `🎟️ Entradas en mansionplayroom.cl (link en la bio)${code ? `\nUsa mi código ${code} al comprar tu entrada.` : ''}`,
+      '#MansionPlayroom #FiestaLiberal #VinaDelMar',
+    ].join('\n\n'),
+  });
+}
+
+/** La PlayCard en un reel: los mismos pasos de la plantilla del carrusel. */
+export function playcardVideo(): StudioVideo {
+  return base({
+    title: 'PlayCard animada',
+    template: 'puntos',
+    theme: 'playcard',
+    scenes: [
+      { title: 'Tarjeta\nPlayCard', body: 'Un solo QR para todo: tu acceso, tu saldo y tus Playcoins.', secs: 3.4 },
+      { title: 'Se activa con tu entrada', body: 'Al comprar, tu tarjeta queda lista.', secs: 2.6 },
+      { title: 'Saldo y Playcoins', body: 'Cada compra suma Playcoins.', secs: 2.6 },
+      { title: 'Pagas sin billetera', body: 'Muestras tu QR y ingresas tu PIN.', secs: 2.6 },
+      { title: 'Te sigue de fiesta en fiesta', body: 'Lo que no gastes queda para la próxima.', secs: 2.8 },
+    ],
+    cta: 'Comprar mi entrada',
+    ctaLine: '@mansionplayroom.cl',
+    caption: 'Tu PlayCard: un solo QR para tu acceso, tu saldo y tus Playcoins. Se activa sola con tu entrada. 🎟️\n\n#MansionPlayroom #PlayCard',
   });
 }
 
