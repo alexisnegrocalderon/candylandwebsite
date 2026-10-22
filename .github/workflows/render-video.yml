@@ -1,0 +1,58 @@
+# Graba a MP4 un video del Estudio de contenido (admin → Marketing → Estudio)
+# con HyperFrames. Lo dispara el sitio (server/studioRender.ts) al apretar
+# «Exportar MP4»; no corre con pushes ni PRs.
+#
+# El repo es público: estos inputs los ve cualquiera, así que no llevan nada
+# secreto. El proyecto y el permiso para subir el MP4 se piden al sitio con
+# el secreto RENDER_CALLBACK_SECRET (Settings → Secrets and variables →
+# Actions), el mismo valor que la variable de Vercel con ese nombre.
+name: Grabar video del Estudio
+
+on:
+  workflow_dispatch:
+    inputs:
+      video_id:
+        description: Id del video en el Estudio
+        required: true
+      job_id:
+        description: Id de esta grabación
+        required: true
+      site:
+        description: Dirección del sitio que pidió la grabación
+        required: true
+        default: https://mansionplayroom.cl
+
+permissions:
+  contents: read
+
+concurrency:
+  group: render-video-${{ inputs.video_id }}
+  cancel-in-progress: true
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/render-studio-video.mjs
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: FFmpeg y emojis
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-noto-color-emoji
+
+      - name: Grabar y subir
+        env:
+          VIDEO_ID: ${{ inputs.video_id }}
+          JOB_ID: ${{ inputs.job_id }}
+          SITE: ${{ inputs.site }}
+          RENDER_CALLBACK_SECRET: ${{ secrets.RENDER_CALLBACK_SECRET }}
+          HYPERFRAMES_SKIP_SKILLS: '1'
+        run: node scripts/render-studio-video.mjs

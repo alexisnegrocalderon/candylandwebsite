@@ -6,6 +6,7 @@ import { registerSiteManifestRoute } from "../siteManifest";
 import { registerCronRoutes } from "../cronRoutes";
 import { registerTicketAssetRoutes } from "../calendar";
 import { registerBlobUploadRoutes } from "../blobUpload";
+import { registerStudioRenderRoutes } from "../studioRender";
 import { registerStudioAiRoutes } from "../studioAi/routes";
 import { registerPartyPhotoRoutes } from "../partyPhoto";
 import { registerSitemapRoute } from "../sitemap";
@@ -63,6 +64,8 @@ export function createApp(): Express {
   registerSiteManifestRoute(app);
   registerTicketAssetRoutes(app);
   registerBlobUploadRoutes(app);
+  // La máquina de GitHub que graba los videos del Estudio (server/studioRender.ts).
+  registerStudioRenderRoutes(app);
   registerStudioAiRoutes(app);
   registerPartyPhotoRoutes(app);
   registerSitemapRoute(app);
