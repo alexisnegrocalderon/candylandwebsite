@@ -472,3 +472,23 @@ html {
 @media (prefers-reduced-motion: reduce) {
   .member-pill { animation: none; }
 }
+
+/* «Mi cuenta»: mismo fondo de luces y vidrio oscuro que el panel (admin.css), sin depender de él. */
+.account-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(900px 600px at 85% -10%, oklch(0.55 0.25 320 / 0.45), transparent 60%),
+    radial-gradient(700px 500px at -10% 40%, oklch(0.45 0.2 300 / 0.35), transparent 60%),
+    radial-gradient(900px 700px at 60% 120%, oklch(0.5 0.2 260 / 0.45), transparent 60%),
+    #0b0612;
+}
+.account-glass {
+  background: rgba(255, 255, 255, 0.055);
+  backdrop-filter: blur(22px) saturate(150%);
+  -webkit-backdrop-filter: blur(22px) saturate(150%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 24px 60px -18px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}

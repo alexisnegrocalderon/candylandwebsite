@@ -21,7 +21,7 @@ import { firstName } from '@shared/pushText';
 const KIND_LABEL: Record<string, string> = { bienvenida: 'Bienvenida', nivel: 'Por tu nivel', cumpleanos: 'Cumpleaños', manual: 'De regalo' };
 
 /* Paleta propia (siempre oscura, como el panel): la página no depende del tema claro/oscuro del teléfono. */
-const GLASS = 'rounded-3xl border border-white/10 bg-white/[0.04] backdrop-blur-sm';
+const GLASS = 'account-glass rounded-3xl';
 const NEON_RING = 'bg-gradient-to-br from-pink-500/70 via-fuchsia-400/40 to-sky-400/70';
 
 function Section({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
@@ -120,14 +120,15 @@ export default function Cuenta() {
   const { data: me, isLoading } = trpc.member.me.useQuery(undefined, { retry: false });
   const logout = trpc.member.logout.useMutation({ onSuccess: () => utils.member.invalidate() });
   const [welcome, setWelcome] = useState<LoginDone | null>(null);
-  const shell = 'min-h-dvh bg-[#0b0612] text-white';
+  const shell = 'relative min-h-dvh bg-[#0b0612] text-white';
 
-  if (isLoading) return <div className={`${shell} pt-28`} />;
+  if (isLoading) return <div className={`${shell} pt-28`}><div className="account-backdrop" /></div>;
 
   if (!me) {
     return (
       <div className={`${shell} pt-28 pb-16`}>
-        <div className="container max-w-md">
+        <div className="account-backdrop" />
+        <div className="container relative z-10 max-w-md">
           <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
             <div className="text-center">
               <h1 className="font-heading text-3xl font-extrabold text-white">Mi cuenta</h1>
@@ -159,7 +160,8 @@ export default function Cuenta() {
 
   return (
     <div className={`${shell} pt-28 pb-20`}>
-      <div className="container max-w-lg space-y-6">
+      <div className="account-backdrop" />
+      <div className="container relative z-10 max-w-lg space-y-6">
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
@@ -242,7 +244,7 @@ export default function Cuenta() {
 
           <Section icon={<Gift className="h-4 w-4" />} title="Mis cupones">
             {me.coupons.length === 0 ? (
-              <p className="rounded-2xl border border-dashed border-white/15 p-4 text-sm text-white/55">
+              <p className="account-glass rounded-2xl p-4 text-sm text-white/55">
                 Todavía no tienes cupones.{perks.length ? ' Te vamos regalando según lo que desbloqueas.' : ''}
               </p>
             ) : me.coupons.map((c) => <CouponCard key={c.id} c={c} />)}
