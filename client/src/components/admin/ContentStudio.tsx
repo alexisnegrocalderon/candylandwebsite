@@ -172,6 +172,21 @@ function StudioHome({ onOpen, onOpenAi, onOpenPhoto, onOpenVideo, onOpenPack }: 
   const { data: designs, isLoading } = trpc.contentStudio.list.useQuery();
   const { data: events } = trpc.events.listAll.useQuery();
   const [videoEvent, setVideoEvent] = useState('none');
+  // «Desde una idea»: Claude escribe las escenas; HyperFrames lo dibuja y lo graba.
+  const [ideaBrief, setIdeaBrief] = useState('');
+  const [ideaFormat, setIdeaFormat] = useState<'reel' | 'feed'>('reel');
+  const [ideaScenes, setIdeaScenes] = useState('4');
+  const [ideaModel, setIdeaModel] = useState<'claude-haiku-4-5' | 'claude-sonnet-5-5'>('claude-haiku-4-5');
+  const [ideaEvent, setIdeaEvent] = useState('auto');
+  const quickVideo = trpc.contentStudio.quickVideo.useMutation({
+    onSuccess: async ({ id, costUsd }) => {
+      utils.contentStudio.list.invalidate();
+      toast.success(`Video listo (${formatUsd(costUsd)}). Revísalo y ajústalo.`);
+      setIdeaBrief('');
+      await openVideo(id);
+    },
+    onError: (e) => toast.error(e.message),
+  });
   const upcomingEvents = (events ?? []).filter((e) => e.status === 'published' || e.status === 'soldout');
   const newVideo = () => {
     const event = upcomingEvents.find((e) => String(e.id) === videoEvent);
@@ -292,12 +307,76 @@ function StudioHome({ onOpen, onOpenAi, onOpenPhoto, onOpenVideo, onOpenPack }: 
       </Card>
 
       <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+        <CardContent className="pt-6 space-y-3">
+          <div>
+            <p className="font-medium flex items-center gap-2"><Sparkles className="w-4 h-4" /> Video desde una idea (IA + HyperFrames)</p>
+            <p className="text-sm text-muted-foreground">
+              Cuéntale la idea: Claude escribe el gancho, las escenas, el cierre y el texto de la publicación; las plantillas de marca y
+              HyperFrames lo dibujan y lo graban a MP4. La IA solo escribe (no genera imágenes), así que cuesta centavos, igual que el modo Rápido.
+            </p>
+          </div>
+          <Textarea
+            value={ideaBrief}
+            onChange={(e) => setIdeaBrief(e.target.value)}
+            rows={3}
+            placeholder="Ej: reel de 3 cosas que debes saber antes de tu primera vez en Playroom"
+          />
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="space-y-1.5">
+              <Label>Formato</Label>
+              <Select value={ideaFormat} onValueChange={(v) => setIdeaFormat(v as 'reel' | 'feed')}>
+                <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
+                <SelectContent>{(['reel', 'feed'] as const).map((f) => <SelectItem key={f} value={f}>{VIDEO_FORMAT_LABEL[f]}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Escenas</Label>
+              <Select value={ideaScenes} onValueChange={setIdeaScenes}>
+                <SelectTrigger className="w-24"><SelectValue /></SelectTrigger>
+                <SelectContent>{[2, 3, 4, 5, 6, 7, 8].map((n) => <SelectItem key={n} value={String(n)}>{n}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Evento</Label>
+              <Select value={ideaEvent} onValueChange={setIdeaEvent}>
+                <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">El evento destacado</SelectItem>
+                  {upcomingEvents.map((e) => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Modelo</Label>
+              <Select value={ideaModel} onValueChange={(v) => setIdeaModel(v as typeof ideaModel)}>
+                <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="claude-haiku-4-5">Haiku (económico)</SelectItem>
+                  <SelectItem value="claude-sonnet-5-5">Sonnet (mejores textos)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <Button
+              disabled={quickVideo.isPending || !ideaBrief.trim()}
+              onClick={() => quickVideo.mutate({
+                brief: ideaBrief, format: ideaFormat, model: ideaModel, sceneCount: Number(ideaScenes),
+                eventId: ideaEvent === 'auto' ? null : Number(ideaEvent),
+              })}
+            >
+              {quickVideo.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Sparkles className="w-4 h-4 mr-2" />}
+              Crear video con IA
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
         <CardContent className="pt-6 flex flex-wrap items-end gap-3">
           <div className="min-w-0 flex-1 basis-60">
-            <p className="font-medium flex items-center gap-2"><Camera className="w-4 h-4" /> Desde tu foto o un evento <span className="text-xs font-normal text-muted-foreground">· sin IA, gratis</span></p>
+            <p className="font-medium flex items-center gap-2"><Camera className="w-4 h-4" /> Desde tu foto o un evento <span className="text-xs font-normal text-muted-foreground">· los textos con IA son opcionales</span></p>
             <p className="text-sm text-muted-foreground">
               Subes una foto (o eliges un evento) y salen juntas todas las versiones de marca en feed 3:4 e historia 9:16: a sangre,
-              con marco, en círculo y polaroid. Eliges las que te gusten y las descargas.
+              con marco, en círculo y polaroid. Eliges las que te gusten y las descargas. Si quieres, Claude mira la foto y escribe los textos.
             </p>
           </div>
           <Button variant="outline" onClick={onOpenPhoto}><Camera className="w-4 h-4 mr-2" /> Crear desde foto</Button>

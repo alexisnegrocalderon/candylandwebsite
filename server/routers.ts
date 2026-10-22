@@ -148,6 +148,7 @@ import { WINBACK_SEGMENT_KEYS } from "../shared/winback";
 import { generateContentPlan } from "./contentPlanner";
 import { listContentDesigns, getContentDesign, saveContentDesign, deleteContentDesign, getContentVideo, saveContentVideo } from "./contentStudio";
 import { renderMissingConfig, requestVideoRender } from "./studioRender";
+import { quickPhotoTexts, quickVideoFromIdea } from "./studioAi/quickIdea";
 import { recordAiUsage, listAiUsageSince } from "./db";
 import { summarizeAiUsage } from "../shared/aiUsage";
 import { loadAiBudget, saveAiBudget } from "./aiBudget";
@@ -2901,6 +2902,38 @@ export const appRouter = router({
         return { id: await saveContentVideo(input.id, input.video) };
       } catch (err) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo guardar el video.' });
+      }
+    }),
+    // «Desde una idea»: Claude solo escribe (escenas de un video, o los textos de una
+    // foto); las plantillas y HyperFrames dibujan y graban (server/studioAi/quickIdea.ts).
+    quickVideo: adminProcedure.input(z.object({
+      brief: z.string().trim().min(1, 'Escribe qué quieres').max(2000),
+      format: z.enum(['reel', 'feed']).default('reel'),
+      eventId: z.number().int().positive().nullable().optional(),
+      model: z.enum(AI_MODELS).default('claude-haiku-4-5'),
+      sceneCount: z.number().int().min(2).max(8).default(4),
+    })).mutation(async ({ input }) => {
+      try {
+        const result = await quickVideoFromIdea({ ...input, eventId: input.eventId ?? null });
+        const id = await saveContentVideo(undefined, result.video);
+        await recordAiUsage({ feature: 'studio-video', model: result.model, ...result.usage, costUsd: result.costUsd });
+        return { id, costUsd: result.costUsd };
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo crear el video.' });
+      }
+    }),
+    quickPhoto: adminProcedure.input(z.object({
+      brief: z.string().trim().min(1, 'Escribe de qué trata').max(2000),
+      imageUrl: z.string().max(1000).default(''),
+      eventId: z.number().int().positive().nullable().optional(),
+      model: z.enum(AI_MODELS).default('claude-haiku-4-5'),
+    })).mutation(async ({ input }) => {
+      try {
+        const result = await quickPhotoTexts({ ...input, eventId: input.eventId ?? null });
+        await recordAiUsage({ feature: 'studio-foto', model: result.model, ...result.usage, costUsd: result.costUsd });
+        return { texts: result.texts, costUsd: result.costUsd };
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudieron escribir los textos.' });
       }
     }),
     // Grabar a MP4 con GitHub Actions (server/studioRender.ts). El panel manda el

@@ -1,7 +1,7 @@
-import { getAnthropicClient } from '../_core/llm';
+import { quickJson } from './quickCall';
 import { DEFAULT_STUDIO_THEME, normalizeStudioDesign, STUDIO_LAYOUTS, type StudioDesign, type StudioFormat } from '../../shared/contentStudio';
 import { BUBBLE_HEROES } from '../../shared/studioBubble';
-import { addUsage, EMPTY_USAGE, usageCostUsd, type AiModel, type AiUsage } from '../../shared/studioAi';
+import type { AiModel, AiUsage } from '../../shared/studioAi';
 import { TONO_DE_VOZ } from './brandPack';
 import { eventFacts } from './designer';
 
@@ -82,34 +82,16 @@ export interface QuickResult {
 export async function quickBubbleDesign(input: QuickInput): Promise<QuickResult> {
   const facts = await eventFacts(input.eventId);
   const count = Math.max(1, Math.min(10, input.format === 'carrusel' ? input.slideCount : 1));
-  const message = await getAnthropicClient().messages.create({
+  const { data, usage, costUsd, model } = await quickJson<{ title: string; caption: string; slides: unknown[] }>({
     model: input.model,
-    max_tokens: 3000,
-    system: [
-      { type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } },
-      { type: 'text', text: `Datos reales del evento (no inventes fechas ni precios):\n${facts}` },
-    ],
-    messages: [{ role: 'user', content: `Pedido: ${input.brief}\nLáminas: ${count}` }],
-    output_config: { format: { type: 'json_schema', schema: SCHEMA as unknown as Record<string, unknown> } },
-  } as never);
-  const msg = message as unknown as {
-    stop_reason: string; model: string; content: { type: string; text?: string }[];
-    usage: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number };
-  };
-  if (msg.stop_reason === 'refusal') throw new Error('La IA no quiso hacer este diseño. Prueba describiéndolo de otra forma.');
-  if (msg.stop_reason === 'max_tokens') throw new Error('La IA se quedó sin espacio. Pide menos láminas.');
-  const usage: AiUsage = addUsage(EMPTY_USAGE, {
-    inputTokens: msg.usage.input_tokens ?? 0,
-    outputTokens: msg.usage.output_tokens ?? 0,
-    cacheReadTokens: msg.usage.cache_read_input_tokens ?? 0,
-    cacheWriteTokens: msg.usage.cache_creation_input_tokens ?? 0,
+    system: SYSTEM,
+    facts: `Datos reales del evento (no inventes fechas ni precios):\n${facts}`,
+    content: `Pedido: ${input.brief}\nLáminas: ${count}`,
+    schema: SCHEMA as unknown as Record<string, unknown>,
+    maxTokens: 3000,
+    refusal: 'La IA no quiso hacer este diseño. Prueba describiéndolo de otra forma.',
+    tooLong: 'La IA se quedó sin espacio. Pide menos láminas.',
   });
-  let data: { title: string; caption: string; slides: unknown[] };
-  try {
-    data = JSON.parse(msg.content.map((b) => b.text ?? '').join(''));
-  } catch {
-    throw new Error('La IA devolvió una respuesta rota. Intenta de nuevo.');
-  }
   const design = normalizeStudioDesign({
     title: data.title,
     format: input.format,
@@ -119,5 +101,5 @@ export async function quickBubbleDesign(input: QuickInput): Promise<QuickResult>
     slides: data.slides,
   });
   if (!design) throw new Error('La IA no armó ninguna lámina. Intenta de nuevo.');
-  return { design, usage, costUsd: usageCostUsd(msg.model, usage), model: msg.model };
+  return { design, usage, costUsd, model };
 }
