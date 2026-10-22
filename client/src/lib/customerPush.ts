@@ -9,6 +9,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { trpc } from '@/lib/trpc';
 import { LAST_TICKET_CODE_KEY } from '@/lib/lastTicketCode';
 import { pushErrorMessage } from '@/lib/pushErrors';
+import { publishPushState, subscribePushState } from '@/lib/pushStateStore';
 
 export type PushSource = 'ticket' | 'pago' | 'home' | 'concurso' | 'puntos' | 'app';
 export type PushState = 'loading' | 'unsupported' | 'ios-install' | 'denied' | 'ask' | 'enabled';
@@ -110,6 +111,9 @@ export function useCustomerPush(opts: { source: PushSource; ticketCode?: string;
   const unsubscribe = trpc.customerPush.unsubscribe.useMutation();
   const ticketCode = opts.ticketCode ?? lastTicketCode() ?? undefined;
 
+  // El estado es del dispositivo: si otra copia del hook activa o apaga los avisos, esta se entera.
+  useEffect(() => subscribePushState(setState), []);
+
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -140,7 +144,7 @@ export function useCustomerPush(opts: { source: PushSource; ticketCode?: string;
     try {
       const permission = await Notification.requestPermission();
       if (permission !== 'granted') {
-        setState(permission === 'denied' ? 'denied' : 'ask');
+        publishPushState(permission === 'denied' ? 'denied' : 'ask');
         return false;
       }
       const reg = await navigator.serviceWorker.register(SW_URL, { scope: '/' });
@@ -152,7 +156,7 @@ export function useCustomerPush(opts: { source: PushSource; ticketCode?: string;
         subscription: { endpoint: json.endpoint!, keys: { p256dh: json.keys!.p256dh, auth: json.keys!.auth } },
         ticketCode, orderNumber: opts.orderNumber, source: opts.source, platform: pushPlatform(), standalone: isStandalone(),
       });
-      setState('enabled');
+      publishPushState('enabled');
       return true;
     } catch (err) {
       // El detalle técnico queda en la consola (para soporte); al cliente se le explica qué hacer.
@@ -172,7 +176,7 @@ export function useCustomerPush(opts: { source: PushSource; ticketCode?: string;
         await unsubscribe.mutateAsync({ endpoint: sub.endpoint });
         await sub.unsubscribe();
       }
-      setState('ask');
+      publishPushState('ask');
     } finally {
       setBusy(false);
     }
