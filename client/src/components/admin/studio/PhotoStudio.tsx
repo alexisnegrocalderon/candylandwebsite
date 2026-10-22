@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import { ArrowLeft, Camera, X } from 'lucide-react';
+import { ArrowLeft, Camera, Loader2, Sparkles, X } from 'lucide-react';
+import { toast } from 'sonner';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,6 +10,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ImageUploadField } from '@/components/admin/ImageUploadField';
 import { formatChileShortDate } from '@shared/chileDate';
+import { formatUsd } from '@shared/studioAi';
+import { photoBriefFromQuickData } from '@shared/studioAiIdea';
 import { STUDIO_PHOTO_STYLES, STUDIO_THEMES, type StudioDesign, type StudioFormat, type StudioPhotoStyle, type StudioTheme } from '@shared/contentStudio';
 import {
   DEFAULT_PHOTO_VARIANT_OPTIONS,
@@ -57,6 +60,17 @@ export function PhotoStudio({ initial, onBack, onOpen }: { initial: PhotoBrief; 
   const [formats, setFormats] = useState<StudioFormat[]>([...DEFAULT_PHOTO_VARIANT_OPTIONS.formats]);
   const [styles, setStyles] = useState<StudioPhotoStyle[]>([...DEFAULT_PHOTO_VARIANT_OPTIONS.styles]);
   const set = (patch: Partial<PhotoBrief>) => setBrief((b) => ({ ...b, ...patch }));
+
+  // «Escribir con IA»: Claude mira la foto (si hay) y escribe los textos; las plantillas dibujan.
+  const [idea, setIdea] = useState('');
+  const [aiModel, setAiModel] = useState<'claude-haiku-4-5' | 'claude-sonnet-5-5'>('claude-haiku-4-5');
+  const writeTexts = trpc.contentStudio.quickPhoto.useMutation({
+    onSuccess: ({ texts, costUsd }) => {
+      setBrief((b) => photoBriefFromQuickData(texts, b));
+      toast.success(`Textos listos (${formatUsd(costUsd)}). Ajústalos si quieres.`);
+    },
+    onError: (e) => toast.error(e.message),
+  });
 
   const variants = useMemo(() => photoVariants(brief, { themes, formats, styles }), [brief, themes, formats, styles]);
   // Los próximos primero: es lo que se anuncia.
@@ -108,6 +122,29 @@ export function PhotoStudio({ initial, onBack, onOpen }: { initial: PhotoBrief; 
               </div>
             </div>
 
+            <div className="rounded-xl border border-pink-500/30 bg-pink-500/5 p-3 space-y-2">
+              <Label className="flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5" /> Escribir los textos con IA (usa créditos)</Label>
+              <Textarea rows={2} maxLength={2000} value={idea} onChange={(e) => setIdea(e.target.value)} placeholder="De qué trata la pieza. Ej: anunciar la noche neón del sábado" />
+              <div className="flex flex-wrap items-center gap-2">
+                <Select value={aiModel} onValueChange={(v) => setAiModel(v as typeof aiModel)}>
+                  <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="claude-haiku-4-5">Haiku (económico)</SelectItem>
+                    <SelectItem value="claude-sonnet-5-5">Sonnet (mejores textos)</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button
+                  size="sm"
+                  disabled={writeTexts.isPending || !idea.trim()}
+                  onClick={() => writeTexts.mutate({ brief: idea, imageUrl: brief.imageUrl, eventId: brief.eventId, model: aiModel })}
+                >
+                  {writeTexts.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Sparkles className="w-4 h-4 mr-2" />}
+                  Escribir
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">Claude mira la foto para captar el ambiente (no describe a las personas) y rellena los textos de abajo. Solo escribe: la imagen la dibujan las plantillas.</p>
+            </div>
+
             <div className="space-y-1.5">
               <Label>Título (Enter para separar líneas)</Label>
               <Textarea rows={2} maxLength={200} value={brief.title} onChange={(e) => set({ title: e.target.value })} placeholder="Ej: Noche Neón" />
@@ -123,6 +160,11 @@ export function PhotoStudio({ initial, onBack, onOpen }: { initial: PhotoBrief; 
             <div className="space-y-1.5">
               <Label>Texto chico de abajo</Label>
               <Input maxLength={200} value={brief.footnote} onChange={(e) => set({ footnote: e.target.value })} placeholder="Ej: Evento +18" />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Texto de la publicación</Label>
+              <Textarea rows={3} maxLength={3000} value={brief.caption} onChange={(e) => set({ caption: e.target.value })} placeholder="El caption para pegar en Instagram (opcional)." />
             </div>
 
             <div className="space-y-1.5">

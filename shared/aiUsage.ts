@@ -4,6 +4,8 @@
 export const AI_FEATURE_LABEL: Record<string, string> = {
   'studio-diseno-libre': 'Estudio: diseño libre',
   'studio-rapido': 'Estudio: modo Rápido',
+  'studio-video': 'Estudio: video desde una idea',
+  'studio-foto': 'Estudio: textos para una foto',
   agentCoach: 'Coach del agente',
   costumeOracle: 'Oráculo de disfraces',
   salesStrategist: 'Director comercial',
