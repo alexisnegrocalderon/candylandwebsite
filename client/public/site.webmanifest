@@ -1,6 +1,6 @@
 {
   "name": "Mansion Playroom",
-  "short_name": "Playroom",
+  "short_name": "PlayRoom",
   "description": "Entradas, eventos y avisos de Mansion Playroom",
   "id": "/",
   "start_url": "/?source=app",

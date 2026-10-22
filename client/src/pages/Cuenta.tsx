@@ -587,12 +587,42 @@ const TABS: { key: Tab; label: string; icon: typeof CreditCard }[] = [
   { key: 'cupones', label: 'Cupones', icon: Gift },
 ];
 
+const TAB_KEY = 'cuenta.tab';
+const SCROLL_KEY = 'cuenta.embajador.scroll';
+
+/** La pestaña «Embajador» es larga: se recuerda hasta dónde bajó, para volver ahí. */
+function RememberScroll({ children }: { children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    let saved = 0;
+    try { saved = Number(sessionStorage.getItem(SCROLL_KEY) || 0); } catch { /* nada */ }
+    // Espera a que el contenido tenga alto antes de bajar.
+    const t = window.setTimeout(() => { el.scrollTop = saved; }, 60);
+    const onScroll = () => { try { sessionStorage.setItem(SCROLL_KEY, String(el.scrollTop)); } catch { /* nada */ } };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => { window.clearTimeout(t); el.removeEventListener('scroll', onScroll); };
+  }, []);
+  return <div ref={ref} className="-mx-1 min-h-0 flex-1 overflow-y-auto overscroll-contain px-1 pb-4">{children}</div>;
+}
+
 // Solo para quien entra con el correo de un embajador: su pestaña va segunda.
 const AMBASSADOR_TAB: { key: Tab; label: string; icon: typeof CreditCard } = { key: 'embajador', label: 'Embajador', icon: Crown };
 
 function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | null; onLogout: () => void }) {
-  const [tab, setTab] = useState<Tab>('card');
+  // Al volver de otra pantalla (comprar, un evento…) se abre en la misma pestaña donde estaba.
+  const [tab, setTabState] = useState<Tab>(() => {
+    try { return (sessionStorage.getItem(TAB_KEY) as Tab | null) ?? 'card'; } catch { return 'card'; }
+  });
+  const setTab = (next: Tab) => {
+    setTabState(next);
+    try { sessionStorage.setItem(TAB_KEY, next); } catch { /* sin almacenamiento: parte en PlayCard */ }
+  };
   const ambassador = useAmbassadorPanel();
+  // Pestaña guardada de «Embajador» pero ya no lo es (o es otra cuenta): vuelve a PlayCard.
+  const ambassadorChecked = trpc.member.ambassador.useQuery(undefined, { retry: false, staleTime: 60_000 }).isFetched;
+  useEffect(() => { if (tab === 'embajador' && ambassadorChecked && !ambassador) setTab('card'); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [tab, ambassadorChecked, ambassador]);
   const tabs = ambassador ? [TABS[0], AMBASSADOR_TAB, ...TABS.slice(1)] : TABS;
   const [more, setMore] = useState(false);
   const sheetDrag = useDragControls();
@@ -659,7 +689,7 @@ function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | nu
           )}
           {tab === 'embajador' && ambassador && (
             // Lo único que se desplaza en vertical: el contenido para compartir es largo.
-            <div className="-mx-1 min-h-0 flex-1 overflow-y-auto overscroll-contain px-1 pb-4"><AmbassadorAccount panel={ambassador} /></div>
+            <RememberScroll><AmbassadorAccount panel={ambassador} /></RememberScroll>
           )}
           {tab === 'entradas' && <TicketsPager events={upcoming} />}
           {tab === 'puntos' && (<>
