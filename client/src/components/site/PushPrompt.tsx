@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Bell, BellRing, Share, SquarePlus, X } from 'lucide-react';
 import { dismissPrompt, isStandalone, promptDismissed, useCustomerPush, type PushSource } from '@/lib/customerPush';
 import { pushPromptView } from '@/lib/pushPromptView';
+import { useInstallPromptVisible } from '@/lib/appInstall';
 
 /* "Activar avisos" del sitio (promos, concursos, recordatorio del evento).
  * En iPhone sin instalar enseña a agregar el sitio a inicio, porque iOS solo
@@ -127,6 +128,8 @@ const VISITS_KEY = 'push-prompt.visits';
  * la app instalada siempre (ahí recién se puede pedir el permiso en iPhone). */
 export function PushBanner() {
   const [show, setShow] = useState(false);
+  // La franja de abajo es una sola: mientras el aviso de instalar está a la vista, este espera.
+  const installOpen = useInstallPromptVisible();
   useEffect(() => {
     if (promptDismissed()) return;
     let visits = 1;
@@ -145,7 +148,7 @@ export function PushBanner() {
 
   return (
     <AnimatePresence>
-      {show && (
+      {show && !installOpen && (
         <motion.div
           initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 24 }}
           className="fixed inset-x-0 bottom-0 z-50 px-4 pb-[max(16px,env(safe-area-inset-bottom))] pointer-events-none"

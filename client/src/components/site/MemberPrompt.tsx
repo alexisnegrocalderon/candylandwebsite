@@ -6,6 +6,7 @@ import { trpc } from '@/lib/trpc';
 import { MemberLogin } from '@/components/site/MemberLogin';
 import { useMemberInvite, useMemberSession } from '@/lib/member';
 import { isStandalone, promptDismissed as pushPromptDismissed } from '@/lib/customerPush';
+import { useInstallPromptVisible } from '@/lib/appInstall';
 
 /* Invitaciones discretas a «Mi cuenta» (opcional): en la entrada, después de
  * pagar y al abrir la app instalada. Nunca aparecen si ya entró, y la entrada
@@ -66,6 +67,7 @@ export function MemberSheet() {
   const [, navigate] = useLocation();
   const [show, setShow] = useState(false);
   const invite = useMemberInvite();
+  const installOpen = useInstallPromptVisible();
 
   useEffect(() => {
     if (!isStandalone() || dismissedRecently()) return;
@@ -87,7 +89,7 @@ export function MemberSheet() {
   if (!invite || isLoading || session?.loggedIn) return null;
   return (
     <AnimatePresence>
-      {show && (
+      {show && !installOpen && (
         <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 24 }} className="fixed inset-x-0 bottom-0 z-50 px-4 pb-[max(16px,env(safe-area-inset-bottom))]">
           <div className="relative mx-auto max-w-md rounded-2xl bg-background p-4 shadow-2xl shadow-black/25">
             <button type="button" aria-label="Cerrar" onClick={() => { dismiss(); setShow(false); }} className="absolute right-3 top-3 text-muted-foreground"><X className="h-4 w-4" /></button>

@@ -556,6 +556,47 @@ html {
 /* Botones con borde: vidrio claro en vez del fondo blanco del sitio. */
 .account-tokens [data-slot="button"][data-variant="outline"] { background-color: rgba(255, 255, 255, 0.06); border-color: rgba(255, 255, 255, 0.16); }
 
+/* Vidrio líquido para tarjetas flotantes del sitio (aviso de instalar la app):
+   translúcido, desenfoca y satura lo que hay detrás, con brillo arriba y un
+   borde de luz. Toma el color del tema (`--color-background`), así sirve en
+   claro y en oscuro. */
+.glass-float {
+  position: relative;
+  isolation: isolate;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0) 45%),
+    color-mix(in oklab, var(--color-background) 52%, transparent);
+  -webkit-backdrop-filter: blur(26px) saturate(200%) brightness(1.04);
+  backdrop-filter: blur(26px) saturate(200%) brightness(1.04);
+  border: 1px solid color-mix(in oklab, white 55%, transparent);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.2),
+    0 22px 50px -18px rgba(70, 20, 80, 0.38),
+    0 2px 8px rgba(70, 20, 80, 0.08);
+}
+.glass-float::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(140deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.1) 32%, rgba(255, 255, 255, 0) 62%, rgba(255, 255, 255, 0.6));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  z-index: -1;
+}
+.glass-float-inset {
+  background: color-mix(in oklab, var(--color-background) 38%, transparent);
+  border: 1px solid color-mix(in oklab, white 50%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+.glass-float-btn {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), inset 0 -1px 1px rgba(0, 0, 0, 0.08), 0 8px 18px -6px color-mix(in oklab, var(--color-primary) 60%, transparent);
+}
+
 /* Tipografía tipo Apple para la app de socios: SF en iPhone/Mac, Inter/sistema en el resto. */
 .account-font {
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", Inter, "Space Grotesk", system-ui, sans-serif;
