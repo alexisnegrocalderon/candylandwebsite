@@ -20,9 +20,8 @@ export const PUSH_DRAFTS_SCHEMA = {
     properties: {
       drafts: {
         type: 'array',
-        // El proveedor solo acepta minItems 0 o 1: las 3 propuestas se piden en el texto y se recortan abajo.
+        // El proveedor rechaza (400) maxItems y minItems mayores a 1: las 3 propuestas se piden en el texto y se recortan abajo.
         minItems: 1,
-        maxItems: 3,
         items: {
           type: 'object',
           additionalProperties: false,

@@ -52,7 +52,7 @@ export const MailingContentSchema = z.object({
 });
 export type MailingContent = z.infer<typeof MailingContentSchema>;
 
-const MAILING_JSON_SCHEMA = {
+export const MAILING_JSON_SCHEMA = {
   name: "mailing_template",
   strict: true,
   schema: {
@@ -67,7 +67,6 @@ const MAILING_JSON_SCHEMA = {
         type: "array",
         items: { type: "string" },
         minItems: 1,
-        maxItems: 4,
         description: "Uno a cuatro párrafos cortos con el cuerpo del mensaje, tono cercano y conversacional.",
       },
       ctaText: { type: "string", description: "Texto del botón de acción, ej. 'Comprar mi entrada'." },
