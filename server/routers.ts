@@ -4197,17 +4197,23 @@ export const appRouter = router({
     preview: adminReadProcedure.input(z.object({ segment: pushSegmentSchema })).query(({ input }) => customerPush.previewSegment(input.segment)),
     save: adminProcedure.input(pushCampaignSchema.extend({ id: z.number().optional() })).mutation(async ({ input, ctx }) => {
       const data = { ...input, scheduledAt: input.scheduledAt ? new Date(input.scheduledAt) : null, createdBy: ctx.user?.name ?? ctx.user?.email ?? null };
-      if (input.id) {
-        await customerPush.updatePushCampaign(input.id, data);
-        return { id: input.id };
+      try {
+        if (input.id) {
+          await customerPush.updatePushCampaign(input.id, data);
+          return { id: input.id };
+        }
+        return { id: await customerPush.createPushCampaign(data) };
+      } catch (err) {
+        console.error('[CustomerPush] No se pudo guardar la campaña:', err);
+        throw new TRPCError({ code: 'BAD_REQUEST', message: customerPush.dbErrorMessage(err) });
       }
-      return { id: await customerPush.createPushCampaign(data) };
     }),
     send: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
       try {
         return await customerPush.sendPushCampaign(input.id);
       } catch (err) {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo enviar' });
+        console.error('[CustomerPush] No se pudo enviar la campaña:', err);
+        throw new TRPCError({ code: 'BAD_REQUEST', message: customerPush.dbErrorMessage(err) });
       }
     }),
     cancel: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {

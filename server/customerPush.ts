@@ -58,6 +58,17 @@ export async function getCustomerPushConfig(): Promise<CustomerPushConfig> {
   return normalizeCustomerPushConfig((settings as any)?.customerPushConfig);
 }
 
+/** Mensaje legible de un error de la base de datos. Drizzle envuelve el error real en `cause` y su
+ * mensaje trae el SQL completo con los datos; acá se deja solo la causa (y se avisa si falta una migración). */
+export function dbErrorMessage(err: unknown): string {
+  const cause: any = (err as any)?.cause;
+  const raw: string = cause?.sqlMessage ?? cause?.message ?? '';
+  if (/unknown column|doesn't exist|does not exist/i.test(raw)) return `Falta aplicar una migración en la base de datos: ${raw}`;
+  if (raw) return `Error de la base de datos: ${raw}`;
+  const msg = err instanceof Error ? err.message : 'Error desconocido';
+  return msg.split(' params:')[0].slice(0, 240);
+}
+
 /** Solo rutas del propio sitio: un link de campaña nunca saca a otra web. */
 export function safePushUrl(raw: string | null | undefined): string {
   const s = (raw ?? '').trim();
