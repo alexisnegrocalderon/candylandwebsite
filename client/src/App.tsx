@@ -3,7 +3,7 @@ import { reportAppOpen } from "@/lib/customerPush";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
-import { Route, Switch, useLocation } from "wouter";
+import { Route, Switch, useLocation, useSearch } from "wouter";
 import { motion } from "framer-motion";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
@@ -22,12 +22,15 @@ import { isFinePointer, resetScrollPosition } from "./lib/smoothScroll";
 // todo el mundo aunque nunca fuera a correr. La mayoría de quien entra al
 // sitio lo hace desde el celular (tráfico de Instagram/WhatsApp), así que
 // era peso muerto para la mayoría de las visitas.
-import { lazy, Suspense, useEffect } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
+import { hasWelcomeParam } from "@shared/welcome";
 import { DARK_CHROME_BG, isDarkRoute } from "@/lib/darkChrome";
 // La portada "/" pasa por HalloweenHome: renderiza la Home oficial tal cual,
 // y solo le agrega la paleta Halloween si el switch del admin está prendido
 // (o siempre en /halloween, la vista previa).
 const HalloweenHome = lazy(() => import("./pages/HalloweenHome"));
+// La ventana de bienvenida a la comunidad solo se descarga si alguien llega desde la notificación de bienvenida.
+const WelcomeDialog = lazy(() => import("./components/site/WelcomeDialog"));
 const CustomCursor = lazy(() => import("./components/CustomCursor"));
 const SmoothScroll = lazy(() => import("./components/SmoothScroll"));
 const Events = lazy(() => import("./pages/Events"));
@@ -72,6 +75,15 @@ const Concurso = lazy(() => import("./pages/Concurso"));
 const ConcursoPremio = lazy(() => import("./pages/ConcursoPremio"));
 const ConcursoPosicion = lazy(() => import("./pages/ConcursoPosicion"));
 const PrivacyPolicy = lazy(() => import("./pages/PrivacyPolicy"));
+
+/** Pide la ventana de bienvenida (`/?bienvenida=1`) y la mantiene montada: la ventana limpia el link
+ * al abrirse, y sin este seguro se cerraría sola al quitarse el parámetro. */
+function WelcomeGate() {
+  const search = useSearch();
+  const [armed, setArmed] = useState(() => hasWelcomeParam(window.location.search));
+  useEffect(() => { if (hasWelcomeParam(search)) setArmed(true); }, [search]);
+  return armed ? <Suspense fallback={null}><WelcomeDialog /></Suspense> : null;
+}
 
 function PageLoader({ path }: { path: string }) {
   // En el panel y las terminales el splash oscuro del HTML sigue a la vista
@@ -252,6 +264,8 @@ function App() {
               fijo abajo de la pantalla, y el toast por defecto (abajo) quedaba
               superpuesto con ese botón -- se veía como texto roto/mezclado. */}
           <Toaster position="top-center" />
+          {/* La notificación de bienvenida abre esta ventana (`/?bienvenida=1`) desde cualquier pantalla. */}
+          <WelcomeGate />
           <Router />
           </SoundProvider>
         </TooltipProvider>
