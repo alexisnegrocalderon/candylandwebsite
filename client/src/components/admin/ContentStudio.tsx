@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import {
-  ArrowDown, ArrowLeft, ArrowUp, Copy, Download, Image as ImageIcon, Loader2, Palette, Plus, Save, Share2, Sparkles, Trash2, X, Zap,
+  ArrowDown, ArrowLeft, ArrowUp, Camera, Copy, Download, Image as ImageIcon, Layers, Loader2, Palette, Plus, Save, Share2, Sparkles, Trash2, X, Zap,
 } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
@@ -24,6 +24,7 @@ import {
   STUDIO_MAX_ITEMS,
   STUDIO_MAX_OPTIONS,
   STUDIO_MAX_SLIDES,
+  STUDIO_PHOTO_STYLES,
   STUDIO_SIZES,
   type StudioDesign,
   type StudioFormat,
@@ -38,6 +39,10 @@ import { takeQueuedDesign } from './studio/handoff';
 import { AiDesigner } from './studio/AiDesigner';
 import { AiUsageCard } from './studio/AiUsageCard';
 import { SlideFrame } from './studio/SlideFrame';
+import { ScaledSlide } from './studio/ScaledSlide';
+import { PhotoStudio } from './studio/PhotoStudio';
+import { VariantGallery } from './studio/VariantGallery';
+import { designVariants, emptyPhotoBrief, PHOTO_STYLE_LABEL, type PhotoBrief } from '@shared/studioVariants';
 
 /* Estudio de contenido: arma carruseles, posts e historias con las plantillas
  * de marca y los exporta a PNG (1080×1440 o 1080×1920) desde el navegador.
@@ -47,7 +52,7 @@ import { SlideFrame } from './studio/SlideFrame';
 const FORMAT_LABEL: Record<StudioFormat, string> = { carrusel: 'Carrusel (3:4)', post: 'Post (3:4)', historia: 'Historia (9:16)' };
 const THEME_LABEL: Record<StudioTheme, string> = { bubble: 'Bubble Playroom (oficial)', azul: 'Desafío azul', pastel: 'Test pastel', playcard: 'PlayCard' };
 const LAYOUT_LABEL: Record<StudioLayout, string> = {
-  portada: 'Portada', pregunta: 'Pregunta / texto', resultados: 'Resultados', pasos: 'Pasos', cierre: 'Cierre', imagen: 'Imagen propia',
+  portada: 'Portada', pregunta: 'Pregunta / texto', resultados: 'Resultados', pasos: 'Pasos', cierre: 'Cierre', imagen: 'Imagen propia', foto: 'Foto con texto',
 };
 
 type Field = 'script' | 'number' | 'title' | 'body' | 'options' | 'items' | 'cta' | 'footnote';
@@ -58,6 +63,7 @@ const FIELDS: Record<StudioLayout, Field[]> = {
   pasos: ['script', 'title', 'items'],
   cierre: ['title', 'body', 'cta', 'footnote'],
   imagen: [],
+  foto: ['title', 'body', 'cta', 'footnote'],
 };
 /** Bubble: poco texto. Título grande, gráfico, una etiqueta con borde (`body`),
  * un botón grande (`cta`) y un texto chico; los íconos van en `items`. */
@@ -68,6 +74,7 @@ const BUBBLE_FIELDS: Record<StudioLayout, Field[]> = {
   pasos: ['title', 'items', 'cta', 'footnote'],
   cierre: ['title', 'body', 'cta', 'footnote'],
   imagen: [],
+  foto: ['title', 'body', 'cta', 'footnote'],
 };
 const BUBBLE_FIELD_LABEL: Partial<Record<Field, string>> = {
   title: 'Título grande (usa Enter para separar líneas)', body: 'Etiqueta con borde (corta)', cta: 'Botón grande (ej. COMENTA PLAYROOM)', footnote: 'Texto chico de abajo',
@@ -90,19 +97,6 @@ async function copyText(text: string) {
   } catch {
     toast.error('No se pudo copiar. Mantén apretado el texto para copiarlo a mano.');
   }
-}
-
-/** La lámina achicada para que quepa en `width` px (la real mide 1080). */
-function ScaledSlide({ design, slide, index, width }: { design: StudioDesign; slide: StudioSlide; index: number; width: number }) {
-  const size = STUDIO_SIZES[design.format];
-  const scale = width / size.width;
-  return (
-    <div style={{ width, height: size.height * scale, overflow: 'hidden', position: 'relative' }} className="rounded-lg shadow-sm">
-      <div style={{ transform: `scale(${scale})`, transformOrigin: 'top left', position: 'absolute', top: 0, left: 0 }}>
-        <StudioSlideView theme={design.theme} format={design.format} slide={slide} index={index} total={design.slides.length} showBrand={design.showBrand} />
-      </div>
-    </div>
-  );
 }
 
 /** Ancho disponible de un contenedor (para que la vista previa llene la columna). */
@@ -131,17 +125,21 @@ export function ContentStudio() {
     return queued ? { design: queued, dirty: true } : null;
   });
   const [ai, setAi] = useState<AiOpen | null>(null);
+  const [photo, setPhoto] = useState<PhotoBrief | null>(null);
 
+  if (photo) {
+    return <PhotoStudio initial={photo} onBack={() => setPhoto(null)} onOpen={(design) => { setPhoto(null); setEditing({ design, dirty: true }); }} />;
+  }
   if (ai) {
     return <AiDesigner key={ai.designId ?? 'nuevo'} designId={ai.designId} format={ai.format} onClose={() => setAi(null)} />;
   }
   if (editing) {
     return <StudioEditor editing={editing} setEditing={setEditing} onClose={() => setEditing(null)} />;
   }
-  return <StudioHome onOpen={setEditing} onOpenAi={setAi} />;
+  return <StudioHome onOpen={setEditing} onOpenAi={setAi} onOpenPhoto={() => setPhoto(emptyPhotoBrief())} />;
 }
 
-function StudioHome({ onOpen, onOpenAi }: { onOpen: (e: Editing) => void; onOpenAi: (a: AiOpen) => void }) {
+function StudioHome({ onOpen, onOpenAi, onOpenPhoto }: { onOpen: (e: Editing) => void; onOpenAi: (a: AiOpen) => void; onOpenPhoto: () => void }) {
   const utils = trpc.useUtils();
   const { data: designs, isLoading } = trpc.contentStudio.list.useQuery();
   const [format, setFormat] = useState<StudioFormat>('carrusel');
@@ -207,6 +205,19 @@ function StudioHome({ onOpen, onOpenAi }: { onOpen: (e: Editing) => void; onOpen
             </Select>
           </div>
           <Button onClick={() => onOpenAi({ format })}><Sparkles className="w-4 h-4 mr-2" /> Nuevo con IA</Button>
+        </CardContent>
+      </Card>
+
+      <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+        <CardContent className="pt-6 flex flex-wrap items-end gap-3">
+          <div className="min-w-0 flex-1 basis-60">
+            <p className="font-medium flex items-center gap-2"><Camera className="w-4 h-4" /> Desde tu foto o un evento <span className="text-xs font-normal text-muted-foreground">· sin IA, gratis</span></p>
+            <p className="text-sm text-muted-foreground">
+              Subes una foto (o eliges un evento) y salen juntas todas las versiones de marca en feed 3:4 e historia 9:16: a sangre,
+              con marco, en círculo y polaroid. Eliges las que te gusten y las descargas.
+            </p>
+          </div>
+          <Button variant="outline" onClick={onOpenPhoto}><Camera className="w-4 h-4 mr-2" /> Crear desde foto</Button>
         </CardContent>
       </Card>
 
@@ -315,6 +326,7 @@ function StudioEditor({ editing, setEditing, onClose }: { editing: Editing; setE
   const utils = trpc.useUtils();
   const [selected, setSelected] = useState(0);
   const [busy, setBusy] = useState<null | 'zip' | 'png' | 'share'>(null);
+  const [showVariants, setShowVariants] = useState(false);
   const exportRefs = useRef<(HTMLDivElement | null)[]>([]);
   const [previewRef, previewWidth] = useWidth<HTMLDivElement>(420);
   const index = Math.min(selected, design.slides.length - 1);
@@ -414,7 +426,33 @@ function StudioEditor({ editing, setEditing, onClose }: { editing: Editing; setE
           {save.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
           {editing.dirty ? 'Guardar' : 'Guardado'}
         </WriteButton>
+        <Button size="sm" variant={showVariants ? 'default' : 'outline'} onClick={() => setShowVariants((v) => !v)}>
+          <Layers className="w-4 h-4 mr-2" /> Variantes
+        </Button>
       </div>
+
+      {showVariants && (
+        <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+          <CardContent className="pt-6 space-y-3">
+            <p className="text-sm text-muted-foreground">
+              {design.format === 'carrusel'
+                ? 'Este carrusel en cada plantilla de la marca.'
+                : 'Esta pieza en cada plantilla, en feed 3:4 y en historia 9:16.'}{' '}
+              Descarga las que quieras o abre una como diseño nuevo (este queda como está). Sin IA.
+            </p>
+            <VariantGallery
+              variants={designVariants(design)}
+              title={design.title}
+              onOpen={(next) => {
+                if (editing.dirty && !window.confirm('Este diseño tiene cambios sin guardar. ¿Abrir la variante igual?')) return;
+                setEditing({ design: { ...next, title: `${next.title} (variante)` }, dirty: true });
+                setSelected(0);
+                setShowVariants(false);
+              }}
+            />
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,420px)]">
         <div className="space-y-4 min-w-0">
@@ -474,7 +512,17 @@ function StudioEditor({ editing, setEditing, onClose }: { editing: Editing; setE
                 </Select>
               </div>
 
-              {design.theme === 'bubble' && slide.layout !== 'imagen' && slide.layout !== 'resultados' && slide.layout !== 'pasos' && (
+              {slide.layout === 'foto' && (
+                <div className="space-y-1.5">
+                  <Label>Cómo va la foto</Label>
+                  <Select value={slide.photoStyle} onValueChange={(v) => updateSlide({ photoStyle: v as StudioSlide['photoStyle'] })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>{STUDIO_PHOTO_STYLES.map((p) => <SelectItem key={p} value={p}>{PHOTO_STYLE_LABEL[p]}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              {design.theme === 'bubble' && slide.layout !== 'imagen' && slide.layout !== 'foto' && slide.layout !== 'resultados' && slide.layout !== 'pasos' && (
                 <div className="space-y-1.5">
                   <Label>Gráfico grande</Label>
                   <Select value={isBubbleHeroKey(slide.hero) ? slide.hero : slide.hero ? 'otro' : 'none'} onValueChange={(v) => updateSlide({ hero: v === 'none' ? '' : v === 'otro' ? '🔥' : v })}>
@@ -491,7 +539,7 @@ function StudioEditor({ editing, setEditing, onClose }: { editing: Editing; setE
                 </div>
               )}
 
-              {design.theme === 'bubble' && slide.layout !== 'imagen' && slide.layout !== 'resultados' && slide.layout !== 'pasos' && (slide.hero || slide.imageUrl) && (
+              {design.theme === 'bubble' && slide.layout !== 'imagen' && slide.layout !== 'foto' && slide.layout !== 'resultados' && slide.layout !== 'pasos' && (slide.hero || slide.imageUrl) && (
                 <div className="flex items-center gap-2">
                   <Switch id="hero-below" checked={slide.heroBelow} onCheckedChange={(v) => updateSlide({ heroBelow: v === true })} />
                   <Label htmlFor="hero-below">Gráfico debajo del título</Label>
@@ -510,7 +558,7 @@ function StudioEditor({ editing, setEditing, onClose }: { editing: Editing; setE
                 </div>
               </div>
 
-              {design.theme === 'azul' && slide.layout !== 'imagen' && (
+              {design.theme === 'azul' && slide.layout !== 'imagen' && slide.layout !== 'foto' && (
                 <div className="space-y-1.5">
                   <Label>Lado de la foto</Label>
                   <Select value={slide.imageSide} onValueChange={(v) => updateSlide({ imageSide: v as StudioSlide['imageSide'] })}>
@@ -535,7 +583,7 @@ function StudioEditor({ editing, setEditing, onClose }: { editing: Editing; setE
                   </Select>
                 </div>
               )}
-              {design.theme === 'pastel' && slide.layout !== 'imagen' && (
+              {design.theme === 'pastel' && slide.layout !== 'imagen' && slide.layout !== 'foto' && (
                 <div className="space-y-1.5">
                   <Label>Color de fondo</Label>
                   <Select value={String(slide.palette)} onValueChange={(v) => updateSlide({ palette: Number(v) })}>
@@ -547,7 +595,7 @@ function StudioEditor({ editing, setEditing, onClose }: { editing: Editing; setE
                   </Select>
                 </div>
               )}
-              {isCarousel && slide.layout !== 'imagen' && (
+              {isCarousel && slide.layout !== 'imagen' && slide.layout !== 'foto' && (
                 <div className="flex items-center gap-2">
                   <Switch id="swipe-hint" checked={slide.swipeHint} onCheckedChange={(v) => updateSlide({ swipeHint: v === true })} />
                   <Label htmlFor="swipe-hint">Mostrar «Desliza →»</Label>

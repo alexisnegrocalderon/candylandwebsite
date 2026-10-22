@@ -22,7 +22,7 @@ const SCHEMA = {
       items: {
         type: 'object',
         properties: {
-          layout: { type: 'string', enum: [...STUDIO_LAYOUTS].filter((l) => l !== 'imagen' && l !== 'pasos') },
+          layout: { type: 'string', enum: [...STUDIO_LAYOUTS].filter((l) => l !== 'imagen' && l !== 'pasos' && l !== 'foto') },
           title: { type: 'string', description: 'Titular MUY corto (2 a 6 palabras).' },
           body: { type: 'string', description: 'Una frase corta o vacío.' },
           hero: { type: 'string', description: `Gráfico grande: una de ${HERO_KEYS.join(', ')} o un emoji. Vacío si la lámina no lleva.` },
