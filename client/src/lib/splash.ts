@@ -27,6 +27,17 @@ export function isSiteApp(): boolean {
   return typeof document !== 'undefined' && document.documentElement.dataset.splash === 'site';
 }
 
+/** Termina el «modo splash» del sitio: devuelve el color de la barra de estado y quita la marca de <html>,
+ * para que el fondo oscuro de la intro no se quede pegado a las páginas (que son pastel). */
+function endSiteSplash(): void {
+  const root = document.documentElement;
+  if (root.dataset.splash !== 'site') return;
+  delete root.dataset.splash;
+  const meta = document.querySelector('meta[name="theme-color"]');
+  const original = meta?.getAttribute('data-site-color');
+  if (meta && original) { meta.setAttribute('content', original); meta.removeAttribute('data-site-color'); }
+}
+
 /** Quita el splash. Si es la primera apertura del día, antes pasa la intro
  * de neón (client/src/lib/neonIntro.ts); si no, un fundido corto. `intro:
  * false` para salir sin intro (error, respaldo de tiempo). Se puede llamar
@@ -35,13 +46,13 @@ export function hideSplash(opts: { intro?: boolean } = {}): void {
   if (hidden || typeof document === 'undefined') return;
   const el = document.getElementById('initial-loader');
   hidden = true;
-  if (!el) return;
+  if (!el) { endSiteSplash(); return; }
   if (opts.intro !== false && (hasDarkSplash() || isSiteApp()) && introDue()) {
-    playNeonIntro(el, () => {});
+    playNeonIntro(el, endSiteSplash);
     return;
   }
   el.classList.add('splash-out');
-  window.setTimeout(() => el.remove(), FADE_MS);
+  window.setTimeout(() => { el.remove(); endSiteSplash(); }, FADE_MS);
 }
 
 if (typeof window !== 'undefined' && hasDarkSplash()) {

@@ -116,7 +116,6 @@
       }
       /* Abierto como app instalada (data-splash="site", ver el script bajo el
          loader): fondo oscuro como el panel; la intro de neón sale de ahí. */
-      @media (display-mode: standalone) { html[data-splash="site"], html[data-splash="site"] body { background: #0b0612; } }
       html[data-splash="site"] #initial-loader { display: flex; }
       html[data-splash="site"] #initial-loader { background: radial-gradient(ellipse 70% 50% at 50% 42%, #241337, #0b0612 70%) #0b0612; }
       html[data-splash="site"] #initial-loader { transition: opacity 0.26s ease; }
@@ -180,7 +179,8 @@
           if (!standalone && !(home && !seen && !navigator.webdriver)) return;
           d.setAttribute('data-splash', 'site');
           var m = document.querySelector('meta[name="theme-color"]');
-          if (m && standalone) m.setAttribute('content', '#0b0612');
+          // Barra de estado oscura solo mientras dura la intro; client/src/lib/splash.ts devuelve el color del sitio.
+          if (m && standalone) { m.setAttribute('data-site-color', m.getAttribute('content') || ''); m.setAttribute('content', '#0b0612'); }
           var i = document.querySelector('#initial-loader img');
           if (i) { i.src = '/app-icons/splash/logo-192.webp'; i.removeAttribute('height'); }
         } catch (e) {}

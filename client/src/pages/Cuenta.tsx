@@ -456,6 +456,14 @@ export default function Cuenta() {
   const logout = trpc.member.logout.useMutation({ onSuccess: () => utils.member.invalidate() });
   const [welcome, setWelcome] = useState<LoginDone | null>(null);
   const isMobile = useIsMobile();
+  // La pantalla es oscura: la barra de estado del teléfono combina con ella mientras estás acá y vuelve al color del sitio al salir.
+  useEffect(() => {
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (!meta) return;
+    const prev = meta.getAttribute('content');
+    meta.setAttribute('content', '#0b0612');
+    return () => { if (prev) meta.setAttribute('content', prev); };
+  }, []);
   const shell = 'relative min-h-dvh bg-[#0b0612] text-white';
 
   if (isLoading) return <div className={`${shell} pt-28`}><div className="account-backdrop" /></div>;
