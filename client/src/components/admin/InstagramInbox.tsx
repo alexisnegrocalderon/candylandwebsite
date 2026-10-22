@@ -775,7 +775,7 @@ function HandoffLogCard() {
                 const kind = classifyHandoffNoise({ incomingText: row.incomingText, reason: row.reason });
                 return (
                   <li key={row.id} className="text-xs text-muted-foreground">
-                    {kind ? NOISE_LABEL[kind] : 'Descartado'} · {row.who} · {formatChileDateTime(row.createdAt)}
+                    {kind ? NOISE_LABEL[kind] : 'Ajeno a los eventos'} · {row.who} · {formatChileDateTime(row.createdAt)}
                     {row.incomingText ? ` · "${row.incomingText.slice(0, 80)}"` : ''}
                   </li>
                 );
