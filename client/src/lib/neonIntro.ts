@@ -17,10 +17,12 @@ import '@/neonIntro.css';
 
 const SEEN_KEY = 'neon-intro.seen.';
 
-/** Duración total en ms: la intro corta (terminales, sitio) entra sola al terminar; la del panel espera el toque. */
+/** Duración total en ms: la intro corta (terminales) entra sola al terminar; la del panel y la del sitio esperan el toque. */
 const FULL_MS = 3000;
 const SHORT_MS = 1600;
 const STATIC_MS = 900;
+/** El sitio público espera el toque, pero si nadie toca entra solo a los 5 s de aparecer «Toca para entrar» (que sale a 1,6 s). */
+const SITE_WAIT_MS = 1600 + 5000;
 
 /** Qué app es (admin, caja, puerta…) según la ruta. El sitio instalado es
  * una sola app aunque se abra en otra ruta (un aviso push que lleva a la entrada). */
@@ -31,6 +33,8 @@ function appKey(): string {
 
 /** ¿Toca la intro? Sí al abrir la app; no si ya se vio con la app abierta. */
 export function introDue(): boolean {
+  // El sitio público solo abre la intro en la home; robots y pruebas automáticas entran directo.
+  if (appKey() === 'site' && (location.pathname !== '/' || navigator.webdriver)) return false;
   try { return sessionStorage.getItem(SEEN_KEY + appKey()) !== '1'; } catch { return false; }
 }
 
@@ -51,7 +55,8 @@ function letters(word: string, className: string, startIndex: number): string {
  * cuando el overlay ya no está. */
 export function playNeonIntro(el: HTMLElement, done: () => void): void {
   markSeen();
-  const short = appKey() !== 'admin';
+  const key = appKey();
+  const short = key !== 'admin' && key !== 'site';
   const still = typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
   const total = still ? STATIC_MS : short ? SHORT_MS : FULL_MS;
 
@@ -92,7 +97,8 @@ export function playNeonIntro(el: HTMLElement, done: () => void): void {
   if (!still) {
     timers.push(window.setTimeout(() => { try { navigator.vibrate?.(14); } catch { /* sin vibración */ } }, short ? 560 : 1150));
   }
-  // El panel espera el toque (pedido del dueño: «quiero hacer clic para entrar»); la versión corta
-  // (terminales y sitio instalado) sigue entrando sola para no frenar la puerta ni la caja.
+  // El panel espera el toque (pedido del dueño: «quiero hacer clic para entrar»); el sitio también,
+  // con respaldo de 5 s; la versión corta (terminales) entra sola para no frenar la puerta ni la caja.
   if (short) timers.push(window.setTimeout(finish, total));
+  else if (key === 'site') timers.push(window.setTimeout(finish, still ? total : SITE_WAIT_MS));
 }

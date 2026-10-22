@@ -89,12 +89,15 @@
     <!-- Loader inicial: inline y sin depender de React/Tailwind, así pinta
          en el primer frame (nunca hay un instante en blanco mientras carga
          el bundle). App.tsx lo saca del DOM apenas React monta. -->
+    <!-- Sin intro (cualquier página que no sea la home) no hay loader: antes eran los
+         dulces; ahora la página aparece directo. El loader solo existe cuando el script
+         de abajo marca data-splash="site" (la intro de neón de la home y la app). -->
     <style>
       #initial-loader {
         position: fixed;
         inset: 0;
         z-index: 9999;
-        display: flex;
+        display: none;
         align-items: center;
         justify-content: center;
         background: oklch(0.97 0.014 340);
@@ -113,7 +116,8 @@
       }
       /* Abierto como app instalada (data-splash="site", ver el script bajo el
          loader): fondo oscuro como el panel; la intro de neón sale de ahí. */
-      html[data-splash="site"], html[data-splash="site"] body { background: #0b0612; }
+      @media (display-mode: standalone) { html[data-splash="site"], html[data-splash="site"] body { background: #0b0612; } }
+      html[data-splash="site"] #initial-loader { display: flex; }
       html[data-splash="site"] #initial-loader { background: radial-gradient(ellipse 70% 50% at 50% 42%, #241337, #0b0612 70%) #0b0612; }
       html[data-splash="site"] #initial-loader { transition: opacity 0.26s ease; }
       html[data-splash="site"] #initial-loader.splash-out { opacity: 0; }
@@ -161,17 +165,22 @@
   <body>
     <div id="initial-loader"><img src="/candyland/favicon-112.png?v=2" alt="" width="56" height="56" /></div>
     <script>
-      // Sitio abierto desde el ícono de inicio: loader oscuro y barra de estado
-      // oscura antes del primer cuadro (App.tsx lo convierte en la intro de neón).
-      // Las pantallas del panel/terminales ya traen su propio splash.
+      // Intro de neón («Toca para entrar») al abrir la HOME en cada visita, y siempre
+      // que se abre el sitio instalado como app: loader oscuro desde el primer cuadro
+      // (App.tsx lo convierte en la intro). Cualquier otra página carga directo, sin
+      // loader. Las pantallas del panel/terminales ya traen su propio splash.
       (function () {
         try {
           var d = document.documentElement;
           if (d.getAttribute('data-splash')) return;
-          if (!(matchMedia('(display-mode: standalone)').matches || navigator.standalone === true)) return;
+          var standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+          var home = location.pathname === '/';
+          var seen = false;
+          try { seen = sessionStorage.getItem('neon-intro.seen.site') === '1'; } catch (e) {}
+          if (!standalone && !(home && !seen && !navigator.webdriver)) return;
           d.setAttribute('data-splash', 'site');
           var m = document.querySelector('meta[name="theme-color"]');
-          if (m) m.setAttribute('content', '#0b0612');
+          if (m && standalone) m.setAttribute('content', '#0b0612');
           var i = document.querySelector('#initial-loader img');
           if (i) { i.src = '/app-icons/splash/logo-192.webp'; i.removeAttribute('height'); }
         } catch (e) {}
