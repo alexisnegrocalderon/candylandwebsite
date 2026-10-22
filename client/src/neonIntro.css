@@ -56,8 +56,11 @@
 
 #initial-loader.neon-intro .neon-intro-skip {
   position: absolute; bottom: max(28px, env(safe-area-inset-bottom)); left: 0; right: 0; text-align: center;
-  font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; color: rgba(255, 255, 255, 0.35);
-  opacity: 0; animation: neon-fade 0.4s ease-out calc(1.6s * var(--u)) forwards;
+  font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; color: rgba(255, 255, 255, 0.6);
+  opacity: 0;
+  animation:
+    neon-fade 0.4s ease-out calc(1.6s * var(--u)) forwards,
+    neon-wait 2.2s ease-in-out calc(2.2s * var(--u)) infinite;
 }
 #initial-loader.neon-intro--short .neon-intro-skip { display: none; }
 
@@ -66,6 +69,8 @@
   0% { opacity: 0.9; } 12% { opacity: 0.1; } 24% { opacity: 1; } 38% { opacity: 0.25; } 50% { opacity: 0.95; } 62% { opacity: 0.4; } 76%, 100% { opacity: 1; }
 }
 @keyframes neon-fade { to { opacity: 1; } }
+/* Mientras espera el toque, el aviso respira suave. */
+@keyframes neon-wait { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
 @keyframes neon-hum { 0%, 100% { opacity: 1; } 50% { opacity: 0.88; } }
 @keyframes neon-letter { to { opacity: 1; transform: none; filter: blur(0); } }
 
@@ -75,4 +80,4 @@
 #initial-loader.neon-intro--still .neon-intro-letter,
 #initial-loader.neon-intro--still .neon-intro-stage { animation: none; opacity: 1; transform: none; clip-path: none; }
 #initial-loader.neon-intro--still .neon-intro-letter { filter: none; }
-#initial-loader.neon-intro--still .neon-intro-skip { display: none; }
+#initial-loader.neon-intro--still.neon-intro--short .neon-intro-skip { display: none; }
