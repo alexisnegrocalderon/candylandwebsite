@@ -210,7 +210,7 @@ export const ReminderCopySchema = z.object({
 });
 export type ReminderCopy = z.infer<typeof ReminderCopySchema>;
 
-const REMINDER_JSON_SCHEMA = {
+export const REMINDER_JSON_SCHEMA = {
   name: 'reminder_copy',
   strict: true,
   schema: {
@@ -221,7 +221,6 @@ const REMINDER_JSON_SCHEMA = {
       paragraphs: {
         type: 'array',
         minItems: 1,
-        maxItems: 3,
         items: { type: 'string', description: 'Un párrafo del cuerpo del correo.' },
         description: 'Entre 1 y 3 párrafos cortos. Sin saludo inicial ni firma: eso ya lo pone la plantilla.',
       },
