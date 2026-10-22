@@ -488,8 +488,11 @@ html {
 .account-glass {
   position: relative;
   isolation: isolate;
-  background: linear-gradient(140deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.04) 42%, rgba(255, 255, 255, 0.08));
-  --lg-bf: blur(28px) saturate(185%);
+  /* Más transparente y «espejado»: brillo arriba como un vidrio pulido y casi nada de tinte. */
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0) 38%),
+    linear-gradient(140deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.015) 45%, rgba(255, 255, 255, 0.05));
+  --lg-bf: blur(22px) saturate(210%) brightness(1.06);
   -webkit-backdrop-filter: var(--lg-bf);
   backdrop-filter: var(--lg-bf);
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -503,7 +506,7 @@ html {
   inset: 0;
   border-radius: inherit;
   padding: 1px;
-  background: linear-gradient(140deg, rgba(255, 255, 255, 0.6), rgba(255, 255, 255, 0) 32%, rgba(255, 255, 255, 0) 68%, rgba(255, 255, 255, 0.28));
+  background: linear-gradient(140deg, rgba(255, 255, 255, 0.75), rgba(255, 255, 255, 0.05) 30%, rgba(255, 255, 255, 0) 62%, rgba(255, 255, 255, 0.35));
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
@@ -513,8 +516,8 @@ html {
 .lg-pill {
   /* Sin `position`: se usa en barras `fixed` (la clase propia ganaría sobre la utilidad de Tailwind). */
   isolation: isolate;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.06)), rgba(20, 11, 30, 0.55);
-  --lg-bf: blur(30px) saturate(200%);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.04) 55%, rgba(255, 255, 255, 0.08)), rgba(20, 11, 30, 0.28);
+  --lg-bf: blur(26px) saturate(220%) brightness(1.08);
   -webkit-backdrop-filter: var(--lg-bf);
   backdrop-filter: var(--lg-bf);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 18px 50px -14px rgba(0, 0, 0, 0.75);

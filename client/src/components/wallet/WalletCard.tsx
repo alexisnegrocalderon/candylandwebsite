@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { formatCLP } from '@/config/candyland';
 
@@ -176,7 +176,7 @@ export type WalletMovement = { type: 'money' | 'points'; label: string; delta: n
  * que explica la tarjeta (con datos de ejemplo, `qrImageUrl={null}`). */
 export function WalletCard({
   eventTitle, eventDateShort, holderName, ticketCode, qrImageUrl,
-  prepaidBalance, playcoins, movements, onCardClick,
+  prepaidBalance, playcoins, movements, onCardClick, hideFlipHint = false, flipSignal,
 }: {
   eventTitle: string;
   eventDateShort: string;
@@ -192,8 +192,12 @@ export function WalletCard({
   movements: WalletMovement[];
   /** Si viene, tocar la tarjeta hace esto (ej. guardarla en Fotos) en vez de darla vuelta; el reverso sigue con el botón de abajo. */
   onCardClick?: () => void;
+  /** Quien la monta dibuja su propio botón de «reverso» (y lo avisa cambiando `flipSignal`). */
+  hideFlipHint?: boolean;
+  flipSignal?: number;
 }) {
   const [flipped, setFlipped] = useState(false);
+  useEffect(() => { if (flipSignal) setFlipped((f) => !f); }, [flipSignal]);
 
   return (
     <>
@@ -270,7 +274,7 @@ export function WalletCard({
 
       {/* Sin ticketCode (consulta por email en /mis-puntos) no hay reverso
           que mostrar -- el frente ya trae todo lo que hay (saldo + Playcoins). */}
-      {ticketCode && (
+      {ticketCode && !hideFlipHint && (
         <button type="button" className="wcard-flip-hint" onClick={() => setFlipped((f) => !f)}>
           <RefreshCw className="w-3.5 h-3.5" />
           {flipped ? 'Ver el frente' : 'Ver el reverso'}
