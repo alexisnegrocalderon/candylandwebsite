@@ -146,7 +146,7 @@ import { parseSurveyAnswer } from "../shared/eventSurvey";
 import { getWinbackOverview, draftWinbackEmail, createWinbackCampaign } from "./winback";
 import { WINBACK_SEGMENT_KEYS } from "../shared/winback";
 import { generateContentPlan } from "./contentPlanner";
-import { listContentDesigns, getContentDesign, saveContentDesign, deleteContentDesign, getContentVideo, saveContentVideo } from "./contentStudio";
+import { listContentDesigns, getContentDesign, saveContentDesign, deleteContentDesign, getContentVideo, saveContentVideo, listVideoStyles, saveVideoStyle, deleteVideoStyle } from "./contentStudio";
 import { renderMissingConfig, requestVideoRender } from "./studioRender";
 import { quickPhotoTexts, quickVideoFromIdea } from "./studioAi/quickIdea";
 import { recordAiUsage, listAiUsageSince } from "./db";
@@ -2896,6 +2896,9 @@ export const appRouter = router({
         cta: z.string().max(200).optional(),
         ctaLine: z.string().max(300).optional(),
         secsPerSlide: z.number().optional(),
+        style: z.unknown().optional(),
+        watermark: z.unknown().optional(),
+        music: z.unknown().optional(),
       }),
     })).mutation(async ({ input }) => {
       try {
@@ -2971,6 +2974,19 @@ export const appRouter = router({
     }),
     delete: adminPasswordProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => {
       await deleteContentDesign(input.id);
+      return { success: true } as const;
+    }),
+    // «Mi estilo» de los videos (plantilla, diseño, logo y música con un nombre).
+    videoStyles: adminReadProcedure.query(() => listVideoStyles()),
+    saveVideoStyle: adminProcedure.input(z.object({ style: z.record(z.string(), z.unknown()) })).mutation(async ({ input }) => {
+      try {
+        return { id: await saveVideoStyle(input.style) };
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo guardar el estilo.' });
+      }
+    }),
+    deleteVideoStyle: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => {
+      await deleteVideoStyle(input.id);
       return { success: true } as const;
     }),
   }),

@@ -1,9 +1,9 @@
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq, ne, sql } from 'drizzle-orm';
 import { getDb } from './db';
 import { contentDesignMessages, contentDesigns } from '../drizzle/schema';
 import { normalizeStudioDesign, STUDIO_MAX_DESIGNS_LISTED, type StudioDesign } from '../shared/contentStudio';
 import { normalizeAiDesign } from '../shared/studioAi';
-import { normalizeStudioVideo, type StudioVideo, type VideoFormat } from '../shared/studioVideo';
+import { normalizeSavedStyle, normalizeStudioVideo, type SavedVideoStyle, type StudioVideo, type VideoFormat } from '../shared/studioVideo';
 import { normalizeRenderState, summarizeRender, type RenderState, type RenderSummary } from '../shared/studioRender';
 
 /* Estudio de contenido (shared/contentStudio.ts): guarda los diseños para que
@@ -38,7 +38,8 @@ export type DesignListItem =
 
 export async function listContentDesigns(): Promise<DesignListItem[]> {
   const db = await requireDb();
-  const rows = await db.select().from(contentDesigns).orderBy(desc(contentDesigns.updatedAt)).limit(STUDIO_MAX_DESIGNS_LISTED);
+  // Los estilos guardados de los videos («Mi estilo») viven en la misma tabla, pero no son diseños.
+  const rows = await db.select().from(contentDesigns).where(ne(contentDesigns.kind, 'estilo')).orderBy(desc(contentDesigns.updatedAt)).limit(STUDIO_MAX_DESIGNS_LISTED);
   return rows.flatMap((row): DesignListItem[] => {
     if (row.kind === 'video') {
       const video = toVideo(row);
@@ -161,6 +162,44 @@ export async function saveContentVideo(id: number | undefined, raw: unknown): Pr
   }
   const [result] = await db.insert(contentDesigns).values(values);
   return result.insertId;
+}
+
+/* «Mi estilo» de los videos: plantilla, diseño, logo y música guardados con
+ * un nombre. Son filas de contentDesigns con kind 'estilo' (no hace falta
+ * otra tabla); la lista de diseños las deja fuera. */
+const MAX_SAVED_STYLES = 30;
+
+export async function listVideoStyles(): Promise<Array<SavedVideoStyle & { id: number }>> {
+  const db = await requireDb();
+  const rows = await db.select({ id: contentDesigns.id, title: contentDesigns.title, data: contentDesigns.data }).from(contentDesigns)
+    .where(eq(contentDesigns.kind, 'estilo')).orderBy(desc(contentDesigns.updatedAt)).limit(MAX_SAVED_STYLES);
+  return rows.flatMap((r) => {
+    const style = normalizeSavedStyle({ ...(r.data as object), name: r.title });
+    return style ? [{ ...style, id: r.id }] : [];
+  });
+}
+
+/** Guarda un estilo nuevo, o reemplaza el que tiene el mismo nombre. */
+export async function saveVideoStyle(raw: unknown): Promise<number> {
+  const style = normalizeSavedStyle(raw);
+  if (!style) throw new Error('Ponle un nombre al estilo.');
+  const db = await requireDb();
+  const { name, theme, ...data } = style;
+  const [same] = await db.select({ id: contentDesigns.id }).from(contentDesigns)
+    .where(and(eq(contentDesigns.kind, 'estilo'), eq(contentDesigns.title, name))).limit(1);
+  if (same) {
+    await db.update(contentDesigns).set({ theme, data }).where(eq(contentDesigns.id, same.id));
+    return same.id;
+  }
+  const [{ n }] = await db.select({ n: sql<number>`count(*)` }).from(contentDesigns).where(eq(contentDesigns.kind, 'estilo'));
+  if (Number(n) >= MAX_SAVED_STYLES) throw new Error(`Ya tienes ${MAX_SAVED_STYLES} estilos guardados: borra alguno primero.`);
+  const [result] = await db.insert(contentDesigns).values({ kind: 'estilo', title: name, theme, format: 'post', eventId: null, data });
+  return result.insertId;
+}
+
+export async function deleteVideoStyle(id: number): Promise<void> {
+  const db = await requireDb();
+  await db.delete(contentDesigns).where(and(eq(contentDesigns.id, id), eq(contentDesigns.kind, 'estilo')));
 }
 
 export async function deleteContentDesign(id: number): Promise<void> {
