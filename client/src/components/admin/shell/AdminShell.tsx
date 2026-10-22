@@ -221,10 +221,11 @@ export function AdminShell({ sections, activeSection, onOpenSection, badgeCounts
 
       {/* ── Contenido ── */}
       <div className={`relative z-10 transition-[padding] duration-300 ease-out ${collapsed ? 'md:pl-[92px]' : 'md:pl-[272px]'}`}>
-        {/* Celular instalado: la barra de estado del teléfono es translúcida y el contenido corre por debajo al hacer scroll;
-            este velo la tapa y la cabecera se pega justo debajo (si no, «Inicio» y el buscador quedan bajo el reloj). */}
+        {/* Celular instalado: la barra de estado del teléfono es translúcida y el contenido corre por debajo al hacer scroll.
+            El espacio de la barra va como padding DENTRO de la cabecera (no como `top` del sticky, que la corría
+            hacia abajo y la montaba sobre los títulos de la sección), y este velo lo tapa. */}
         <div aria-hidden="true" className="pointer-events-none fixed inset-x-0 top-0 z-[31] h-[env(safe-area-inset-top)] bg-[#0b0612]/85 backdrop-blur-xl md:hidden" />
-        <header className="admin-topbar sticky top-[env(safe-area-inset-top)] z-30 px-3 pt-3 md:px-4">
+        <header className="admin-topbar sticky top-0 z-30 px-3 pt-[max(env(safe-area-inset-top),0.75rem)] md:px-4 md:pt-3">
           <div className="admin-glass-panel admin-glass-panel-sm flex items-center gap-3 px-4 py-3 md:px-5">
             <img src="/candyland/logo-isotipo-transparent.png" alt="" className="h-7 w-7 shrink-0 object-contain md:hidden" />
             <h1 className="min-w-0 flex-1 truncate font-heading text-xl md:text-2xl">{hubMeta.label}</h1>
