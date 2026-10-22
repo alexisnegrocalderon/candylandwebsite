@@ -4,11 +4,15 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
 import { Route, Switch, useLocation, useSearch } from "wouter";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { SoundProvider } from '@/lib/sound/SoundContext';
 import Navbar from "./components/Navbar";
+import { AppTopBar } from "./components/site/AppTopBar";
+import { InstallAppPrompt } from "./components/site/InstallAppPrompt";
+import { isInstalledApp } from "./lib/appInstall";
+import { useMemberSession } from "./lib/member";
 import { isFinePointer, resetScrollPosition } from "./lib/smoothScroll";
 
 // Lazy load pages -- Home incluida: antes se importaba eager y arrastraba
@@ -96,6 +100,29 @@ function PageLoader({ path }: { path: string }) {
       <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
     </div>
   );
+}
+
+/** «Modo app»: la App de PlayRoom instalada + sesión de «Mi cuenta». Al abrirla
+ * va directo a «Mi cuenta» (sin pasar por la portada), y lo demás se ve como
+ * pantallas de la app (barra con «Volver», sin el menú del sitio). En el
+ * navegador común el sitio sigue siendo el sitio. */
+function useMemberAppMode(location: string, hideChrome: boolean) {
+  const installed = useState(isInstalledApp)[0];
+  const { data: session, isLoading } = useMemberSession();
+  const [, navigate] = useLocation();
+  const loggedIn = installed && !!session?.loggedIn;
+  // Solo la primera pantalla: si abre en la portada y tiene sesión, se va a su cuenta.
+  const [firstLoad, setFirstLoad] = useState(() => installed && location === '/');
+  useEffect(() => {
+    if (!firstLoad || isLoading) return;
+    if (loggedIn) navigate('/cuenta', { replace: true });
+    setFirstLoad(false);
+  }, [firstLoad, isLoading, loggedIn, navigate]);
+  return {
+    memberApp: loggedIn && !hideChrome,
+    onAccount: location.startsWith('/cuenta'),
+    holdForAccount: firstLoad && (isLoading || loggedIn),
+  };
 }
 
 function Router() {
@@ -232,6 +259,7 @@ function App() {
   // así que en celular no se pide su chunk -- antes se importaban eager en
   // App.tsx y Lenis viajaba igual aunque nunca fuera a correr.
   const showDesktopExtras = !hideChrome && isFinePointer();
+  const { memberApp, onAccount, holdForAccount } = useMemberAppMode(location, hideChrome);
 
   // Saca el loader estático de client/index.html (pintado antes de que
   // React exista, para que nunca haya un instante en blanco) apenas React
@@ -259,14 +287,24 @@ function App() {
               <CustomCursor />
             </Suspense>
           )}
-          {!hideChrome && !isCoproLanding && <Navbar />}
+          {/* Modo app (la App de PlayRoom instalada, con sesión de socio): sin el menú
+              del sitio; una barra de app con «Volver» en todo lo que se abra desde ahí. */}
+          {!hideChrome && !isCoproLanding && !memberApp && <Navbar />}
+          {memberApp && !onAccount && <AppTopBar />}
           {/* top-center a propósito: /gastos y /caja tienen un botón de acción
               fijo abajo de la pantalla, y el toast por defecto (abajo) quedaba
               superpuesto con ese botón -- se veía como texto roto/mezclado. */}
           <Toaster position="top-center" />
           {/* La notificación de bienvenida abre esta ventana (`/?bienvenida=1`) desde cualquier pantalla. */}
           <WelcomeGate />
-          <Router />
+          {!hideChrome && <InstallAppPrompt />}
+          {holdForAccount ? <div className="fixed inset-0 bg-[#0b0612]" /> : memberApp ? (
+            <AnimatePresence mode="popLayout" initial={false}>
+              <motion.div key={location} initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} transition={{ type: 'spring', damping: 30, stiffness: 300 }}>
+                <Router />
+              </motion.div>
+            </AnimatePresence>
+          ) : <Router />}
           </SoundProvider>
         </TooltipProvider>
       </ThemeProvider>

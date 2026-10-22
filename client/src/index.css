@@ -522,6 +522,40 @@ html {
   backdrop-filter: var(--lg-bf);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 18px 50px -14px rgba(0, 0, 0, 0.75);
 }
+/* «Mi cuenta» por dentro: lo que se arma con los componentes del sitio
+   (Button, tarjetas `bg-card`, textos `text-muted-foreground`…) toma los
+   colores oscuros y el vidrio de la app, igual que `.halloween`: basta con
+   redefinir los tokens de theme.css. Lo usa la pestaña «Embajador». */
+.account-tokens {
+  color-scheme: dark;
+  --color-background: oklch(0.155 0.03 318);
+  --color-foreground: oklch(0.975 0.006 330);
+  --color-card: rgba(255, 255, 255, 0.06);
+  --color-card-foreground: oklch(0.975 0.006 330);
+  --color-popover: oklch(0.2 0.035 318);
+  --color-popover-foreground: oklch(0.975 0.006 330);
+  --color-primary: oklch(0.72 0.2 342);
+  --color-primary-foreground: oklch(0.99 0.005 340);
+  --color-secondary: oklch(0.76 0.13 230);
+  --color-secondary-foreground: oklch(0.16 0.03 318);
+  --color-muted: rgba(255, 255, 255, 0.07);
+  --color-muted-foreground: rgba(255, 255, 255, 0.62);
+  --color-accent: rgba(255, 255, 255, 0.09);
+  --color-accent-foreground: oklch(0.985 0.005 330);
+  --color-border: rgba(255, 255, 255, 0.12);
+  --color-input: rgba(255, 255, 255, 0.16);
+  --color-ring: oklch(0.72 0.2 342);
+  color: var(--color-foreground);
+}
+.account-tokens .font-heading { font-family: inherit; font-weight: 700; letter-spacing: -0.02em; }
+.account-tokens .bg-card {
+  -webkit-backdrop-filter: blur(22px) saturate(200%);
+  backdrop-filter: blur(22px) saturate(200%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 24px 60px -28px rgba(0, 0, 0, 0.75);
+}
+/* Botones con borde: vidrio claro en vez del fondo blanco del sitio. */
+.account-tokens [data-slot="button"][data-variant="outline"] { background-color: rgba(255, 255, 255, 0.06); border-color: rgba(255, 255, 255, 0.16); }
+
 /* Tipografía tipo Apple para la app de socios: SF en iPhone/Mac, Inter/sistema en el resto. */
 .account-font {
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", Inter, "Space Grotesk", system-ui, sans-serif;
