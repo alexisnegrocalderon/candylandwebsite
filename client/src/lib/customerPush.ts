@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { trpc } from '@/lib/trpc';
 import { LAST_TICKET_CODE_KEY } from '@/lib/lastTicketCode';
+import { pushErrorMessage } from '@/lib/pushErrors';
 
 export type PushSource = 'ticket' | 'pago' | 'home' | 'concurso' | 'puntos' | 'app';
 export type PushState = 'loading' | 'unsupported' | 'ios-install' | 'denied' | 'ask' | 'enabled';
@@ -154,7 +155,9 @@ export function useCustomerPush(opts: { source: PushSource; ticketCode?: string;
       setState('enabled');
       return true;
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudieron activar los avisos.');
+      // El detalle técnico queda en la consola (para soporte); al cliente se le explica qué hacer.
+      console.warn('[push] No se pudieron activar los avisos:', err);
+      setError(pushErrorMessage(err));
       return false;
     } finally {
       setBusy(false);
