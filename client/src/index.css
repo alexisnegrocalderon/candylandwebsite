@@ -485,6 +485,15 @@ html {
     radial-gradient(900px 700px at 60% 120%, oklch(0.5 0.2 260 / 0.45), transparent 60%),
     #0b0612;
 }
+/* App instalada: la barra de estado del iPhone queda del color de la app (#0b0612). El fondo con luces se
+   desvanece hacia arriba hasta ese mismo negro, así la barra se ve como parte del degradado y no como una
+   franja de otro color. La máscara apaga también las luces que se mueven (::before/::after) en esa zona. */
+@media (display-mode: standalone) {
+  .account-backdrop {
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0, rgba(0, 0, 0, 0.55) 70px, #000 190px);
+    mask-image: linear-gradient(to bottom, transparent 0, rgba(0, 0, 0, 0.55) 70px, #000 190px);
+  }
+}
 .account-glass {
   position: relative;
   isolation: isolate;
@@ -607,9 +616,7 @@ html {
    panel ni las terminales (llevan data-splash="dark" y su propio manejo). */
 @media (display-mode: standalone) {
   html:not([data-splash="dark"]) { background-color: #0b0612; }
-  /* La franja solo va en las páginas claras del sitio; las pantallas oscuras de la app (`html.app-dark`)
-     pintan su propio fondo hasta arriba, así el degradado sigue por detrás de la hora y la batería. */
-  html:not([data-splash="dark"]):not(.app-dark)::before {
+  html:not([data-splash="dark"])::before {
     content: "";
     position: fixed;
     top: 0;
