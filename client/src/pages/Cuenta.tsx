@@ -182,13 +182,12 @@ function TicketWallet({ ev, holder, prepaidBalance, playcoins, movements, compac
       {x.status === 'used' ? '✅ ' : ''}{x.holderName ? x.holderName.split(' ')[0] : `Entrada ${n + 1}`}
     </button>
   ));
-  // Acciones secundarias como mosaicos iguales (ícono arriba, texto abajo): fila simétrica que llena el ancho.
-  const tiles = [
+  const actions = [
+    usable ? { key: 'qr', label: 'Mostrar QR', icon: QrCode, onClick: () => setShowQr(true), primary: true } : null,
     usable && t ? { key: 'entrada', label: 'Mi entrada', icon: TicketIcon, href: `/verificar/${t.ticketCode}` } : null,
-    onPayCaja ? { key: 'caja', label: 'Pagar en caja', icon: Wallet, onClick: onPayCaja } : null,
+    onPayCaja ? { key: 'caja', label: 'Pagar', icon: Wallet, onClick: onPayCaja } : null,
     onTopup ? { key: 'recarga', label: 'Recargar', icon: Plus, onClick: onTopup } : null,
-  ].filter(Boolean) as { key: string; label: string; icon: typeof Wallet; href?: string; onClick?: () => void }[];
-  const tileClass = 'account-glass flex h-[76px] flex-col items-center justify-center gap-1.5 rounded-[22px] text-[13px] font-semibold text-white interactive';
+  ].filter(Boolean) as { key: string; label: string; icon: typeof Wallet; href?: string; onClick?: () => void; primary?: boolean }[];
 
   if (compact) {
     return (
@@ -205,18 +204,18 @@ function TicketWallet({ ev, holder, prepaidBalance, playcoins, movements, compac
             )}
           </div>
         )}
-        {usable && (
-          <button type="button" onClick={() => { tapHaptic(); setShowQr(true); }} className="inline-flex h-14 w-full items-center justify-center gap-2.5 rounded-full bg-gradient-to-r from-pink-500 via-fuchsia-500 to-sky-500 text-[15px] font-bold text-white shadow-[0_10px_30px_-8px_rgba(236,72,153,0.6),inset_0_1px_0_rgba(255,255,255,0.35)] interactive">
-            <QrCode className="h-5 w-5" /> Mostrar QR
-          </button>
-        )}
-        {tiles.length > 0 && (
-          <div className="grid gap-2.5" style={{ gridTemplateColumns: `repeat(${tiles.length}, minmax(0, 1fr))` }}>
-            {tiles.map(({ key, label, icon: Icon, href, onClick }) => href ? (
-              <Link key={key} href={href} className={tileClass}><Icon className="h-5 w-5 text-pink-300" />{label}</Link>
-            ) : (
-              <button key={key} type="button" onClick={() => { tapHaptic(); onClick?.(); }} className={tileClass}><Icon className="h-5 w-5 text-pink-300" />{label}</button>
-            ))}
+        {/* Acciones estilo Apple Wallet: círculos iguales, repartidos en todo el ancho, con el nombre debajo. */}
+        {actions.length > 0 && (
+          <div className="grid pt-1" style={{ gridTemplateColumns: `repeat(${actions.length}, minmax(0, 1fr))` }}>
+            {actions.map(({ key, label, icon: Icon, href, onClick, primary }) => {
+              const circle = `grid h-[62px] w-[62px] place-items-center rounded-full ${primary ? 'bg-gradient-to-br from-pink-500 via-fuchsia-500 to-sky-500 shadow-[0_10px_28px_-8px_rgba(236,72,153,0.7),inset_0_1px_0_rgba(255,255,255,0.4)]' : 'lg-pill'}`;
+              const inner = (<><span className={circle}><Icon className="h-6 w-6 text-white" /></span><span className="text-[12px] font-medium text-white/85">{label}</span></>);
+              return href ? (
+                <Link key={key} href={href} className="flex flex-col items-center gap-2 interactive">{inner}</Link>
+              ) : (
+                <button key={key} type="button" onClick={() => { tapHaptic(); onClick?.(); }} className="flex flex-col items-center gap-2 interactive">{inner}</button>
+              );
+            })}
           </div>
         )}
         {createPortal(<AnimatePresence>{showQr && ev && t && <QrViewer ev={ev} t={t} holder={holder} onClose={() => setShowQr(false)} />}</AnimatePresence>, document.body)}
