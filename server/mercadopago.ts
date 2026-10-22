@@ -4,7 +4,7 @@ import { addonBackUrls } from '../shared/addon';
 
 let mpClient: MercadoPagoConfig | null = null;
 
-function getClient() {
+export function getClient() {
   if (!mpClient) {
     const accessToken = process.env.MERCADOPAGO_ACCESS_TOKEN;
     if (!accessToken) {
@@ -186,6 +186,8 @@ export async function createCardPayment(input: {
   payerEmail: string;
   identificationType?: string;
   identificationNumber?: string;
+  /** Cliente de Mercado Pago del socio (tarjetas guardadas): obligatorio cuando el token sale de una tarjeta guardada. */
+  mpCustomerId?: string | null;
 }) {
   const client = getClient();
   if (!client) {
@@ -208,6 +210,7 @@ export async function createCardPayment(input: {
       notification_url: `${baseUrl}/api/webhooks/mercadopago`,
       statement_descriptor: 'MANSION PLAYROOM',
       payer: {
+        ...(input.mpCustomerId ? { type: 'customer', id: input.mpCustomerId } : {}),
         email: input.payerEmail,
         identification: input.identificationType && input.identificationNumber
           ? { type: input.identificationType, number: input.identificationNumber }

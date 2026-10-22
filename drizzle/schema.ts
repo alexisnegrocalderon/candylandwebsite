@@ -1088,6 +1088,8 @@ export const customers = mysqlTable("customers", {
   // `cardpin:<customerId>`.
   cardPinHash: varchar("cardPinHash", { length: 255 }),
   cardPinSetAt: timestamp("cardPinSetAt"),
+  /** Cliente en Mercado Pago (Clientes y Tarjetas): sus tarjetas guardadas viven allá, acá solo el id. */
+  mpCustomerId: varchar("mpCustomerId", { length: 64 }),
   notes: text("notes"),
   // --- Ficha completa del cliente (Admin → Clientes) ---
   // Fecha de nacimiento: "YYYY-MM-DD", o "MM-DD" cuando solo se sabe el
@@ -3125,3 +3127,17 @@ export const agentKnowledge = mysqlTable("agentKnowledge", {
 }));
 
 export type AgentKnowledgeRow = typeof agentKnowledge.$inferSelect;
+
+/** QR de «Pagar en caja» desde la app de socios: vence en 2 minutos y sirve una sola vez
+ * (`usedAt` se marca con un UPDATE condicional al cobrar). Ver server/memberPay.ts. */
+export const memberPayTokens = mysqlTable("memberPayTokens", {
+  nonce: varchar("nonce", { length: 32 }).primaryKey(),
+  email: varchar("email", { length: 320 }).notNull(),
+  expiresAt: timestamp("expiresAt").notNull(),
+  usedAt: timestamp("usedAt"),
+  usedOpId: varchar("usedOpId", { length: 64 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  emailIdx: index("member_pay_tokens_email_idx").on(table.email, table.createdAt),
+}));
+export type MemberPayToken = typeof memberPayTokens.$inferSelect;

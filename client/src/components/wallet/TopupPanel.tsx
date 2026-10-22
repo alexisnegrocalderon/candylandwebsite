@@ -11,7 +11,8 @@ import { ForgotPinPanel } from './ForgotPinPanel';
  * Payment Brick del checkout, sobre una orden de solo carga de saldo.
  * Estilos: clases `wcard-*` de Ticket.wallet.css (quien lo monta lo importa). */
 
-export type TopupAccess = { ticketCode: string } | { sessionToken: string };
+/** `member`: desde «Mi cuenta», la sesión del socio lo identifica (interruptor accountTopup). */
+export type TopupAccess = { ticketCode: string } | { sessionToken: string } | { member: true };
 
 type Stage = 'choose' | 'pay' | 'done' | 'processing';
 
@@ -66,6 +67,7 @@ export function TopupPanel({ access, onPaid }: { access: TopupAccess; onPaid?: (
       setStage('done');
       utils.wallet.getByTicketCode.invalidate();
       utils.playcardTopup.getOptions.invalidate();
+      utils.member.me.invalidate();
       onPaid?.();
     } else if (status === 'pending' || status === 'in_process') {
       setStage('processing');

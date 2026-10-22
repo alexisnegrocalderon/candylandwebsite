@@ -33,3 +33,10 @@ export function parseTicketCodeFromQr(raw: string): string | null {
   const code = input.toUpperCase();
   return CODE_RE.test(code) ? code : null;
 }
+
+/** QR de «Pagar en caja» de la app de socios (server/memberPay.ts). Lleva `:`, así que
+ * `parseTicketCodeFromQr` nunca lo confunde con una entrada. */
+export const PAY_QR_PREFIX = 'PLAYPAY:v1:';
+export function isPayQr(raw: string): boolean {
+  return (raw ?? '').trim().startsWith(PAY_QR_PREFIX);
+}

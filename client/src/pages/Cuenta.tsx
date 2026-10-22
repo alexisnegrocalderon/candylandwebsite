@@ -2,7 +2,7 @@ import { Component, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { toast } from 'sonner';
-import { Calendar, Check, Copy, Crown, Gift, LogOut, Sparkles, Ticket as TicketIcon, ArrowRight, Download, Loader2, X, QrCode, CreditCard, Coins, MoreHorizontal, Home } from 'lucide-react';
+import { Calendar, Check, Copy, Crown, Gift, LogOut, Sparkles, Ticket as TicketIcon, ArrowRight, Download, Loader2, X, QrCode, CreditCard, Coins, MoreHorizontal, Home, Wallet, Plus } from 'lucide-react';
 import { Link } from 'wouter';
 import { trpc } from '@/lib/trpc';
 import type { inferRouterOutputs } from '@trpc/server';
@@ -14,6 +14,7 @@ import { isMemberEarlyAccess } from '@shared/memberConfig';
 import { WalletCard } from '@/components/wallet/WalletCard';
 import { saveTicketImage } from '@/lib/ticketImage';
 import { PushPrompt } from '@/components/site/PushPrompt';
+import { PayInCajaViewer, SavedCardsSection, TopupSheet, useMemberPayConfig } from '@/components/site/AccountPayments';
 import { useCustomerPush } from '@/lib/customerPush';
 import { useIsMobile } from '@/hooks/useMobile';
 import { MemberLogin, type LoginDone } from '@/components/site/MemberLogin';
@@ -127,7 +128,7 @@ function QrViewer({ ev, t, holder, onClose }: { ev: MeEvent; t: MeEvent['tickets
 
 /** Lo primero que ve quien entra: su PlayCard con el QR de la entrada del próximo evento.
  * Tocar la tarjeta abre el QR a pantalla completa (y desde ahí se guarda en Fotos). */
-function TicketWallet({ ev, holder, prepaidBalance, playcoins, movements, compact = false }: { ev: MeEvent | null; holder: string; prepaidBalance: number; playcoins: number; movements: Movement[]; compact?: boolean }) {
+function TicketWallet({ ev, holder, prepaidBalance, playcoins, movements, compact = false, onTopup, onPayCaja }: { ev: MeEvent | null; holder: string; prepaidBalance: number; playcoins: number; movements: Movement[]; compact?: boolean; onTopup?: () => void; onPayCaja?: () => void }) {
   const [i, setI] = useState(0);
   const [showQr, setShowQr] = useState(false);
   const t = ev ? ev.tickets[Math.min(i, ev.tickets.length - 1)] : null;
@@ -168,7 +169,21 @@ function TicketWallet({ ev, holder, prepaidBalance, playcoins, movements, compac
           </Link>
         </div>
       )}
-      {usable && !compact && <p className="text-center text-xs text-white/50">Toca tu PlayCard para ver el QR en grande y guardarlo en Fotos: así entras y pagas en caja aunque no tengas señal.</p>}
+      {(onTopup || onPayCaja) && (
+        <div className="grid grid-cols-2 gap-2">
+          {onPayCaja && (
+            <button type="button" onClick={onPayCaja} className="account-glass inline-flex h-11 items-center justify-center gap-2 rounded-full text-sm font-semibold text-white interactive">
+              <Wallet className="h-4 w-4 text-pink-300" /> Pagar en caja
+            </button>
+          )}
+          {onTopup && (
+            <button type="button" onClick={onTopup} className={`account-glass inline-flex h-11 items-center justify-center gap-2 rounded-full text-sm font-semibold text-white interactive ${onPayCaja ? '' : 'col-span-2'}`}>
+              <Plus className="h-4 w-4 text-pink-300" /> Recargar saldo
+            </button>
+          )}
+        </div>
+      )}
+      {usable && !compact && <p className="text-center text-xs text-white/50">Toca tu PlayCard para ver el QR en grande y guardarlo en Fotos: así entras aunque no tengas señal.</p>}
       {/* Portal: por encima de la barra de abajo y del resto de la pantalla. */}
       {createPortal(<AnimatePresence>{showQr && ev && t && <QrViewer ev={ev} t={t} holder={holder} onClose={() => setShowQr(false)} />}</AnimatePresence>, document.body)}
     </div>
@@ -362,6 +377,9 @@ const TABS: { key: Tab; label: string; icon: typeof CreditCard }[] = [
 function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | null; onLogout: () => void }) {
   const [tab, setTab] = useState<Tab>('card');
   const [more, setMore] = useState(false);
+  const pay = useMemberPayConfig();
+  const [topupOpen, setTopupOpen] = useState(false);
+  const [payOpen, setPayOpen] = useState(false);
   const push = useCustomerPush({ source: 'puntos' });
   const level = CUSTOMER_LEVEL_META[me.level as keyof typeof CUSTOMER_LEVEL_META];
   const upcoming = me.events as MeEvent[];
@@ -404,12 +422,17 @@ function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | nu
           {tab === 'card' && (
             <>
               <WelcomeBanner welcome={welcome} />
-              <TicketWallet compact ev={upcoming[0] ?? null} holder={me.fullName || me.email} prepaidBalance={me.prepaidBalance} playcoins={me.playcoins} movements={me.movements} />
+              <TicketWallet compact ev={upcoming[0] ?? null} holder={me.fullName || me.email} prepaidBalance={me.prepaidBalance} playcoins={me.playcoins} movements={me.movements}
+                onTopup={pay.accountTopup ? () => setTopupOpen(true) : undefined} onPayCaja={pay.cajaPay ? () => setPayOpen(true) : undefined} />
               <BuyNextCard me={me} />
             </>
           )}
           {tab === 'entradas' && <TicketsList events={upcoming} />}
-          {tab === 'puntos' && (<><PlaycoinsCard me={me} /><Movements me={me} /></>)}
+          {tab === 'puntos' && (<>
+            <PlaycoinsCard me={me} />
+            {pay.accountTopup && <button type="button" onClick={() => setTopupOpen(true)} className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-pink-500 via-fuchsia-500 to-sky-500 text-sm font-bold text-white"><Plus className="h-4 w-4" /> Recargar saldo (hoy {`$${me.prepaidBalance.toLocaleString('es-CL')}`})</button>}
+            <Movements me={me} />
+          </>)}
           {tab === 'cupones' && <CouponsList me={me} />}
         </motion.div>
         </TabBoundary>
@@ -454,6 +477,10 @@ function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | nu
               <div className="space-y-3">
                 <PushPrompt source="puntos" tone="dark" />
                 <EarlyCard me={me} />
+                {me.nextEvent && (
+                  <Link href={`/checkout/${me.nextEvent.slug}`} className="account-glass flex h-12 items-center justify-center gap-2 rounded-2xl text-sm font-semibold"><TicketIcon className="h-4 w-4 text-pink-300" /> Comprar entrada · {me.nextEvent.title}</Link>
+                )}
+                {pay.savedCards && <SavedCardsSection />}
                 <PerksCard me={me} />
                 <div className="grid grid-cols-2 gap-2">
                   <Link href="/eventos" className="account-glass flex h-12 items-center justify-center gap-2 rounded-2xl text-sm font-semibold"><Calendar className="h-4 w-4" /> Eventos</Link>
@@ -465,6 +492,8 @@ function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | nu
           </>
         )}
       </AnimatePresence>
+      <TopupSheet open={topupOpen} onClose={() => setTopupOpen(false)} />
+      <AnimatePresence>{payOpen && <PayInCajaViewer onClose={() => setPayOpen(false)} prepaidBalance={me.prepaidBalance} playcoins={me.playcoins} />}</AnimatePresence>
     </div>
   );
 }
@@ -510,8 +539,15 @@ export default function Cuenta() {
 
   if (isMobile) return <AccountApp me={me} welcome={welcome} onLogout={() => logout.mutate()} />;
 
+  return <DesktopAccount me={me} welcome={welcome} onLogout={() => logout.mutate()} shell={shell} />;
+}
+
+function DesktopAccount({ me, welcome, onLogout, shell }: { me: Me; welcome: LoginDone | null; onLogout: () => void; shell: string }) {
   const level = CUSTOMER_LEVEL_META[me.level as keyof typeof CUSTOMER_LEVEL_META];
   const upcoming = me.events as MeEvent[];
+  const pay = useMemberPayConfig();
+  const [topupOpen, setTopupOpen] = useState(false);
+  const [payOpen, setPayOpen] = useState(false);
 
   return (
     <div className={`${shell} pt-28 pb-20`}>
@@ -526,11 +562,12 @@ export default function Cuenta() {
                 {level && <span className="rounded-full bg-emerald-400/15 px-2.5 py-0.5 text-xs font-medium text-emerald-300">{level.label}</span>}
               </p>
             </div>
-            <button type="button" onClick={() => logout.mutate()} className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-white/15 px-3 py-1.5 text-xs text-white/60 interactive"><LogOut className="h-3.5 w-3.5" /> Salir</button>
+            <button type="button" onClick={onLogout} className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-white/15 px-3 py-1.5 text-xs text-white/60 interactive"><LogOut className="h-3.5 w-3.5" /> Salir</button>
           </div>
 
           <WelcomeBanner welcome={welcome} />
-          <TicketWallet ev={upcoming[0] ?? null} holder={me.fullName || me.email} prepaidBalance={me.prepaidBalance} playcoins={me.playcoins} movements={me.movements} />
+          <TicketWallet ev={upcoming[0] ?? null} holder={me.fullName || me.email} prepaidBalance={me.prepaidBalance} playcoins={me.playcoins} movements={me.movements}
+            onTopup={pay.accountTopup ? () => setTopupOpen(true) : undefined} onPayCaja={pay.cajaPay ? () => setPayOpen(true) : undefined} />
           <BuyNextCard me={me} />
 
           {/* Avisos: bien arriba y llamativo; desaparece solo al activarlos. */}
@@ -548,9 +585,12 @@ export default function Cuenta() {
             <CouponsList me={me} />
           </Section>
 
+          {pay.savedCards && <SavedCardsSection />}
           <PerksCard me={me} />
         </motion.div>
       </div>
+      <TopupSheet open={topupOpen} onClose={() => setTopupOpen(false)} />
+      <AnimatePresence>{payOpen && <PayInCajaViewer onClose={() => setPayOpen(false)} prepaidBalance={me.prepaidBalance} playcoins={me.playcoins} />}</AnimatePresence>
     </div>
   );
 }

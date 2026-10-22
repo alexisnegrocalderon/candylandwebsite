@@ -23,6 +23,17 @@ export interface MemberConfig {
   vip: CouponRule;
   /** Avisarles por notificación cuando reciben un cupón (si activaron los avisos). */
   pushOnGrant: boolean;
+  /** Pagos desde «Mi cuenta» (Etapa A). Todo arranca apagado: se prende pieza por pieza. */
+  payments: MemberPaymentsConfig;
+}
+
+export interface MemberPaymentsConfig {
+  /** Guardar tarjetas (Mercado Pago, Clientes y Tarjetas) y pagar con ellas en el checkout y la recarga. */
+  savedCards: boolean;
+  /** Recargar la PlayCard desde «Mi cuenta». */
+  accountTopup: boolean;
+  /** «Pagar en caja» con el QR de la app (saldo y Playcoins, sin PIN). */
+  cajaPay: boolean;
 }
 
 export const DEFAULT_MEMBER_CONFIG: MemberConfig = {
@@ -31,6 +42,7 @@ export const DEFAULT_MEMBER_CONFIG: MemberConfig = {
   recurrente: { enabled: false, percent: 10, days: 30 },
   vip: { enabled: false, percent: 15, days: 30 },
   pushOnGrant: true,
+  payments: { savedCards: false, accountTopup: false, cajaPay: false },
 };
 
 const int = (v: unknown, min: number, max: number, fallback: number) => {
@@ -51,6 +63,11 @@ export function normalizeMemberConfig(raw: unknown): MemberConfig {
     recurrente: rule(r.recurrente, d.recurrente),
     vip: rule(r.vip, d.vip),
     pushOnGrant: r.pushOnGrant !== false,
+    payments: {
+      savedCards: r.payments?.savedCards === true,
+      accountTopup: r.payments?.accountTopup === true,
+      cajaPay: r.payments?.cajaPay === true,
+    },
   };
 }
 
