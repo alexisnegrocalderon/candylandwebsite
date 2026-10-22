@@ -84,7 +84,10 @@ function WalletPreviewCard({ holderName, topupAmount, playcoinsEarned, eventName
  * Los datos se conservan en sessionStorage al retroceder o cerrar por accidente.
  */
 
-const STORAGE_KEY = 'candyland_checkout_draft';
+// v2: los pasos cambiaron (datos en una pantalla, acompañantes juntos) -- un borrador viejo no sirve.
+const STORAGE_KEY = 'candyland_checkout_draft_v2';
+/** Datos del comprador recordados en este teléfono (solo los suyos, nunca los de acompañantes). */
+const REMEMBER_KEY = 'candyland_checkout_me';
 
 /* Emoji por acceso (usado en el resumen final) */
 const EMOJIS: Record<string, string> = {
@@ -94,34 +97,27 @@ const EMOJIS: Record<string, string> = {
 type GroupSize = 1 | 2 | 3 | 4;
 type DuoComposicion = 'mixta' | 'dos_mujeres' | 'dos_hombres';
 
-const VIBE_OPTIONS: { size: GroupSize; image: string; label: string; emoji: string }[] = [
-  { size: 1, image: '/candyland/checkout/vibe-solo.webp', label: 'Voy Solx', emoji: '👤' },
-  { size: 2, image: '/candyland/checkout/vibe-pareja.webp', label: 'Somos Dos', emoji: '💕' },
-  { size: 3, image: '/candyland/checkout/vibe-triada.webp', label: 'Somos Tres', emoji: '🎭' },
-  { size: 4, image: '/candyland/checkout/vibe-grupo.webp', label: 'Somos Cuatro', emoji: '🌈' },
+
+/* Paso único «¿Cómo vienes?»: antes eran dos pantallas (cuántos son y después quiénes). Ahora todas las
+ * opciones en una grilla: un toque y sigue. Las que piden código de comunidad van al final. */
+type AccesoOption = { key: string; slug: string; size: GroupSize; composicion?: DuoComposicion; image: string; label: string; sub: string; emoji: string };
+const ACCESO_OPTIONS: AccesoOption[] = [
+  { key: 'soltera', slug: 'soltera', size: 1, image: '/candyland/checkout/quien-ella.webp', label: 'Vengo sola', sub: 'Soltera', emoji: '🍭' },
+  { key: 'pareja', slug: 'duo', size: 2, composicion: 'mixta', image: '/candyland/checkout/pareja-mixta.webp', label: 'Pareja', sub: 'Mujer y hombre', emoji: '💑' },
+  { key: 'dos-mujeres', slug: 'duo_mujeres', size: 2, composicion: 'dos_mujeres', image: '/candyland/checkout/pareja-dos-mujeres.webp', label: 'Dos mujeres', sub: '2x1', emoji: '👭' },
+  { key: 'trio', slug: 'trio', size: 3, image: '/candyland/checkout/vibe-triada.webp', label: 'Somos tres', sub: 'Grupo mixto', emoji: '🎭' },
+  { key: 'grupo', slug: 'grupo', size: 4, image: '/candyland/checkout/vibe-grupo.webp', label: 'Somos cuatro', sub: 'Grupo mixto', emoji: '🌈' },
+  { key: 'soltero', slug: 'soltero', size: 1, image: '/candyland/checkout/quien-el.webp', label: 'Vengo solo', sub: 'Con código', emoji: '🔑' },
+  { key: 'dos-hombres', slug: 'duo', size: 2, composicion: 'dos_hombres', image: '/candyland/checkout/pareja-dos-hombres.webp', label: 'Dos hombres', sub: 'Con código', emoji: '👬' },
 ];
 
-const QUIEN_OPTIONS: { slug: 'soltera' | 'soltero'; image: string; label: string; sub: string; emoji: string }[] = [
-  { slug: 'soltera', image: '/candyland/checkout/quien-ella.webp', label: 'Vengo como ella', sub: 'Acceso Soltera', emoji: '🍭' },
-  { slug: 'soltero', image: '/candyland/checkout/quien-el.webp', label: 'Vengo como él', sub: 'Acceso Soltero — código de comunidad', emoji: '🔑' },
-];
+/* Etiquetas de la pantalla «Tus datos» (todos los campos juntos). */
+const DATO_LABEL: Record<string, string> = { nombre: 'Nombre y apellido', email: 'Email (ahí llega tu entrada)', whatsapp: 'WhatsApp', rut: 'Documento' };
 
-const PAREJA_OPTIONS: { tipo: DuoComposicion; image: string; label: string; sub: string; emoji: string }[] = [
-  { tipo: 'mixta', image: '/candyland/checkout/pareja-mixta.webp', label: 'Mujer y Hombre', sub: 'Acceso Dúo', emoji: '💑' },
-  { tipo: 'dos_mujeres', image: '/candyland/checkout/pareja-dos-mujeres.webp', label: 'Mujer y Mujer', sub: '2x1 — mismo valor que Soltera', emoji: '👭' },
-  { tipo: 'dos_hombres', image: '/candyland/checkout/pareja-dos-hombres.webp', label: 'Hombre y Hombre', sub: 'Exclusivo — necesitas código de comunidad', emoji: '👬' },
-];
-
-const GROUP_TO_ACCESO: Record<3 | 4, string> = { 3: 'trio', 4: 'grupo' };
-
-/* Explicación corta de cada opción en el link de la comunidad: gente que no
- * conoce Playroom y no sabe qué acceso le corresponde. */
-const PARTNER_VIBE_SUB: Record<GroupSize, string> = {
-  1: 'Soltera · mujer sola',
-  2: 'Dúo pareja o soltera doble',
-  3: '3 personas · grupo mixto',
-  4: '4 personas · grupo mixto',
-};
+type Remembered = { nombre?: string; email?: string; whatsapp?: string; rut?: string; docTipo?: 'rut' | 'passport' };
+function readRemembered(): Remembered {
+  try { return JSON.parse(localStorage.getItem(REMEMBER_KEY) || '{}') ?? {}; } catch { return {}; }
+}
 
 /* Accesos que se eligen fuera del flujo conversacional (link directo desde
  * un CTA específico) y por eso saltan la pregunta "¿Cómo vienes?" */
@@ -213,31 +209,6 @@ function autoCompleteFor(name: string): string | undefined {
   return undefined;
 }
 
-/* Copy cercano y conversacional por campo — reemplaza la etiqueta técnica
- * por una pregunta hablada. Los acompañantes se resuelven por patrón
- * (acompN_campo) para que funcione automáticamente con cualquier acceso. */
-function friendlyPregunta(rawKey: string, field: CampoForm): { titulo: string; sub?: string } {
-  const m = rawKey.match(/^acomp(\d)_(nombre|rut|instagram)$/);
-  if (m) {
-    const n = Number(m[1]);
-    const quien = n === 1 && !field.required ? 'tu +1' : n === 1 ? 'tu acompañante' : `tu acompañante ${n}`;
-    if (m[2] === 'nombre') return { titulo: `¿Cómo se llama ${quien}?`, sub: field.required ? 'Así aparece en su carnet de acceso.' : 'Puedes completarlo ahora o después — es opcional.' };
-    if (m[2] === 'rut') return { titulo: '¿Cuál es su documento?', sub: '¿Tiene RUT chileno o pasaporte? Elige abajo y escríbelo en el formato correspondiente.' };
-    return { titulo: '¿Su Instagram?', sub: 'Opcional, para etiquetarlos en las fotos de la fiesta.' };
-  }
-  switch (rawKey) {
-    case 'nombre': return { titulo: '¿Cómo te llamas?', sub: 'Nombre y apellido, tal como aparece en tu carnet de identidad o el documento que vas a presentar en la entrada.' };
-    case 'email': return { titulo: '¿A qué email enviamos tu entrada?', sub: 'Ahí llega tu QR y la dirección exacta.' };
-    case 'whatsapp': return { titulo: '¿Cuál es tu WhatsApp?', sub: 'Por si necesitamos contactarte antes de la fiesta.' };
-    case 'rut': return { titulo: '¿Cuál es tu documento?', sub: '¿Tienes RUT chileno o pasaporte? Elige abajo y escríbelo en el formato correspondiente. Tus datos son 100% privados.' };
-    case 'instagram': return { titulo: '¿Nos compartes tu Instagram?', sub: 'Es el único dato opcional — puedes saltarlo.' };
-    case 'mayorEdad': return { titulo: 'Una última confirmación', sub: `${EVENTO.nombre} es un evento estrictamente +18.` };
-    case 'codigo_acceso': return { titulo: 'Tu código de comunidad', sub: field.help };
-    case 'fecha_nacimiento': return { titulo: '¿Cuándo es tu cumpleaños?', sub: 'Lo validamos con tu carnet en la puerta.' };
-    default: return { titulo: field.label.replace(' (opcional)', ''), sub: field.help };
-  }
-}
-
 function SquareImageOption({
   image, titulo, sub, activo, onClick, fallbackEmoji,
 }: { image: string; titulo: string; sub?: string; activo?: boolean; onClick: () => void; fallbackEmoji?: string }) {
@@ -273,8 +244,8 @@ function SquareImageOption({
 }
 
 function SingleFieldInput({
-  fieldKey, field, register, setValue, watch, error, onEnter,
-}: { fieldKey: string; field: CampoForm; register: any; setValue: any; watch: any; error?: string; onEnter: () => void }) {
+  fieldKey, field, register, setValue, watch, error, onEnter, autoFocus = true, compact = false,
+}: { fieldKey: string; field: CampoForm; register: any; setValue: any; watch: any; error?: string; onEnter: () => void; autoFocus?: boolean; compact?: boolean }) {
   // Mismo criterio que buildSchema() más arriba para saber si es un campo de
   // RUT (comprador o acompañante) -- puntos y guion se ponen solos mientras
   // se escribe, pedido explícito del dueño (antes había que tipear el guion
@@ -293,7 +264,7 @@ function SingleFieldInput({
       {isRut && tipoKey && (
         <>
           <input type="hidden" {...register(tipoKey)} defaultValue="rut" />
-          <div className="flex gap-2 mb-3" role="group" aria-label="Tipo de documento">
+          <div className={`flex gap-2 ${compact ? 'mb-2' : 'mb-3'}`} role="group" aria-label="Tipo de documento">
           {(['rut', 'passport'] as const).map((opcion) => (
             <button
               key={opcion}
@@ -303,7 +274,7 @@ function SingleFieldInput({
                 setValue(tipoKey, opcion, { shouldValidate: false });
                 setValue(fieldKey, '', { shouldValidate: false });
               }}
-              className={`flex-1 h-10 rounded-full text-sm font-semibold uppercase tracking-wide border transition-colors interactive ${
+              className={`flex-1 ${compact ? 'h-9 text-xs' : 'h-10 text-sm'} rounded-full font-semibold uppercase tracking-wide border transition-colors interactive ${
                 tipo === opcion ? 'border-primary bg-primary/15 text-primary' : 'border-border/50 text-muted-foreground hover:border-primary/40'
               }`}
             >
@@ -318,15 +289,15 @@ function SingleFieldInput({
         type={field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : field.type === 'tel' ? 'tel' : field.type === 'email' ? 'email' : 'text'}
         inputMode={field.type === 'tel' ? 'tel' : field.type === 'email' ? 'email' : field.type === 'number' ? 'numeric' : undefined}
         autoComplete={autoCompleteFor(fieldKey)}
-        autoFocus
+        autoFocus={autoFocus}
         {...(isRut && !esPasaporte
           ? register(fieldKey, { onChange: (e: React.ChangeEvent<HTMLInputElement>) => setValue(fieldKey, formatRutLive(e.target.value), { shouldValidate: false }) })
           : register(fieldKey))}
         placeholder={esPasaporte ? 'Número de pasaporte' : field.placeholder}
         onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onEnter(); } }}
-        className="h-14 text-lg"
+        className={compact ? 'h-12 text-base' : 'h-14 text-lg'}
       />
-      {field.help && <p className="text-xs text-muted-foreground mt-2">{field.help}</p>}
+      {field.help && !compact && <p className="text-xs text-muted-foreground mt-2">{field.help}</p>}
       {error && <p className="text-sm text-destructive mt-2" role="alert">{error}</p>}
     </div>
   );
@@ -536,34 +507,11 @@ function CheckoutInner({ partnerSlug }: { partnerSlug?: string } = {}) {
     return false;
   };
 
-  const chooseVibe = (size: GroupSize) => {
-    // Solo/a → resuelve en el paso "quien". Pareja → resuelve en "pareja-composicion".
-    // En el link de la comunidad, solo/a es siempre Soltera (sin Soltero).
-    if (isPartner && size === 1) {
-      if (!avisarSiNoHayEntrada('soltera')) return;
-      setAccesoSlug('soltera');
-    }
-    if (size === 3 || size === 4) {
-      const slug = GROUP_TO_ACCESO[size];
-      if (!avisarSiNoHayEntrada(slug)) return;
-      setAccesoSlug(slug);
-    }
-    setGroupSize(size);
-    continuar();
-  };
-  const chooseQuien = (slug: 'soltera' | 'soltero') => {
-    if (!avisarSiNoHayEntrada(slug)) return;
-    setAccesoSlug(slug);
-    continuar();
-  };
-  const choosePareja = (tipo: DuoComposicion) => {
-    // Mujer y Mujer es su propio acceso ("duo_mujeres" -- 2x1, mismo valor
-    // que Soltera pero cuenta 2 personas hacia Misión 300, ver
-    // shared/mission300.ts). Las otras dos composiciones siguen siendo "duo".
-    const slug = tipo === 'dos_mujeres' ? 'duo_mujeres' : 'duo';
-    if (!avisarSiNoHayEntrada(slug)) return;
-    setDuoComposicion(tipo);
-    setAccesoSlug(slug);
+  const chooseAcceso = (op: AccesoOption) => {
+    if (!avisarSiNoHayEntrada(op.slug)) return;
+    setGroupSize(op.size);
+    setDuoComposicion(op.composicion ?? null);
+    setAccesoSlug(op.slug);
     continuar();
   };
 
@@ -610,11 +558,6 @@ function CheckoutInner({ partnerSlug }: { partnerSlug?: string } = {}) {
   const [ordenPago, setOrdenPago] = useState<{ orderNumber: string; total: number } | null>(null);
   const [pagoResultado, setPagoResultado] = useState<'approved' | 'rejected' | 'pending' | null>(null);
   const [pagoErrorMsg, setPagoErrorMsg] = useState('');
-  // Pantalla de "revisa tu compra" entre crear la orden y montar el Payment
-  // Brick — antes se saltaba directo del resumen a la pasarela sin mostrar
-  // de nuevo el detalle (tipo de entrada, extras, descuento, total).
-  const [showResumenFinal, setShowResumenFinal] = useState(false);
-  const [resumenCountdown, setResumenCountdown] = useState(5);
   // PIN de la tarjeta de membresía (pedido explícito del dueño): se define
   // acá, al comprar una carga de saldo -- pagar de verdad con Mercado Pago
   // ES la prueba de identidad, nunca antes. Solo se pide si el carrito tiene
@@ -623,19 +566,9 @@ function CheckoutInner({ partnerSlug }: { partnerSlug?: string } = {}) {
   const [cardPinConfirm, setCardPinConfirm] = useState('');
   const [cardPinError, setCardPinError] = useState('');
   const setCardPinMutation = trpc.prepaid.setCardPinAfterTopup.useMutation();
-  // Se calcula acá (no más abajo, junto al resto de los totales) porque el
-  // auto-avance de la pantalla "Revisa tu compra" lo necesita: con una carga
-  // de saldo en el carrito, NO puede avanzar solo a los 5 segundos -- tiene
-  // que esperar a que la persona defina su PIN.
+  // Con una carga de saldo en el carrito, el resumen pide el PIN antes de crear la orden.
   const topupCharge = extraTickets.reduce((s: number, t: any) => (isTopupProduct(t) ? s + (dbExtraQty[t.id] || 0) * Number(t.price) : s), 0);
   const hasTopupInCart = useDbExtras && topupCharge > 0;
-  useEffect(() => {
-    if (!showResumenFinal || hasTopupInCart) return;
-    setResumenCountdown(5);
-    const interval = window.setInterval(() => setResumenCountdown((c) => Math.max(0, c - 1)), 1000);
-    const advance = window.setTimeout(() => setShowResumenFinal(false), 5000);
-    return () => { window.clearInterval(interval); window.clearTimeout(advance); };
-  }, [showResumenFinal, hasTopupInCart]);
 
   /* ── Pasos: una sola pregunta por pantalla ───────────────── */
   const camposAcceso = useMemo(() => {
@@ -653,39 +586,24 @@ function CheckoutInner({ partnerSlug }: { partnerSlug?: string } = {}) {
       p.push({ id: 'intro-comunidad', titulo: '🎧 Bienvenid@, comunidad electrónica', sub: partner?.headline, keys: [] });
     }
     if (!skipVibe) {
-      p.push({ id: 'vibe', titulo: `✨ ¿Cómo vienes a vivir ${EVENTO.nombre}?`, sub: 'Selecciona la opción que mejor los representa.', keys: [] });
-      if (groupSize === 1 && !isPartner) {
-        p.push({ id: 'quien', titulo: 'Perfecto.', sub: 'Cuéntanos cómo vienes.', keys: [] });
-      }
-      if (groupSize === 2) {
-        p.push({ id: 'pareja-composicion', titulo: 'Elige tu tipo de acceso', sub: 'Cuéntanos quiénes vienen.', keys: [] });
-      }
+      p.push({ id: 'acceso', titulo: `✨ ¿Cómo vienes a ${EVENTO.nombre}?`, sub: 'Toca tu opción.', keys: [] });
     }
-    for (const f of CAMPOS_COMPRADOR) {
-      const key = `buyer__${f.name}`;
-      const { titulo, sub } = friendlyPregunta(f.name, f);
-      p.push({ id: key, titulo, sub, keys: [key] });
-    }
-    for (const f of camposAcceso) {
-      if (f.name === 'codigo_acceso') continue; // paso especial más abajo, con validación en vivo
-      const key = `acceso__${f.name}`;
-      const { titulo, sub } = friendlyPregunta(f.name, f);
-      p.push({ id: key, titulo, sub, keys: [key] });
+    // Todos los datos del comprador en UNA pantalla (antes era una pantalla por dato).
+    p.push({ id: 'datos', titulo: 'Tus datos', sub: 'Para enviarte la entrada y validarla en la puerta. Son 100% privados.', keys: CAMPOS_COMPRADOR.map((f) => `buyer__${f.name}`) });
+    // Todos los acompañantes en UNA pantalla.
+    const acompKeys = camposAcceso.filter((f) => f.name !== 'codigo_acceso').map((f) => `acceso__${f.name}`);
+    if (acompKeys.length > 0) {
+      const varios = acompKeys.filter((k) => k.endsWith('_nombre')).length > 1;
+      p.push({ id: 'acompanantes', titulo: varios ? '¿Quiénes vienen contigo?' : '¿Quién viene contigo?', sub: 'Nombre y documento tal como aparecen en su carnet.', keys: acompKeys });
     }
     if (requiresCommunityCode) {
       p.push({ id: 'codigo-comunidad', titulo: 'Tu código de comunidad', sub: 'Lo necesitas para completar esta compra.', keys: ['acceso__codigo_acceso'] });
     }
-    if (useDbExtras) {
-      p.push(isPartner
-        ? { id: 'extras-db', titulo: '🚗 Asegura tu estacionamiento', sub: 'Los cupos son limitados y en la puerta no hay garantía de lugar. También puedes dejar listos tus tragos y extras — todo opcional.', keys: [] }
-        : { id: 'extras-db', titulo: '✨ ¿Agregamos algo más?', sub: 'Estacionamiento, covers y otros extras — todo opcional.', keys: [] });
-    }
     if (isPartner) {
       p.push({ id: 'bienvenida-playroom', titulo: '💜 Bienvenid@ a Playroom', sub: 'Es tu primera vez con nosotros: así cuidamos la fiesta entre todos. Léelo y confirma para continuar.', keys: [] });
-    } else {
-      p.push({ id: 'codigos', titulo: '🎟️ ¿Tienes un código?', sub: 'De descuento o de quien te invitó — o sáltalo no más.', keys: [] });
     }
-    p.push({ id: 'resumen', titulo: '✨ Tu experiencia', sub: 'Revisa todo antes de continuar.', keys: [] });
+    // Pantalla final: extras, código, total y pagar (antes eran tres pantallas + una espera de 5 s).
+    p.push({ id: 'resumen', titulo: '✨ Último paso', sub: 'Agrega lo que quieras, revisa el total y paga.', keys: [] });
     return p;
   }, [camposAcceso, skipVibe, groupSize, requiresCommunityCode, useDbExtras, isPartner, partner?.headline]);
 
@@ -713,14 +631,26 @@ function CheckoutInner({ partnerSlug }: { partnerSlug?: string } = {}) {
     defaultValues: draft.values ?? {},
   });
 
-  // Quien tiene sesión de «Mi cuenta» ya trae su correo puesto (una sola vez: si lo cambia, se respeta).
-  const { data: memberSession } = useMemberSession();
-  const emailPrefilled = useRef(false);
+  // «Tus datos» viene lleno cuando se puede: borrador de esta visita (defaultValues) → «Mi cuenta» →
+  // datos recordados en este teléfono. Solo se llenan campos vacíos, una sola vez.
+  const prefill = trpc.member.checkoutPrefill.useQuery(undefined, { retry: false, staleTime: 60_000 });
+  const prefilled = useRef(false);
+  const [remember, setRemember] = useState(true);
   useEffect(() => {
-    if (emailPrefilled.current || !memberSession?.loggedIn || !memberSession.isMember) return;
-    emailPrefilled.current = true;
-    if (!watch('buyer__email')) setValue('buyer__email', memberSession.email, { shouldValidate: false });
-  }, [memberSession, setValue, watch]);
+    if (prefilled.current || prefill.isLoading) return;
+    prefilled.current = true;
+    const mine = readRemembered();
+    const m = prefill.data;
+    const src: Remembered = m
+      ? { nombre: m.fullName ?? mine.nombre, email: m.email, whatsapp: m.phone ?? mine.whatsapp, rut: m.rut ?? mine.rut, docTipo: m.rut ? m.docType : mine.docTipo }
+      : mine;
+    const fill = (key: string, value?: string | null) => { if (value && !watch(key as any)) setValue(key as any, value, { shouldValidate: false }); };
+    if (src.docTipo && !watch('buyer__rut' as any)) setValue('buyer__docTipo' as any, src.docTipo, { shouldValidate: false });
+    fill('buyer__nombre', src.nombre);
+    fill('buyer__email', src.email);
+    fill('buyer__whatsapp', src.whatsapp);
+    fill('buyer__rut', src.rut);
+  }, [prefill.isLoading, prefill.data, setValue, watch]);
 
   useEffect(() => {
     if (draft.accesoSlug) setAccesoSlug(draft.accesoSlug);
@@ -872,7 +802,7 @@ function CheckoutInner({ partnerSlug }: { partnerSlug?: string } = {}) {
     // cliente de Playroom (el servidor lo vuelve a exigir al crear la orden).
     // Si puede comprar, esa misma respuesta trae los precios; sin respuesta
     // no se avanza, porque sin precio no hay resumen que mostrar.
-    if (isPartner && partnerSlug && pasoActual.id === 'buyer__rut') {
+    if (isPartner && partnerSlug && pasoActual.id === 'datos') {
       setPartnerCheckError('');
       try {
         const res = await checkPartnerEligibility.mutateAsync({ slug: partnerSlug, email: watch('buyer__email'), rut: watch('buyer__rut') || undefined });
@@ -891,15 +821,12 @@ function CheckoutInner({ partnerSlug }: { partnerSlug?: string } = {}) {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const chooseCheckbox = async (key: string) => {
-    setValue(key as any, true, { shouldValidate: true });
-    const ok = await trigger(key as any, { shouldFocus: true });
-    if (!ok) return;
-    setPaso((p) => Math.min(p + 1, total_pasos - 1));
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-
   const onSubmit = async (values: Record<string, any>) => {
+    // Con carga de saldo, el PIN se define en esta misma pantalla (antes había una pantalla aparte después de crear la orden).
+    if (hasTopupInCart) {
+      if (!/^\d{4}$/.test(cardPin)) { setCardPinError('El PIN tiene que tener 4 dígitos'); return; }
+      if (cardPin !== cardPinConfirm) { setCardPinError('Los dos PIN no coinciden'); return; }
+    }
     const extrasElegidos = useDbExtras
       ? extraTickets.filter((t: any) => (dbExtraQty[t.id] || 0) > 0).map((t: any) => ({ nombre: t.name, cantidad: dbExtraQty[t.id] }))
       : [];
@@ -907,6 +834,8 @@ function CheckoutInner({ partnerSlug }: { partnerSlug?: string } = {}) {
       acceso: acceso?.nombre, cantidad: qty, grupoTipo: accesoSlug,
       extras: extrasElegidos,
       campos: values,
+      // +18 con fecha y hora: queda registrado en la orden (el servidor exige que venga confirmado).
+      ...(values['buyer__mayorEdad'] === true ? { mayorEdadEn: new Date().toISOString() } : {}),
       // Aceptaciones del paso "Bienvenid@ a Playroom", con fecha: quedan
       // guardadas en la orden (ver hasPartnerAcceptance en el servidor).
       ...(isPartner ? { partner: { slug: partnerSlug, ...partnerChecks, aceptadoEn: new Date().toISOString() } } : {}),
@@ -948,6 +877,16 @@ function CheckoutInner({ partnerSlug }: { partnerSlug?: string } = {}) {
         ...getStoredUtmParams(),
       });
       sessionStorage.removeItem(storageKey);
+      try {
+        if (remember) {
+          localStorage.setItem(REMEMBER_KEY, JSON.stringify({
+            nombre: values['buyer__nombre'], email: values['buyer__email'], whatsapp: values['buyer__whatsapp'],
+            rut: values['buyer__rut'], docTipo: values['buyer__docTipo'] ?? 'rut',
+          } satisfies Remembered));
+        } else {
+          localStorage.removeItem(REMEMBER_KEY);
+        }
+      } catch { /* sin storage: no se recuerda, no pasa nada */ }
       setIsProcessing(false);
       setOrdenPago({ orderNumber: result.orderNumber, total: result.total });
       if (result.isFree) {
@@ -955,10 +894,6 @@ function CheckoutInner({ partnerSlug }: { partnerSlug?: string } = {}) {
         // email de bienvenida con el QR — no hay nada que cobrar, así que
         // saltamos directo a la pantalla de éxito sin montar el Payment Brick.
         setPagoResultado('approved');
-      } else {
-        // Antes de la pasarela: pantalla de "revisa tu compra" con el
-        // detalle completo (avanza sola en unos segundos o con el botón).
-        setShowResumenFinal(true);
       }
       // Si no es gratis, el formulario de tarjeta (Payment Brick) se monta
       // en el próximo render, con este orderNumber/total ya guardados.
@@ -972,10 +907,8 @@ function CheckoutInner({ partnerSlug }: { partnerSlug?: string } = {}) {
 
   const err = (key: string) => (errors as any)[key]?.message as string | undefined;
 
-  /* Pasos que avanzan solos con un clic (sin botón "Continuar" fijo) */
-  const soloFieldKey = pasoActual.keys[0];
-  const soloField = soloFieldKey ? allFields.find((x) => x.key === soloFieldKey)?.field : undefined;
-  const isAutoAdvance = pasoActual.id === 'vibe' || pasoActual.id === 'quien' || pasoActual.id === 'pareja-composicion' || soloField?.type === 'checkbox';
+  /* Paso que avanza solo con un clic (sin botón "Continuar" fijo) */
+  const isAutoAdvance = pasoActual.id === 'acceso';
 
   // Link de la comunidad cerrado, lleno, inexistente o comprador que ya es
   // cliente: en vez del wizard, una salida clara a la compra normal.
@@ -1010,14 +943,20 @@ function CheckoutInner({ partnerSlug }: { partnerSlug?: string } = {}) {
     );
   }
 
-  const vibeOptions = VIBE_OPTIONS.filter((op) => !isPartner || (
-    op.size === 1 ? partnerAllows('soltera')
-      : op.size === 2 ? partnerAllows('duo') || partnerAllows('duo_mujeres')
-      : partnerAllows(GROUP_TO_ACCESO[op.size as 3 | 4])
-  ));
-  const parejaOptions = PAREJA_OPTIONS.filter((op) => !isPartner || (
-    op.tipo === 'mixta' ? partnerAllows('duo') : op.tipo === 'dos_mujeres' ? partnerAllows('duo_mujeres') : false
-  ));
+  // Opciones de la grilla «¿Cómo vienes?»: el link de la comunidad no ofrece las que piden código.
+  const accesoOptions = ACCESO_OPTIONS.filter((op) => !isPartner || (partnerAllows(op.slug) && op.key !== 'soltero' && op.key !== 'dos-hombres'));
+  // Acompañantes agrupados por persona (acomp1_nombre + acomp1_rut → Acompañante 1).
+  const acompGroups = (() => {
+    const map = new Map<number, { key: string; field: CampoForm }[]>();
+    for (const f of camposAcceso) {
+      const m = f.name.match(/^acomp(\d+)_/);
+      if (!m) continue;
+      const n = Number(m[1]);
+      if (!map.has(n)) map.set(n, []);
+      map.get(n)!.push({ key: `acceso__${f.name}`, field: f });
+    }
+    return Array.from(map.entries()).sort((a, b) => a[0] - b[0]).map(([n, fields]) => ({ n, fields }));
+  })();
 
   if (ordenPago && pagoResultado === 'approved') {
     return (
@@ -1075,103 +1014,6 @@ function CheckoutInner({ partnerSlug }: { partnerSlug?: string } = {}) {
     );
   }
 
-  if (ordenPago && showResumenFinal) {
-    return (
-      <div className="min-h-dvh pt-20 pb-16">
-        <div className="container max-w-lg">
-          <div className="flex items-center justify-between mb-4 pt-4">
-            <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Revisa tu compra</span>
-          </div>
-          <h1 className="font-heading font-extrabold text-2xl tracking-tight mb-1">Esto es lo que vas a pagar</h1>
-          <p className="text-muted-foreground text-sm mb-5">Confirma el detalle antes de ir a la pasarela de pago segura.</p>
-          <div className="glass-candy rounded-2xl p-5 mb-5">
-            <div className="flex justify-between text-sm mb-2">
-              <span>{EMOJIS[accesoSlug] ?? '🍬'} {qty}× {acceso?.nombre}</span>
-              <span>{formatCLP(subtotal)}</span>
-            </div>
-            {discountAmount > 0 && (
-              <div className="flex justify-between text-sm text-green-400 mb-2"><span>Descuento</span><span>-{formatCLP(discountAmount)}</span></div>
-            )}
-            {useDbExtras && (
-              <>
-                {extraTickets.some((t: any) => (dbExtraQty[t.id] || 0) > 0) && (
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mt-3 mb-1.5">Extras</p>
-                )}
-                {extraTickets.map((t: any) => {
-                  const q = dbExtraQty[t.id] || 0;
-                  if (q <= 0) return null;
-                  return (
-                    <div key={t.id} className="mb-2">
-                      <div className="flex justify-between text-sm"><span className="text-muted-foreground">✓ {q}× {t.name}</span><span>+{formatCLP(q * Number(t.price))}</span></div>
-                      {isTopupProduct(t) && (
-                        <p className="text-xs text-muted-foreground/70 mt-0.5">Se guarda en tu Tarjeta Playroom para gastar en caja -- no es un producto que retiras.</p>
-                      )}
-                    </div>
-                  );
-                })}
-              </>
-            )}
-            {serviceFee > 0 && (
-              <div className="flex justify-between text-sm text-muted-foreground mb-2"><span>Cargo por servicio</span><span>+{formatCLP(serviceFee)}</span></div>
-            )}
-            <div className="flex justify-between font-heading text-2xl pt-3 border-t border-border/40">
-              <span>Total</span>
-              <span className="text-gradient-candy">{formatCLP(ordenPago.total)}</span>
-            </div>
-          </div>
-          {hasTopupInCart && (
-            <div className="glass-candy rounded-2xl p-5 mb-5">
-              <WalletPreviewCard
-                holderName={watch('buyer__nombre') || ''}
-                topupAmount={topupCharge}
-                playcoinsEarned={playcoinsEarnedForPurchase(ordenPago.total - topupCharge)}
-                eventName={EVENTO.nombre}
-              />
-              <p className="text-sm font-semibold mb-1">💳 Define el PIN de tu tarjeta</p>
-              <p className="text-xs text-muted-foreground mb-4">
-                4 dígitos para poder gastar tu saldo en caja. Pagar de verdad acá es lo que confirma que eres tú -- después de esto, para cambiarlo vas a necesitar el PIN actual.
-              </p>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label htmlFor="cardPin">PIN (4 dígitos)</Label>
-                  <Input
-                    id="cardPin" type="tel" inputMode="numeric" maxLength={4} autoComplete="off"
-                    value={cardPin}
-                    onChange={(e) => { setCardPin(e.target.value.replace(/\D/g, '').slice(0, 4)); setCardPinError(''); }}
-                    className="mt-1 tracking-[0.3em] text-center"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="cardPinConfirm">Confirma el PIN</Label>
-                  <Input
-                    id="cardPinConfirm" type="tel" inputMode="numeric" maxLength={4} autoComplete="off"
-                    value={cardPinConfirm}
-                    onChange={(e) => { setCardPinConfirm(e.target.value.replace(/\D/g, '').slice(0, 4)); setCardPinError(''); }}
-                    className="mt-1 tracking-[0.3em] text-center"
-                  />
-                </div>
-              </div>
-              {cardPinError && <p className="text-xs text-destructive mt-2">{cardPinError}</p>}
-            </div>
-          )}
-          <button
-            type="button"
-            onClick={() => {
-              if (hasTopupInCart) {
-                if (!/^\d{4}$/.test(cardPin)) { setCardPinError('El PIN tiene que tener 4 dígitos'); return; }
-                if (cardPin !== cardPinConfirm) { setCardPinError('Los dos PIN no coinciden'); return; }
-              }
-              setShowResumenFinal(false);
-            }}
-            className="btn-jelly w-full h-13 rounded-full bg-primary text-primary-foreground font-bold uppercase tracking-wide text-sm inline-flex items-center justify-center gap-2 interactive"
-          >
-            Continuar a pago seguro {!hasTopupInCart && resumenCountdown > 0 && `(${resumenCountdown})`}
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   if (ordenPago) {
     return (
       <div className="min-h-dvh pt-20 pb-16">
@@ -1187,7 +1029,7 @@ function CheckoutInner({ partnerSlug }: { partnerSlug?: string } = {}) {
               {pagoErrorMsg}
             </div>
           )}
-          {ordenPago && !showResumenFinal && (
+          {ordenPago && (
             <PaymentBrick
               orderNumber={ordenPago.orderNumber}
               amount={ordenPago.total}
@@ -1249,7 +1091,11 @@ function CheckoutInner({ partnerSlug }: { partnerSlug?: string } = {}) {
           <p className="mb-4 text-[11px] font-bold uppercase tracking-[0.15em] text-primary">{partner.emoji} Acceso {partner.label}</p>
         )}
 
-        <form onSubmit={handleSubmit(onSubmit)} id="checkout-form" className="relative">
+        <form
+          id="checkout-form" className="relative"
+          // Solo el resumen paga; un Enter en cualquier otro paso avanza.
+          onSubmit={(e) => { if (pasoActual.id !== 'resumen') { e.preventDefault(); void continuar(); return; } void handleSubmit(onSubmit)(e); }}
+        >
           {/* Antes esto usaba AnimatePresence con mode="popLayout" para animar
            * también la salida del paso anterior — pero eso es un bug
            * reproducible de Framer Motion en páginas/pasos sin `layout`: a
@@ -1289,58 +1135,24 @@ function CheckoutInner({ partnerSlug }: { partnerSlug?: string } = {}) {
                 </div>
               )}
 
-              {/* Paso: ¿Cómo vienes? */}
-              {pasoActual.id === 'vibe' && (
-                <div className="grid grid-cols-2 gap-3">
-                  {vibeOptions.map((op) => (
-                    <SquareImageOption
-                      key={op.size}
-                      image={op.image}
-                      titulo={op.label}
-                      sub={isPartner ? PARTNER_VIBE_SUB[op.size] : undefined}
-                      fallbackEmoji={op.emoji}
-                      activo={groupSize === op.size}
-                      onClick={() => chooseVibe(op.size)}
-                    />
-                  ))}
-                </div>
-              )}
-              {pasoActual.id === 'vibe' && isPartner && (
-                <p className="text-xs text-center text-muted-foreground mt-4">En Playroom no hay acceso para hombres solos ni grupos solo de hombres.</p>
-              )}
-
-              {/* Paso: solo/a → ¿ella o él? */}
-              {pasoActual.id === 'quien' && (
-                <div className="grid grid-cols-2 gap-3">
-                  {QUIEN_OPTIONS.map((op) => (
-                    <SquareImageOption
-                      key={op.slug}
-                      image={op.image}
-                      titulo={op.label}
-                      sub={op.sub}
-                      fallbackEmoji={op.emoji}
-                      activo={accesoSlug === op.slug}
-                      onClick={() => chooseQuien(op.slug)}
-                    />
-                  ))}
-                </div>
-              )}
-
-              {/* Paso: pareja → ¿cómo es la pareja? */}
-              {pasoActual.id === 'pareja-composicion' && (
-                <div className={`grid ${parejaOptions.length === 2 ? 'grid-cols-2' : 'grid-cols-3'} gap-2 md:gap-3`}>
-                  {parejaOptions.map((op) => (
-                    <SquareImageOption
-                      key={op.tipo}
-                      image={op.image}
-                      titulo={op.label}
-                      sub={isPartner ? (op.tipo === 'dos_mujeres' ? 'Soltera doble · 2 mujeres' : 'Dúo · exclusivo para parejas') : op.sub}
-                      fallbackEmoji={op.emoji}
-                      activo={duoComposicion === op.tipo}
-                      onClick={() => choosePareja(op.tipo)}
-                    />
-                  ))}
-                </div>
+              {/* Paso: ¿Cómo vienes? — todas las opciones en una grilla, un toque y sigue. */}
+              {pasoActual.id === 'acceso' && (
+                <>
+                  <div className="grid grid-cols-3 gap-2 md:gap-3">
+                    {accesoOptions.map((op) => (
+                      <SquareImageOption
+                        key={op.key}
+                        image={op.image}
+                        titulo={op.label}
+                        sub={op.sub}
+                        fallbackEmoji={op.emoji}
+                        activo={accesoSlug === op.slug && (op.composicion ? duoComposicion === op.composicion : true)}
+                        onClick={() => chooseAcceso(op)}
+                      />
+                    ))}
+                  </div>
+                  {isPartner && <p className="text-xs text-center text-muted-foreground mt-4">En Playroom no hay acceso para hombres solos ni grupos solo de hombres.</p>}
+                </>
               )}
 
               {/* Paso: código de comunidad (Soltero / Dúo Dos Hombres) — validación en vivo */}
@@ -1387,41 +1199,58 @@ function CheckoutInner({ partnerSlug }: { partnerSlug?: string } = {}) {
                 </div>
               )}
 
-              {partnerCheckError && pasoActual.id === 'buyer__rut' && (
+              {partnerCheckError && pasoActual.id === 'datos' && (
                 <p className="text-sm text-destructive mb-3" role="alert">{partnerCheckError}</p>
               )}
 
-              {/* Pasos de un solo campo (datos / contacto / extra del acceso) */}
-              {pasoActual.id !== 'codigo-comunidad' && pasoActual.keys.length > 0 && soloFieldKey && soloField && soloField.type !== 'checkbox' && (
-                <SingleFieldInput fieldKey={soloFieldKey} field={soloField} register={register} setValue={setValue} watch={watch} error={err(soloFieldKey)} onEnter={continuar} />
+              {/* Paso: tus datos — todo en una pantalla, con el +18 como check. */}
+              {pasoActual.id === 'datos' && (
+                <div className="space-y-4">
+                  {CAMPOS_COMPRADOR.filter((f) => f.type !== 'checkbox').map((f, i) => (
+                    <div key={f.name}>
+                      <Label htmlFor={`buyer__${f.name}`} className="mb-1.5 block text-sm font-semibold">{DATO_LABEL[f.name] ?? f.label}</Label>
+                      <SingleFieldInput fieldKey={`buyer__${f.name}`} field={f} register={register} setValue={setValue} watch={watch} error={err(`buyer__${f.name}`)} onEnter={continuar} autoFocus={i === 0 && !watch('buyer__nombre')} compact />
+                    </div>
+                  ))}
+                  <label className={`flex items-start gap-3 rounded-2xl border p-4 cursor-pointer transition-colors ${watch('buyer__mayorEdad') ? 'border-primary bg-primary/10' : 'border-border/60'}`}>
+                    <input type="checkbox" {...register('buyer__mayorEdad' as any)} className="mt-0.5 w-5 h-5 shrink-0 accent-[oklch(0.70_0.19_340)]" />
+                    <span className="text-sm leading-snug"><span className="font-semibold">Confirmo que soy mayor de {CANDYLAND.edadMinima} años</span> y llevaré mi carnet o pasaporte a la entrada.</span>
+                  </label>
+                  {err('buyer__mayorEdad') && <p className="text-sm text-destructive -mt-2" role="alert">{err('buyer__mayorEdad')}</p>}
+                  <label className="flex items-center gap-2.5 text-sm text-muted-foreground cursor-pointer">
+                    <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} className="w-4 h-4 accent-[oklch(0.70_0.19_340)]" />
+                    Recordar mis datos en este teléfono para la próxima compra
+                  </label>
+                </div>
               )}
 
-              {/* Paso de confirmación (checkbox): antes era una card sutil
-               * (mismo estilo que las opciones de elección) y en pruebas con
-               * gente real nadie la identificaba como un botón que había que
-               * tocar — ahora usa el mismo estilo sólido que el CTA principal
-               * ("Continuar al pago") para que se lea como una acción, no
-               * como una tarjeta informativa. */}
-              {pasoActual.keys.length > 0 && soloFieldKey && soloField?.type === 'checkbox' && (
-                <div className="space-y-3">
-                  <button
-                    type="button"
-                    onClick={() => chooseCheckbox(soloFieldKey)}
-                    aria-pressed={!!watch(soloFieldKey)}
-                    className="btn-jelly w-full h-14 rounded-full bg-primary text-primary-foreground font-bold uppercase tracking-wide text-sm inline-flex items-center justify-center gap-2 interactive"
-                  >
-                    ✅ Sí, confirmo
-                  </button>
-                  {err(soloFieldKey) && <p className="text-sm text-destructive" role="alert">{err(soloFieldKey)}</p>}
-                  <p className="text-xs text-center text-muted-foreground">Toca el botón para continuar · si no cumples con la edad mínima, no puedes ingresar a este evento.</p>
+              {/* Paso: acompañantes — todos juntos, nombre y documento de cada uno. */}
+              {pasoActual.id === 'acompanantes' && (
+                <div className="space-y-4">
+                  {acompGroups.map((g) => (
+                    <div key={g.n} className="glass-candy rounded-2xl p-4 space-y-3">
+                      <p className="text-xs font-bold uppercase tracking-[0.15em] text-primary">{acompGroups.length > 1 ? `Acompañante ${g.n}` : 'Tu acompañante'}</p>
+                      {g.fields.map(({ key, field }, i) => (
+                        <div key={key}>
+                          <Label htmlFor={key} className="mb-1.5 block text-sm font-semibold">{/_nombre$/.test(key) ? 'Nombre y apellido' : 'Documento'}</Label>
+                          <SingleFieldInput fieldKey={key} field={field} register={register} setValue={setValue} watch={watch} error={err(key)} onEnter={continuar} autoFocus={g.n === 1 && i === 0} compact />
+                        </div>
+                      ))}
+                    </div>
+                  ))}
                 </div>
               )}
 
               {/* Paso: extras reales del evento (category="extra" en el admin).
                   Dos bloques con lenguaje visual distinto a propósito -- ver
                   el comentario de prepagoTickets/topupTiers más arriba. */}
-              {pasoActual.id === 'extras-db' && (
-                <div className="space-y-6">
+              {pasoActual.id === 'resumen' && useDbExtras && (
+                <details className="group mb-4 glass-candy rounded-2xl" open={dbExtrasTotal > 0 || isPartner}>
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3.5 text-sm font-semibold">
+                    <span>{isPartner ? '🚗 Asegura tu estacionamiento y extras' : '✨ ¿Agregamos algo más?'} <span className="font-normal text-muted-foreground">· opcional</span></span>
+                    <span className="text-muted-foreground transition-transform group-open:rotate-180" aria-hidden>▾</span>
+                  </summary>
+                <div className="space-y-6 px-4 pb-4">
                   {prepagoGroups.length > 0 && (
                     <div>
                       <span className="text-[10px] font-bold uppercase tracking-wide bg-muted text-foreground px-2 py-0.5 rounded-full inline-block mb-1.5">🎟️ Prepago para la fiesta</span>
@@ -1533,6 +1362,7 @@ function CheckoutInner({ partnerSlug }: { partnerSlug?: string } = {}) {
                     </div>
                   )}
                 </div>
+                </details>
               )}
 
               {/* Paso: valores + derecho de permanencia (link de la comunidad) */}
@@ -1573,10 +1403,15 @@ function CheckoutInner({ partnerSlug }: { partnerSlug?: string } = {}) {
               )}
 
               {/* Paso: códigos */}
-              {pasoActual.id === 'codigos' && (
-                <div className="space-y-4">
+              {pasoActual.id === 'resumen' && !isPartner && (
+                <details className="group mb-4 glass-candy rounded-2xl" open={!!code.trim() || !!codeResult}>
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3.5 text-sm font-semibold">
+                    <span>🎟️ ¿Tienes un código? <span className="font-normal text-muted-foreground">· descuento o de quien te invitó</span></span>
+                    <span className="text-muted-foreground transition-transform group-open:rotate-180" aria-hidden>▾</span>
+                  </summary>
+                <div className="space-y-4 px-4 pb-4">
                   <div>
-                    <Label htmlFor="promo-code" className="text-sm">¿Tienes un código?</Label>
+                    <Label htmlFor="promo-code" className="sr-only">Código</Label>
                     <div className="flex flex-col sm:flex-row gap-2 mt-1.5">
                       <Input
                         id="promo-code"
@@ -1626,9 +1461,9 @@ function CheckoutInner({ partnerSlug }: { partnerSlug?: string } = {}) {
                       <p className="text-sm text-green-400 mt-1">Se aplica el descuento de {refAmbassador.name} ({refAmbassador.buyerDiscountPercent}%) porque es mayor ✓</p>
                     )}
                     {codeError && <p className="text-sm text-destructive mt-1" role="alert">{codeError}</p>}
-                    <p className="text-xs text-muted-foreground mt-2">Si no tienes ningún código, solo aprieta Continuar.</p>
                   </div>
                 </div>
+                </details>
               )}
 
               {/* Paso final: resumen */}
@@ -1682,6 +1517,28 @@ function CheckoutInner({ partnerSlug }: { partnerSlug?: string } = {}) {
                     </div>
                   </div>
 
+                  {hasTopupInCart && (
+                    <div className="glass-candy rounded-2xl p-5">
+                      <WalletPreviewCard holderName={watch('buyer__nombre') || ''} topupAmount={topupCharge} playcoinsEarned={playcoinsEarnedForPurchase(total - topupCharge)} eventName={EVENTO.nombre} />
+                      <p className="text-sm font-semibold mb-1">💳 Define el PIN de tu tarjeta</p>
+                      <p className="text-xs text-muted-foreground mb-4">4 dígitos para gastar tu saldo en caja. Se activa cuando se apruebe el pago.</p>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <Label htmlFor="cardPin">PIN (4 dígitos)</Label>
+                          <Input id="cardPin" type="tel" inputMode="numeric" maxLength={4} autoComplete="off" value={cardPin}
+                            onChange={(e) => { setCardPin(e.target.value.replace(/\D/g, '').slice(0, 4)); setCardPinError(''); }}
+                            className="mt-1 tracking-[0.3em] text-center" />
+                        </div>
+                        <div>
+                          <Label htmlFor="cardPinConfirm">Confirma el PIN</Label>
+                          <Input id="cardPinConfirm" type="tel" inputMode="numeric" maxLength={4} autoComplete="off" value={cardPinConfirm}
+                            onChange={(e) => { setCardPinConfirm(e.target.value.replace(/\D/g, '').slice(0, 4)); setCardPinError(''); }}
+                            className="mt-1 tracking-[0.3em] text-center" />
+                        </div>
+                      </div>
+                      {cardPinError && <p className="text-xs text-destructive mt-2" role="alert">{cardPinError}</p>}
+                    </div>
+                  )}
                   <p className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
                     <ShieldCheck className="w-3.5 h-3.5" /> Pago seguro con Mercado Pago · Evento +{CANDYLAND.edadMinima}
                   </p>
@@ -1710,6 +1567,7 @@ function CheckoutInner({ partnerSlug }: { partnerSlug?: string } = {}) {
           )}
           {pasoActual.id === 'resumen' ? (
             <button
+              key="pagar"
               type="submit"
               form="checkout-form"
               disabled={isProcessing}
@@ -1719,6 +1577,7 @@ function CheckoutInner({ partnerSlug }: { partnerSlug?: string } = {}) {
             </button>
           ) : !isAutoAdvance ? (
             <button
+              key="continuar"
               type="button"
               onClick={continuar}
               disabled={checkPartnerEligibility.isPending}

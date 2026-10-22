@@ -47,13 +47,13 @@ export interface CampoForm {
 }
 
 // Datos que SIEMPRE pide el comprador (cabecera del pedido)
-// NOTA: Instagram es el ÚNICO dato opcional. Todo lo demás es obligatorio.
+// Todos obligatorios. Instagram se sacó del checkout (casi nadie lo llenaba y era un paso más):
+// quien quiera lo agrega después en «Mi cuenta».
 export const CAMPOS_COMPRADOR: CampoForm[] = [
   { name: 'nombre', label: 'Nombre completo', type: 'text', required: true, placeholder: 'Tu nombre y apellido' },
   { name: 'email', label: 'Email', type: 'email', required: true, placeholder: 'tu@email.com', help: 'Aquí llega tu entrada y la dirección.' },
   { name: 'whatsapp', label: 'WhatsApp', type: 'tel', required: true, placeholder: '+56 9 1234 5678' },
   { name: 'rut', label: 'RUT', type: 'text', required: true, placeholder: '12.345.678-9' },
-  { name: 'instagram', label: 'Instagram (opcional)', type: 'text', required: false, placeholder: '@tu_usuario' },
   { name: 'mayorEdad', label: 'Confirmo que soy mayor de 18 años', type: 'checkbox', required: true },
 ];
 
@@ -89,7 +89,6 @@ const ACCESOS: Acceso[] = [
     campos: [
       { name: 'acomp1_nombre', label: 'Acompañante — Nombre', type: 'text', required: true, placeholder: 'Nombre y apellido' },
       { name: 'acomp1_rut', label: 'Acompañante — RUT', type: 'text', required: true, placeholder: '12.345.678-9' },
-      { name: 'acomp1_instagram', label: 'Acompañante — Instagram (opcional)', type: 'text', required: false, placeholder: '@usuario' },
     ],
   },
   {
@@ -119,7 +118,6 @@ const ACCESOS: Acceso[] = [
     campos: [
       { name: 'acomp1_nombre', label: 'Acompañante — Nombre', type: 'text', required: true, placeholder: 'Nombre y apellido' },
       { name: 'acomp1_rut', label: 'Acompañante — RUT', type: 'text', required: true, placeholder: '12.345.678-9' },
-      { name: 'acomp1_instagram', label: 'Acompañante — Instagram (opcional)', type: 'text', required: false, placeholder: '@usuario' },
     ],
   },
   {
@@ -150,10 +148,8 @@ const ACCESOS: Acceso[] = [
     campos: [
       { name: 'acomp1_nombre', label: 'Acompañante 1 — Nombre', type: 'text', required: true, placeholder: 'Nombre y apellido' },
       { name: 'acomp1_rut', label: 'Acompañante 1 — RUT', type: 'text', required: true, placeholder: '12.345.678-9' },
-      { name: 'acomp1_instagram', label: 'Acompañante 1 — Instagram (opcional)', type: 'text', required: false, placeholder: '@usuario' },
       { name: 'acomp2_nombre', label: 'Acompañante 2 — Nombre', type: 'text', required: true, placeholder: 'Nombre y apellido' },
       { name: 'acomp2_rut', label: 'Acompañante 2 — RUT', type: 'text', required: true, placeholder: '12.345.678-9' },
-      { name: 'acomp2_instagram', label: 'Acompañante 2 — Instagram (opcional)', type: 'text', required: false, placeholder: '@usuario' },
     ],
   },
   {
@@ -169,13 +165,10 @@ const ACCESOS: Acceso[] = [
     campos: [
       { name: 'acomp1_nombre', label: 'Acompañante 1 — Nombre', type: 'text', required: true, placeholder: 'Nombre y apellido' },
       { name: 'acomp1_rut', label: 'Acompañante 1 — RUT', type: 'text', required: true, placeholder: '12.345.678-9' },
-      { name: 'acomp1_instagram', label: 'Acompañante 1 — Instagram (opcional)', type: 'text', required: false, placeholder: '@usuario' },
       { name: 'acomp2_nombre', label: 'Acompañante 2 — Nombre', type: 'text', required: true, placeholder: 'Nombre y apellido' },
       { name: 'acomp2_rut', label: 'Acompañante 2 — RUT', type: 'text', required: true, placeholder: '12.345.678-9' },
-      { name: 'acomp2_instagram', label: 'Acompañante 2 — Instagram (opcional)', type: 'text', required: false, placeholder: '@usuario' },
       { name: 'acomp3_nombre', label: 'Acompañante 3 — Nombre', type: 'text', required: true, placeholder: 'Nombre y apellido' },
       { name: 'acomp3_rut', label: 'Acompañante 3 — RUT', type: 'text', required: true, placeholder: '12.345.678-9' },
-      { name: 'acomp3_instagram', label: 'Acompañante 3 — Instagram (opcional)', type: 'text', required: false, placeholder: '@usuario' },
     ],
   },
   // Cumpleañeros: fuera del sitio por ahora (decisión del dueño en el
