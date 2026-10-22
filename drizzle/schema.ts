@@ -2319,6 +2319,11 @@ export const agentHandoffLog = mysqlTable("agentHandoffLog", {
   // `null` = todavía pendiente de revisar. Se setea cuando el dueño toca "Ya
   // lo agregué" en el admin -- no borra la fila, solo la saca de la lista.
   resolvedAt: timestamp("resolvedAt"),
+  // Cómo se resolvió: `ensenado` (el dueño le explicó al agente), `respondida`
+  // (el dueño contestó a mano y no había un dato general que aprender),
+  // `descartado` (adjunto sin texto, mensaje personal o solo emojis: se
+  // descarta solo) o `manual` (el dueño la marcó resuelta). null = pendiente.
+  outcome: varchar("outcome", { length: 16 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => ({
   pendingIdx: index("agent_handoff_log_pending_idx").on(table.resolvedAt, table.createdAt),
@@ -3097,3 +3102,26 @@ export const memberCoupons = mysqlTable("memberCoupons", {
 }));
 
 export type MemberCoupon = typeof memberCoupons.$inferSelect;
+
+// Conocimiento que el agente aprendió (server/agentLearning.ts): datos sueltos,
+// no mensajes grabados. Se le pasan al modelo como parte de lo que sabe y nunca
+// reemplazan las reglas duras. `revisar` = aprendido solo sobre precios o
+// reglas, no se usa hasta que el dueño lo aprueba; `pausado` = no se usa.
+export const agentKnowledge = mysqlTable("agentKnowledge", {
+  id: int("id").autoincrement().primaryKey(),
+  text: varchar("text", { length: 1000 }).notNull(),
+  // general | precios | reglas
+  topic: varchar("topic", { length: 16 }).notNull().default("general"),
+  // dueno (lo escribió el dueño) | respuesta (lo sacó de una respuesta a mano del dueño)
+  source: varchar("source", { length: 12 }).notNull(),
+  // activo | revisar | pausado
+  status: varchar("status", { length: 10 }).notNull().default("activo"),
+  // La derivación de la que salió (agentHandoffLog.id), si hay.
+  handoffId: int("handoffId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  statusIdx: index("agent_knowledge_status_idx").on(table.status, table.updatedAt),
+}));
+
+export type AgentKnowledgeRow = typeof agentKnowledge.$inferSelect;
