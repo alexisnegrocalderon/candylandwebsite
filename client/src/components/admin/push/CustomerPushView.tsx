@@ -47,6 +47,12 @@ export function CustomerPushView() {
           <TabsTrigger value="app">Quién tiene la app</TabsTrigger>
         </TabsList>
         <TabsContent value="enviar" className="pt-3">
+          {draft.id && (
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-primary/40 bg-primary/10 px-4 py-3 text-sm">
+              <span>Estás editando «<b>{draft.title || 'sin título'}</b>»{draft.scheduledAt ? ' (programada)' : ' (borrador)'}. Los cambios se aplican al guardar.</span>
+              <button type="button" onClick={() => setDraft(emptyDraft())} className="text-xs underline">Dejar de editar y empezar una nueva</button>
+            </div>
+          )}
           <PushComposer initial={draft} onDone={() => { setDraft(emptyDraft()); setTab('historial'); }} />
         </TabsContent>
         <TabsContent value="historial" className="pt-3">

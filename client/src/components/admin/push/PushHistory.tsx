@@ -1,5 +1,7 @@
 import { toast } from 'sonner';
 import { trpc } from '@/lib/trpc';
+import { Pencil } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { WriteButton } from '@/components/admin/WriteButton';
 import { describeSegment, normalizeSegment } from '@shared/pushSegments';
 
@@ -69,8 +71,9 @@ export function PushHistory({ onEdit }: { onEdit: (c: any) => void }) {
                 </div>
               ) : open && (
                 <div className="flex shrink-0 justify-end gap-1.5">
+                  <Button size="sm" variant="outline" onClick={() => onEdit(c)}><Pencil className="mr-1 h-3.5 w-3.5" /> Editar</Button>
                   <WriteButton size="sm" disabled={send.isPending} onClick={() => window.confirm('¿Enviar ahora?') && send.mutate({ id: c.id })}>Enviar ahora</WriteButton>
-                  <WriteButton size="sm" variant="outline" onClick={() => cancel.mutate({ id: c.id })}>Cancelar</WriteButton>
+                  <WriteButton size="sm" variant="outline" onClick={() => window.confirm('¿Cancelar esta campaña? No se enviará.') && cancel.mutate({ id: c.id })}>Cancelar envío</WriteButton>
                 </div>
               )}
             </div>
