@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import {
-  ArrowDown, ArrowLeft, ArrowUp, Camera, Copy, Download, Image as ImageIcon, Layers, Loader2, Palette, Plus, Save, Share2, Sparkles, Trash2, X, Zap,
+  ArrowDown, ArrowLeft, ArrowUp, Camera, Clapperboard, Copy, Download, Image as ImageIcon, Layers, Loader2, Palette, Plus, Save, Share2, Sparkles, Trash2, X, Zap,
 } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
@@ -35,7 +35,9 @@ import {
 import { PASTEL_PALETTE_LABELS, StudioSlideView } from './studio/StudioSlideView';
 import { downloadSlide, downloadZip, shareSlides, slideFileName } from './studio/exportSlides';
 import { newSlide, starterSlides } from './studio/starters';
-import { takeQueuedDesign } from './studio/handoff';
+import { takeQueuedDesign, takeQueuedVideo } from './studio/handoff';
+import { VideoStudio, type VideoEditing } from './studio/VideoStudio';
+import { eventVideo, slidesVideo, starterPointsVideo, VIDEO_FORMAT_LABEL, VIDEO_TEMPLATE_LABEL, type StudioVideo } from '@shared/studioVideo';
 import { AiDesigner } from './studio/AiDesigner';
 import { AiUsageCard } from './studio/AiUsageCard';
 import { SlideFrame } from './studio/SlideFrame';
@@ -126,7 +128,14 @@ export function ContentStudio() {
   });
   const [ai, setAi] = useState<AiOpen | null>(null);
   const [photo, setPhoto] = useState<PhotoBrief | null>(null);
+  const [video, setVideo] = useState<VideoEditing | null>(() => {
+    const queued = takeQueuedVideo();
+    return queued ? { video: queued, dirty: true } : null;
+  });
 
+  if (video) {
+    return <VideoStudio editing={video} setEditing={setVideo} onClose={() => setVideo(null)} />;
+  }
   if (photo) {
     return <PhotoStudio initial={photo} onBack={() => setPhoto(null)} onOpen={(design) => { setPhoto(null); setEditing({ design, dirty: true }); }} />;
   }
@@ -134,14 +143,34 @@ export function ContentStudio() {
     return <AiDesigner key={ai.designId ?? 'nuevo'} designId={ai.designId} format={ai.format} onClose={() => setAi(null)} />;
   }
   if (editing) {
-    return <StudioEditor editing={editing} setEditing={setEditing} onClose={() => setEditing(null)} />;
+    return <StudioEditor editing={editing} setEditing={setEditing} onClose={() => setEditing(null)} onAnimate={(v) => setVideo({ video: v, dirty: true })} />;
   }
-  return <StudioHome onOpen={setEditing} onOpenAi={setAi} onOpenPhoto={() => setPhoto(emptyPhotoBrief())} />;
+  return <StudioHome onOpen={setEditing} onOpenAi={setAi} onOpenPhoto={() => setPhoto(emptyPhotoBrief())} onOpenVideo={setVideo} />;
 }
 
-function StudioHome({ onOpen, onOpenAi, onOpenPhoto }: { onOpen: (e: Editing) => void; onOpenAi: (a: AiOpen) => void; onOpenPhoto: () => void }) {
+function StudioHome({ onOpen, onOpenAi, onOpenPhoto, onOpenVideo }: {
+  onOpen: (e: Editing) => void; onOpenAi: (a: AiOpen) => void; onOpenPhoto: () => void; onOpenVideo: (v: VideoEditing) => void;
+}) {
   const utils = trpc.useUtils();
   const { data: designs, isLoading } = trpc.contentStudio.list.useQuery();
+  const { data: events } = trpc.events.listAll.useQuery();
+  const [videoEvent, setVideoEvent] = useState('none');
+  const upcomingEvents = (events ?? []).filter((e) => e.status === 'published' || e.status === 'soldout');
+  const newVideo = () => {
+    const event = upcomingEvents.find((e) => String(e.id) === videoEvent);
+    onOpenVideo({ video: event ? eventVideo(event) : starterPointsVideo(), dirty: true });
+  };
+  const openVideo = async (id: number) => {
+    setOpening(id);
+    try {
+      const { id: videoId, updatedAt: _u, ...stored } = await utils.contentStudio.getVideo.fetch({ id });
+      onOpenVideo({ id: videoId, video: stored as StudioVideo, dirty: false });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'No se pudo abrir el video.');
+    } finally {
+      setOpening(null);
+    }
+  };
   const [format, setFormat] = useState<StudioFormat>('carrusel');
   const [theme, setTheme] = useState<StudioTheme>(DEFAULT_STUDIO_THEME);
   const [opening, setOpening] = useState<number | null>(null);
@@ -205,6 +234,29 @@ function StudioHome({ onOpen, onOpenAi, onOpenPhoto }: { onOpen: (e: Editing) =>
             </Select>
           </div>
           <Button onClick={() => onOpenAi({ format })}><Sparkles className="w-4 h-4 mr-2" /> Nuevo con IA</Button>
+        </CardContent>
+      </Card>
+
+      <Card className="rounded-2xl border-0 shadow-md shadow-black/5 bg-gradient-to-br from-violet-500/5 to-pink-500/5">
+        <CardContent className="pt-6 flex flex-wrap items-end gap-3">
+          <div className="min-w-0 flex-1 basis-60">
+            <p className="font-medium flex items-center gap-2"><Clapperboard className="w-4 h-4" /> Video (HyperFrames) <span className="text-xs font-normal text-muted-foreground">· sin IA, gratis</span></p>
+            <p className="text-sm text-muted-foreground">
+              Reels 9:16 y posts animados 3:4 con la marca: gancho + puntos, o el anuncio de un evento con su foto, día y hora.
+              También puedes animar cualquier diseño (botón «Animar» en el editor) o un guion de Reel («Hacer video»).
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Partir de</Label>
+            <Select value={videoEvent} onValueChange={setVideoEvent}>
+              <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Gancho + puntos (ejemplo)</SelectItem>
+                {upcomingEvents.map((e) => <SelectItem key={e.id} value={String(e.id)}>Anuncio: {e.title}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <Button variant="outline" onClick={newVideo}><Clapperboard className="w-4 h-4 mr-2" /> Nuevo video</Button>
         </CardContent>
       </Card>
 
@@ -293,10 +345,17 @@ function StudioHome({ onOpen, onOpenAi, onOpenPhoto }: { onOpen: (e: Editing) =>
               <button
                 type="button"
                 className="block w-full text-left interactive"
-                onClick={() => (d.kind === 'ia' ? onOpenAi({ designId: d.id, format: d.format }) : open(d.id))}
+                onClick={() => (d.kind === 'ia' ? onOpenAi({ designId: d.id, format: d.format }) : d.kind === 'video' ? openVideo(d.id) : open(d.id))}
                 disabled={opening != null}
               >
-                {d.kind === 'ia'
+                {d.kind === 'video'
+                  ? (
+                    <div className="flex flex-col items-center justify-center gap-2 rounded-lg bg-gradient-to-br from-violet-500 to-pink-500 text-white text-xs text-center p-3" style={{ width: 180, height: d.videoFormat === 'reel' ? 320 : 240 }}>
+                      <Clapperboard className="w-8 h-8" />
+                      <span className="font-medium">{VIDEO_TEMPLATE_LABEL[d.template]}</span>
+                    </div>
+                  )
+                  : d.kind === 'ia'
                   ? d.aiCover
                     ? <SlideFrame css={d.aiCover.css} format={d.format} slide={{ html: d.aiCover.html }} width={180} className="rounded-lg shadow-sm" />
                     : <div className="flex items-center justify-center rounded-lg bg-muted text-xs text-muted-foreground" style={{ width: 180, height: (STUDIO_SIZES[d.format].height * 180) / STUDIO_SIZES[d.format].width }}>Sin láminas</div>
@@ -307,9 +366,12 @@ function StudioHome({ onOpen, onOpenAi, onOpenPhoto }: { onOpen: (e: Editing) =>
                   <p className="text-sm font-medium truncate">
                     {opening === d.id && <Loader2 className="inline w-3 h-3 mr-1 animate-spin" />}
                     {d.kind === 'ia' && <Sparkles className="inline w-3 h-3 mr-1 text-pink-500" aria-label="Diseñador IA" />}
+                    {d.kind === 'video' && <Clapperboard className="inline w-3 h-3 mr-1 text-violet-500" aria-label="Video" />}
                     {d.title}
                   </p>
-                  <p className="text-xs text-muted-foreground">{FORMAT_LABEL[d.format]} · {d.slideCount} lám. · {formatChileDateTime(d.updatedAt)}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {d.kind === 'video' ? `${VIDEO_FORMAT_LABEL[d.videoFormat]} · ${d.sceneCount} esc.` : `${FORMAT_LABEL[d.format]} · ${d.slideCount} lám.`} · {formatChileDateTime(d.updatedAt)}
+                  </p>
                 </div>
                 <ConfirmDeleteButton description={`el diseño «${d.title}»`} onConfirm={(adminPassword) => remove.mutateAsync({ id: d.id, adminPassword })} />
               </div>
@@ -321,7 +383,7 @@ function StudioHome({ onOpen, onOpenAi, onOpenPhoto }: { onOpen: (e: Editing) =>
   );
 }
 
-function StudioEditor({ editing, setEditing, onClose }: { editing: Editing; setEditing: (e: Editing) => void; onClose: () => void }) {
+function StudioEditor({ editing, setEditing, onClose, onAnimate }: { editing: Editing; setEditing: (e: Editing) => void; onClose: () => void; onAnimate: (video: StudioVideo) => void }) {
   const { design } = editing;
   const utils = trpc.useUtils();
   const [selected, setSelected] = useState(0);
@@ -428,6 +490,16 @@ function StudioEditor({ editing, setEditing, onClose }: { editing: Editing; setE
         </WriteButton>
         <Button size="sm" variant={showVariants ? 'default' : 'outline'} onClick={() => setShowVariants((v) => !v)}>
           <Layers className="w-4 h-4 mr-2" /> Variantes
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => {
+            if (editing.dirty && !window.confirm('El video se arma con el diseño tal como está ahora (aunque no esté guardado). ¿Seguir?')) return;
+            onAnimate(slidesVideo(design));
+          }}
+        >
+          <Clapperboard className="w-4 h-4 mr-2" /> Animar como video
         </Button>
       </div>
 

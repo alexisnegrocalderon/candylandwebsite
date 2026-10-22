@@ -146,7 +146,7 @@ import { parseSurveyAnswer } from "../shared/eventSurvey";
 import { getWinbackOverview, draftWinbackEmail, createWinbackCampaign } from "./winback";
 import { WINBACK_SEGMENT_KEYS } from "../shared/winback";
 import { generateContentPlan } from "./contentPlanner";
-import { listContentDesigns, getContentDesign, saveContentDesign, deleteContentDesign } from "./contentStudio";
+import { listContentDesigns, getContentDesign, saveContentDesign, deleteContentDesign, getContentVideo, saveContentVideo } from "./contentStudio";
 import { recordAiUsage, listAiUsageSince } from "./db";
 import { summarizeAiUsage } from "../shared/aiUsage";
 import { loadAiBudget, saveAiBudget } from "./aiBudget";
@@ -2870,6 +2870,36 @@ export const appRouter = router({
         return { id: await saveContentDesign(input.id, input.design) };
       } catch (err) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo guardar el diseño.' });
+      }
+    }),
+    // Videos del Estudio (shared/studioVideo.ts): se guardan igual que los diseños.
+    getVideo: adminReadProcedure.input(z.object({ id: z.number().int().positive() })).query(async ({ input }) => {
+      const video = await getContentVideo(input.id);
+      if (!video) throw new TRPCError({ code: 'NOT_FOUND', message: 'Ese video ya no existe.' });
+      return video;
+    }),
+    saveVideo: adminProcedure.input(z.object({
+      id: z.number().int().positive().optional(),
+      // La forma fina la valida y recorta normalizeStudioVideo.
+      video: z.object({
+        title: z.string().max(300),
+        template: z.string().max(20),
+        format: z.string().max(20),
+        theme: z.string().max(30),
+        eventId: z.number().int().nullable().optional(),
+        caption: z.string().max(5000),
+        scenes: z.array(z.unknown()).max(40),
+        design: z.unknown().optional(),
+        mediaUrl: z.string().max(2000).optional(),
+        cta: z.string().max(200).optional(),
+        ctaLine: z.string().max(300).optional(),
+        secsPerSlide: z.number().optional(),
+      }),
+    })).mutation(async ({ input }) => {
+      try {
+        return { id: await saveContentVideo(input.id, input.video) };
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo guardar el video.' });
       }
     }),
     // Modo «Rápido»: la IA escribe los textos y la plantilla Bubble dibuja (server/studioAi/quick.ts).
