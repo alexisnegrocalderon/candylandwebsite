@@ -176,7 +176,7 @@ export type WalletMovement = { type: 'money' | 'points'; label: string; delta: n
  * que explica la tarjeta (con datos de ejemplo, `qrImageUrl={null}`). */
 export function WalletCard({
   eventTitle, eventDateShort, holderName, ticketCode, qrImageUrl,
-  prepaidBalance, playcoins, movements,
+  prepaidBalance, playcoins, movements, onCardClick,
 }: {
   eventTitle: string;
   eventDateShort: string;
@@ -190,13 +190,15 @@ export function WalletCard({
   prepaidBalance: number;
   playcoins: number;
   movements: WalletMovement[];
+  /** Si viene, tocar la tarjeta hace esto (ej. guardarla en Fotos) en vez de darla vuelta; el reverso sigue con el botón de abajo. */
+  onCardClick?: () => void;
 }) {
   const [flipped, setFlipped] = useState(false);
 
   return (
     <>
       <style>{WALLET_CARD_CSS}</style>
-      <div className={`wcard-scene ${flipped ? 'is-flipped' : ''}`} onClick={() => { if (ticketCode) setFlipped((f) => !f); }}>
+      <div className={`wcard-scene ${flipped ? 'is-flipped' : ''}`} onClick={() => { if (onCardClick && !flipped) onCardClick(); else if (ticketCode) setFlipped((f) => !f); }} style={onCardClick ? { cursor: 'pointer' } : undefined}>
         <div className="wcard-flip">
           <div className="wcard-face is-front">
             <div className="wcard-brand-row">
