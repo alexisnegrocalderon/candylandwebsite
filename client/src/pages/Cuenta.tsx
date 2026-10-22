@@ -1,4 +1,4 @@
-import { Component, useEffect, useRef, useState, type ReactNode } from 'react';
+import { Component, Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, MotionConfig, motion, useDragControls } from 'framer-motion';
 import { toast } from 'sonner';
@@ -21,6 +21,7 @@ import { BottomSheet, PayInCajaViewer, SavedCardsSection, TopupSheet, useMemberP
 import { AmbassadorAccount, useAmbassadorPanel } from '@/components/site/AmbassadorAccount';
 import { StampsTab } from '@/components/site/StampCard';
 import { canEnterParty, isPartyWindowOpen } from '@shared/party';
+import { TICKET_KIND_META, type TicketKind } from '@shared/ticketKind';
 import { useCustomerPush } from '@/lib/customerPush';
 import { avisosNotice } from '@/lib/pushPromptView';
 import { useIsMobile } from '@/hooks/useMobile';
@@ -111,7 +112,7 @@ function useCountdown(date: string | Date) {
   return `Faltan ${hours} h ${mins % 60} min`;
 }
 
-type MeEvent = { eventId: number; eventTitle: string; eventSlug: string; eventDate: string | Date; venue: string | null; doorsOpen?: string | Date | null; eventEnd?: string | Date | null; tickets: { ticketCode: string; holderName: string | null; status: string; qrImageUrl: string | null; category?: string }[] };
+type MeEvent = { eventId: number; eventTitle: string; eventSlug: string; eventDate: string | Date; venue: string | null; doorsOpen?: string | Date | null; eventEnd?: string | Date | null; tickets: { ticketCode: string; holderName: string | null; status: string; qrImageUrl: string | null; category?: string; kind?: TicketKind; kindLabel?: string }[] };
 
 type Movement = { type: 'money' | 'points'; label: string; delta: number; createdAt: string | Date };
 
@@ -142,7 +143,13 @@ function QrViewer({ ev, t, holder, onClose }: { ev: MeEvent; t: MeEvent['tickets
   return (
     <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }} transition={{ duration: 0.22 }} className="fixed inset-0 z-[90] flex flex-col items-center justify-center gap-5 bg-white px-6 pb-[max(24px,env(safe-area-inset-bottom))] pt-[max(24px,env(safe-area-inset-top))] text-[#0d0712]" role="dialog" aria-label="Código QR de tu entrada">
       <button type="button" onClick={onClose} aria-label="Cerrar" className="absolute right-4 top-[max(16px,env(safe-area-inset-top))] grid h-11 w-11 place-items-center rounded-full bg-black/5"><X className="h-5 w-5" /></button>
+      {t.kind && (
+        <p className={`rounded-full px-4 py-1.5 text-center text-[15px] font-bold ${t.kind === 'estacionamiento' ? 'bg-sky-100 text-sky-900' : t.kind === 'acceso' ? 'bg-pink-100 text-pink-900' : 'bg-violet-100 text-violet-900'}`}>
+          {TICKET_KIND_META[t.kind].emoji} {t.kindLabel ?? TICKET_KIND_META[t.kind].label}
+        </p>
+      )}
       <p className="text-center font-heading text-lg font-extrabold leading-tight">{ev.eventTitle}</p>
+      {t.kind && <p className="-mt-3 text-center text-[13px] text-black/55">{TICKET_KIND_META[t.kind].where}</p>}
       {t.qrImageUrl && <img src={t.qrImageUrl} alt="Código QR de tu entrada" className="aspect-square w-[min(86vw,58vh)] [image-rendering:pixelated]" />}
       <div className="text-center">
         <p className="font-heading text-xl font-bold">{t.holderName || holder}</p>
@@ -158,8 +165,13 @@ function QrViewer({ ev, t, holder, onClose }: { ev: MeEvent; t: MeEvent['tickets
 
 /** Cómo se llama cada entrada en el selector: el primer nombre, y si se repite (varias a nombre de
  * quien compró) se numeran: «Alexis 1», «Alexis 2». */
-function holderLabels(list: { holderName: string | null }[]): string[] {
-  const first = list.map((x, n) => (x.holderName?.trim().split(/\s+/)[0] || `Entrada ${n + 1}`));
+function holderLabels(list: { holderName: string | null; kind?: TicketKind }[]): string[] {
+  // Accesos: 🎟️ + primer nombre. Extras: su emoji y para qué son («🚗 Auto»), así no parecen otra entrada.
+  const first = list.map((x, n) => {
+    const kind = x.kind ?? 'acceso';
+    if (kind !== 'acceso') return `${TICKET_KIND_META[kind].emoji} ${TICKET_KIND_META[kind].short}`;
+    return `🎟️ ${x.holderName?.trim().split(/\s+/)[0] || `Entrada ${n + 1}`}`;
+  });
   const count = new Map<string, number>();
   first.forEach((f) => count.set(f, (count.get(f) ?? 0) + 1));
   const seen = new Map<string, number>();
@@ -194,6 +206,7 @@ function TicketWallet({ ev, holder, prepaidBalance, playcoins, movements, compac
         onCardClick={usable ? () => { tapHaptic(); setShowQr(true); } : undefined}
         hideFlipHint={compact}
         flipSignal={flipSignal}
+        kind={t?.kind ? { label: `${TICKET_KIND_META[t.kind].emoji} ${t.kindLabel ?? TICKET_KIND_META[t.kind].label}`, tone: t.kind === 'acceso' ? 'acceso' : t.kind === 'estacionamiento' ? 'auto' : 'extra' } : undefined}
       />
     </TiltCard>
   );
@@ -208,9 +221,12 @@ function TicketWallet({ ev, holder, prepaidBalance, playcoins, movements, compac
       <button type="button" onClick={() => step(1)} aria-label="Entrada siguiente" className="grid h-8 w-8 place-items-center rounded-full text-white/70"><ChevronRight className="h-4 w-4" /></button>
     </div>
   ) : ev.tickets.map((x, n) => (
-    <button key={x.ticketCode} type="button" onClick={() => { tapHaptic(); setI(n); }} className={`h-9 max-w-[124px] truncate rounded-full px-4 text-sm font-semibold interactive ${n === i ? 'lg-pill text-white' : 'text-white/60'} ${x.status === 'used' ? 'line-through decoration-white/40' : ''}`}>
+    <Fragment key={x.ticketCode}>
+    {n > 0 && (x.kind ?? 'acceso') !== 'acceso' && (ev.tickets[n - 1].kind ?? 'acceso') === 'acceso' && <span aria-hidden className="mx-0.5 h-5 w-px shrink-0 bg-white/20" />}
+    <button type="button" onClick={() => { tapHaptic(); setI(n); }} className={`h-9 max-w-[124px] truncate rounded-full px-4 text-sm font-semibold interactive ${n === i ? 'lg-pill text-white' : 'text-white/60'} ${x.status === 'used' ? 'line-through decoration-white/40' : ''}`}>
       {labels[n]}
     </button>
+    </Fragment>
   )));
   const evWindow = ev ? { eventDate: ev.eventDate, doorsOpen: ev.doorsOpen, eventEnd: ev.eventEnd } : null;
   const playmatchCode = ev && evWindow ? ev.tickets.find((x) => x.category === 'acceso' && canEnterParty({ status: x.status, eventId: ev.eventId }, evWindow))?.ticketCode ?? null : null;
@@ -566,8 +582,11 @@ function TicketsPager({ events, holder }: { events: MeEvent[]; holder: string })
           <div className="space-y-2">
             {tickets.map((t, i) => (
               <button key={t.ticketCode} type="button" disabled={t.status !== 'valid' || !t.qrImageUrl} onClick={() => { tapHaptic(); setOpen({ ev, t }); }} className="lg-pill flex h-14 w-full items-center gap-3 rounded-2xl px-4 text-left interactive disabled:opacity-70">
-                <TicketIcon className="h-5 w-5 shrink-0 text-pink-300" />
-                <span className="min-w-0 flex-1 truncate text-[15px] font-semibold">{t.holderName || `Entrada ${offset + i + 1}`}</span>
+                <span className="w-6 shrink-0 text-center text-lg">{TICKET_KIND_META[t.kind ?? 'acceso'].emoji}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[15px] font-semibold leading-tight">{(t.kind ?? 'acceso') === 'acceso' ? (t.holderName || `Entrada ${offset + i + 1}`) : (t.kindLabel ?? TICKET_KIND_META[t.kind!].label)}</span>
+                  <span className="block truncate text-[11.5px] text-white/50">{t.kindLabel ?? 'Acceso'}</span>
+                </span>
                 <span className={`shrink-0 text-xs font-medium ${t.status === 'used' ? 'text-white/50' : 'text-emerald-300'}`}>{t.status === 'used' ? 'Usada' : 'Ver QR'}</span>
                 {t.status === 'valid' && <QrCode className="h-4 w-4 shrink-0 text-white/50" />}
               </button>

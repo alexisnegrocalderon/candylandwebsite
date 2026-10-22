@@ -10,6 +10,8 @@ import { formatCLP } from '@/config/candyland';
  * a diferencia del navegador/Vite). Un string plano funciona en los dos
  * mundos sin depender de ningún loader especial. */
 const WALLET_CARD_CSS = `
+.wcard-scene.is-auto { --wcard-magenta: #38bdf8; --wcard-violet: #60a5fa; --wcard-gold: #7dd3fc; }
+.wcard-scene.is-extra { --wcard-magenta: #c084fc; --wcard-gold: #f9a8d4; }
 .wcard-scene {
   --wcard-ink: #0d0712;
   --wcard-panel: #1c0f26;
@@ -192,8 +194,10 @@ export type WalletMovement = { type: 'money' | 'points'; label: string; delta: n
  * que explica la tarjeta (con datos de ejemplo, `qrImageUrl={null}`). */
 export function WalletCard({
   eventTitle, eventDateShort, holderName, ticketCode, qrImageUrl,
-  prepaidBalance, playcoins, movements, onCardClick, hideFlipHint = false, flipSignal,
+  prepaidBalance, playcoins, movements, onCardClick, hideFlipHint = false, flipSignal, kind,
 }: {
+  /** Qué es este QR (en lugar de «Miembro»): «🚗 Estacionamiento» pinta la tarjeta celeste; otros extras, lila. */
+  kind?: { label: string; tone: 'acceso' | 'auto' | 'extra' };
   eventTitle: string;
   eventDateShort: string;
   holderName: string;
@@ -218,7 +222,7 @@ export function WalletCard({
   return (
     <>
       <style>{WALLET_CARD_CSS}</style>
-      <div className={`wcard-scene ${flipped ? 'is-flipped' : ''} ${onCardClick && qrImageUrl ? 'is-tappable' : ''}`} onClick={() => { if (onCardClick && !flipped) onCardClick(); else if (ticketCode) setFlipped((f) => !f); }} style={onCardClick ? { cursor: 'pointer' } : undefined}>
+      <div className={`wcard-scene ${kind && kind.tone !== 'acceso' ? `is-${kind.tone}` : ''} ${flipped ? 'is-flipped' : ''} ${onCardClick && qrImageUrl ? 'is-tappable' : ''}`} onClick={() => { if (onCardClick && !flipped) onCardClick(); else if (ticketCode) setFlipped((f) => !f); }} style={onCardClick ? { cursor: 'pointer' } : undefined}>
         <div className="wcard-flip">
           <div className="wcard-face is-front">
             <div className="wcard-brand-row">
@@ -226,7 +230,7 @@ export function WalletCard({
                 <span className="wcard-badge"><img src="/candyland/logo-isotipo-transparent.png" alt="" /></span>
                 <span className="wcard-wordmark-text">PLAYROOM</span>
               </div>
-              <span className="wcard-tier">Miembro</span>
+              <span className="wcard-tier">{kind?.label ?? 'Miembro'}</span>
             </div>
 
             <div className="wcard-mid">
