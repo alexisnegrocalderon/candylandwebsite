@@ -45,8 +45,8 @@ export function MemberPrompt({ source, ticketCode, orderNumber, tone = 'light', 
       <div className="flex items-start gap-3">
         <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary/15 text-primary"><Gift className="h-5 w-5" /></span>
         <div className="min-w-0">
-          <p className={`font-heading text-[15px] font-bold leading-tight ${strong}`}>{source === 'pago' ? 'Guarda tus beneficios' : 'Tus Playcoins y cupones'}</p>
-          <p className={`mt-1 text-[13px] ${muted}`}>Entra a tu cuenta para ver tu saldo, tus entradas y tus cupones exclusivos. Es opcional y sin contraseña.{gift}</p>
+          <p className={`font-heading text-[15px] font-bold leading-tight ${strong}`}>{source === 'pago' ? 'Guarda tu entrada y tus Playcoins' : 'Tus entradas y Playcoins, a un toque'}</p>
+          <p className={`mt-1 text-[13px] ${muted}`}>Entra a tu cuenta para tener tus entradas, tus Playcoins y tu saldo a mano, y enterarte primero de preventas y eventos. Es opcional y sin contraseña.{gift}</p>
         </div>
       </div>
       <div className="mt-3">
@@ -92,7 +92,7 @@ export function MemberSheet() {
           <div className="relative mx-auto max-w-md rounded-2xl bg-background p-4 shadow-2xl shadow-black/25">
             <button type="button" aria-label="Cerrar" onClick={() => { dismiss(); setShow(false); }} className="absolute right-3 top-3 text-muted-foreground"><X className="h-4 w-4" /></button>
             <p className="pr-6 font-heading text-[15px] font-bold">Entra a tu cuenta</p>
-            <p className="mb-3 mt-1 text-[13px] text-muted-foreground">Ve tus Playcoins, tus entradas y tus cupones exclusivos. Opcional y sin contraseña: te mandamos un código al correo.</p>
+            <p className="mb-3 mt-1 text-[13px] text-muted-foreground">Ten tus entradas y Playcoins a mano y entérate primero de preventas y eventos. Opcional y sin contraseña: te mandamos un código al correo.</p>
             <MemberLogin onDone={() => { dismiss(); setShow(false); navigate('/cuenta'); }} />
           </div>
         </motion.div>

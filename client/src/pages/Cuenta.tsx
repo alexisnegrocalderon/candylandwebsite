@@ -126,6 +126,8 @@ export default function Cuenta() {
               : `Te faltan ${missing.toLocaleString('es-CL')} Playcoins para poder canjear (mínimo ${PLAYCOINS_MIN_REDEEM_BALANCE.toLocaleString('es-CL')}).`}
           </p>
 
+          <PushPrompt source="puntos" />
+
           <section className="space-y-3">
             <h2 className="flex items-center gap-2 font-heading text-lg font-bold"><TicketIcon className="h-4 w-4 text-primary" /> Mis entradas</h2>
             {me.events.length === 0 ? (
@@ -155,17 +157,17 @@ export default function Cuenta() {
             {active.length === 0 && me.coupons.length > 0 && <p className="text-xs text-muted-foreground">No tienes cupones disponibles ahora.</p>}
           </section>
 
-          {perks.length > 0 && (
-            <section className="rounded-2xl border border-border bg-card p-4">
-              <h2 className="flex items-center gap-2 font-heading text-lg font-bold"><Sparkles className="h-4 w-4 text-primary" /> Lo que desbloqueas</h2>
-              <ul className="mt-2 space-y-1.5 text-sm text-muted-foreground">
-                {perks.map((p) => <li key={p}>• {p}</li>)}
-                <li>• Preventa anticipada en los eventos que la tengan</li>
-              </ul>
-            </section>
-          )}
+          <section className="rounded-2xl border border-border bg-card p-4">
+            <h2 className="flex items-center gap-2 font-heading text-lg font-bold"><Sparkles className="h-4 w-4 text-primary" /> Lo que tienes como miembro</h2>
+            <ul className="mt-2 space-y-1.5 text-sm text-muted-foreground">
+              <li>• Tus entradas y su QR siempre a un toque</li>
+              <li>• Tus Playcoins y saldo para canjear en caja</li>
+              <li>• Aviso del recordatorio del evento, preventas y novedades</li>
+              {perks.map((p) => <li key={p}>• {p}</li>)}
+              <li>• Preventa anticipada en los eventos que la tengan</li>
+            </ul>
+          </section>
 
-          <PushPrompt source="puntos" />
         </motion.div>
       </div>
     </div>
