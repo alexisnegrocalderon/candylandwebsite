@@ -19,6 +19,7 @@ import { Pager } from '@/components/site/Pager';
 import { TiltCard } from '@/components/site/TiltCard';
 import { BottomSheet, PayInCajaViewer, SavedCardsSection, TopupSheet, useMemberPayConfig } from '@/components/site/AccountPayments';
 import { useCustomerPush } from '@/lib/customerPush';
+import { avisosNotice } from '@/lib/pushPromptView';
 import { useIsMobile } from '@/hooks/useMobile';
 import { MemberLogin, type LoginDone } from '@/components/site/MemberLogin';
 import { fmtDate, fmtDateTime } from '@/lib/member';
@@ -733,9 +734,16 @@ function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | nu
       <TopupSheet open={topupOpen} onClose={() => setTopupOpen(false)} />
       <AnimatePresence>{payOpen && <PayInCajaViewer onClose={() => setPayOpen(false)} prepaidBalance={me.prepaidBalance} playcoins={me.playcoins} />}</AnimatePresence>
       <BottomSheet open={sheet === 'avisos'} onClose={() => setSheet(null)} title="Avisos">
-        <PushPrompt source="puntos" tone="dark" />
-        {push.state === 'enabled' && <p className="account-glass rounded-2xl p-4 text-sm text-white/75">✓ Avisos activados: te avisamos del recordatorio del evento, preventas y novedades.</p>}
-        {push.state === 'denied' && <p className="account-glass rounded-2xl p-4 text-sm text-white/65">Bloqueaste los avisos de este sitio. Si los quieres, actívalos en los ajustes del teléfono o del navegador.</p>}
+        {/* `alwaysShow`: la persona abrió «Avisos» a propósito, así que el aviso no se esconde aunque lo haya cerrado antes. */}
+        <PushPrompt source="puntos" tone="dark" alwaysShow />
+        {avisosNotice(push.state) === 'enabled' && <p className="account-glass rounded-2xl p-4 text-sm text-white/75">✓ Avisos activados: te avisamos del recordatorio del evento, preventas y novedades.</p>}
+        {avisosNotice(push.state) === 'denied' && <p className="account-glass rounded-2xl p-4 text-sm text-white/65">Bloqueaste los avisos de este sitio. Si los quieres, actívalos en los ajustes del teléfono o del navegador.</p>}
+        {avisosNotice(push.state) === 'unsupported' && (
+          <p className="account-glass rounded-2xl p-4 text-sm text-white/65">
+            Este navegador no permite recibir avisos. Abre Playroom en Chrome (en Android) o en Safari y agrégalo a tu inicio, y vuelve a entrar acá para activarlos.
+          </p>
+        )}
+        {avisosNotice(push.state) === 'loading' && <p className="account-glass rounded-2xl p-4 text-sm text-white/65">Revisando tus avisos…</p>}
       </BottomSheet>
       <BottomSheet open={sheet === 'tarjetas'} onClose={() => setSheet(null)} title="Mis tarjetas"><SavedCardsSection /></BottomSheet>
       <BottomSheet open={sheet === 'beneficios'} onClose={() => setSheet(null)} title="Beneficios"><PerksCard me={me} /></BottomSheet>

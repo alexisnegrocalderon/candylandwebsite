@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Bell, BellRing, Share, SquarePlus, X } from 'lucide-react';
 import { dismissPrompt, isStandalone, promptDismissed, useCustomerPush, type PushSource } from '@/lib/customerPush';
+import { pushPromptView } from '@/lib/pushPromptView';
 
 /* "Activar avisos" del sitio (promos, concursos, recordatorio del evento).
  * En iPhone sin instalar enseña a agregar el sitio a inicio, porque iOS solo
@@ -45,12 +46,14 @@ function IosSteps({ tone }: { tone: Tone }) {
   );
 }
 
-export function PushPrompt({ source, ticketCode, orderNumber, tone = 'light', className = '' }: {
+export function PushPrompt({ source, ticketCode, orderNumber, tone = 'light', className = '', alwaysShow = false }: {
   source: PushSource;
   ticketCode?: string;
   orderNumber?: string;
   tone?: Tone;
   className?: string;
+  /** Donde la persona lo pidió a propósito (la hoja «Avisos»): no se esconde aunque lo haya cerrado antes. */
+  alwaysShow?: boolean;
 }) {
   const t = TONES[tone];
   const { state, busy, error, enable, disable } = useCustomerPush({ source, ticketCode, orderNumber });
@@ -68,10 +71,10 @@ export function PushPrompt({ source, ticketCode, orderNumber, tone = 'light', cl
     return () => { if (prev) link.setAttribute('href', prev); };
   }, [source, ticketCode]);
 
-  if (state === 'loading' || state === 'unsupported') return null;
+  const view = pushPromptView({ state, source, dismissed: closed, alwaysShow });
+  if (view === 'none') return null;
   // En la entrada se muestra el "activado" (y se puede apagar); en el resto, nada.
-  if (state === 'enabled') {
-    if (source !== 'ticket') return null;
+  if (view === 'activated') {
     return (
       <div className={`flex items-center justify-between gap-3 rounded-2xl border ${t.box} px-4 py-3 text-sm ${className}`}>
         <span className={`inline-flex items-center gap-2 ${t.strong}`}><BellRing className="w-4 h-4 text-primary" /> Avisos activados</span>
@@ -79,17 +82,15 @@ export function PushPrompt({ source, ticketCode, orderNumber, tone = 'light', cl
       </div>
     );
   }
-  if (state === 'denied') {
-    if (source !== 'ticket') return null;
+  if (view === 'blocked') {
     return (
       <p className={`text-xs ${t.faint} text-center ${className}`}>
         Bloqueaste los avisos de este sitio. Si los quieres, actívalos en los ajustes del navegador.
       </p>
     );
   }
-  // Fuera de la entrada y el pago, cerrar el aviso lo esconde por 30 días.
-  const dismissible = source !== 'ticket' && source !== 'pago';
-  if (dismissible && closed) return null;
+  // Fuera de la entrada y el pago, cerrar el aviso lo esconde por 30 días (salvo con `alwaysShow`).
+  const dismissible = source !== 'ticket' && source !== 'pago' && !alwaysShow;
 
   return (
     <div className={`relative rounded-2xl border ${t.card} p-4 text-left ${className}`}>
