@@ -24,6 +24,8 @@ const ALLOWED_CONTENT_TYPES = [
   // Fondos de escena en los videos del Estudio (y el video del Hero).
   "video/mp4",
   "video/webm",
+  // Videos del iPhone (.mov) para el contenido de los embajadores.
+  "video/quicktime",
   // Música de los videos del Estudio.
   "audio/mpeg",
   "audio/mp4",

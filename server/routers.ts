@@ -146,6 +146,7 @@ import { parseSurveyAnswer } from "../shared/eventSurvey";
 import { getWinbackOverview, draftWinbackEmail, createWinbackCampaign } from "./winback";
 import { WINBACK_SEGMENT_KEYS } from "../shared/winback";
 import { generateContentPlan } from "./contentPlanner";
+import { deleteAmbassadorItem, ensureAmbassadorDrafts, getUpcomingContentEvents, listAmbassadorItems, saveAmbassadorItem, setAmbassadorItemStatus } from "./ambassadorContent";
 import { listContentDesigns, getContentDesign, saveContentDesign, deleteContentDesign, getContentVideo, saveContentVideo, listVideoStyles, saveVideoStyle, deleteVideoStyle } from "./contentStudio";
 import { renderMissingConfig, requestVideoRender } from "./studioRender";
 import { quickPhotoTexts, quickVideoFromIdea } from "./studioAi/quickIdea";
@@ -1167,6 +1168,8 @@ export const appRouter = router({
         if (created && previous) await db.copyCartaBetweenEvents(previous.id, created.id);
         // Aviso push "nuevo evento" (si está prendido en Push → Automáticos).
         if (created && input.status === 'published') await notifyEventLaunch(created.id, 'evento');
+        // Borradores del contenido para embajadores (quedan para aprobar).
+        if (created && input.status === 'published') await ensureAmbassadorDrafts().catch((e) => console.error('[events.create] Borradores de embajadores:', e));
       } catch (err) {
         console.error('[events.create] No se pudo copiar la carta del evento anterior:', err);
       }
@@ -1218,6 +1221,8 @@ export const appRouter = router({
       const result = await db.updateEvent(id, withTaxIssuer(data));
       // Recién publicado (venía en borrador): aviso push "nuevo evento".
       if (before && before.status === 'draft') await notifyEventLaunch(id, 'evento');
+      // Borradores del contenido para embajadores (quedan para aprobar).
+      if (input.status === 'published') await ensureAmbassadorDrafts().catch((e) => console.error('[events.update] Borradores de embajadores:', e));
       return result;
     }),
     delete: adminPasswordProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
@@ -2849,6 +2854,32 @@ export const appRouter = router({
   // historias con las plantillas de marca. Leer es adminReadProcedure (no hay
   // datos personales); guardar, adminProcedure; borrar pide la clave, como
   // todo lo que se borra en el panel.
+  // Contenido para los embajadores (shared/ambassadorContent.ts): se generan
+  // borradores solos por evento, el dueño los revisa y aprueba, y cada
+  // embajador ve lo aprobado en su panel con su link y su código.
+  ambassadorContent: router({
+    list: adminReadProcedure.query(async () => {
+      const [items, events] = await Promise.all([listAmbassadorItems(), getUpcomingContentEvents()]);
+      return { items, events };
+    }),
+    // Lo llama el admin al abrir la pantalla (y el cron diario): crea los
+    // borradores que falten. Idempotente.
+    generateDrafts: adminProcedure.mutation(async () => ({ created: await ensureAmbassadorDrafts() })),
+    save: adminProcedure.input(z.object({
+      id: z.number().int().positive().optional(),
+      // La forma fina la valida y recorta normalizeAmbassadorItem.
+      item: z.record(z.string(), z.unknown()),
+    })).mutation(async ({ input }) => ({ id: await saveAmbassadorItem(input.id, input.item) })),
+    setStatus: adminProcedure.input(z.object({
+      ids: z.array(z.number().int().positive()).min(1).max(100),
+      status: z.enum(['borrador', 'aprobado', 'descartado']),
+    })).mutation(async ({ input }) => ({ changed: await setAmbassadorItemStatus(input.ids, input.status) })),
+    delete: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => {
+      await deleteAmbassadorItem(input.id);
+      return { success: true };
+    }),
+  }),
+
   contentStudio: router({
     list: adminReadProcedure.query(async () => listContentDesigns()),
     get: adminReadProcedure.input(z.object({ id: z.number().int().positive() })).query(async ({ input }) => {
@@ -4251,6 +4282,15 @@ export const appRouter = router({
     me: publicProcedure.query(async ({ ctx }) => {
       const email = getMemberEmail(ctx.req);
       return email ? members.getMemberHome(email) : null;
+    }),
+    // Si el correo de la sesión es de un embajador activo: su panel (ventas,
+    // comisión y el contenido aprobado para compartir), el mismo de
+    // /embajador/<CODIGO>. null para todos los demás.
+    ambassador: publicProcedure.query(async ({ ctx }) => {
+      const email = getMemberEmail(ctx.req);
+      if (!email) return null;
+      const ambassador = await ambassadorProgram.findAmbassadorByEmail(email);
+      return ambassador ? ambassadorProgram.getAmbassadorPanel(ambassador.code) : null;
     }),
     // Para llenar «Tus datos» del checkout (solo con sesión de «Mi cuenta»; los datos son del mismo socio).
     checkoutPrefill: publicProcedure.query(async ({ ctx }) => {

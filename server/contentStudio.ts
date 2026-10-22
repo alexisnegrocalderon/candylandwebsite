@@ -1,4 +1,4 @@
-import { and, desc, eq, ne, sql } from 'drizzle-orm';
+import { and, desc, eq, notInArray, sql } from 'drizzle-orm';
 import { getDb } from './db';
 import { contentDesignMessages, contentDesigns } from '../drizzle/schema';
 import { normalizeStudioDesign, STUDIO_MAX_DESIGNS_LISTED, type StudioDesign } from '../shared/contentStudio';
@@ -38,8 +38,9 @@ export type DesignListItem =
 
 export async function listContentDesigns(): Promise<DesignListItem[]> {
   const db = await requireDb();
-  // Los estilos guardados de los videos («Mi estilo») viven en la misma tabla, pero no son diseños.
-  const rows = await db.select().from(contentDesigns).where(ne(contentDesigns.kind, 'estilo')).orderBy(desc(contentDesigns.updatedAt)).limit(STUDIO_MAX_DESIGNS_LISTED);
+  // Los estilos guardados de los videos («Mi estilo») y el contenido de los
+  // embajadores (server/ambassadorContent.ts) viven en la misma tabla, pero no son diseños.
+  const rows = await db.select().from(contentDesigns).where(notInArray(contentDesigns.kind, ['estilo', 'embajador'])).orderBy(desc(contentDesigns.updatedAt)).limit(STUDIO_MAX_DESIGNS_LISTED);
   return rows.flatMap((row): DesignListItem[] => {
     if (row.kind === 'video') {
       const video = toVideo(row);
@@ -73,7 +74,7 @@ export async function getContentDesign(id: number): Promise<StoredDesign | null>
   const db = await requireDb();
   const [row] = await db.select().from(contentDesigns).where(eq(contentDesigns.id, id)).limit(1);
   // Un diseño de IA o un video no se abre en el editor de plantillas.
-  return row && row.kind !== 'ia' && row.kind !== 'video' ? toStored(row) : null;
+  return row && row.kind !== 'ia' && row.kind !== 'video' && row.kind !== 'embajador' ? toStored(row) : null;
 }
 
 /** Crea (sin `id`) o reemplaza un diseño. Devuelve el id. */
@@ -95,6 +96,7 @@ export async function saveContentDesign(id: number | undefined, raw: unknown): P
     if (!existing) throw new Error('Ese diseño ya no existe.');
     if (existing.kind === 'ia') throw new Error('Ese diseño es del Diseñador IA: se edita desde ahí.');
     if (existing.kind === 'video') throw new Error('Eso es un video: se edita desde el editor de video.');
+    if (existing.kind === 'embajador') throw new Error('Eso es contenido de embajadores: se edita desde ahí.');
     await db.update(contentDesigns).set(values).where(eq(contentDesigns.id, id));
     return id;
   }

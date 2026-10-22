@@ -5,6 +5,7 @@ import { runSalesDripDaily } from "./salesDrip";
 import { purgeClosedPartyPhotos, purgeOldPartyMessages, purgeOldPartyProfiles, expireOldGiftInvitations, purgeOldIgThreads, purgeOldWaThreads, getEventHappeningToday, getCajaDashboard, getHomeEvents } from "./db";
 import { sendEmail, buildCheckinSummaryEmail } from "./email";
 import { getProgramConfig, sendWeeklyAmbassadorEmails } from "./ambassadorProgram";
+import { ensureAmbassadorDrafts } from "./ambassadorContent";
 import { runAbandonedCartCron } from "./orderReminders";
 import { runPushQueue } from "./pushAutomations";
 import { runAgentLearning } from './agentLearning';
@@ -197,7 +198,15 @@ export function registerCronRoutes(app: Express) {
       console.error('[Cron] No se pudo actualizar los seguidores de Instagram:', err);
     }
 
-    res.json({ success: true, partyMessagesPurgedFor, partyProfilesPurged, giftInvitationsExpired, igThreadsPurged, waThreadsPurged, instagramStats, ownCommentsSuggested });
+    // Borradores del contenido para embajadores de los eventos próximos (quedan para aprobar).
+    let ambassadorDrafts = 0;
+    try {
+      ambassadorDrafts = await ensureAmbassadorDrafts();
+    } catch (err) {
+      console.error('[Cron] No se pudieron crear los borradores de embajadores:', err);
+    }
+
+    res.json({ success: true, partyMessagesPurgedFor, partyProfilesPurged, giftInvitationsExpired, igThreadsPurged, waThreadsPurged, instagramStats, ownCommentsSuggested, ambassadorDrafts });
   });
 
   /* Correo semanal de embajadores (docs: pestaña "Material" en /admin →

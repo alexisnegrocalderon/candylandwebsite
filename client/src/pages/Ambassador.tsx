@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { formatChileShortDate } from '@shared/chileDate';
 import { estimateAdditionalCommission, type CommissionTier } from '@shared/ambassadorProgram';
+import { AmbassadorContent } from '@/components/site/AmbassadorContent';
 
 /* Panel del embajador VIP: /embajador/<CODIGO>.
  *
@@ -51,6 +52,9 @@ export default function Ambassador() {
           <h1 className="font-heading text-3xl mb-3">Panel de Embajador</h1>
           <p className="text-muted-foreground mb-6">
             Escribe tu código de embajador para ver tus ventas, tu comisión y tus beneficios.
+          </p>
+          <p className="text-sm text-muted-foreground mb-6 -mt-3">
+            O entra a <Link href="/cuenta" className="text-primary underline">Mi cuenta</Link> con tu correo de embajador: ahí tienes todo a mano.
           </p>
           <form
             onSubmit={(e) => { e.preventDefault(); if (codeInput.trim()) setLocation(`/embajador/${codeInput.trim().toUpperCase()}`); }}
@@ -154,11 +158,17 @@ export default function Ambassador() {
                   {copiedLink ? <Check className="w-4 h-4 shrink-0" /> : <Copy className="w-4 h-4 shrink-0" />}
                 </button>
                 <p className="text-xs text-muted-foreground mt-2">
-                  {copiedLink ? '¡Copiado!' : 'Tu link para poner en el swipe-up de historias -- las ventas quedan atribuidas solas'}
+                  {copiedLink ? '¡Copiado!' : 'Tu link para el sticker «Enlace» de tus historias: las ventas quedan atribuidas solas'}
                 </p>
               </div>
             )}
           </div>
+
+          <p className="text-xs text-muted-foreground text-center -mt-4 mb-6">
+            Tip: entra a <Link href="/cuenta" className="text-primary underline">Mi cuenta</Link> con tu correo de embajador y tendrás todo esto a mano, sin escribir tu código.
+          </p>
+
+          <AmbassadorContent code={data.code} events={data.contentEvents ?? []} items={data.contentItems ?? []} material={data.weeklyMaterial ?? null} />
 
           {/* Comisión exacta de este evento -- plata ya generada, no una
               estimación. A diferencia de "comisión del evento"

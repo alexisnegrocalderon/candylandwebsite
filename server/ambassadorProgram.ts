@@ -15,6 +15,8 @@ import { buildAmbassadorWeeklyEmail, sendEmail } from './email';
 import { invokeLLM } from './_core/llm';
 import { z } from 'zod';
 import { formatChileDate } from '../shared/chileDate';
+import { itemsForPanel, personalizeItem } from '../shared/ambassadorContent';
+import { getUpcomingContentEvents, listApprovedAmbassadorItems } from './ambassadorContent';
 
 /* Motor del programa de Embajadores VIP: atribución de cada venta, y las
  * consultas que alimentan el panel del embajador y el admin.
@@ -433,6 +435,17 @@ export function looseCodeKey(code: string): string {
   return (code ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 }
 
+/** El embajador ACTIVO dueño de este correo (para entrar con él a «Mi
+ * cuenta»). Si dos comparten correo, ninguno: no se adivina. */
+export async function findAmbassadorByEmail(email: string) {
+  const db = await getDb();
+  const key = (email ?? '').trim().toLowerCase();
+  if (!db || !key) return null;
+  const rows = await db.select().from(exclusiveAmbassadors)
+    .where(and(eq(exclusiveAmbassadors.active, 1), sql`LOWER(TRIM(${exclusiveAmbassadors.email})) = ${key}`)).limit(2);
+  return rows.length === 1 ? rows[0] : null;
+}
+
 /** Panel público en /embajador/<CODIGO>. El código hace de llave: no hay
  * login de embajadores (mismo criterio que /mis-referidos). */
 export async function getAmbassadorPanel(code: string, now: Date = new Date()) {
@@ -472,6 +485,16 @@ export async function getAmbassadorPanel(code: string, now: Date = new Date()) {
 
   const avgSalePrice = await getAmbassadorAvgSalePrice(ambassador.id);
   const eventStats = featuredEvent ? await getAmbassadorEventStats(ambassador.id, featuredEvent.id) : null;
+  const contentEvents = (await getUpcomingContentEvents(now)).map((e) => ({ ...e, referralUrl: buildAmbassadorReferralUrl(e, ambassador.code)! }));
+  // Lo que el dueño aprobó, con el link, el código y el nombre de ESTE embajador.
+  const generalLink = buildAmbassadorReferralUrl(featuredEvent, ambassador.code) ?? `${PANEL_BASE_URL}/?embajador=${encodeURIComponent(ambassador.code)}`;
+  const contentItems = itemsForPanel(await listApprovedAmbassadorItems(contentEvents.map((e) => e.id)), contentEvents.map((e) => e.id))
+    .map(({ updatedAt: _u, ...item }) => personalizeItem(item, {
+      code: ambassador.code,
+      name: ambassador.name,
+      link: contentEvents.find((e) => e.id === item.eventId)?.referralUrl ?? generalLink,
+    }));
+  const weeklyMaterial = toPanelMaterial(await getWeeklyMaterial());
 
   return {
     name: ambassador.name,
@@ -487,7 +510,26 @@ export async function getAmbassadorPanel(code: string, now: Date = new Date()) {
     eventStats,
     eventsHistory: summarizeSalesByEvent(sales),
     referralUrl: buildAmbassadorReferralUrl(featuredEvent, ambassador.code),
+    contentEvents,
+    contentItems,
+    weeklyMaterial,
   };
+}
+
+/** El material de la semana tal como se muestra en el panel: solo los textos
+ * y los links (las fotos del Drive siguen yendo por correo). */
+function toPanelMaterial(material: Awaited<ReturnType<typeof getWeeklyMaterial>>) {
+  if (!material) return null;
+  const out = {
+    title: material.title ?? null,
+    storiesText: material.storiesText ?? null,
+    reelText: material.reelText ?? null,
+    postText: material.postText ?? null,
+    countdownText: material.countdownText ?? null,
+    links: resolveMaterialLinks(material),
+  };
+  const empty = !out.storiesText && !out.reelText && !out.postText && !out.countdownText && out.links.length === 0;
+  return empty ? null : out;
 }
 
 /** Ranking de UN EVENTO: se ordena por CANTIDAD de ventas a clientes

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import {
-  ArrowDown, ArrowLeft, ArrowUp, Camera, Clapperboard, Copy, Download, Image as ImageIcon, Layers, Loader2, Package, Palette, Plus, Save, Share2, Sparkles, Trash2, X, Zap,
+  ArrowDown, ArrowLeft, ArrowUp, Camera, Clapperboard, Copy, Download, Image as ImageIcon, Layers, Loader2, Package, Palette, Plus, Save, Share2, Sparkles, Trash2, Users, X, Zap,
 } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
@@ -37,6 +37,7 @@ import { downloadSlide, downloadZip, shareSlides, slideFileName } from './studio
 import { newSlide, starterSlides } from './studio/starters';
 import { takeQueuedDesign, takeQueuedEventPack, takeQueuedVideo } from './studio/handoff';
 import { EventPack } from './studio/EventPack';
+import { AmbassadorContentAdmin } from './studio/AmbassadorContentAdmin';
 import { VideoStudio, type VideoEditing } from './studio/VideoStudio';
 import { eventVideo, playcardVideo, slidesVideo, starterPointsVideo, VIDEO_FORMAT_LABEL, VIDEO_TEMPLATE_LABEL, type StudioVideo } from '@shared/studioVideo';
 import { AiDesigner } from './studio/AiDesigner';
@@ -140,6 +141,11 @@ export function ContentStudio() {
     return queued ? { eventId: queued } : null;
   });
 
+  const [ambassadorContent, setAmbassadorContent] = useState(false);
+  if (ambassadorContent) {
+    return <AmbassadorContentAdmin onBack={() => setAmbassadorContent(false)} />;
+  }
+
   if (pack) {
     return (
       <EventPack
@@ -162,11 +168,11 @@ export function ContentStudio() {
   if (editing) {
     return <StudioEditor editing={editing} setEditing={setEditing} onClose={() => setEditing(null)} onAnimate={(v) => setVideo({ video: v, dirty: true })} />;
   }
-  return <StudioHome onOpen={setEditing} onOpenAi={setAi} onOpenPhoto={() => setPhoto(emptyPhotoBrief())} onOpenVideo={setVideo} onOpenPack={() => setPack({ eventId: null })} />;
+  return <StudioHome onOpen={setEditing} onOpenAi={setAi} onOpenPhoto={() => setPhoto(emptyPhotoBrief())} onOpenVideo={setVideo} onOpenPack={() => setPack({ eventId: null })} onOpenAmbassadors={() => setAmbassadorContent(true)} />;
 }
 
-function StudioHome({ onOpen, onOpenAi, onOpenPhoto, onOpenVideo, onOpenPack }: {
-  onOpen: (e: Editing) => void; onOpenAi: (a: AiOpen) => void; onOpenPhoto: () => void; onOpenVideo: (v: VideoEditing) => void; onOpenPack: () => void;
+function StudioHome({ onOpen, onOpenAi, onOpenPhoto, onOpenVideo, onOpenPack, onOpenAmbassadors }: {
+  onOpen: (e: Editing) => void; onOpenAi: (a: AiOpen) => void; onOpenPhoto: () => void; onOpenVideo: (v: VideoEditing) => void; onOpenPack: () => void; onOpenAmbassadors: () => void;
 }) {
   const utils = trpc.useUtils();
   const { data: designs, isLoading } = trpc.contentStudio.list.useQuery();
@@ -251,6 +257,8 @@ function StudioHome({ onOpen, onOpenAi, onOpenPhoto, onOpenVideo, onOpenPack }: 
       </div>
 
       <AiUsageCard />
+
+      <AmbassadorContentCard onOpen={onOpenAmbassadors} />
 
       <Card className="rounded-2xl border-0 shadow-md shadow-black/5 bg-gradient-to-br from-pink-500/5 to-sky-500/5">
         <CardContent className="pt-6 flex flex-wrap items-end gap-3">
@@ -889,5 +897,28 @@ function SlideField({ field, slide, onChange, theme }: { field: Field; slide: St
         ? <Textarea rows={field === 'title' ? 2 : 3} value={slide[field]} maxLength={max} onChange={(e) => onChange({ [field]: e.target.value })} />
         : <Input value={slide[field]} maxLength={max} onChange={(e) => onChange({ [field]: e.target.value })} />}
     </div>
+  );
+}
+
+/** Acceso a «Contenido para embajadores», con lo que espera aprobación. */
+function AmbassadorContentCard({ onOpen }: { onOpen: () => void }) {
+  const { data } = trpc.ambassadorContent.list.useQuery();
+  const pending = data?.items.filter((i) => i.status === 'borrador').length ?? 0;
+  return (
+    <Card className="rounded-2xl border-0 shadow-md shadow-black/5 bg-gradient-to-br from-violet-500/10 to-pink-500/10">
+      <CardContent className="pt-6 flex flex-wrap items-end gap-3">
+        <div className="min-w-0 flex-1 basis-60">
+          <p className="font-medium flex items-center gap-2">
+            <Users className="w-4 h-4" /> Contenido para embajadores
+            {pending > 0 && <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-pink-500 text-white">{pending} por aprobar</span>}
+          </p>
+          <p className="text-sm text-muted-foreground">
+            Se preparan solos con cada evento. Tú apruebas o editas, subes tus fotos y videos, y cada embajador lo ve en su panel con su
+            link y su código, listo para compartir a Instagram o WhatsApp.
+          </p>
+        </div>
+        <Button onClick={onOpen}><Users className="w-4 h-4 mr-2" /> Revisar y aprobar</Button>
+      </CardContent>
+    </Card>
   );
 }
