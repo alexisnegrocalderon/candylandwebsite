@@ -35,7 +35,7 @@ export function BottomSheet({ open, onClose, title, children }: { open: boolean;
           <motion.div className="fixed inset-0 z-[70] bg-black/55" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} />
           <motion.div
             role="dialog" aria-label={title}
-            className="lg-sheet account-font fixed inset-x-0 bottom-0 z-[71] mx-auto max-h-[90dvh] max-w-lg overflow-y-auto rounded-t-[32px] px-4 pb-[max(20px,env(safe-area-inset-bottom))] pt-3 text-white"
+            className="lg-sheet account-font account-tokens fixed inset-x-0 bottom-0 z-[71] mx-auto max-h-[90dvh] max-w-lg overflow-y-auto rounded-t-[32px] px-4 pb-[max(20px,env(safe-area-inset-bottom))] pt-3 text-white"
             initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 30, stiffness: 320 }}
             drag="y" dragControls={drag} dragListener={false} dragConstraints={{ top: 0, bottom: 0 }} dragElastic={{ top: 0, bottom: 0.6 }} onDragEnd={(_, info) => { if (info.offset.y > 90) onClose(); }}
           >

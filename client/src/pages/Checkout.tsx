@@ -750,7 +750,8 @@ function CheckoutInner({ partnerSlug }: { partnerSlug?: string } = {}) {
   // guard de `codeResult` en el botón).
   useEffect(() => {
     if (isPartner || !event?.id || code.trim()) return;
-    const stored = getStoredAmbassadorRef() || new URLSearchParams(search).get('code') || '';
+    // Un `?code=` explícito (p. ej. el premio de la tarjeta de sellos) gana sobre el embajador guardado.
+    const stored = new URLSearchParams(search).get('code') || getStoredAmbassadorRef() || '';
     if (!stored) return;
     setCode(stored);
     validateCode.mutateAsync({ code: stored, eventId: event.id }).then((result) => {
