@@ -8,6 +8,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/
 import { getGuides, getPosts, articlePath, STANDALONE_PAGES } from '@/content';
 import SoundToggle from '@/components/SoundToggle';
 import { useMemberInvite } from '@/lib/member';
+import { MemberButton } from '@/components/site/MemberButton';
 
 const navLinks = [
   { href: '/', label: 'Inicio' },
@@ -83,7 +84,7 @@ const secondaryNavLinks = [
 const DARK_TOP_ROUTES = ['/', '/halloween', '/disfraces'];
 
 export default function Navbar() {
-  // «Mi cuenta» solo se ofrece cuando hay beneficios prendidos (Clientes → Socios).
+  // «Mi cuenta» se ofrece siempre (entradas, Playcoins y avisos).
   const memberInvite = useMemberInvite();
   const secondaryLinks = secondaryNavLinks.filter((l) => l.href !== '/cuenta' || memberInvite);
   const [scrolled, setScrolled] = useState(false);
@@ -225,6 +226,7 @@ export default function Navbar() {
              * CTA (pedido explícito del dueño): antes flotaba suelto justo
              * al lado del botón "Comprar Entradas" y el ojo iba directo al
              * botón grande -- ahora se lee como un grupo aparte. */}
+            <MemberButton light={lightChrome} />
             <SoundToggle light={lightChrome} />
 
             <a
@@ -268,6 +270,7 @@ export default function Navbar() {
            * para que se vean iguales en las dos versiones. El botón de menú
            * suma el mismo círculo, para que ambos combinen entre sí. */}
           <div className="flex items-center gap-2.5 md:hidden">
+            <MemberButton light={lightChrome || mobileOpen} size="sm" />
             <SoundToggle light={lightChrome || mobileOpen} size={17} />
             <a
               href={CANDYLAND.redes.instagram}

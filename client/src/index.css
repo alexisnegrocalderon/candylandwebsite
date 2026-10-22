@@ -462,3 +462,13 @@ html {
     -webkit-backdrop-filter: none !important;
   }
 }
+
+/* Botón «Mi cuenta» del header: píldora con borde degradado y un brillo que respira. */
+@keyframes member-glow {
+  0%, 100% { box-shadow: 0 0 10px 0 rgb(236 72 153 / 0.35), 0 0 18px 0 rgb(56 189 248 / 0.18); }
+  50% { box-shadow: 0 0 16px 2px rgb(236 72 153 / 0.55), 0 0 26px 2px rgb(56 189 248 / 0.3); }
+}
+.member-pill { animation: member-glow 3.4s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .member-pill { animation: none; }
+}
