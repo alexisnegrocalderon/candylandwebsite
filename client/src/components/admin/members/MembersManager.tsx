@@ -91,6 +91,20 @@ export function MembersManager() {
           <span><span className="block font-semibold">Avisar por notificación</span><span className="text-xs text-muted-foreground">Cuando reciben un cupón de nivel o cumpleaños (solo si activaron los avisos).</span></span>
           <Switch checked={cfg.pushOnGrant} disabled={demo} onCheckedChange={(v) => setCfg((p) => ({ ...p, pushOnGrant: v }))} />
         </label>
+        <div className="space-y-2 rounded-2xl border border-border p-4">
+          <p className="font-semibold">Pagos desde «Mi cuenta»</p>
+          <p className="text-xs text-muted-foreground">Préndelos uno por uno cuando quieras lanzarlos. Antes, pruébalos con tu propia cuenta.</p>
+          {([
+            ['savedCards', 'Tarjetas guardadas', 'Los socios guardan su tarjeta en Mercado Pago y al pagar solo ponen el código de seguridad.'],
+            ['accountTopup', 'Recargar PlayCard desde la cuenta', 'Botón «Recargar saldo» en la PlayCard y en Puntos.'],
+            ['cajaPay', 'Pagar en caja con la app', 'QR de un solo uso (2 min): la cajera cobra del saldo sin pedir el PIN.'],
+          ] as const).map(([key, label, help]) => (
+            <label key={key} className="flex items-center justify-between gap-3">
+              <span><span className="block text-sm font-medium">{label}</span><span className="text-xs text-muted-foreground">{help}</span></span>
+              <Switch checked={cfg.payments[key]} disabled={demo} onCheckedChange={(v) => setCfg((p) => ({ ...p, payments: { ...p.payments, [key]: v } }))} />
+            </label>
+          ))}
+        </div>
         <WriteButton disabled={!dirty || save.isPending} onClick={() => save.mutate(cfg as any)}>Guardar beneficios</WriteButton>
       </section>
 

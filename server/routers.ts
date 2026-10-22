@@ -112,6 +112,8 @@ import * as appDevices from "./appDevices";
 import * as members from "./members";
 import { getMemberEmail, setMemberSession, clearMemberSession, verifyMemberCode, normalizeMemberEmail } from "./memberAuth";
 import { normalizeMemberConfig } from "../shared/memberConfig";
+import * as memberCards from "./memberCards";
+import * as memberPay from "./memberPay";
 import { isMemberEarlyAccess } from "../shared/memberConfig";
 import { draftPushCopy } from "./pushAi";
 import { normalizeCustomerPushConfig } from "../shared/customerPushConfig";
@@ -531,9 +533,13 @@ async function upgradeErrorsAsBadRequest<T>(fn: () => Promise<T>): Promise<T> {
 
 /** Quién recarga la PlayCard: el dueño de un ticket (link de la tarjeta
  * digital) o el correo ya validado con el código (sesión firmada). */
-async function resolveTopupIdentity(input: { ticketCode?: string; sessionToken?: string }): Promise<TopupIdentity> {
+async function resolveTopupIdentity(input: { ticketCode?: string; sessionToken?: string; member?: boolean }, req?: Parameters<typeof getMemberEmail>[0]): Promise<TopupIdentity> {
   let identity: TopupIdentity | null = null;
-  if (input.ticketCode) {
+  if (input.member && req) {
+    // Desde «Mi cuenta»: la sesión del socio ya probó el correo (con el interruptor accountTopup prendido).
+    const email = getMemberEmail(req);
+    if (email && (await members.getMemberConfig()).payments.accountTopup) identity = await identityFromEmail(email);
+  } else if (input.ticketCode) {
     identity = await identityFromTicketCode(input.ticketCode);
   } else if (input.sessionToken) {
     const email = verifyTopupSession(input.sessionToken);
@@ -775,6 +781,13 @@ const pushCampaignSchema = z.object({
   smartHour: z.boolean().optional(),
   actions: z.array(z.object({ label: z.string().trim().max(24), url: z.string().trim().max(500) })).max(2).optional(),
 });
+
+/** Correo de la sesión de «Mi cuenta» o error 401 (para las acciones del socio). */
+function requireMemberEmail(req: Parameters<typeof getMemberEmail>[0]): string {
+  const email = getMemberEmail(req);
+  if (!email) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Entra a tu cuenta para continuar.' });
+  return email;
+}
 
 export const appRouter = router({
   system: systemRouter,
@@ -1456,8 +1469,9 @@ export const appRouter = router({
       installments: z.number().optional(),
       identificationType: z.string().optional(),
       identificationNumber: z.string().optional(),
-    })).mutation(async ({ input }) => {
-      return processCardPaymentForOrder(input);
+      saveCard: z.boolean().optional(),
+    })).mutation(async ({ input, ctx }) => {
+      return processCardPaymentForOrder({ ...input, memberEmail: getMemberEmail(ctx.req) });
     }),
     // Admin
     listAll: adminReadProcedure.input(z.object({
@@ -4131,6 +4145,44 @@ export const appRouter = router({
       return { ok: true as const };
     }),
 
+    // ── Pagos desde «Mi cuenta» (Etapa A; cada pieza con su interruptor, apagado por defecto) ──
+    payConfig: publicProcedure.query(async () => (await members.getMemberConfig()).payments),
+    // QR de «Pagar en caja» (2 min, un solo uso).
+    payToken: publicProcedure.mutation(async ({ ctx }) => {
+      const email = requireMemberEmail(ctx.req);
+      if (!(await members.getMemberConfig()).payments.cajaPay) throw new TRPCError({ code: 'BAD_REQUEST', message: 'El pago con la app todavía no está activado.' });
+      const ipKey = `member-paytoken:${email}`;
+      if (!(await db.checkIpRateLimit(ipKey))) throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Espera un momento y vuelve a intentar.' });
+      await db.recordIpAttempt(ipKey, 60, 10 * 60 * 1000);
+      void memberPay.purgeOldPayTokens().catch(() => {});
+      const t = await memberPay.createPayToken(email);
+      return { token: t.token, expiresAt: t.expiresAt };
+    }),
+    // Para el Payment Brick: tarjetas guardadas del socio (null si no hay sesión o el interruptor está apagado).
+    payInit: publicProcedure.query(async ({ ctx }) => {
+      const email = getMemberEmail(ctx.req);
+      if (!email || !(await members.getMemberConfig()).payments.savedCards) return null;
+      const init = await memberCards.brickInit(email).catch(() => null);
+      return { canSave: true as const, customerId: init?.customerId ?? null, cardIds: init?.cardIds ?? [] };
+    }),
+    cards: router({
+      list: publicProcedure.query(async ({ ctx }) => {
+        const email = getMemberEmail(ctx.req);
+        if (!email || !(await members.getMemberConfig()).payments.savedCards) return [];
+        return memberCards.listCards(email).catch(() => []);
+      }),
+      remove: publicProcedure.input(z.object({ cardId: z.string().min(1).max(64) })).mutation(async ({ input, ctx }) => {
+        const email = requireMemberEmail(ctx.req);
+        try { await memberCards.removeCard(email, input.cardId); } catch (err) { throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo eliminar' }); }
+        return { ok: true as const };
+      }),
+      setDefault: publicProcedure.input(z.object({ cardId: z.string().min(1).max(64) })).mutation(async ({ input, ctx }) => {
+        const email = requireMemberEmail(ctx.req);
+        try { await memberCards.setDefaultCard(email, input.cardId); } catch (err) { throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo cambiar' }); }
+        return { ok: true as const };
+      }),
+    }),
+
     // ── Panel (Clientes → Socios) ──
     adminStats: adminReadProcedure.query(() => members.memberStats()),
     config: adminReadProcedure.query(() => members.getMemberConfig()),
@@ -5654,6 +5706,14 @@ export const appRouter = router({
     // acepta en su discriminatedUnion): el saldo exige conexión siempre, a
     // diferencia de efectivo/débito/crédito/qr, que sí viajan por la cola
     // offline. `cardPin` es requerido cuando paymentMethod==='saldo'.
+    // QR de «Pagar en caja» de la app de socios: valida (sin consumir) y devuelve a quién cobrar.
+    resolvePayToken: operatorProcedure.input(z.object({ eventId: z.number(), token: z.string().max(80) })).mutation(async ({ input }) => {
+      if (!(await members.getMemberConfig()).payments.cajaPay) throw new TRPCError({ code: 'BAD_REQUEST', message: 'El pago con la app no está activado' });
+      const check = await memberPay.resolvePayToken(input.token);
+      if (!check.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: check.reason });
+      const c = await members.findCustomer(check.email);
+      return { email: check.email, name: c?.fullName ?? null, prepaidBalance: c?.prepaidBalance ?? 0, playcoins: c?.playcoins ?? 0 };
+    }),
     sale: operatorProcedure.input(z.object({
       opId: z.string(),
       eventId: z.number(),
@@ -5662,6 +5722,7 @@ export const appRouter = router({
       registerId: z.number().optional(),
       buyerEmail: z.string().email().optional(),
       cardPin: z.string().regex(/^\d{4}$/).optional(),
+      payToken: z.string().max(80).optional(),
       redeemPlaycoins: z.number().int().min(0).optional(),
       discountCode: z.string().optional(),
       lockerTag: z.string().max(16).optional(),
@@ -5670,8 +5731,11 @@ export const appRouter = router({
       customerName: z.string().max(60).optional(),
       clientAt: z.string(),
     })).mutation(async ({ input, ctx }) => {
-      if (input.paymentMethod === 'saldo' && (!input.buyerEmail || !input.cardPin)) {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Pagar con saldo necesita el email y el PIN de la tarjeta' });
+      if (input.payToken && !(await members.getMemberConfig()).payments.cajaPay) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'El pago con la app no está activado' });
+      }
+      if (input.paymentMethod === 'saldo' && (!input.buyerEmail || (!input.cardPin && !input.payToken))) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Pagar con saldo necesita el email y el PIN de la tarjeta (o el QR de la app)' });
       }
       const rawDb = await db.getDb();
       if (!rawDb) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Base de datos no disponible' });
@@ -5685,6 +5749,7 @@ export const appRouter = router({
           paymentMethod: input.paymentMethod,
           buyerEmail: input.buyerEmail,
           cardPin: input.cardPin,
+          payToken: input.payToken,
           redeemPlaycoins: input.redeemPlaycoins,
           discountCode: input.discountCode,
           lockerTag: input.lockerTag,
@@ -6168,8 +6233,9 @@ export const appRouter = router({
     requestPinResetCode: publicProcedure.input(z.object({
       ticketCode: z.string().optional(),
       sessionToken: z.string().optional(),
+      member: z.boolean().optional(),
     })).mutation(async ({ input, ctx }) => {
-      const identity = await resolveTopupIdentity(input);
+      const identity = await resolveTopupIdentity(input, ctx.req);
       const ipKey = `topup-send-ip:${clientIp(ctx)}`;
       const emailKey = `topup-send:${identity.email}`;
       if (!(await db.checkIpRateLimit(ipKey)) || !(await db.checkIpRateLimit(emailKey))) {
@@ -6187,10 +6253,11 @@ export const appRouter = router({
     resetPin: publicProcedure.input(z.object({
       ticketCode: z.string().optional(),
       sessionToken: z.string().optional(),
+      member: z.boolean().optional(),
       code: z.string().min(1).max(20),
       pin: z.string().regex(/^\d{4}$/, 'El PIN debe tener 4 dígitos'),
     })).mutation(async ({ input, ctx }) => {
-      const identity = await resolveTopupIdentity(input);
+      const identity = await resolveTopupIdentity(input, ctx.req);
       const emailKey = `topup-verify:${identity.email}`;
       const ipKey = `topup-verify-ip:${clientIp(ctx)}`;
       if (!(await db.checkIpRateLimit(emailKey)) || !(await db.checkIpRateLimit(ipKey))) {
@@ -6217,14 +6284,16 @@ export const appRouter = router({
     getOptions: publicProcedure.input(z.object({
       ticketCode: z.string().optional(),
       sessionToken: z.string().optional(),
-    })).query(async ({ input }) => {
-      const identity = await resolveTopupIdentity(input);
+      member: z.boolean().optional(),
+    })).query(async ({ input, ctx }) => {
+      const identity = await resolveTopupIdentity(input, ctx.req);
       return getTopupOptions(identity);
     }),
 
     create: publicProcedure.input(z.object({
       ticketCode: z.string().optional(),
       sessionToken: z.string().optional(),
+      member: z.boolean().optional(),
       ticketTypeId: z.number().int().positive(),
       pin: z.string().regex(/^\d{4}$/, 'El PIN debe tener 4 dígitos').optional(),
     })).mutation(async ({ input, ctx }) => {
@@ -6232,7 +6301,7 @@ export const appRouter = router({
       if (!(await db.checkIpRateLimit(ipKey))) {
         throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos. Espera un rato e intenta de nuevo.' });
       }
-      const identity = await resolveTopupIdentity(input);
+      const identity = await resolveTopupIdentity(input, ctx.req);
       await db.recordIpAttempt(ipKey, 15, 60 * 60 * 1000);
       try {
         return await createTopupOrder(identity, { ticketTypeId: input.ticketTypeId, pin: input.pin });

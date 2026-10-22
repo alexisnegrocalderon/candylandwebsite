@@ -10,7 +10,7 @@ import { useSeo } from '@/hooks/useSeo';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { QrScanner } from '@/components/QrScanner';
-import { parseTicketCodeFromQr } from '@shared/qr';
+import { isPayQr, parseTicketCodeFromQr } from '@shared/qr';
 import {
   saveSnapshot, getLocalEvent, searchLocal, searchStaffCompsLocal, searchInsideAttendeesLocal, getLocalAttendee, getLocalCatalog,
   enqueueOp, pendingOpsCount, getPendingOps, markOpSynced, markOpRejected, getRejectedOps, discardOp, clearSyncedOps, correctedNow,
@@ -979,7 +979,7 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
             registerId={registerId}
             catalogVersion={snapshotQuery.dataUpdatedAt}
             isOnline={isOnline}
-            onSale={async (items, paymentMethod, buyerEmail, redeemPlaycoins, discountCode, lockerTag, lockerCustomerName, kitchenTicketNumber, customerName, cardPin) => {
+            onSale={async (items, paymentMethod, buyerEmail, redeemPlaycoins, discountCode, lockerTag, lockerCustomerName, kitchenTicketNumber, customerName, cardPin, payToken) => {
               const opId = newOpId();
               const clientAt = (await correctedNow()).toISOString();
               if (paymentMethod === 'saldo') {
@@ -990,7 +990,7 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
                 // registrado en ningún lado (ni ops ni orders).
                 await saleWithSaldoMutation.mutateAsync({
                   opId, eventId: localEvent.id, registerId: registerId ?? undefined,
-                  items, paymentMethod, buyerEmail, cardPin,
+                  items, paymentMethod, buyerEmail, cardPin, payToken,
                   discountCode, lockerTag, lockerCustomerName, kitchenTicketNumber, customerName, clientAt,
                 });
               } else {
@@ -1261,6 +1261,7 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
     kitchenTicketNumber?: string,
     customerName?: string,
     cardPin?: string,
+    payToken?: string,
   ) => void | Promise<void>;
 }) {
   const [catalog, setCatalog] = useState<CajaCatalogItem[]>([]);
@@ -1353,6 +1354,9 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
   const [redeemInput, setRedeemInput] = useState('');
   // PIN de la tarjeta -- solo hace falta cuando paymentMethod === 'saldo'.
   const [cardPin, setCardPin] = useState('');
+  // QR de «Pagar en caja» de la app del socio: reemplaza al PIN (vence en 2 min, un solo uso).
+  const [payToken, setPayToken] = useState<string | null>(null);
+  const resolvePayToken = trpc.caja.resolvePayToken.useMutation();
   const [associatedName, setAssociatedName] = useState<string | null>(null);
   const [scanningCustomer, setScanningCustomer] = useState(false);
   // Buscador por nombre entre quienes YA ENTRARON a la fiesta -- para sumar
@@ -1369,6 +1373,7 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
   }, [customerSearch]);
 
   const pickCustomer = (a: CajaAttendee) => {
+    setPayToken(null);
     setBuyerEmail(a.buyerEmail);
     setAssociatedName(a.buyerName);
     setShowEmailStep(true);
@@ -1551,7 +1556,7 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
     if (paymentMethod === 'saldo') {
       if (!isOnline) { toast.error('Pagar con saldo necesita conexión'); return; }
       if (!buyerEmail.trim()) { toast.error('Falta el email de la tarjeta'); return; }
-      if (!/^\d{4}$/.test(cardPin)) { toast.error('El PIN de la tarjeta tiene que tener 4 dígitos'); return; }
+      if (!payToken && !/^\d{4}$/.test(cardPin)) { toast.error('El PIN de la tarjeta tiene que tener 4 dígitos'); return; }
     }
     if (paymentMethod === 'debito' || paymentMethod === 'credito') { setPaymentStep('card'); return; }
     if (paymentMethod === 'efectivo') { setCashGiven(''); setPaymentStep('cash'); return; }
@@ -1608,7 +1613,8 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
         needsLockerTag ? lockerCustomerName.trim() : undefined,
         kitchenTicketNumber,
         hasKitchenItems ? customerName.trim() : undefined,
-        method === 'saldo' ? cardPin : undefined,
+        method === 'saldo' && !payToken ? cardPin : undefined,
+        payToken ?? undefined,
       );
     } catch (err: any) {
       toast.error(
@@ -1627,6 +1633,7 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
     setBalance(null);
     setRedeemInput('');
     setCardPin('');
+    setPayToken(null);
     setShowEmailStep(false);
     setAssociatedName(null);
     setCustomerSearch('');
@@ -1643,12 +1650,30 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
   };
 
   const handleCustomerScan = async (raw: string) => {
-    const code = parseTicketCodeFromQr(raw);
     setScanningCustomer(false);
+    if (isPayQr(raw)) {
+      // QR de pago de la app: identifica al cliente y autoriza su saldo sin PIN.
+      if (!isOnline) { toast.error('Pagar con la app necesita conexión'); return; }
+      try {
+        const r = await resolvePayToken.mutateAsync({ eventId, token: raw.trim() });
+        setBuyerEmail(r.email);
+        setAssociatedName(r.name ?? r.email);
+        setShowEmailStep(true);
+        setBalance(r.playcoins);
+        setRedeemInput('');
+        setPayToken(raw.trim());
+        toast.success(`Autorizado por la app ✓ · Saldo $${r.prepaidBalance.toLocaleString('es-CL')}`);
+      } catch (err: any) {
+        toast.error(err?.message ?? 'No se pudo leer el QR de pago');
+      }
+      return;
+    }
+    const code = parseTicketCodeFromQr(raw);
     if (!code) return;
     const found = await searchLocal(code);
     const attendee = found[0];
     if (!attendee) { toast.error('No encontramos ese código.'); return; }
+    setPayToken(null);
     setBuyerEmail(attendee.buyerEmail);
     setAssociatedName(attendee.buyerName);
     setShowEmailStep(true);
@@ -1821,11 +1846,12 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
                   {associatedName && <p className="text-xs text-white/50">Asociado a: <b className="text-white/80">{associatedName}</b></p>}
                   <Input
                     value={buyerEmail}
-                    onChange={(e) => { setBuyerEmail(e.target.value); setBalance(null); setRedeemInput(''); setAssociatedName(null); }}
+                    onChange={(e) => { setBuyerEmail(e.target.value); setBalance(null); setRedeemInput(''); setAssociatedName(null); setPayToken(null); }}
                     placeholder="email@cliente.cl"
                     className="h-10 bg-white/10 border-white/15 text-white placeholder:text-white/60"
                   />
-                  {paymentMethod === 'saldo' && (
+                  {payToken && <p className="text-xs font-semibold text-emerald-300">✓ Autorizado por la app: cobra con saldo sin PIN</p>}
+                  {paymentMethod === 'saldo' && !payToken && (
                     <Input
                       type="tel" inputMode="numeric" maxLength={4}
                       value={cardPin}
@@ -1840,7 +1866,7 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
                     </Button>
                     {paymentMethod !== 'saldo' && (
                       <button
-                        onClick={() => { setShowEmailStep(false); setBuyerEmail(''); setBalance(null); setRedeemInput(''); setAssociatedName(null); }}
+                        onClick={() => { setShowEmailStep(false); setBuyerEmail(''); setBalance(null); setRedeemInput(''); setAssociatedName(null); setPayToken(null); }}
                         className="text-xs text-white/60 underline"
                       >
                         Omitir

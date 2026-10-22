@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { trpc } from '@/lib/trpc';
 
 /* Formulario de tarjeta embebido de Mercado Pago (Payment Brick): sin modal
@@ -53,10 +53,18 @@ export function PaymentBrick({ orderNumber, amount, containerId = 'mp-payment-br
 }) {
   const controllerRef = useRef<any>(null);
   const processCardPayment = trpc.orders.processCardPayment.useMutation();
+  // Socios con el interruptor de tarjetas guardadas: el Brick muestra sus tarjetas (pide solo el CVV)
+  // y se puede guardar la nueva. Sin sesión (o apagado) llega null y todo queda como siempre.
+  const payInit = trpc.member.payInit.useQuery(undefined, { retry: false, staleTime: 60_000 });
+  const member = payInit.data ?? null;
+  const [saveCard, setSaveCard] = useState(true);
+  const saveCardRef = useRef(saveCard);
+  saveCardRef.current = saveCard;
+  const utils = trpc.useUtils();
 
   useEffect(() => {
     const publicKey = import.meta.env.VITE_MERCADOPAGO_PUBLIC_KEY as string | undefined;
-    if (!publicKey) return;
+    if (!publicKey || payInit.isLoading) return;
     let cancelled = false;
 
     (async () => {
@@ -64,7 +72,10 @@ export function PaymentBrick({ orderNumber, amount, containerId = 'mp-payment-br
       if (cancelled) return;
       const mp = new (window as any).MercadoPago(publicKey, { locale: 'es-CL' });
       const controller = await mp.bricks().create('payment', containerId, {
-        initialization: { amount },
+        initialization: {
+          amount,
+          ...(member?.customerId && member.cardIds.length > 0 ? { payer: { customerId: member.customerId, cardsIds: member.cardIds } } : {}),
+        },
         customization: {
           // No incluir `mercadoPago`/`ticket` acá: la Brick los oculta si no
           // aparecen en el objeto (pasar 'none' no es un valor válido de la API).
@@ -82,9 +93,11 @@ export function PaymentBrick({ orderNumber, amount, containerId = 'mp-payment-br
                 installments: formData.installments,
                 identificationType: formData.payer?.identification?.type,
                 identificationNumber: formData.payer?.identification?.number,
+                saveCard: member ? saveCardRef.current : undefined,
               },
               {
                 onSuccess: (res) => {
+                  if (res.cardSaved) void utils.member.invalidate();
                   onResult(res.status as PaymentOutcome, res.statusDetail);
                   if (res.status === 'rejected') {
                     onError(motivoRechazo(res.statusDetail));
@@ -115,7 +128,17 @@ export function PaymentBrick({ orderNumber, amount, containerId = 'mp-payment-br
       controllerRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orderNumber, containerId]);
+  }, [orderNumber, containerId, payInit.isLoading, member?.customerId, member?.cardIds.join(',')]);
 
-  return <div id={containerId} />;
+  return (
+    <>
+      <div id={containerId} />
+      {member && (
+        <label className="mt-3 flex cursor-pointer items-center gap-2.5 text-sm">
+          <input type="checkbox" checked={saveCard} onChange={(e) => setSaveCard(e.target.checked)} className="h-4 w-4 accent-[oklch(0.70_0.19_340)]" />
+          Guardar esta tarjeta en mi cuenta para la próxima vez
+        </label>
+      )}
+    </>
+  );
 }

@@ -1,3 +1,4 @@
+import { consumePayToken, releasePayToken } from '../memberPay';
 import { eq, sql, inArray, and, ne, desc } from "drizzle-orm";
 import { orders, orderItems, ticketTypes, discountCodes, lockerItems, kitchenTickets, customers } from "../../drizzle/schema";
 import { applyOp } from "./ops";
@@ -71,6 +72,9 @@ export async function createCajaSale(
     redeemPlaycoins?: number;
     // PIN de la tarjeta -- requerido solo cuando paymentMethod === 'saldo'.
     cardPin?: string;
+    // QR de «Pagar en caja» de la app de socios (server/memberPay.ts): reemplaza al PIN.
+    // Vence en 2 min, sirve una sola vez y va ligado al correo de buyerEmail.
+    payToken?: string;
     // Código de descuento aplicado al carrito -- se revalida server-side con
     // la misma función que usa el checkout web (nunca se confía en el monto
     // que calculó la tablet).
@@ -231,16 +235,30 @@ export async function createCajaSale(
       let redeemedAmount = 0;
       let redeemConflictNote: string | undefined;
       if (params.paymentMethod === 'saldo') {
-        if (!params.buyerEmail || !params.cardPin) {
-          throw new Error('Pagar con saldo necesita el email y el PIN de la tarjeta');
+        if (!params.buyerEmail || (!params.cardPin && !params.payToken)) {
+          throw new Error('Pagar con saldo necesita el email y el PIN de la tarjeta (o el QR de la app)');
         }
-        const pinCheck = await verifyCardPin({ email: params.buyerEmail, pin: params.cardPin });
-        if (!pinCheck.ok) throw new Error(pinCheck.reason);
+        let customerId: number;
+        if (params.payToken) {
+          // QR de la app: se consume ANTES de cobrar (una sola vez); si el cobro falla, se libera.
+          const used = await consumePayToken(params.payToken, params.buyerEmail, params.opId);
+          if (!used.ok) throw new Error(used.reason);
+          const [c] = await db.select({ id: customers.id }).from(customers).where(eq(customers.email, used.email)).limit(1);
+          if (!c) { await releasePayToken(params.payToken, params.opId); throw new Error('No encontramos la cuenta de ese cliente'); }
+          customerId = c.id;
+        } else {
+          const pinCheck = await verifyCardPin({ email: params.buyerEmail, pin: params.cardPin! });
+          if (!pinCheck.ok) throw new Error(pinCheck.reason);
+          customerId = pinCheck.customerId;
+        }
         const spend = await spendPrepaidAuthoritative({
-          customerId: pinCheck.customerId, amountClp: totalAfterDiscount,
+          customerId, amountClp: totalAfterDiscount,
           reason: 'spend_caja', opId: params.opId,
         });
-        if (!spend.ok) throw new Error(spend.conflictNote);
+        if (!spend.ok) {
+          if (params.payToken) await releasePayToken(params.payToken, params.opId);
+          throw new Error(spend.conflictNote);
+        }
       } else if (params.redeemPlaycoins && params.redeemPlaycoins > 0 && params.buyerEmail) {
         // Canje de Playcoins: SERVER-AUTHORITATIVE, dentro de este mismo
         // mutate() -- se relee el saldo real en el instante en que esta

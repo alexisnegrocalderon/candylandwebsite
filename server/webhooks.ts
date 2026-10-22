@@ -1,3 +1,5 @@
+import { saveCardFromToken, storedMpCustomerId } from './memberCards';
+import { getMemberConfig } from './members';
 import { formatChileDate, formatChileTime } from '../shared/chileDate';
 import { Router, Request, Response } from 'express';
 import { clp, pushTitle } from '../shared/pushText';
@@ -248,7 +250,11 @@ export async function processCardPaymentForOrder(input: {
   installments?: number;
   identificationType?: string;
   identificationNumber?: string;
-}): Promise<{ status: 'approved' | 'rejected' | 'in_process' | 'pending'; statusDetail?: string }> {
+  /** Correo de la sesión de «Mi cuenta» (cookie), si hay. Solo con él se usan/guardan tarjetas del socio. */
+  memberEmail?: string | null;
+  /** El socio pidió guardar la tarjeta (solo con el interruptor `savedCards` prendido). */
+  saveCard?: boolean;
+}): Promise<{ status: 'approved' | 'rejected' | 'in_process' | 'pending'; statusDetail?: string; cardSaved?: boolean }> {
   const db = await getDb();
   if (!db) throw new Error('Database not available');
 
@@ -257,6 +263,10 @@ export async function processCardPaymentForOrder(input: {
   if (order.paymentStatus === 'approved') throw new Error('Order already paid');
 
   const [event] = await db.select().from(events).where(eq(events.id, order.eventId)).limit(1);
+
+  // Tarjetas guardadas: solo si la sesión de «Mi cuenta» es del MISMO correo de la orden
+  // (nunca se cobra con el cliente de Mercado Pago de otra persona) y el interruptor está prendido.
+  const member = await memberCardContext(input.memberEmail, order.buyerEmail);
 
   const result = await createCardPayment({
     orderNumber: order.orderNumber,
@@ -269,6 +279,7 @@ export async function processCardPaymentForOrder(input: {
     payerEmail: order.buyerEmail,
     identificationType: input.identificationType,
     identificationNumber: input.identificationNumber,
+    mpCustomerId: member?.mpCustomerId ?? null,
   });
 
   await applyPaymentResult({
@@ -278,7 +289,18 @@ export async function processCardPaymentForOrder(input: {
     paymentMethodId: result.paymentMethodId,
   });
 
-  return { status: result.status, statusDetail: result.statusDetail };
+  let cardSaved: boolean | undefined;
+  if (member && input.saveCard && result.status === 'approved') {
+    cardSaved = await saveCardFromToken(member.email, input.token);
+  }
+  return { status: result.status, statusDetail: result.statusDetail, cardSaved };
+}
+
+export async function memberCardContext(memberEmail: string | null | undefined, buyerEmail: string): Promise<{ email: string; mpCustomerId: string | null } | null> {
+  if (!memberEmail || memberEmail.trim().toLowerCase() !== buyerEmail.trim().toLowerCase()) return null;
+  const config = await getMemberConfig();
+  if (!config.payments.savedCards) return null;
+  return { email: memberEmail, mpCustomerId: await storedMpCustomerId(memberEmail) };
 }
 
 /** Envía el email de bienvenida + QR para una orden que quedó confirmada al
