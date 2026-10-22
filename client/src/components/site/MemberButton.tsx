@@ -4,7 +4,13 @@ import { useMemberInvite, useMemberSession } from '@/lib/member';
 
 /** Botón «Mi cuenta» del header: píldora con borde degradado rosa → celeste y brillo suave.
  * En celular queda solo el ícono; en escritorio, ícono y texto. `light` = el header tiene fondo claro. */
-export function MemberButton({ light, size = 'md' }: { light: boolean; size?: 'sm' | 'md' }) {
+export function MemberButton(props: { light: boolean; size?: 'sm' | 'md' }) {
+  // Al generar las páginas estáticas (build) no hay cliente tRPC: el botón solo existe en el navegador.
+  if (typeof window === 'undefined') return null;
+  return <MemberButtonInner {...props} />;
+}
+
+function MemberButtonInner({ light, size = 'md' }: { light: boolean; size?: 'sm' | 'md' }) {
   const invite = useMemberInvite();
   const { data: session } = useMemberSession();
   if (!invite) return null;
