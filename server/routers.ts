@@ -146,6 +146,7 @@ import { parseSurveyAnswer } from "../shared/eventSurvey";
 import { getWinbackOverview, draftWinbackEmail, createWinbackCampaign } from "./winback";
 import { WINBACK_SEGMENT_KEYS } from "../shared/winback";
 import { generateContentPlan } from "./contentPlanner";
+import { getStampCard, refreshStampsForTicket } from "./stampCard";
 import { deleteAmbassadorItem, ensureAmbassadorDrafts, getUpcomingContentEvents, listAmbassadorItems, saveAmbassadorItem, setAmbassadorItemStatus } from "./ambassadorContent";
 import { listContentDesigns, getContentDesign, saveContentDesign, deleteContentDesign, getContentVideo, saveContentVideo, listVideoStyles, saveVideoStyle, deleteVideoStyle } from "./contentStudio";
 import { renderMissingConfig, requestVideoRender } from "./studioRender";
@@ -1874,13 +1875,16 @@ export const appRouter = router({
     })).mutation(async ({ input, ctx }) => {
       const rawDb = await db.getDb();
       if (!rawDb) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Base de datos no disponible' });
-      return checkInTicket(rawDb, {
+      const res = await checkInTicket(rawDb, {
         opId: input.opId,
         ticketCode: input.ticketCode,
         eventId: input.eventId,
         operatorId: ctx.operator.operatorId,
         clientAt: new Date(input.clientAt),
       });
+      // Sello de la fiesta en la app: si completa la tarjeta, el Dúo gratis queda listo y llega el aviso.
+      if (res.result === 'applied') void refreshStampsForTicket(input.ticketCode);
+      return res;
     }),
 
     // Vaciado de la cola offline. Solo acepta check-in y cobro de
@@ -4282,6 +4286,11 @@ export const appRouter = router({
     me: publicProcedure.query(async ({ ctx }) => {
       const email = getMemberEmail(ctx.req);
       return email ? members.getMemberHome(email) : null;
+    }),
+    // Tarjeta de sellos de la app: 1 de regalo + 1 por fiesta a la que entró; 6 = un Acceso Dúo gratis.
+    stamps: publicProcedure.query(async ({ ctx }) => {
+      const email = getMemberEmail(ctx.req);
+      return email ? getStampCard(email) : null;
     }),
     // Si el correo de la sesión es de un embajador activo: su panel (ventas,
     // comisión y el contenido aprobado para compartir), el mismo de

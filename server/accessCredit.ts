@@ -176,7 +176,8 @@ export async function remindAccessCredit(creditId: number): Promise<{ sent: bool
   if (!db) throw new Error('Base de datos no disponible');
   const [credit] = await db.select().from(accessCredits).where(eq(accessCredits.id, creditId)).limit(1);
   if (!credit) throw new Error('No encontré ese crédito.');
-  const mine = await withAvailability(await db.select().from(accessCredits).where(eq(accessCredits.originOrderId, credit.originOrderId)));
+  // Solo los de esa misma persona: los premios de la tarjeta de sellos comparten `originOrderId = 0`.
+  const mine = await withAvailability(await db.select().from(accessCredits).where(and(eq(accessCredits.originOrderId, credit.originOrderId), eq(accessCredits.buyerEmail, credit.buyerEmail))));
   const available = mine.filter((c) => c.availability === 'available');
   if (available.length === 0) throw new Error('Ese crédito ya fue usado o cancelado.');
   const sent = await sendCreditEmail(credit.buyerEmail, credit.buyerName ?? 'hola', available[0].originEventTitle ?? 'la fiesta', available.map((c) => ({ code: c.code, accesoName: c.accesoName })), true);

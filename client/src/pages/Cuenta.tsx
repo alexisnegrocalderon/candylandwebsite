@@ -1,8 +1,8 @@
 import { Component, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { AnimatePresence, motion, useDragControls } from 'framer-motion';
+import { AnimatePresence, MotionConfig, motion, useDragControls } from 'framer-motion';
 import { toast } from 'sonner';
-import { Calendar, Check, Copy, Crown, Gift, LogOut, Sparkles, Ticket as TicketIcon, ArrowRight, Download, Loader2, X, QrCode, CreditCard, Coins, MoreHorizontal, Home, Wallet, Plus, RefreshCw, Bell, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Calendar, Check, Copy, Crown, Gift, LogOut, Sparkles, Ticket as TicketIcon, ArrowRight, Download, Loader2, X, QrCode, CreditCard, Coins, MoreHorizontal, Home, Wallet, Plus, RefreshCw, Bell, ChevronLeft, ChevronRight, Stamp as StampIcon } from 'lucide-react';
 import { Link } from 'wouter';
 import { trpc } from '@/lib/trpc';
 import type { inferRouterOutputs } from '@trpc/server';
@@ -19,6 +19,7 @@ import { Pager } from '@/components/site/Pager';
 import { TiltCard } from '@/components/site/TiltCard';
 import { BottomSheet, PayInCajaViewer, SavedCardsSection, TopupSheet, useMemberPayConfig } from '@/components/site/AccountPayments';
 import { AmbassadorAccount, useAmbassadorPanel } from '@/components/site/AmbassadorAccount';
+import { StampsTab } from '@/components/site/StampCard';
 import { useCustomerPush } from '@/lib/customerPush';
 import { avisosNotice } from '@/lib/pushPromptView';
 import { useIsMobile } from '@/hooks/useMobile';
@@ -138,7 +139,7 @@ function QrViewer({ ev, t, holder, onClose }: { ev: MeEvent; t: MeEvent['tickets
     }
   };
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="fixed inset-0 z-[90] flex flex-col items-center justify-center gap-5 bg-white px-6 pb-[max(24px,env(safe-area-inset-bottom))] pt-[max(24px,env(safe-area-inset-top))] text-[#0d0712]" role="dialog" aria-label="Código QR de tu entrada">
+    <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }} transition={{ duration: 0.22 }} className="fixed inset-0 z-[90] flex flex-col items-center justify-center gap-5 bg-white px-6 pb-[max(24px,env(safe-area-inset-bottom))] pt-[max(24px,env(safe-area-inset-top))] text-[#0d0712]" role="dialog" aria-label="Código QR de tu entrada">
       <button type="button" onClick={onClose} aria-label="Cerrar" className="absolute right-4 top-[max(16px,env(safe-area-inset-top))] grid h-11 w-11 place-items-center rounded-full bg-black/5"><X className="h-5 w-5" /></button>
       <p className="text-center font-heading text-lg font-extrabold leading-tight">{ev.eventTitle}</p>
       {t.qrImageUrl && <img src={t.qrImageUrl} alt="Código QR de tu entrada" className="aspect-square w-[min(86vw,58vh)] [image-rendering:pixelated]" />}
@@ -152,6 +153,21 @@ function QrViewer({ ev, t, holder, onClose }: { ev: MeEvent; t: MeEvent['tickets
       </button>
     </motion.div>
   );
+}
+
+/** Cómo se llama cada entrada en el selector: el primer nombre, y si se repite (varias a nombre de
+ * quien compró) se numeran: «Alexis 1», «Alexis 2». */
+function holderLabels(list: { holderName: string | null }[]): string[] {
+  const first = list.map((x, n) => (x.holderName?.trim().split(/\s+/)[0] || `Entrada ${n + 1}`));
+  const count = new Map<string, number>();
+  first.forEach((f) => count.set(f, (count.get(f) ?? 0) + 1));
+  const seen = new Map<string, number>();
+  return first.map((f) => {
+    if ((count.get(f) ?? 0) < 2) return f;
+    const k = (seen.get(f) ?? 0) + 1;
+    seen.set(f, k);
+    return `${f} ${k}`;
+  });
 }
 
 /** Lo primero que ve quien entra: su PlayCard con el QR de la entrada del próximo evento.
@@ -183,15 +199,16 @@ function TicketWallet({ ev, holder, prepaidBalance, playcoins, movements, compac
   // Hasta 3 entradas: píldoras. Más: selector con flechas («‹ Persona 2 · 2/6 ›»), que siempre cabe en una línea.
   const many = !!ev && ev.tickets.length > 3;
   const step = (d: number) => { if (!ev) return; tapHaptic(); setI((v) => (v + d + ev.tickets.length) % ev.tickets.length); };
+  const labels = ev ? holderLabels(ev.tickets) : [];
   const holderPills = ev && ev.tickets.length > 1 && (many ? (
     <div className="flex h-9 items-center gap-1 px-1 text-sm font-semibold">
       <button type="button" onClick={() => step(-1)} aria-label="Entrada anterior" className="grid h-8 w-8 place-items-center rounded-full text-white/70"><ChevronLeft className="h-4 w-4" /></button>
-      <span className="max-w-[120px] truncate px-1">{(t?.holderName || `Entrada ${i + 1}`).split(' ')[0]} <span className="text-white/45">· {i + 1}/{ev.tickets.length}</span></span>
+      <span className="max-w-[120px] truncate px-1">{labels[i]} <span className="text-white/45">· {i + 1}/{ev.tickets.length}</span></span>
       <button type="button" onClick={() => step(1)} aria-label="Entrada siguiente" className="grid h-8 w-8 place-items-center rounded-full text-white/70"><ChevronRight className="h-4 w-4" /></button>
     </div>
   ) : ev.tickets.map((x, n) => (
-    <button key={x.ticketCode} type="button" onClick={() => { tapHaptic(); setI(n); }} className={`h-9 max-w-[110px] truncate rounded-full px-4 text-sm font-semibold interactive ${n === i ? 'lg-pill text-white' : 'text-white/60'}`}>
-      {x.holderName ? x.holderName.split(' ')[0] : `Entrada ${n + 1}`}
+    <button key={x.ticketCode} type="button" onClick={() => { tapHaptic(); setI(n); }} className={`h-9 max-w-[124px] truncate rounded-full px-4 text-sm font-semibold interactive ${n === i ? 'lg-pill text-white' : 'text-white/60'} ${x.status === 'used' ? 'line-through decoration-white/40' : ''}`}>
+      {labels[n]}
     </button>
   )));
   const actions = [
@@ -325,7 +342,18 @@ function perkList(me: Me): string[] {
 }
 
 function BuyNextCard({ me }: { me: Me }) {
-  if (!me.nextEvent || (me.events as MeEvent[])[0]) return null;
+  if ((me.events as MeEvent[])[0]) return null;
+  // Sin entrada y sin fiesta anunciada: igual se invita a mirar lo que viene (nunca una tarjeta vacía sola).
+  if (!me.nextEvent) {
+    return (
+      <Link href="/eventos" onClick={tapHaptic} className="account-glass block rounded-[28px] p-5 interactive">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-pink-300">Tu próxima fiesta</p>
+        <p className="mt-1 text-xl font-bold text-white">Se anuncia muy pronto</p>
+        <p className="mt-0.5 text-sm text-white/60">Activa los avisos y te contamos apenas abra la preventa.</p>
+        <p className="mt-3 text-sm font-semibold text-pink-300">Ver eventos →</p>
+      </Link>
+    );
+  }
   return (
     <Link href={`/checkout/${me.nextEvent.slug}`} className={`block rounded-[28px] p-[1.5px] ${NEON_RING} interactive`}>
       <div className="rounded-[27px] bg-[#0d0712] p-5">
@@ -579,10 +607,10 @@ function MovementsPreview({ me, onAll }: { me: Me; onAll: () => void }) {
 
 /* ── Celular: una pantalla fija tipo app, con barra de íconos abajo como el panel ── */
 
-type Tab = 'card' | 'embajador' | 'entradas' | 'puntos' | 'cupones';
+type Tab = 'card' | 'embajador' | 'sellos' | 'puntos' | 'cupones';
 const TABS: { key: Tab; label: string; icon: typeof CreditCard }[] = [
   { key: 'card', label: 'PlayCard', icon: CreditCard },
-  { key: 'entradas', label: 'Entradas', icon: TicketIcon },
+  { key: 'sellos', label: 'Sellos', icon: StampIcon },
   { key: 'puntos', label: 'Puntos', icon: Coins },
   { key: 'cupones', label: 'Cupones', icon: Gift },
 ];
@@ -613,7 +641,10 @@ const AMBASSADOR_TAB: { key: Tab; label: string; icon: typeof CreditCard } = { k
 function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | null; onLogout: () => void }) {
   // Al volver de otra pantalla (comprar, un evento…) se abre en la misma pestaña donde estaba.
   const [tab, setTabState] = useState<Tab>(() => {
-    try { return (sessionStorage.getItem(TAB_KEY) as Tab | null) ?? 'card'; } catch { return 'card'; }
+    try {
+      const saved = sessionStorage.getItem(TAB_KEY) as Tab | null;
+      return saved && (['card', 'embajador', 'sellos', 'puntos', 'cupones'] as Tab[]).includes(saved) ? saved : 'card';
+    } catch { return 'card'; }
   });
   const setTab = (next: Tab) => {
     setTabState(next);
@@ -638,7 +669,7 @@ function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | nu
   const touch = useRef<{ x: number; y: number } | null>(null);
   const [dir, setDir] = useState(1);
   // Sub-hojas de «Más» y de «Puntos» (cada tema grande abre la suya, para que ninguna pantalla crezca).
-  const [sheet, setSheet] = useState<null | 'tarjetas' | 'beneficios' | 'avisos' | 'movimientos'>(null);
+  const [sheet, setSheet] = useState<null | 'tarjetas' | 'beneficios' | 'avisos' | 'movimientos' | 'entradas'>(null);
   const go = (next: Tab) => {
     if (next === tab) return;
     tapHaptic();
@@ -666,7 +697,8 @@ function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | nu
   const title = tab === 'card' ? `Hola${firstName(me.fullName) ? `, ${firstName(me.fullName)}` : ''} 👋` : tabs.find((t) => t.key === tab)?.label;
 
   return (
-    <div className="account-font fixed inset-0 z-[60] flex flex-col bg-[#0b0612] text-white">
+    <MotionConfig reducedMotion="user">
+    <div className="account-font account-tokens fixed inset-0 z-[60] flex flex-col bg-[#0b0612] text-white">
       <div className="account-backdrop" />
       {/* Una pantalla fija: cabecera compacta arriba, contenido que reparte el alto y la barra flotante abajo.
           Nada se desplaza en vertical; lo que no cabe se reparte en páginas (Pager). */}
@@ -691,7 +723,9 @@ function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | nu
             // Lo único que se desplaza en vertical: el contenido para compartir es largo.
             <RememberScroll><AmbassadorAccount panel={ambassador} /></RememberScroll>
           )}
-          {tab === 'entradas' && <TicketsPager events={upcoming} />}
+          {tab === 'sellos' && (
+            <div className="-mx-1 min-h-0 flex-1 overflow-y-auto overscroll-contain px-1 pb-4"><StampsTab buySlug={me.nextEvent?.slug ?? null} /></div>
+          )}
           {tab === 'puntos' && (<>
             <PlaycoinsCard me={me} />
             {pay.accountTopup && <button type="button" onClick={() => setTopupOpen(true)} className="inline-flex h-12 w-full shrink-0 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-pink-500 via-fuchsia-500 to-sky-500 text-sm font-bold text-white"><Plus className="h-4 w-4" /> Recargar saldo (hoy {`$${me.prepaidBalance.toLocaleString('es-CL')}`})</button>}
@@ -756,16 +790,17 @@ function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | nu
                   {([
                     { key: 'avisos', label: 'Avisos', icon: Bell, dot: pushPending, onClick: () => { setMore(false); setSheet('avisos'); } },
                     ...(pay.savedCards ? [{ key: 'tarjetas', label: 'Mis tarjetas', icon: CreditCard, dot: false, onClick: () => { setMore(false); setSheet('tarjetas'); } }] : []),
+                    { key: 'entradas', label: 'Mis entradas', icon: TicketIcon, dot: false, onClick: () => { setMore(false); setSheet('entradas'); } },
                     { key: 'beneficios', label: 'Beneficios', icon: Sparkles, dot: false, onClick: () => { setMore(false); setSheet('beneficios'); } },
                     { key: 'eventos', label: 'Eventos', icon: Calendar, dot: false, href: '/eventos' },
                     { key: 'sitio', label: 'Ir al sitio', icon: Home, dot: false, href: '/' },
                   ] as { key: string; label: string; icon: typeof Bell; dot: boolean; onClick?: () => void; href?: string }[]).map(({ key, label, icon: Icon, dot, onClick, href }) => {
                     const cls = 'account-glass relative flex h-[84px] flex-col items-center justify-center gap-1.5 rounded-[22px] text-[12.5px] font-semibold text-white interactive [@media(max-height:700px)]:h-[66px] [@media(max-height:700px)]:gap-1';
                     const inner = (<><Icon className="h-5 w-5 text-pink-300" />{label}{dot && <span className="absolute right-3 top-3 h-2.5 w-2.5 rounded-full bg-pink-500 shadow-[0_0_8px_rgba(236,72,153,0.9)]" />}</>);
-                    return href ? <Link key={key} href={href} className={cls}>{inner}</Link> : <button key={key} type="button" onClick={onClick} className={cls}>{inner}</button>;
+                    return href ? <Link key={key} href={href} onClick={tapHaptic} className={cls}>{inner}</Link> : <button key={key} type="button" onClick={() => { tapHaptic(); onClick?.(); }} className={cls}>{inner}</button>;
                   })}
                 </div>
-                <button type="button" onClick={onLogout} className="flex h-12 w-full items-center justify-center gap-2 rounded-full text-sm font-semibold text-rose-300/90"><LogOut className="h-4 w-4" /> Cerrar sesión</button>
+                <button type="button" onClick={() => { tapHaptic(); onLogout(); }} className="flex h-12 w-full items-center justify-center gap-2 rounded-full text-sm font-semibold text-rose-300/90"><LogOut className="h-4 w-4" /> Cerrar sesión</button>
               </div>
             </motion.div>
           </>
@@ -788,7 +823,10 @@ function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | nu
       <BottomSheet open={sheet === 'tarjetas'} onClose={() => setSheet(null)} title="Mis tarjetas"><SavedCardsSection /></BottomSheet>
       <BottomSheet open={sheet === 'beneficios'} onClose={() => setSheet(null)} title="Beneficios"><PerksCard me={me} /></BottomSheet>
       <BottomSheet open={sheet === 'movimientos'} onClose={() => setSheet(null)} title="Movimientos"><Movements me={me} /></BottomSheet>
+      {/* Todas las entradas de los próximos eventos (PlayCard muestra la de la próxima fiesta). */}
+      <BottomSheet open={sheet === 'entradas'} onClose={() => setSheet(null)} title="Mis entradas"><div className="flex min-h-[260px] flex-col"><TicketsPager events={upcoming} /></div></BottomSheet>
     </div>
+    </MotionConfig>
   );
 }
 
@@ -801,7 +839,7 @@ export default function Cuenta() {
   const isMobile = useIsMobile();
   // La pantalla es oscura: barra de estado y fondo oscuros mientras estás acá (sin franja blanca arriba).
   useDarkChrome();
-  const shell = 'account-font relative min-h-dvh bg-[#0b0612] text-white';
+  const shell = 'account-font account-tokens relative min-h-dvh bg-[#0b0612] text-white';
 
   if (isLoading) return <div className={`${shell} pt-28`}><div className="account-backdrop" /></div>;
 
@@ -863,6 +901,7 @@ function DesktopAccount({ me, welcome, onLogout, shell }: { me: Me; welcome: Log
           {/* Avisos: bien arriba y llamativo; desaparece solo al activarlos. */}
           <PushPrompt source="puntos" tone="dark" className="shadow-[0_0_28px_rgba(236,72,153,0.22)]" />
           <EarlyCard me={me} />
+          <StampsTab buySlug={me.nextEvent?.slug ?? null} />
           <PlaycoinsCard me={me} />
 
           {upcoming.length > 1 && (
