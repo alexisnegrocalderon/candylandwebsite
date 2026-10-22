@@ -20,6 +20,14 @@ export const ENV = {
   // invocación cuando esta variable está seteada en el proyecto. Sin ella
   // configurada en producción, el endpoint queda abierto a cualquiera.
   cronSecret: process.env.CRON_SECRET ?? "",
+  // Grabación de videos del Estudio con GitHub Actions (server/studioRender.ts):
+  // un token de GitHub con permiso de Actions (lectura y escritura) en el repo,
+  // y la clave que comparten el sitio y el workflow (también va como secreto
+  // RENDER_CALLBACK_SECRET en GitHub).
+  githubRenderToken: process.env.GITHUB_RENDER_TOKEN ?? "",
+  githubRenderRepo: process.env.GITHUB_RENDER_REPO || "alexisnegrocalderon/candylandwebsite",
+  githubRenderRef: process.env.GITHUB_RENDER_REF || "main",
+  renderCallbackSecret: process.env.RENDER_CALLBACK_SECRET ?? "",
   // --- Agente de IA del Instagram (server/instagram.ts) ---
   // Secreto de la app de Meta: firma cada entrega del webhook en la cabecera
   // `X-Hub-Signature-256`. Sin esta variable el webhook RECHAZA todo en

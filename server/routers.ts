@@ -147,6 +147,7 @@ import { getWinbackOverview, draftWinbackEmail, createWinbackCampaign } from "./
 import { WINBACK_SEGMENT_KEYS } from "../shared/winback";
 import { generateContentPlan } from "./contentPlanner";
 import { listContentDesigns, getContentDesign, saveContentDesign, deleteContentDesign, getContentVideo, saveContentVideo } from "./contentStudio";
+import { renderMissingConfig, requestVideoRender } from "./studioRender";
 import { recordAiUsage, listAiUsageSince } from "./db";
 import { summarizeAiUsage } from "../shared/aiUsage";
 import { loadAiBudget, saveAiBudget } from "./aiBudget";
@@ -2902,6 +2903,22 @@ export const appRouter = router({
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo guardar el video.' });
       }
     }),
+    // Grabar a MP4 con GitHub Actions (server/studioRender.ts). El panel manda el
+    // proyecto ya armado; el estado se lee con getVideo (campo `render`).
+    renderVideo: adminProcedure.input(z.object({
+      id: z.number().int().positive(),
+      project: z.object({
+        html: z.string().max(3_000_000),
+        assets: z.array(z.tuple([z.string().max(200), z.string().max(2000)])).max(80),
+      }),
+    })).mutation(async ({ input }) => {
+      try {
+        return await requestVideoRender(input.id, input.project);
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo empezar la grabación.' });
+      }
+    }),
+    renderConfig: adminReadProcedure.query(() => ({ missing: renderMissingConfig() })),
     // Modo «Rápido»: la IA escribe los textos y la plantilla Bubble dibuja (server/studioAi/quick.ts).
     quick: adminProcedure.input(z.object({
       brief: z.string().trim().min(1, 'Escribe qué quieres').max(2000),

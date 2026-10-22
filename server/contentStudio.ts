@@ -4,6 +4,7 @@ import { contentDesignMessages, contentDesigns } from '../drizzle/schema';
 import { normalizeStudioDesign, STUDIO_MAX_DESIGNS_LISTED, type StudioDesign } from '../shared/contentStudio';
 import { normalizeAiDesign } from '../shared/studioAi';
 import { normalizeStudioVideo, type StudioVideo, type VideoFormat } from '../shared/studioVideo';
+import { normalizeRenderState, summarizeRender, type RenderState, type RenderSummary } from '../shared/studioRender';
 
 /* Estudio de contenido (shared/contentStudio.ts): guarda los diseños para que
  * no se pierdan al cambiar de celular a computador. Todo lo que entra pasa
@@ -108,6 +109,8 @@ export async function saveContentDesign(id: number | undefined, raw: unknown): P
 export interface StoredVideo extends StudioVideo {
   id: number;
   updatedAt: Date;
+  /** La última grabación a MP4 (shared/studioRender.ts). */
+  render: RenderSummary;
 }
 
 function toVideo(row: typeof contentDesigns.$inferSelect): StudioVideo | null {
@@ -119,7 +122,25 @@ export async function getContentVideo(id: number): Promise<StoredVideo | null> {
   const [row] = await db.select().from(contentDesigns).where(eq(contentDesigns.id, id)).limit(1);
   if (!row || row.kind !== 'video') return null;
   const video = toVideo(row);
-  return video ? { ...video, id: row.id, updatedAt: row.updatedAt } : null;
+  const render = normalizeRenderState((row.data as Record<string, unknown> | null)?.render);
+  return video ? { ...video, id: row.id, updatedAt: row.updatedAt, render: summarizeRender(render, Date.now()) } : null;
+}
+
+/** El estado de grabación guardado en el video (null si no es un video o nunca se grabó). */
+export async function readVideoRender(id: number): Promise<{ exists: boolean; render: RenderState | null; title: string }> {
+  const db = await requireDb();
+  const [row] = await db.select().from(contentDesigns).where(eq(contentDesigns.id, id)).limit(1);
+  if (!row || row.kind !== 'video') return { exists: false, render: null, title: '' };
+  return { exists: true, render: normalizeRenderState((row.data as Record<string, unknown> | null)?.render), title: row.title };
+}
+
+/** Reemplaza solo el estado de grabación, sin tocar el contenido del video. */
+export async function writeVideoRender(id: number, render: RenderState): Promise<void> {
+  const db = await requireDb();
+  const [row] = await db.select({ data: contentDesigns.data, kind: contentDesigns.kind, updatedAt: contentDesigns.updatedAt }).from(contentDesigns).where(eq(contentDesigns.id, id)).limit(1);
+  if (!row || row.kind !== 'video') throw new Error('Ese video ya no existe.');
+  // Se repite `updatedAt` a propósito: grabar no es editar, y la lista se ordena por la última edición.
+  await db.update(contentDesigns).set({ data: { ...(row.data as object), render }, updatedAt: row.updatedAt }).where(eq(contentDesigns.id, id));
 }
 
 /** Crea (sin `id`) o reemplaza un video. Devuelve el id. */
@@ -130,10 +151,12 @@ export async function saveContentVideo(id: number | undefined, raw: unknown): Pr
   const { title, theme, eventId, ...data } = video;
   const values = { kind: 'video', eventId, title, theme, format: video.format === 'reel' ? 'historia' as const : 'post' as const, data };
   if (id != null) {
-    const [existing] = await db.select({ id: contentDesigns.id, kind: contentDesigns.kind }).from(contentDesigns).where(eq(contentDesigns.id, id)).limit(1);
+    const [existing] = await db.select({ id: contentDesigns.id, kind: contentDesigns.kind, data: contentDesigns.data }).from(contentDesigns).where(eq(contentDesigns.id, id)).limit(1);
     if (!existing) throw new Error('Ese video ya no existe.');
     if (existing.kind !== 'video') throw new Error('Eso no es un video.');
-    await db.update(contentDesigns).set(values).where(eq(contentDesigns.id, id));
+    // Guardar el contenido no borra la última grabación (el panel avisa si quedó vieja).
+    const render = (existing.data as Record<string, unknown> | null)?.render;
+    await db.update(contentDesigns).set({ ...values, data: render ? { ...data, render } : data }).where(eq(contentDesigns.id, id));
     return id;
   }
   const [result] = await db.insert(contentDesigns).values(values);

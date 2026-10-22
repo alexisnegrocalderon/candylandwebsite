@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import JSZip from 'jszip';
-import { ArrowDown, ArrowLeft, ArrowUp, Clapperboard, Copy, Download, Loader2, Plus, Save, Trash2, X } from 'lucide-react';
+import { AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, Clapperboard, Copy, Download, Film, Loader2, Plus, Save, Share2, Trash2, X } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,6 +13,8 @@ import { WriteButton } from '@/components/admin/WriteButton';
 import { ImageUploadField } from '@/components/admin/ImageUploadField';
 import { normalizeStudioDesign, STUDIO_THEMES, type StudioTheme } from '@shared/contentStudio';
 import { VARIANT_THEME_LABEL } from '@shared/studioVariants';
+import { contentHash, type RenderSummary } from '@shared/studioRender';
+import { formatChileDateTime } from '@shared/chileDate';
 import {
   normalizeStudioVideo,
   projectAssets,
@@ -38,8 +40,8 @@ import { slideFileName } from './exportSlides';
 /* Editor de videos del Estudio (HyperFrames): reels 9:16 y posts animados 3:4
  * con las plantillas de marca. A la izquierda la vista previa (el mismo HTML
  * que se graba), a la derecha las escenas. Sin IA: no gasta créditos.
- * Grabar el MP4 desde el panel llega con la exportación en la nube; mientras,
- * «Descargar proyecto» entrega la carpeta lista para `npx hyperframes render`. */
+ * «Exportar MP4» lo graba GitHub Actions (server/studioRender.ts) y queda para
+ * descargar acá; «Descargar proyecto» entrega la carpeta para grabarla a mano. */
 
 export interface VideoEditing {
   id?: number;
@@ -89,18 +91,39 @@ function compose(video: StudioVideo, slidesHtml: string[], asset: AssetUrl): str
   return videoCompositionHtml(video, { asset });
 }
 
+/** El proyecto que se graba: el HTML con rutas `assets/...` y de dónde sale cada archivo. */
+function buildProject(video: StudioVideo, slidesHtml: string[]) {
+  const { assetUrl, files } = projectAssets();
+  const html = compose(video, slidesHtml, assetUrl);
+  return { html, assets: Array.from(files) as Array<[string, string]> };
+}
+
+/** Comparte el MP4 al celular (para subirlo directo a Instagram) o lo abre. */
+async function shareMp4(url: string, title: string) {
+  try {
+    const blob = await (await fetch(url)).blob();
+    const file = new File([blob], `${slideFileName(title, 0, 1).replace(/\.png$/, '')}.mp4`, { type: 'video/mp4' });
+    if (typeof navigator.canShare === 'function' && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], title });
+      return;
+    }
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') return;
+  }
+  window.open(url, '_blank', 'noopener');
+}
+
 /** Baja cada archivo que usa el video (fuentes, logo, fotos) y arma la
  * carpeta de HyperFrames en un ZIP. */
 async function downloadProject(video: StudioVideo, slidesHtml: string[]) {
-  const { assetUrl, files } = projectAssets();
-  const html = compose(video, slidesHtml, assetUrl);
+  const { html, assets: files } = buildProject(video, slidesHtml);
   const zip = new JSZip();
   const name = slideFileName(video.title, 0, 1).replace(/\.png$/, '');
   const folder = zip.folder(name)!;
   folder.file('index.html', html);
   const site = siteAssets(window.location.origin);
   const missing: string[] = [];
-  for (const [local, source] of Array.from(files)) {
+  for (const [local, source] of files) {
     try {
       const res = await fetch(site(source));
       if (!res.ok) throw new Error(String(res.status));
@@ -138,6 +161,19 @@ export function VideoStudio({ editing, setEditing, onClose }: { editing: VideoEd
   const [busy, setBusy] = useState(false);
   const { slidesHtml, nodes } = useSlidesHtml(video);
 
+  const { data: renderConfig } = trpc.contentStudio.renderConfig.useQuery(undefined, { staleTime: 60_000 });
+  // Mientras se graba, se pregunta cada 5 s cómo va.
+  const renderQuery = trpc.contentStudio.getVideo.useQuery({ id: editing.id ?? 0 }, {
+    enabled: editing.id != null,
+    select: (d) => d.render,
+    refetchInterval: (q) => (q.state.data?.render.status === 'grabando' ? 5000 : false),
+  });
+  const render: RenderSummary | undefined = renderQuery.data;
+  const startRender = trpc.contentStudio.renderVideo.useMutation({
+    onSuccess: () => { renderQuery.refetch(); toast.success('Grabando el video. Tarda 1 a 3 minutos; puedes seguir trabajando.'); },
+    onError: (e) => toast.error(e.message),
+  });
+
   const save = trpc.contentStudio.saveVideo.useMutation({
     onSuccess: ({ id }) => {
       setEditing({ ...editing, id, dirty: false });
@@ -169,6 +205,14 @@ export function VideoStudio({ editing, setEditing, onClose }: { editing: VideoEd
   }, [video, slidesHtml]);
 
   const timeline = useMemo(() => videoTimeline(video), [video]);
+  const ready = video.template !== 'laminas' || slidesHtml.length > 0;
+  const currentHash = useMemo(() => (ready ? contentHash(buildProject(video, slidesHtml).html) : ''), [video, slidesHtml, ready]);
+  const stale = render?.status === 'listo' && !!render.contentHash && render.contentHash !== currentHash;
+  const missing = renderConfig?.missing ?? [];
+  const exportMp4 = () => {
+    if (editing.id == null || editing.dirty) { toast.info('Guarda el video antes de exportarlo.'); return; }
+    startRender.mutate({ id: editing.id, project: buildProject(video, slidesHtml) });
+  };
   const total = video.template === 'laminas' ? Math.round((video.design?.slides.length ?? 0) * video.secsPerSlide * 10) / 10 : timeline.total;
   const size = VIDEO_SIZES[video.format];
   const isSlides = video.template === 'laminas';
@@ -222,14 +266,52 @@ export function VideoStudio({ editing, setEditing, onClose }: { editing: VideoEd
             {VIDEO_TEMPLATE_LABEL[video.template]} · {VIDEO_FORMAT_LABEL[video.format]} · {total} s · sin IA
           </p>
           <div className="flex flex-wrap justify-center gap-2">
+            <WriteButton
+              size="sm"
+              onClick={exportMp4}
+              disabled={!ready || startRender.isPending || render?.status === 'grabando' || missing.length > 0 || editing.id == null || editing.dirty}
+            >
+              {startRender.isPending || render?.status === 'grabando' ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Film className="w-4 h-4 mr-2" />}
+              {render?.status === 'listo' ? 'Volver a exportar MP4' : 'Exportar MP4'}
+            </WriteButton>
             <Button size="sm" variant="outline" onClick={exportProject} disabled={busy || !html}>
               {busy ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />} Descargar proyecto (ZIP)
             </Button>
           </div>
-          <p className="text-center text-xs text-muted-foreground max-w-md mx-auto">
-            El botón para grabar el MP4 desde acá llega en la próxima etapa. Por ahora el proyecto se graba con
-            <code className="mx-1">npx hyperframes render</code> o pidiéndoselo a Claude Code.
-          </p>
+          {(editing.id == null || editing.dirty) && missing.length === 0 && (
+            <p className="text-center text-xs text-muted-foreground">Guarda el video para poder exportarlo a MP4.</p>
+          )}
+          {missing.length > 0 && (
+            <div className="mx-auto max-w-md rounded-xl border border-amber-500/40 bg-amber-500/5 p-3 text-xs text-amber-800 dark:text-amber-300">
+              <p className="font-medium flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5" /> Falta configurar la grabación a MP4</p>
+              <p className="mt-1">{missing.join(' · ')}</p>
+              <p className="mt-1">Mientras, «Descargar proyecto» entrega la carpeta para grabarla con <code>npx hyperframes render</code> o con Claude Code.</p>
+            </div>
+          )}
+          {render?.status === 'grabando' && (
+            <p className="text-center text-sm text-muted-foreground flex items-center justify-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin" /> Grabando en GitHub… suele tardar 1 a 3 minutos.
+            </p>
+          )}
+          {render?.status === 'error' && (
+            <p className="mx-auto max-w-md text-center text-sm text-destructive">No se pudo grabar: {render.error}</p>
+          )}
+          {render?.url && render.status !== 'grabando' && (
+            <Card className="mx-auto max-w-md rounded-2xl border-0 shadow-md shadow-black/5">
+              <CardContent className="pt-5 space-y-3">
+                <p className="text-sm font-medium flex items-center gap-2">
+                  <Film className="w-4 h-4" /> MP4 listo
+                  {render.finishedAt && <span className="text-xs font-normal text-muted-foreground">· {formatChileDateTime(new Date(render.finishedAt))}</span>}
+                </p>
+                {stale && <p className="text-xs text-amber-700 dark:text-amber-300">El video cambió desde esta exportación: vuelve a exportarlo para que el MP4 tenga los cambios.</p>}
+                <video src={render.url} controls playsInline muted className="w-full rounded-lg bg-black" style={{ aspectRatio: `${size.width} / ${size.height}`, maxHeight: 420 }} />
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" asChild><a href={render.url} target="_blank" rel="noopener noreferrer" download><Download className="w-4 h-4 mr-2" /> Descargar MP4</a></Button>
+                  <Button size="sm" variant="outline" onClick={() => shareMp4(render.url!, video.title)}><Share2 className="w-4 h-4 mr-2" /> Compartir al celular</Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
 
         <div className="space-y-4 min-w-0">
