@@ -1385,11 +1385,14 @@ export function buildAmbassadorWeeklyEmail(data: {
       ${sectionTitle('🔗', 'Tu link para compartir')}
       ${card(`
         <p style="color:${MUTED};font-size:13px;margin:0 0 10px;line-height:1.5;">
-          Pon este link en el swipe-up de tus historias: cuando alguien lo abre y compra, la venta queda atribuida a
+          Pon este link en el sticker «Enlace» de tus historias: cuando alguien lo abre y compra, la venta queda atribuida a
           vos automáticamente -- aunque compre más tarde, no tiene que ser en el momento.
         </p>
         <p style="background:${ACCENT.lilac.bg};border-radius:12px;padding:12px 14px;word-break:break-all;color:${INK};font-size:13px;font-family:monospace;margin:0;">
           ${data.referralUrl}
+        </p>
+        <p style="margin:12px 0 0;text-align:center;">
+          <a href="${data.panelUrl}#contenido" style="color:${ACCENT.pink.text};font-size:13px;font-weight:800;">📲 Tus imágenes listas para compartir y el paso a paso del sticker →</a>
         </p>
       `, { bg: ACCENT.pink.bg, border: false })}
       ` : ''}

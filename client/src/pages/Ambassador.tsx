@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { formatChileShortDate } from '@shared/chileDate';
 import { estimateAdditionalCommission, type CommissionTier } from '@shared/ambassadorProgram';
+import { AmbassadorContent } from '@/components/site/AmbassadorContent';
 
 /* Panel del embajador VIP: /embajador/<CODIGO>.
  *
@@ -154,11 +155,13 @@ export default function Ambassador() {
                   {copiedLink ? <Check className="w-4 h-4 shrink-0" /> : <Copy className="w-4 h-4 shrink-0" />}
                 </button>
                 <p className="text-xs text-muted-foreground mt-2">
-                  {copiedLink ? '¡Copiado!' : 'Tu link para poner en el swipe-up de historias -- las ventas quedan atribuidas solas'}
+                  {copiedLink ? '¡Copiado!' : 'Tu link para el sticker «Enlace» de tus historias: las ventas quedan atribuidas solas'}
                 </p>
               </div>
             )}
           </div>
+
+          <AmbassadorContent code={data.code} events={data.contentEvents ?? []} material={data.weeklyMaterial ?? null} />
 
           {/* Comisión exacta de este evento -- plata ya generada, no una
               estimación. A diferencia de "comisión del evento"

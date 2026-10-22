@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql, desc } from 'drizzle-orm';
+import { and, eq, gte, inArray, sql, desc } from 'drizzle-orm';
 import { getDb, computeAmbassadorCommission, computeAmbassadorCommissionBase, getActiveExclusiveAmbassadorByCode, getFeaturedEvent } from './db';
 import {
   ambassadorBenefitDeliveries, ambassadorClients, ambassadorCommissions, ambassadorProgramConfig,
@@ -472,6 +472,8 @@ export async function getAmbassadorPanel(code: string, now: Date = new Date()) {
 
   const avgSalePrice = await getAmbassadorAvgSalePrice(ambassador.id);
   const eventStats = featuredEvent ? await getAmbassadorEventStats(ambassador.id, featuredEvent.id) : null;
+  const contentEvents = await getAmbassadorContentEvents(ambassador.code, now);
+  const weeklyMaterial = toPanelMaterial(await getWeeklyMaterial());
 
   return {
     name: ambassador.name,
@@ -487,7 +489,45 @@ export async function getAmbassadorPanel(code: string, now: Date = new Date()) {
     eventStats,
     eventsHistory: summarizeSalesByEvent(sales),
     referralUrl: buildAmbassadorReferralUrl(featuredEvent, ambassador.code),
+    contentEvents,
+    weeklyMaterial,
   };
+}
+
+/** Cuántos eventos próximos trae «Mi contenido». */
+const CONTENT_EVENTS_MAX = 3;
+
+/** Los eventos próximos a la venta, con el link personal del embajador a
+ * cada uno: de acá salen sus piezas para compartir (shared/ambassadorContent.ts).
+ * Se cuentan desde 12 h antes de ahora, para que la noche misma del evento
+ * todavía tenga su material. Nunca la dirección: se entrega solo a quien compró. */
+async function getAmbassadorContentEvents(code: string, now: Date) {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select({
+    id: events.id, title: events.title, slug: events.slug, eventDate: events.eventDate,
+    doorsOpen: events.doorsOpen, imageUrl: events.imageUrl, shortDescription: events.shortDescription,
+  }).from(events)
+    .where(and(eq(events.status, 'published'), gte(events.eventDate, new Date(now.getTime() - 12 * 60 * 60 * 1000))))
+    .orderBy(events.eventDate)
+    .limit(CONTENT_EVENTS_MAX);
+  return rows.map((e) => ({ ...e, referralUrl: buildAmbassadorReferralUrl(e, code)! }));
+}
+
+/** El material de la semana tal como se muestra en el panel: solo los textos
+ * y los links (las fotos del Drive siguen yendo por correo). */
+function toPanelMaterial(material: Awaited<ReturnType<typeof getWeeklyMaterial>>) {
+  if (!material) return null;
+  const out = {
+    title: material.title ?? null,
+    storiesText: material.storiesText ?? null,
+    reelText: material.reelText ?? null,
+    postText: material.postText ?? null,
+    countdownText: material.countdownText ?? null,
+    links: resolveMaterialLinks(material),
+  };
+  const empty = !out.storiesText && !out.reelText && !out.postText && !out.countdownText && out.links.length === 0;
+  return empty ? null : out;
 }
 
 /** Ranking de UN EVENTO: se ordena por CANTIDAD de ventas a clientes
