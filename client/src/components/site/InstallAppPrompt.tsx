@@ -93,11 +93,11 @@ export function InstallAppPrompt() {
           exit={{ opacity: 0, y: 28 }}
           transition={{ type: 'spring', damping: 30, stiffness: 320 }}
         >
-          <div className="pointer-events-auto relative mx-auto max-w-md rounded-2xl border border-primary/25 bg-background p-4 shadow-2xl shadow-black/25">
+          <div className="pointer-events-auto relative mx-auto max-w-md glass-float rounded-[26px] p-4">
             <button type="button" onClick={close} aria-label="Cerrar" className="absolute right-3 top-3 text-muted-foreground hover:opacity-80"><X className="h-4 w-4" /></button>
 
             <div className="flex items-center gap-3 pr-6">
-              <img src="/candyland/favicon-192.png" alt="" className="h-11 w-11 shrink-0 rounded-xl shadow-md" />
+              <img src="/candyland/favicon-192.png" alt="" className="h-11 w-11 shrink-0 rounded-[14px] shadow-md ring-1 ring-white/50" />
               <div className="min-w-0">
                 <p className="font-heading text-[15px] font-bold leading-tight text-foreground">Instala la App de PlayRoom</p>
                 <p className="mt-0.5 text-[12.5px] leading-snug text-muted-foreground">Tu entrada, tu PlayCard y avisos a un toque. Gratis y sin tienda de apps.</p>
@@ -114,7 +114,7 @@ export function InstallAppPrompt() {
                   transition={{ duration: 0.28, ease: [0.32, 0.72, 0, 1] }}
                   className="overflow-hidden"
                 >
-                  <div className="mt-3 max-h-[38dvh] overflow-y-auto overscroll-contain rounded-xl border border-border bg-card p-3">
+                  <div className="mt-3 max-h-[38dvh] overflow-y-auto overscroll-contain glass-float-inset rounded-2xl p-3">
                     {how === 'ios-safari' ? (
                       <ol className="space-y-2.5">
                         <Step n={1}>Toca <Share className="mx-0.5 inline h-4 w-4 text-sky-500" /> <b className={strong}>Compartir</b> (abajo en Safari).</Step>
@@ -143,19 +143,19 @@ export function InstallAppPrompt() {
 
             <div className="mt-3 flex items-center gap-2">
               {direct ? (
-                <button type="button" onClick={install} className="h-11 flex-1 rounded-full bg-primary text-sm font-bold text-primary-foreground interactive">Instalar</button>
+                <button type="button" onClick={install} className="h-11 flex-1 rounded-full bg-primary text-sm font-bold text-primary-foreground interactive glass-float-btn">Instalar</button>
               ) : (
                 <button
                   type="button"
                   onClick={() => setSteps((s) => !s)}
                   aria-expanded={steps}
-                  className="inline-flex h-11 flex-1 items-center justify-center gap-1.5 rounded-full bg-primary text-sm font-bold text-primary-foreground interactive"
+                  className="glass-float-btn inline-flex h-11 flex-1 items-center justify-center gap-1.5 rounded-full bg-primary text-sm font-bold text-primary-foreground interactive"
                 >
                   {steps ? 'Ocultar los pasos' : 'Cómo instalarla'}
                   <ChevronDown className={`h-4 w-4 transition-transform duration-300 ${steps ? 'rotate-180' : ''}`} />
                 </button>
               )}
-              <button type="button" onClick={close} className="h-11 shrink-0 rounded-full px-4 text-sm font-semibold text-muted-foreground">Ahora no</button>
+              <button type="button" onClick={close} className="h-11 shrink-0 rounded-full px-4 text-sm font-semibold text-foreground/60">Ahora no</button>
             </div>
           </div>
         </motion.div>
