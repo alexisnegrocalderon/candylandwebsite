@@ -1,4 +1,4 @@
-import { and, eq, gte, inArray, sql, desc } from 'drizzle-orm';
+import { and, eq, inArray, sql, desc } from 'drizzle-orm';
 import { getDb, computeAmbassadorCommission, computeAmbassadorCommissionBase, getActiveExclusiveAmbassadorByCode, getFeaturedEvent } from './db';
 import {
   ambassadorBenefitDeliveries, ambassadorClients, ambassadorCommissions, ambassadorProgramConfig,
@@ -15,6 +15,8 @@ import { buildAmbassadorWeeklyEmail, sendEmail } from './email';
 import { invokeLLM } from './_core/llm';
 import { z } from 'zod';
 import { formatChileDate } from '../shared/chileDate';
+import { itemsForPanel, personalizeItem } from '../shared/ambassadorContent';
+import { getUpcomingContentEvents, listApprovedAmbassadorItems } from './ambassadorContent';
 
 /* Motor del programa de Embajadores VIP: atribución de cada venta, y las
  * consultas que alimentan el panel del embajador y el admin.
@@ -472,7 +474,15 @@ export async function getAmbassadorPanel(code: string, now: Date = new Date()) {
 
   const avgSalePrice = await getAmbassadorAvgSalePrice(ambassador.id);
   const eventStats = featuredEvent ? await getAmbassadorEventStats(ambassador.id, featuredEvent.id) : null;
-  const contentEvents = await getAmbassadorContentEvents(ambassador.code, now);
+  const contentEvents = (await getUpcomingContentEvents(now)).map((e) => ({ ...e, referralUrl: buildAmbassadorReferralUrl(e, ambassador.code)! }));
+  // Lo que el dueño aprobó, con el link, el código y el nombre de ESTE embajador.
+  const generalLink = buildAmbassadorReferralUrl(featuredEvent, ambassador.code) ?? `${PANEL_BASE_URL}/?embajador=${encodeURIComponent(ambassador.code)}`;
+  const contentItems = itemsForPanel(await listApprovedAmbassadorItems(contentEvents.map((e) => e.id)), contentEvents.map((e) => e.id))
+    .map(({ updatedAt: _u, ...item }) => personalizeItem(item, {
+      code: ambassador.code,
+      name: ambassador.name,
+      link: contentEvents.find((e) => e.id === item.eventId)?.referralUrl ?? generalLink,
+    }));
   const weeklyMaterial = toPanelMaterial(await getWeeklyMaterial());
 
   return {
@@ -490,28 +500,9 @@ export async function getAmbassadorPanel(code: string, now: Date = new Date()) {
     eventsHistory: summarizeSalesByEvent(sales),
     referralUrl: buildAmbassadorReferralUrl(featuredEvent, ambassador.code),
     contentEvents,
+    contentItems,
     weeklyMaterial,
   };
-}
-
-/** Cuántos eventos próximos trae «Mi contenido». */
-const CONTENT_EVENTS_MAX = 3;
-
-/** Los eventos próximos a la venta, con el link personal del embajador a
- * cada uno: de acá salen sus piezas para compartir (shared/ambassadorContent.ts).
- * Se cuentan desde 12 h antes de ahora, para que la noche misma del evento
- * todavía tenga su material. Nunca la dirección: se entrega solo a quien compró. */
-async function getAmbassadorContentEvents(code: string, now: Date) {
-  const db = await getDb();
-  if (!db) return [];
-  const rows = await db.select({
-    id: events.id, title: events.title, slug: events.slug, eventDate: events.eventDate,
-    doorsOpen: events.doorsOpen, imageUrl: events.imageUrl, shortDescription: events.shortDescription,
-  }).from(events)
-    .where(and(eq(events.status, 'published'), gte(events.eventDate, new Date(now.getTime() - 12 * 60 * 60 * 1000))))
-    .orderBy(events.eventDate)
-    .limit(CONTENT_EVENTS_MAX);
-  return rows.map((e) => ({ ...e, referralUrl: buildAmbassadorReferralUrl(e, code)! }));
 }
 
 /** El material de la semana tal como se muestra en el panel: solo los textos

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import JSZip from 'jszip';
-import { AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, Clapperboard, CopyPlus, Copy, Download, Film, Image as ImageIcon, Loader2, Palette, Plus, Redo2, Save, Share2, Trash2, Undo2 } from 'lucide-react';
+import { AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, Clapperboard, CopyPlus, Copy, Download, Film, Image as ImageIcon, Loader2, Palette, Plus, Redo2, Save, Share2, Trash2, Undo2, Users } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,6 +14,7 @@ import { normalizeStudioDesign, STUDIO_THEMES, type StudioTheme } from '@shared/
 import { VARIANT_THEME_LABEL } from '@shared/studioVariants';
 import { contentHash, type RenderSummary } from '@shared/studioRender';
 import { formatChileDateTime } from '@shared/chileDate';
+import { uploadedItem } from '@shared/ambassadorContent';
 import {
   normalizeStudioVideo,
   projectAssets,
@@ -297,6 +298,16 @@ export function VideoStudio({ editing, setEditing, onClose }: { editing: VideoEd
   const ready = video.template !== 'laminas' || slidesHtml.length > 0;
   const currentHash = useMemo(() => (ready ? contentHash(buildProject(video, slidesHtml).html) : ''), [video, slidesHtml, ready]);
   const stale = render?.status === 'listo' && !!render.contentHash && render.contentHash !== currentHash;
+
+  // El MP4 queda en «Contenido para embajadores», por aprobar.
+  const toAmbassadors = trpc.ambassadorContent.save.useMutation({
+    onSuccess: () => toast.success('Quedó en «Contenido para embajadores», listo para aprobar.'),
+    onError: (e) => toast.error(e.message),
+  });
+  const sendToAmbassadors = (url: string) => {
+    const item = uploadedItem({ mediaUrl: url, eventId: video.eventId, mediaFormat: video.format === 'reel' ? 'historia' : 'post', label: video.title, caption: video.caption });
+    if (item) toAmbassadors.mutate({ item: item as unknown as Record<string, unknown> });
+  };
   const missing = renderConfig?.missing ?? [];
   const exportMp4 = () => {
     if (editing.id == null || editing.dirty) { toast.info('Guarda el video antes de exportarlo.'); return; }
@@ -445,6 +456,7 @@ export function VideoStudio({ editing, setEditing, onClose }: { editing: VideoEd
                 <div className="flex flex-wrap gap-2">
                   <Button size="sm" asChild><a href={render.url} target="_blank" rel="noopener noreferrer" download><Download className="w-4 h-4 mr-2" /> Descargar MP4</a></Button>
                   <Button size="sm" variant="outline" onClick={() => shareMp4(render.url!, video.title)}><Share2 className="w-4 h-4 mr-2" /> Compartir al celular</Button>
+                  <Button size="sm" variant="outline" disabled={toAmbassadors.isPending} onClick={() => sendToAmbassadors(render.url!)}><Users className="w-4 h-4 mr-2" /> Para embajadores</Button>
                 </div>
               </CardContent>
             </Card>

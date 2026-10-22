@@ -161,7 +161,7 @@ export default function Ambassador() {
             )}
           </div>
 
-          <AmbassadorContent code={data.code} events={data.contentEvents ?? []} material={data.weeklyMaterial ?? null} />
+          <AmbassadorContent code={data.code} events={data.contentEvents ?? []} items={data.contentItems ?? []} material={data.weeklyMaterial ?? null} />
 
           {/* Comisión exacta de este evento -- plata ya generada, no una
               estimación. A diferencia de "comisión del evento"
