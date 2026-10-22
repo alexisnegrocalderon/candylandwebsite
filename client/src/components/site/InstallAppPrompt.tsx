@@ -1,21 +1,23 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useLocation } from 'wouter';
 import { AnimatePresence, motion } from 'framer-motion';
-import { BellRing, Compass, MoreVertical, Share, SquarePlus, Ticket, X, Zap } from 'lucide-react';
-import { installHow, isInstalledApp, useInstallPrompt } from '@/lib/appInstall';
+import { ChevronDown, Compass, MoreVertical, Share, SquarePlus, X } from 'lucide-react';
+import { installHow, isInstalledApp, setInstallPromptVisible, useInstallPrompt } from '@/lib/appInstall';
 import { hasWelcomeParam } from '@shared/welcome';
 
-/* «Instala la App de PlayRoom en tu dispositivo»: una hoja que sube desde
- * abajo en el sitio (celular o tablet), con los pasos de SU teléfono. En
- * Android con Chrome es un solo botón; en iPhone, los 3 pasos de Safari.
- * Se cierra y vuelve a los 3 días; nunca dentro de la app instalada, ni en
- * el pago o en las pantallas internas. */
+/* «Instala la App de PlayRoom»: una tarjeta chica pegada abajo, con los
+ * colores del sitio. No tapa la página (sin fondo oscuro), no se arrastra y
+ * nunca se esconde sola: se queda hasta que la cierran con la X o «Ahora
+ * no» (y vuelve a los 3 días) o la instalan. En Android con Chrome es un
+ * botón; en iPhone y otros, «Cómo instalarla» despliega ahí mismo los pasos
+ * de SU teléfono. Nunca dentro de la app instalada, ni en el pago o en las
+ * pantallas internas. */
 
 const DISMISS_KEY = 'install-app.dismissed';
 const DISMISS_MS = 3 * 86_400_000;
 const SHOW_AFTER_MS = 4000;
 
-/** Rutas donde la hoja estorbaría (pagando, ya en /app, pantallas internas). */
+/** Rutas donde el aviso estorbaría (pagando, ya en /app, pantallas internas). */
 const QUIET = [/^\/checkout/, /^\/pago/, /^\/app$/, /^\/admin/, /^\/caja/, /^\/puerta/, /^\/fiesta/, /^\/gastos/, /^\/cocina/, /^\/guardarropia/, /^\/verificar/, /^\/recargar/, /^\/playmatch\/afiche/];
 
 function dismissedRecently(): boolean {
@@ -31,27 +33,25 @@ function isTouchDevice(): boolean {
   return typeof window !== 'undefined' && (window.matchMedia?.('(pointer: coarse)').matches ?? false);
 }
 
-const BENEFITS = [
-  { icon: Ticket, text: 'Tu entrada, tu PlayCard y tus Playcoins a un toque.' },
-  { icon: Zap, text: 'Abre al tiro, a pantalla completa, como cualquier app.' },
-  { icon: BellRing, text: 'Avisos de preventas, concursos y el día de tu evento.' },
-];
-
-function Step({ n, children }: { n: number; children: React.ReactNode }) {
+function Step({ n, children }: { n: number; children: ReactNode }) {
   return (
     <li className="flex items-start gap-3">
-      <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-gradient-to-br from-pink-500 to-sky-500 text-xs font-bold text-white">{n}</span>
-      <span className="pt-0.5 text-[14px] leading-snug text-white/80">{children}</span>
+      <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-primary/15 text-[11px] font-bold text-primary">{n}</span>
+      <span className="pt-0.5 text-[13px] leading-snug text-muted-foreground">{children}</span>
     </li>
   );
 }
+
+const strong = 'text-foreground';
 
 export function InstallAppPrompt() {
   const [location] = useLocation();
   const prompt = useInstallPrompt();
   const [open, setOpen] = useState(false);
+  const [steps, setSteps] = useState(false);
   const [how] = useState(installHow);
   const quiet = QUIET.some((r) => r.test(location));
+  const visible = open && !quiet;
 
   useEffect(() => {
     // La ventana de bienvenida (al tocar la notificación) va primero.
@@ -59,6 +59,12 @@ export function InstallAppPrompt() {
     const t = window.setTimeout(() => setOpen(true), SHOW_AFTER_MS);
     return () => window.clearTimeout(t);
   }, []);
+
+  // Avisa a los demás avisos de la franja de abajo que esta tarjeta está a la vista.
+  useEffect(() => {
+    setInstallPromptVisible(visible);
+    return () => setInstallPromptVisible(false);
+  }, [visible]);
 
   const close = () => {
     setOpen(false);
@@ -72,72 +78,87 @@ export function InstallAppPrompt() {
     if (outcome === 'accepted') close();
   };
 
+  // Con el aviso nativo de Chrome es un toque; si no, se despliegan los pasos.
+  const direct = how === 'android' && !!prompt;
+
   return (
     <AnimatePresence>
-      {open && !quiet && (
-        <>
-          <motion.div className="fixed inset-0 z-[90] bg-black/50" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={close} />
-          <motion.div
-            role="dialog"
-            aria-label="Instala la App de PlayRoom"
-            className="account-font fixed inset-x-0 bottom-0 z-[91] mx-auto max-w-md rounded-t-[32px] bg-[#140a1f] px-5 pb-[calc(env(safe-area-inset-bottom)+20px)] pt-3 text-white shadow-[0_-20px_60px_rgba(0,0,0,0.6)]"
-            initial={{ y: '100%' }}
-            animate={{ y: 0 }}
-            exit={{ y: '100%' }}
-            transition={{ type: 'spring', damping: 30, stiffness: 320 }}
-            drag="y"
-            dragConstraints={{ top: 0, bottom: 0 }}
-            dragElastic={{ top: 0, bottom: 0.6 }}
-            onDragEnd={(_, info) => { if (info.offset.y > 90) close(); }}
-          >
-            <div className="mx-auto mb-3 h-1.5 w-10 rounded-full bg-white/25" />
-            <button type="button" onClick={close} aria-label="Cerrar" className="absolute right-4 top-4 grid h-9 w-9 place-items-center rounded-full bg-white/10"><X className="h-4 w-4" /></button>
+      {visible && (
+        <motion.div
+          role="region"
+          aria-label="Instala la App de PlayRoom"
+          className="pointer-events-none fixed inset-x-0 bottom-0 z-[60] px-4 pb-[max(16px,env(safe-area-inset-bottom))]"
+          initial={{ opacity: 0, y: 28 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 28 }}
+          transition={{ type: 'spring', damping: 30, stiffness: 320 }}
+        >
+          <div className="pointer-events-auto relative mx-auto max-w-md rounded-2xl border border-primary/25 bg-background p-4 shadow-2xl shadow-black/25">
+            <button type="button" onClick={close} aria-label="Cerrar" className="absolute right-3 top-3 text-muted-foreground hover:opacity-80"><X className="h-4 w-4" /></button>
 
-            <div className="flex items-center gap-3 pr-10">
-              <img src="/candyland/favicon-192.png" alt="" className="h-14 w-14 shrink-0 rounded-[16px] shadow-lg" />
+            <div className="flex items-center gap-3 pr-6">
+              <img src="/candyland/favicon-192.png" alt="" className="h-11 w-11 shrink-0 rounded-xl shadow-md" />
               <div className="min-w-0">
-                <p className="text-[19px] font-bold leading-tight">Instala la App de PlayRoom</p>
-                <p className="text-[13px] text-white/60">en tu dispositivo, gratis y sin tienda de apps</p>
+                <p className="font-heading text-[15px] font-bold leading-tight text-foreground">Instala la App de PlayRoom</p>
+                <p className="mt-0.5 text-[12.5px] leading-snug text-muted-foreground">Tu entrada, tu PlayCard y avisos a un toque. Gratis y sin tienda de apps.</p>
               </div>
             </div>
 
-            <ul className="mt-4 space-y-2">
-              {BENEFITS.map(({ icon: Icon, text }) => (
-                <li key={text} className="flex items-start gap-2.5 text-[13.5px] text-white/80"><Icon className="mt-0.5 h-4 w-4 shrink-0 text-pink-300" />{text}</li>
-              ))}
-            </ul>
-
-            <div className="mt-4 rounded-[22px] bg-white/[0.06] p-4">
-              {how === 'android' && prompt ? (
-                <button type="button" onClick={install} className="h-12 w-full rounded-full bg-gradient-to-r from-pink-500 via-fuchsia-500 to-sky-500 text-[15px] font-bold text-white">
-                  Instalar la app
-                </button>
-              ) : how === 'android' ? (
-                <ol className="space-y-3">
-                  <Step n={1}>Toca el menú <MoreVertical className="mx-0.5 inline h-4 w-4" /> de Chrome (arriba a la derecha).</Step>
-                  <Step n={2}>Elige <b className="text-white">Instalar app</b> o <b className="text-white">Agregar a la pantalla de inicio</b>.</Step>
-                  <Step n={3}>Abre <b className="text-white">PlayRoom</b> desde el ícono nuevo.</Step>
-                </ol>
-              ) : how === 'ios-safari' ? (
-                <ol className="space-y-3">
-                  <Step n={1}>Toca <Share className="mx-0.5 inline h-4 w-4 text-sky-400" /> <b className="text-white">Compartir</b> (abajo en Safari).</Step>
-                  <Step n={2}>Baja y elige <SquarePlus className="mx-0.5 inline h-4 w-4" /> <b className="text-white">Agregar a inicio</b>, y toca <b className="text-white">Agregar</b>.</Step>
-                  <Step n={3}>Abre <b className="text-white">PlayRoom</b> desde el ícono nuevo de tu inicio.</Step>
-                </ol>
-              ) : how === 'ios-otro' ? (
-                <ol className="space-y-3">
-                  <Step n={1}>Abre <b className="text-white">mansionplayroom.cl</b> en <Compass className="mx-0.5 inline h-4 w-4 text-sky-400" /> <b className="text-white">Safari</b> (en iPhone solo Safari instala apps).</Step>
-                  <Step n={2}>Toca <Share className="mx-0.5 inline h-4 w-4 text-sky-400" /> <b className="text-white">Compartir</b> → <b className="text-white">Agregar a inicio</b>.</Step>
-                  <Step n={3}>Abre <b className="text-white">PlayRoom</b> desde el ícono nuevo.</Step>
-                </ol>
-              ) : (
-                <p className="text-[14px] text-white/75">Ábrela en tu celular: en Android toca «Instalar app» en el menú de Chrome; en iPhone, Compartir → Agregar a inicio en Safari.</p>
+            <AnimatePresence initial={false}>
+              {steps && !direct && (
+                <motion.div
+                  key="pasos"
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.28, ease: [0.32, 0.72, 0, 1] }}
+                  className="overflow-hidden"
+                >
+                  <div className="mt-3 max-h-[38dvh] overflow-y-auto overscroll-contain rounded-xl border border-border bg-card p-3">
+                    {how === 'ios-safari' ? (
+                      <ol className="space-y-2.5">
+                        <Step n={1}>Toca <Share className="mx-0.5 inline h-4 w-4 text-sky-500" /> <b className={strong}>Compartir</b> (abajo en Safari).</Step>
+                        <Step n={2}>Baja y elige <SquarePlus className="mx-0.5 inline h-4 w-4" /> <b className={strong}>Agregar a inicio</b>, y toca <b className={strong}>Agregar</b>.</Step>
+                        <Step n={3}>Abre <b className={strong}>PlayRoom</b> desde el ícono nuevo de tu inicio.</Step>
+                      </ol>
+                    ) : how === 'ios-otro' ? (
+                      <ol className="space-y-2.5">
+                        <Step n={1}>Abre <b className={strong}>mansionplayroom.cl</b> en <Compass className="mx-0.5 inline h-4 w-4 text-sky-500" /> <b className={strong}>Safari</b> (en iPhone solo Safari instala apps).</Step>
+                        <Step n={2}>Toca <Share className="mx-0.5 inline h-4 w-4 text-sky-500" /> <b className={strong}>Compartir</b> → <b className={strong}>Agregar a inicio</b>.</Step>
+                        <Step n={3}>Abre <b className={strong}>PlayRoom</b> desde el ícono nuevo.</Step>
+                      </ol>
+                    ) : how === 'android' ? (
+                      <ol className="space-y-2.5">
+                        <Step n={1}>Toca el menú <MoreVertical className="mx-0.5 inline h-4 w-4" /> de Chrome (arriba a la derecha).</Step>
+                        <Step n={2}>Elige <b className={strong}>Instalar app</b> o <b className={strong}>Agregar a la pantalla de inicio</b>.</Step>
+                        <Step n={3}>Abre <b className={strong}>PlayRoom</b> desde el ícono nuevo.</Step>
+                      </ol>
+                    ) : (
+                      <p className="text-[13px] text-muted-foreground">Ábrela en tu celular: en Android toca «Instalar app» en el menú de Chrome; en iPhone, Compartir → Agregar a inicio en Safari.</p>
+                    )}
+                  </div>
+                </motion.div>
               )}
-            </div>
+            </AnimatePresence>
 
-            <button type="button" onClick={close} className="mt-3 h-11 w-full rounded-full text-[14px] font-semibold text-white/60">Ahora no</button>
-          </motion.div>
-        </>
+            <div className="mt-3 flex items-center gap-2">
+              {direct ? (
+                <button type="button" onClick={install} className="h-11 flex-1 rounded-full bg-primary text-sm font-bold text-primary-foreground interactive">Instalar</button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setSteps((s) => !s)}
+                  aria-expanded={steps}
+                  className="inline-flex h-11 flex-1 items-center justify-center gap-1.5 rounded-full bg-primary text-sm font-bold text-primary-foreground interactive"
+                >
+                  {steps ? 'Ocultar los pasos' : 'Cómo instalarla'}
+                  <ChevronDown className={`h-4 w-4 transition-transform duration-300 ${steps ? 'rotate-180' : ''}`} />
+                </button>
+              )}
+              <button type="button" onClick={close} className="h-11 shrink-0 rounded-full px-4 text-sm font-semibold text-muted-foreground">Ahora no</button>
+            </div>
+          </div>
+        </motion.div>
       )}
     </AnimatePresence>
   );

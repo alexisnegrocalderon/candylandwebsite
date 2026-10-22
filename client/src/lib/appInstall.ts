@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { isIos, isStandalone, pushPlatform } from './customerPush';
 
 /* Instalar el sitio como app («App de PlayRoom»).
@@ -53,4 +53,24 @@ export function installHow(): InstallHow {
 /** ¿Estamos dentro de la app instalada? */
 export function isInstalledApp(): boolean {
   return isStandalone();
+}
+
+/* «El aviso de instalar está a la vista»: la franja de abajo es una sola, así
+ * que el aviso de notificaciones y la invitación a «Mi cuenta» esperan a que
+ * se cierre (ver PushBanner y MemberSheet). */
+let promptVisible = false;
+const visibleListeners = new Set<() => void>();
+
+export function setInstallPromptVisible(value: boolean): void {
+  if (promptVisible === value) return;
+  promptVisible = value;
+  visibleListeners.forEach((l) => l());
+}
+
+export function useInstallPromptVisible(): boolean {
+  return useSyncExternalStore(
+    (cb) => { visibleListeners.add(cb); return () => { visibleListeners.delete(cb); }; },
+    () => promptVisible,
+    () => false,
+  );
 }
