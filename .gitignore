@@ -114,6 +114,7 @@ client/public/__manus__/version.json
 .project-config.json
 
 # Local Claude Code tooling
-.claude/
+.claude/*
+!.claude/settings.json
 .vercel
 .env*
