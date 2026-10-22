@@ -4044,7 +4044,8 @@ export const appRouter = router({
     // Lo que se regala al entrar por primera vez (para que el texto de los avisos no prometa lo que no existe).
     perks: publicProcedure.query(async () => {
       const c = await members.getMemberConfig();
-      return { welcome: c.welcome.enabled ? c.welcome.percent : 0 };
+      // `invite`: ¿hay algún beneficio prendido? Mientras no, el sitio no invita a entrar a «Mi cuenta» (la página sigue funcionando).
+      return { welcome: c.welcome.enabled ? c.welcome.percent : 0, invite: c.welcome.enabled || c.birthday.enabled || c.recurrente.enabled || c.vip.enabled };
     }),
     // Manda el código al correo (solo si es cliente). SIEMPRE responde lo mismo, para que nadie averigüe quién es cliente.
     requestCode: publicProcedure.input(z.object({ email: z.string().email().max(200) })).mutation(async ({ input, ctx }) => {

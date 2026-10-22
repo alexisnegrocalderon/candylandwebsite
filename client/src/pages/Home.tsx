@@ -53,6 +53,7 @@ import { eventSchema, faqSchema } from '@shared/structuredData';
 import { getArticle, articlePath, ALL_ARTICLES, STANDALONE_PAGES } from '@/content';
 import { PushBanner } from '@/components/site/PushPrompt';
 import { MemberSheet } from '@/components/site/MemberPrompt';
+import { useMemberInvite } from '@/lib/member';
 
 // Mismo criterio que Navbar.tsx: los 8 títulos reales (guías + blog +
 // standalone) en vez de los links genéricos "Panoramas"/"Blog" que había
@@ -2138,6 +2139,7 @@ function usePreferredSourceScript() {
 }
 
 function Footer() {
+  const memberInvite = useMemberInvite();
   usePreferredSourceScript();
   return (
     <footer className="border-t border-primary/15 py-14">
@@ -2192,7 +2194,7 @@ function Footer() {
             <Link href="/politica-de-reembolso" className="hover:text-foreground transition-colors">Política de reembolso</Link>
             <Link href="/politica-de-privacidad" className="hover:text-foreground transition-colors">Política de privacidad</Link>
             <Link href="/embajadores" className="hover:text-foreground transition-colors">Embajadores</Link>
-            <Link href="/cuenta" className="hover:text-foreground transition-colors">Mi cuenta</Link>
+            {memberInvite && <Link href="/cuenta" className="hover:text-foreground transition-colors">Mi cuenta</Link>}
           </div>
         </div>
       </div>

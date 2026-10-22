@@ -7,6 +7,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { getGuides, getPosts, articlePath, STANDALONE_PAGES } from '@/content';
 import SoundToggle from '@/components/SoundToggle';
+import { useMemberInvite } from '@/lib/member';
 
 const navLinks = [
   { href: '/', label: 'Inicio' },
@@ -82,6 +83,9 @@ const secondaryNavLinks = [
 const DARK_TOP_ROUTES = ['/', '/halloween', '/disfraces'];
 
 export default function Navbar() {
+  // «Mi cuenta» solo se ofrece cuando hay beneficios prendidos (Clientes → Socios).
+  const memberInvite = useMemberInvite();
+  const secondaryLinks = secondaryNavLinks.filter((l) => l.href !== '/cuenta' || memberInvite);
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [location] = useLocation();
@@ -209,7 +213,7 @@ export default function Navbar() {
                 Más <ChevronDown size={14} strokeWidth={2} />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                {secondaryNavLinks.map((link) => (
+                {secondaryLinks.map((link) => (
                   <DropdownMenuItem key={link.href} asChild>
                     <Link href={link.href}>{link.label}</Link>
                   </DropdownMenuItem>
@@ -361,7 +365,7 @@ export default function Navbar() {
               )}
 
               <div className="mt-4 pt-4 border-t border-border/40 flex flex-col gap-3">
-                {secondaryNavLinks.map((link) => (
+                {secondaryLinks.map((link) => (
                   <Link
                     key={link.href}
                     href={link.href}
