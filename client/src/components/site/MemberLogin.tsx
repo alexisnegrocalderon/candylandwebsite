@@ -2,6 +2,10 @@ import { useState } from 'react';
 import { Loader2, Mail } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 
+const EMAIL_KEY = 'member.email';
+const savedEmail = () => { try { return localStorage.getItem(EMAIL_KEY) ?? ''; } catch { return ''; } };
+const saveEmail = (v: string) => { try { localStorage.setItem(EMAIL_KEY, v); } catch { /* sin storage */ } };
+
 /* Entrar a «Mi cuenta» con un código al correo (sin contraseña). Sirve para la
  * página /cuenta, la preventa de socios y los avisos de la entrada y del pago:
  * con `purchase` el código va al correo de ESA compra (nunca a uno que
@@ -15,7 +19,7 @@ export function MemberLogin({ purchase, tone = 'light', onDone }: {
   onDone?: (r: LoginDone) => void;
 }) {
   const utils = trpc.useUtils();
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(savedEmail);
   const [code, setCode] = useState('');
   const [sentTo, setSentTo] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -46,6 +50,7 @@ export function MemberLogin({ purchase, tone = 'light', onDone }: {
     setError(null);
     try {
       const r = await verify.mutateAsync({ ...(purchase ?? { email: email.trim() }), code });
+      if (!purchase) saveEmail(email.trim());
       await utils.member.invalidate();
       onDone?.({ isNew: r.isNew, granted: r.granted });
     } catch (err) {

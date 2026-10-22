@@ -81,7 +81,7 @@ const secondaryNavLinks = [
   { href: '/politica-de-privacidad', label: 'Política de privacidad' },
 ];
 
-const DARK_TOP_ROUTES = ['/', '/halloween', '/disfraces'];
+const DARK_TOP_ROUTES = ['/', '/halloween', '/disfraces', '/cuenta', '/mis-puntos'];
 
 export default function Navbar() {
   // «Mi cuenta» se ofrece siempre (entradas, Playcoins y avisos).

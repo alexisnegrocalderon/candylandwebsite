@@ -202,7 +202,7 @@ export async function getMemberHome(email: string, now = new Date()) {
       code: discountCodes.code, percent: discountCodes.discountValue, validUntil: discountCodes.validUntil, usedCount: discountCodes.usedCount, maxUses: discountCodes.maxUses, isActive: discountCodes.isActive,
     }).from(memberCoupons).innerJoin(discountCodes, eq(memberCoupons.discountCodeId, discountCodes.id)).where(eq(memberCoupons.email, key)).orderBy(desc(memberCoupons.createdAt)).limit(30),
     db.select({
-      ticketCode: tickets.ticketCode, holderName: tickets.holderName, status: tickets.status,
+      ticketCode: tickets.ticketCode, holderName: tickets.holderName, status: tickets.status, qrImageUrl: tickets.qrImageUrl,
       eventId: events.id, eventTitle: events.title, eventSlug: events.slug, eventDate: events.eventDate, venue: events.venue,
     }).from(tickets).innerJoin(orders, eq(tickets.orderId, orders.id)).innerJoin(events, eq(tickets.eventId, events.id))
       .where(and(sql`LOWER(${orders.buyerEmail}) = ${key}`, eq(orders.paymentStatus, 'approved'), gte(events.eventDate, new Date(now.getTime() - 12 * 3_600_000)), inArray(events.status, ['published', 'soldout'])))
@@ -216,10 +216,10 @@ export async function getMemberHome(email: string, now = new Date()) {
     ...points.map((r) => ({ type: 'points' as const, label: PLAYCOINS_LABEL[r.reason] ?? r.reason, delta: r.delta, createdAt: r.createdAt })),
   ].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()).slice(0, 8);
 
-  const byEvent = new Map<number, { eventId: number; eventTitle: string; eventSlug: string; eventDate: Date; venue: string | null; tickets: { ticketCode: string; holderName: string | null; status: string }[] }>();
+  const byEvent = new Map<number, { eventId: number; eventTitle: string; eventSlug: string; eventDate: Date; venue: string | null; tickets: { ticketCode: string; holderName: string | null; status: string; qrImageUrl: string | null }[] }>();
   for (const t of ticketRows) {
     const g = byEvent.get(t.eventId) ?? { eventId: t.eventId, eventTitle: t.eventTitle, eventSlug: t.eventSlug, eventDate: t.eventDate, venue: t.venue, tickets: [] };
-    g.tickets.push({ ticketCode: t.ticketCode, holderName: t.holderName, status: t.status });
+    g.tickets.push({ ticketCode: t.ticketCode, holderName: t.holderName, status: t.status, qrImageUrl: t.qrImageUrl ?? null });
     byEvent.set(t.eventId, g);
   }
 
