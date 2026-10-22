@@ -17,7 +17,7 @@ import '@/neonIntro.css';
 
 const SEEN_KEY = 'neon-intro.seen.';
 
-/** Duración total en ms: panel completo, terminales corta. */
+/** Duración total en ms: la intro corta (terminales, sitio) entra sola al terminar; la del panel espera el toque. */
 const FULL_MS = 3000;
 const SHORT_MS = 1600;
 const STATIC_MS = 900;
@@ -77,16 +77,22 @@ export function playNeonIntro(el: HTMLElement, done: () => void): void {
     if (finished) return;
     finished = true;
     timers.forEach((t) => window.clearTimeout(t));
+    stopKey();
     el.classList.add('neon-intro--out');
     window.setTimeout(() => { el.remove(); done(); }, 320);
   };
 
-  // Un toque en cualquier parte salta la intro.
+  // Un toque en cualquier parte entra (también Enter o espacio con teclado).
   el.addEventListener('pointerdown', finish, { once: true });
+  const onKey = (e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') finish(); };
+  window.addEventListener('keydown', onKey);
+  const stopKey = () => window.removeEventListener('keydown', onKey);
 
   // Vibración suave justo cuando el letrero se enciende (donde el sistema la permite).
   if (!still) {
     timers.push(window.setTimeout(() => { try { navigator.vibrate?.(14); } catch { /* sin vibración */ } }, short ? 560 : 1150));
   }
-  timers.push(window.setTimeout(finish, total));
+  // El panel espera el toque (pedido del dueño: «quiero hacer clic para entrar»); la versión corta
+  // (terminales y sitio instalado) sigue entrando sola para no frenar la puerta ni la caja.
+  if (short) timers.push(window.setTimeout(finish, total));
 }
