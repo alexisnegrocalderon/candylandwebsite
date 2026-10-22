@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { emptySlide, normalizeStudioDesign } from './contentStudio';
 import {
+  normalizeSavedStyle,
   cleanAmbassadorCode,
   eventVideo,
   playcardVideo,
@@ -134,6 +135,86 @@ describe('diseño por escena', () => {
     const html = two({ style: { font: 'globo', titleColor: '#00AAFF' } });
     expect(html).toContain('id="s1-t" class="ttl bub cc" style="--bf:#00AAFF;');
     expect(html).toContain('.cc .bl.pk .f { color: var(--bf); }');
+  });
+});
+
+describe('movimiento, stickers, logo y formatos', () => {
+  const asset = siteAssets('https://x.cl');
+  const make = (extra: Record<string, unknown>, scene2: Record<string, unknown> = {}) =>
+    videoCompositionHtml(norm({ template: 'guion', theme: 'azul', scenes: [{ title: 'Uno', secs: 2 }, { title: 'Dos palabras', secs: 2, ...scene2 }, { title: 'Tres', secs: 2 }], ...extra })!, { asset });
+  const timelineOnly = (html: string) => html.slice(html.indexOf('const tl'));
+
+  it('fundido: la escena anterior sigue debajo mientras entra la nueva, en otra pista', () => {
+    const html = make({}, { style: { transition: 'fundido' } });
+    expect(html).toContain('id="s0" class="clip scene" data-start="0" data-duration="2.45" data-track-index="1" style="background:#00A3FF;z-index:2"');
+    expect(html).toContain('id="s1" class="clip scene" data-start="2" data-duration="2" data-track-index="4"');
+    expect(html).toContain('tl.fromTo("#s1", { opacity: 0 }, { opacity: 1, duration: 0.45, ease: "none" }, 2);');
+  });
+
+  it('la primera escena nunca tiene transición (es la miniatura)', () => {
+    const html = make({ style: { transition: 'deslizar' } });
+    expect(html).not.toContain('tl.fromTo("#s0", { xPercent');
+    expect(html).toContain('tl.fromTo("#s1", { xPercent: 100 }');
+    expect(html).toContain('tl.fromTo("#s2", { xPercent: 100 }');
+  });
+
+  it('flash: un destello blanco propio, sin alargar la escena anterior', () => {
+    const html = make({}, { style: { transition: 'flash' } });
+    expect(html).toContain('<div id="fx1" class="clip flash" data-start="1.85" data-duration="0.45" data-track-index="5"></div>');
+    expect(html).toContain('id="s0" class="clip scene" data-start="0" data-duration="2"');
+  });
+
+  it('palabra por palabra y máquina de escribir parten el texto', () => {
+    expect(make({}, { style: { textAnim: 'palabras' } })).toContain('<span class="w">Dos</span> <span class="w">palabras</span>');
+    expect(make({}, { style: { textAnim: 'escribir' } })).toContain('<span class="c">D</span><span class="c">o</span>');
+  });
+
+  it('movimiento de la foto: acercar, paneo o quieta', () => {
+    const photo = { mediaUrl: '/f.jpg' };
+    expect(make({}, { ...photo, style: { kenBurns: 'acercar' } })).toContain('tl.fromTo("#s1-m", { scale: 1 }, { scale: 1.12');
+    expect(make({}, { ...photo, style: { kenBurns: 'paneo' } })).toContain('xPercent: -4');
+    expect(make({}, { ...photo, style: { kenBurns: 'quieta' } })).not.toContain('"#s1-m"');
+  });
+
+  it('stickers: emoji o imagen, posición y tamaño acotados', () => {
+    const html = make({}, { stickers: [{ value: '🔥', x: 20, y: 30, size: 200, rot: 10 }, { value: '/candyland/logo.png', x: 150, y: -5, size: 9999, rot: 90 }, { value: '<script>', x: 1, y: 1 }] });
+    expect(html).toContain('<div id="s1-k0" class="stk" style="left:20%;top:30%"><div class="stk-in" style="transform:translate(-50%,-50%) rotate(10deg);font-size:170px">🔥</div></div>');
+    expect(html).toContain('<div id="s1-k1" class="stk" style="left:100%;top:0%"><div class="stk-in" style="transform:translate(-50%,-50%) rotate(45deg)"><img src="https://x.cl/candyland/logo.png" alt="" style="height:700px"></div></div>');
+    expect(html).not.toContain('s1-k2');
+  });
+
+  it('logo de la marca en una esquina durante todo el video menos el cierre', () => {
+    const html = make({ watermark: { pos: 'br', opacity: 60, tone: 'blanco' }, cta: 'Entradas', ctaLine: '' });
+    expect(html).toContain('<img id="wm" class="clip wm" src="https://x.cl/studio/logo-wordmark-white.png" alt="" data-start="0" data-duration="6" data-track-index="6" style="bottom:420px;right:63px;opacity:0.6">');
+  });
+
+  it('formatos cuadrado y horizontal', () => {
+    expect(make({ format: 'square' })).toContain('data-width="1080" data-height="1080"');
+    expect(make({ format: 'landscape' })).toContain('data-width="1920" data-height="1080"');
+  });
+
+  it('nada al azar ni con reloj', () => {
+    const html = timelineOnly(make({ style: { transition: 'zoom', textAnim: 'rebote', kenBurns: 'paneo' }, watermark: { pos: 'tl', opacity: 80 } }, { mediaUrl: '/v.mp4', stickers: [{ value: '✨', x: 50, y: 50, size: 200, rot: 0 }] }));
+    expect(html).not.toMatch(/Math\.random|Date\.now|new Date/);
+    expect((html.match(/gsap\.timeline/g) ?? []).length).toBe(1);
+  });
+});
+
+describe('música y estilos guardados', () => {
+  const asset = siteAssets('https://x.cl');
+  it('la música suena todo el video con su volumen, inicio y fundido', () => {
+    const v = norm({ template: 'guion', scenes: [{ title: 'Uno', secs: 2 }], cta: 'x', ctaLine: '', music: { url: 'https://a.public.blob.vercel-storage.com/c.mp3', volume: 55, start: 12.34, fadeOut: 9 } })!;
+    expect(v.music).toEqual({ url: 'https://a.public.blob.vercel-storage.com/c.mp3', volume: 55, start: 12.3, fadeOut: 5 });
+    expect(videoCompositionHtml(v, { asset })).toContain('<audio id="mu" class="clip" src="https://a.public.blob.vercel-storage.com/c.mp3" data-start="0" data-duration="5" data-track-index="7" data-volume="0.55" data-media-start="12.3" data-fade-out="5"></audio>');
+  });
+
+  it('una música sin enlace válido no se guarda', () => {
+    expect(norm({ template: 'guion', scenes: [{ title: 'Uno', secs: 2 }], music: { url: 'javascript:x' } })!.music).toBeUndefined();
+  });
+
+  it('un estilo guardado necesita nombre y solo guarda lo válido', () => {
+    expect(normalizeSavedStyle({ name: '  ', theme: 'azul' })).toBeNull();
+    expect(normalizeSavedStyle({ name: 'Halloween', theme: 'nada', style: { font: 'syne', x: 1 }, watermark: { pos: 'zz' } })).toEqual({ name: 'Halloween', theme: 'bubble', style: { font: 'syne' } });
   });
 });
 

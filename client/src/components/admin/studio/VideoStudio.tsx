@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent } from '@/components/ui/card';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { WriteButton } from '@/components/admin/WriteButton';
 import { normalizeStudioDesign, STUDIO_THEMES, type StudioTheme } from '@shared/contentStudio';
 import { VARIANT_THEME_LABEL } from '@shared/studioVariants';
@@ -32,9 +32,11 @@ import {
   type AssetUrl,
   type StudioVideo,
   type VideoFormat,
+  type SavedVideoStyle,
   type VideoScene,
 } from '@shared/studioVideo';
-import { SceneBackgroundControls, TextStyleControls } from './VideoStyleControls';
+import { MotionControls, MusicControls, SceneBackgroundControls, StickerControls, TextStyleControls, WatermarkControls } from './VideoStyleControls';
+import { StickerLayer } from './StickerLayer';
 import { StudioSlideView } from './StudioSlideView';
 import { VideoPreview } from './VideoPreview';
 import { slideFileName } from './exportSlides';
@@ -157,6 +159,11 @@ async function downloadProject(video: StudioVideo, slidesHtml: string[]) {
   if (missing.length) toast.warning(`${missing.length} archivo(s) no se pudieron bajar; el LEEME dice cuáles.`);
 }
 
+type DesignTab = 'texto' | 'fondo' | 'movimiento' | 'stickers';
+const DESIGN_TABS: { id: DesignTab; label: string }[] = [
+  { id: 'texto', label: 'Texto' }, { id: 'fondo', label: 'Fondo' }, { id: 'movimiento', label: 'Movimiento' }, { id: 'stickers', label: 'Stickers' },
+];
+
 /** Deshacer / rehacer: hasta 50 pasos. Escribir en un mismo campo seguido cuenta como un solo paso. */
 const HISTORY_MAX = 50;
 
@@ -254,10 +261,19 @@ export function VideoStudio({ editing, setEditing, onClose }: { editing: VideoEd
     return () => window.removeEventListener('keydown', onKey);
   }, [undo, redo]);
 
+  // `overflow-x: hidden` en html/body (theme.css) anula el sticky de la vista previa; mientras el
+  // editor está abierto va `clip`, que corta igual lo que se sale pero deja que la vista previa acompañe.
+  useEffect(() => {
+    const els = [document.documentElement, document.body];
+    const prev = els.map((el) => el.style.overflowX);
+    els.forEach((el) => { el.style.overflowX = 'clip'; });
+    return () => els.forEach((el, i) => { el.style.overflowX = prev[i]; });
+  }, []);
+
   // Qué escena tiene abierto su diseño, y a qué segundo salta la vista previa al editar una escena.
   const [openDesign, setOpenDesign] = useState<number | null>(null);
   const [videoStyleOpen, setVideoStyleOpen] = useState(false);
-  const [designTab, setDesignTab] = useState<'texto' | 'fondo'>('texto');
+  const [designTab, setDesignTab] = useState<DesignTab>('texto');
   const [seekTo, setSeekTo] = useState<{ t: number; n: number } | null>(null);
   const focusedScene = useRef<number | null>(null);
 
@@ -288,7 +304,25 @@ export function VideoStudio({ editing, setEditing, onClose }: { editing: VideoEd
   };
   const total = video.template === 'laminas' ? Math.round((video.design?.slides.length ?? 0) * video.secsPerSlide * 10) / 10 : timeline.total;
   const size = VIDEO_SIZES[video.format];
+  const previewWidth = { reel: 360, feed: 480, square: 480, landscape: 640 }[video.format];
+  const stickerScene = openDesign != null && designTab === 'stickers' ? openDesign : null;
   const isSlides = video.template === 'laminas';
+
+  // «Mis estilos»: plantilla + diseño + logo + música guardados con un nombre.
+  const { data: savedStyles } = trpc.contentStudio.videoStyles.useQuery(undefined, { staleTime: 60_000 });
+  const [styleName, setStyleName] = useState('');
+  const saveStyle = trpc.contentStudio.saveVideoStyle.useMutation({
+    onSuccess: () => { utils.contentStudio.videoStyles.invalidate(); toast.success(`Estilo «${styleName.trim()}» guardado.`); setStyleName(''); },
+    onError: (e) => toast.error(e.message),
+  });
+  const deleteStyle = trpc.contentStudio.deleteVideoStyle.useMutation({
+    onSuccess: () => utils.contentStudio.videoStyles.invalidate(),
+    onError: (e) => toast.error(e.message),
+  });
+  const applyStyle = (st: SavedVideoStyle) => {
+    update({ theme: st.theme, style: st.style, watermark: st.watermark, music: st.music }, `estilo${Date.now()}`);
+    toast.success(`Estilo «${st.name}» aplicado. Puedes deshacerlo con ↶.`);
+  };
 
   const close = () => {
     if (editing.dirty && !window.confirm('Hay cambios sin guardar. ¿Salir igual?')) return;
@@ -318,9 +352,20 @@ export function VideoStudio({ editing, setEditing, onClose }: { editing: VideoEd
           </Select>
         )}
         {!isSlides && (
-          <Select value={video.theme} onValueChange={(v) => update({ theme: v as StudioTheme })}>
+          <Select value={video.theme} onValueChange={(v) => {
+            if (v.startsWith('estilo:')) { const st = savedStyles?.find((x) => `estilo:${x.id}` === v); if (st) applyStyle(st); return; }
+            update({ theme: v as StudioTheme });
+          }}>
             <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
-            <SelectContent>{STUDIO_THEMES.map((t) => <SelectItem key={t} value={t}>{VARIANT_THEME_LABEL[t]}</SelectItem>)}</SelectContent>
+            <SelectContent>
+              {STUDIO_THEMES.map((t) => <SelectItem key={t} value={t}>{VARIANT_THEME_LABEL[t]}</SelectItem>)}
+              {savedStyles && savedStyles.length > 0 && (
+                <SelectGroup>
+                  <SelectLabel>Mis estilos</SelectLabel>
+                  {savedStyles.map((st) => <SelectItem key={st.id} value={`estilo:${st.id}`}>{st.name}</SelectItem>)}
+                </SelectGroup>
+              )}
+            </SelectContent>
           </Select>
         )}
         <div className="flex gap-1">
@@ -339,10 +384,20 @@ export function VideoStudio({ editing, setEditing, onClose }: { editing: VideoEd
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,440px)]">
-        <div className="space-y-3 min-w-0">
-          {html
-            ? <VideoPreview html={html} width={size.width} height={size.height} maxWidth={video.format === 'reel' ? 360 : 480} seekTo={seekTo} />
-            : <div className="mx-auto flex items-center justify-center rounded-lg bg-muted" style={{ maxWidth: 360, aspectRatio: `${size.width} / ${size.height}` }}><Loader2 className="w-5 h-5 animate-spin" /></div>}
+        {/* La vista previa queda a la vista mientras se baja por las escenas. */}
+        <div className="space-y-3 min-w-0 lg:sticky lg:top-36 lg:self-start">
+          <div className="relative mx-auto" style={{ maxWidth: previewWidth, aspectRatio: `${size.width} / ${size.height}` }}>
+            {html
+              ? <VideoPreview html={html} width={size.width} height={size.height} maxWidth={previewWidth} seekTo={seekTo} />
+              : <div className="flex h-full w-full items-center justify-center rounded-lg bg-muted"><Loader2 className="w-5 h-5 animate-spin" /></div>}
+            {stickerScene != null && video.scenes[stickerScene]?.stickers?.length ? (
+              <StickerLayer
+                stickers={video.scenes[stickerScene].stickers!}
+                frameHeight={size.height}
+                onMove={(j, x, y) => setScene(stickerScene, { stickers: video.scenes[stickerScene].stickers!.map((k, n) => (n === j ? { ...k, x, y } : k)) })}
+              />
+            ) : null}
+          </div>
           <p className="text-center text-xs text-muted-foreground">
             <Clapperboard className="inline w-3 h-3 mr-1" />
             {VIDEO_TEMPLATE_LABEL[video.template]} · {VIDEO_FORMAT_LABEL[video.format]} · {total} s · sin IA
@@ -420,6 +475,35 @@ export function VideoStudio({ editing, setEditing, onClose }: { editing: VideoEd
                       <p className="text-xs text-muted-foreground">Vale para todas las escenas. Cada escena puede cambiarlo en su botón «Diseño».</p>
                     </div>
                     <TextStyleControls scope="video" value={video.style} onChange={(st) => update({ style: st }, 'style')} />
+                    <div className="border-t border-border/60 pt-3">
+                      <MotionControls scope="video" value={video.style} onChange={(st) => update({ style: st }, 'style')} />
+                    </div>
+                    <div className="border-t border-border/60 pt-3">
+                      <WatermarkControls value={video.watermark} onChange={(w) => update({ watermark: w }, 'watermark')} />
+                    </div>
+                    <div className="border-t border-border/60 pt-3">
+                      <MusicControls value={video.music} onChange={(m) => update({ music: m }, 'music')} />
+                    </div>
+                    <div className="border-t border-border/60 pt-3 space-y-2">
+                      <Label className="text-xs">Mis estilos</Label>
+                      <p className="text-[11px] text-muted-foreground">Guarda la plantilla, la letra, los colores, el movimiento, el logo y la música de este video para usarlos en otros.</p>
+                      {savedStyles && savedStyles.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5">
+                          {savedStyles.map((st) => (
+                            <span key={st.id} className="inline-flex items-center rounded-full border border-border/60 pl-3 text-sm">
+                              <button type="button" onClick={() => applyStyle(st)} className="py-1.5 pr-1 font-medium hover:text-primary">{st.name}</button>
+                              <button type="button" onClick={() => { if (window.confirm(`¿Borrar el estilo «${st.name}»?`)) deleteStyle.mutate({ id: st.id }); }} aria-label={`Borrar estilo ${st.name}`} className="grid h-8 w-8 place-items-center rounded-full text-muted-foreground hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      <div className="flex gap-2">
+                        <Input value={styleName} maxLength={60} placeholder="Nombre (ej. Halloween rosado)" onChange={(e) => setStyleName(e.target.value)} className="h-9" />
+                        <Button type="button" size="sm" className="h-9 shrink-0" disabled={!styleName.trim() || saveStyle.isPending} onClick={() => saveStyle.mutate({ style: { name: styleName.trim(), theme: video.theme, style: video.style, watermark: video.watermark, music: video.music } })}>
+                          {saveStyle.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="mr-1.5 h-4 w-4" />} Guardar mi estilo
+                        </Button>
+                      </div>
+                    </div>
                   </CardContent>
                 </Card>
               )}
@@ -462,15 +546,19 @@ export function VideoStudio({ editing, setEditing, onClose }: { editing: VideoEd
                       </div>
                       {open && (
                         <div className="mt-2 space-y-4 rounded-xl border border-border/60 p-3">
-                          <div className="inline-flex rounded-xl bg-muted p-0.5">
-                            {(['texto', 'fondo'] as const).map((t) => (
-                              <button key={t} type="button" onClick={() => setDesignTab(t)} className={`h-8 rounded-lg px-4 text-sm font-medium ${designTab === t ? 'bg-background shadow-sm' : 'text-muted-foreground'}`}>
-                                {t === 'texto' ? 'Texto' : 'Fondo'}
+                          <div className="grid w-full grid-cols-4 rounded-xl bg-muted p-0.5">
+                            {DESIGN_TABS.map((t) => (
+                              <button key={t.id} type="button" onClick={() => setDesignTab(t.id)} className={`h-8 truncate rounded-lg px-1 text-[13px] font-medium ${designTab === t.id ? 'bg-background shadow-sm' : 'text-muted-foreground'}`}>
+                                {t.label}{t.id === 'stickers' && s.stickers?.length ? ` (${s.stickers.length})` : ''}
                               </button>
                             ))}
                           </div>
                           {designTab === 'texto' ? (
                             <TextStyleControls scope="scene" value={s.style} onChange={(st) => setScene(i, { style: st })} />
+                          ) : designTab === 'movimiento' ? (
+                            <MotionControls scope="scene" first={i === 0} value={s.style} onChange={(st) => setScene(i, { style: st })} />
+                          ) : designTab === 'stickers' ? (
+                            <StickerControls stickers={s.stickers} onChange={(list) => setScene(i, { stickers: list })} />
                           ) : (
                             <SceneBackgroundControls
                               scene={s}

@@ -24,6 +24,13 @@ const ALLOWED_CONTENT_TYPES = [
   // Fondos de escena en los videos del Estudio (y el video del Hero).
   "video/mp4",
   "video/webm",
+  // Música de los videos del Estudio.
+  "audio/mpeg",
+  "audio/mp4",
+  "audio/x-m4a",
+  "audio/aac",
+  "audio/wav",
+  "audio/x-wav",
 ];
 
 // Generoso para fotos de celular sin editar (a veces 8-10MB) y clips cortos
