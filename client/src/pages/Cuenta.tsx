@@ -1,6 +1,6 @@
 import { Component, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, motion, useDragControls } from 'framer-motion';
 import { toast } from 'sonner';
 import { Calendar, Check, Copy, Crown, Gift, LogOut, Sparkles, Ticket as TicketIcon, ArrowRight, Download, Loader2, X, QrCode, CreditCard, Coins, MoreHorizontal, Home, Wallet, Plus, RefreshCw } from 'lucide-react';
 import { Link } from 'wouter';
@@ -14,6 +14,7 @@ import { isMemberEarlyAccess } from '@shared/memberConfig';
 import { WalletCard } from '@/components/wallet/WalletCard';
 import { saveTicketImage } from '@/lib/ticketImage';
 import { PushPrompt } from '@/components/site/PushPrompt';
+import { useDarkChrome } from '@/lib/darkChrome';
 import { TiltCard } from '@/components/site/TiltCard';
 import { PayInCajaViewer, SavedCardsSection, TopupSheet, useMemberPayConfig } from '@/components/site/AccountPayments';
 import { useCustomerPush } from '@/lib/customerPush';
@@ -458,6 +459,7 @@ const TABS: { key: Tab; label: string; icon: typeof CreditCard }[] = [
 function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | null; onLogout: () => void }) {
   const [tab, setTab] = useState<Tab>('card');
   const [more, setMore] = useState(false);
+  const sheetDrag = useDragControls();
   const pay = useMemberPayConfig();
   const [topupOpen, setTopupOpen] = useState(false);
   const [payOpen, setPayOpen] = useState(false);
@@ -565,9 +567,10 @@ function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | nu
             <motion.div
               className="lg-sheet fixed inset-x-0 bottom-0 z-40 max-h-[88dvh] overflow-y-auto overscroll-contain rounded-t-[32px] px-4 pb-[calc(env(safe-area-inset-bottom)+28px)] pt-3"
               initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 30, stiffness: 320 }}
-              drag="y" dragConstraints={{ top: 0, bottom: 0 }} dragElastic={{ top: 0, bottom: 0.6 }} onDragEnd={(_, info) => { if (info.offset.y > 80) setMore(false); }}
+              drag="y" dragControls={sheetDrag} dragListener={false} dragConstraints={{ top: 0, bottom: 0 }} dragElastic={{ top: 0, bottom: 0.6 }} onDragEnd={(_, info) => { if (info.offset.y > 80) setMore(false); }}
             >
-              <div className="mx-auto mb-3 h-1.5 w-10 rounded-full bg-white/20" />
+              {/* Solo la manija arrastra la hoja: el resto se desliza normal (si no, no se podía hacer scroll hasta «Cerrar sesión»). */}
+              <div onPointerDown={(e) => sheetDrag.start(e)} className="-mx-4 mb-2 flex h-8 cursor-grab touch-none items-center justify-center"><div className="h-1.5 w-10 rounded-full bg-white/25" /></div>
               <div className="mb-4 flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <p className="truncate font-heading text-lg font-bold">{me.fullName || 'Mi cuenta'}</p>
@@ -613,14 +616,8 @@ export default function Cuenta() {
   const logout = trpc.member.logout.useMutation({ onSuccess: () => utils.member.invalidate() });
   const [welcome, setWelcome] = useState<LoginDone | null>(null);
   const isMobile = useIsMobile();
-  // La pantalla es oscura: la barra de estado del teléfono combina con ella mientras estás acá y vuelve al color del sitio al salir.
-  useEffect(() => {
-    const meta = document.querySelector('meta[name="theme-color"]');
-    if (!meta) return;
-    const prev = meta.getAttribute('content');
-    meta.setAttribute('content', '#0b0612');
-    return () => { if (prev) meta.setAttribute('content', prev); };
-  }, []);
+  // La pantalla es oscura: barra de estado y fondo oscuros mientras estás acá (sin franja blanca arriba).
+  useDarkChrome();
   const shell = 'account-font relative min-h-dvh bg-[#0b0612] text-white';
 
   if (isLoading) return <div className={`${shell} pt-28`}><div className="account-backdrop" /></div>;
