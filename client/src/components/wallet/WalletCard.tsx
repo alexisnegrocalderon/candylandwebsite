@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { RefreshCw } from 'lucide-react';
+import { Maximize2, RefreshCw } from 'lucide-react';
 import { formatCLP } from '@/config/candyland';
 
 /* Los estilos van como <style> embebido (no un `import './WalletCard.css'`)
@@ -115,6 +115,22 @@ const WALLET_CARD_CSS = `
 .wcard-mid { display: flex; align-items: center; justify-content: space-between; gap: clamp(8px, 4cqw, 16px); min-height: 0; min-width: 0; z-index: 1; position: relative; }
 .wcard-qr { background: var(--wcard-paper); padding: clamp(4px, 1.8cqw, 7px); border-radius: 12px; width: clamp(52px, 24cqw, 92px); height: clamp(52px, 24cqw, 92px); flex: none; box-shadow: 0 6px 18px -6px rgba(0, 0, 0, 0.6); }
 .wcard-qr img { width: 100%; height: 100%; display: block; border-radius: 6px; object-fit: contain; }
+/* Pista de toque: el QR late con un halo rosa→celeste y una pastilla «Toca para ampliar» lo cruza por abajo. */
+.wcard-qr.is-tappable { position: relative; animation: wcard-qr-pulse 2.4s ease-in-out infinite; }
+.wcard-qr-hint {
+  position: absolute; left: 50%; bottom: -11px; transform: translateX(-50%); white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 4px;
+  font-family: var(--wcard-mono, ui-monospace, monospace); font-size: clamp(8px, 2.5cqw, 10px); font-weight: 700; letter-spacing: 0.02em;
+  color: #fff; padding: 4px 8px; border-radius: 999px;
+  background: linear-gradient(100deg, #ec4899, #38bdf8);
+  box-shadow: 0 6px 16px -6px rgba(236, 72, 153, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+@keyframes wcard-qr-pulse {
+  0%, 100% { box-shadow: 0 6px 18px -6px rgba(0, 0, 0, 0.6), 0 0 0 0 rgba(236, 72, 153, 0.55), 0 0 0 0 rgba(56, 189, 248, 0.4); }
+  50% { box-shadow: 0 6px 18px -6px rgba(0, 0, 0, 0.6), 0 0 0 7px rgba(236, 72, 153, 0), 0 0 22px 4px rgba(56, 189, 248, 0.45); }
+}
+.wcard-scene.is-tappable:active .wcard-flip { transform: scale(0.975); transition: transform 0.12s ease-out; }
+@media (prefers-reduced-motion: reduce) { .wcard-qr.is-tappable { animation: none; box-shadow: 0 0 0 2px rgba(236, 72, 153, 0.7), 0 6px 18px -6px rgba(0, 0, 0, 0.6); } }
 .wcard-qr-fallback {
   width: 100%; height: 100%; border-radius: 6px;
   background-image: radial-gradient(var(--wcard-ink) 1.6px, transparent 1.6px);
@@ -202,7 +218,7 @@ export function WalletCard({
   return (
     <>
       <style>{WALLET_CARD_CSS}</style>
-      <div className={`wcard-scene ${flipped ? 'is-flipped' : ''}`} onClick={() => { if (onCardClick && !flipped) onCardClick(); else if (ticketCode) setFlipped((f) => !f); }} style={onCardClick ? { cursor: 'pointer' } : undefined}>
+      <div className={`wcard-scene ${flipped ? 'is-flipped' : ''} ${onCardClick && qrImageUrl ? 'is-tappable' : ''}`} onClick={() => { if (onCardClick && !flipped) onCardClick(); else if (ticketCode) setFlipped((f) => !f); }} style={onCardClick ? { cursor: 'pointer' } : undefined}>
         <div className="wcard-flip">
           <div className="wcard-face is-front">
             <div className="wcard-brand-row">
@@ -214,8 +230,9 @@ export function WalletCard({
             </div>
 
             <div className="wcard-mid">
-              <div className="wcard-qr">
+              <div className={`wcard-qr ${onCardClick && qrImageUrl ? 'is-tappable' : ''}`}>
                 {qrImageUrl ? <img src={qrImageUrl} alt="Código QR de tu entrada" /> : <div className="wcard-qr-fallback" />}
+                {onCardClick && qrImageUrl && <span className="wcard-qr-hint" aria-hidden="true"><Maximize2 style={{ width: '1.1em', height: '1.1em' }} /> Toca aquí</span>}
               </div>
               <div className="wcard-holder">
                 <p className="wcard-holder-label">Titular</p>
