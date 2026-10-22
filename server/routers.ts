@@ -783,6 +783,18 @@ const pushCampaignSchema = z.object({
 });
 
 /** Correo de la sesión de «Mi cuenta» o error 401 (para las acciones del socio). */
+/** Órdenes del checkout web (`attendeeData` con `campos`): tienen que traer la confirmación +18. Otras (sin `campos`) no aplican. */
+export function checkoutConfirmedAdult(attendeeData: string | undefined | null): boolean {
+  if (!attendeeData) return true;
+  try {
+    const parsed = JSON.parse(attendeeData);
+    if (!parsed || typeof parsed !== 'object' || !parsed.campos || typeof parsed.campos !== 'object') return true;
+    return parsed.campos.buyer__mayorEdad === true;
+  } catch {
+    return true;
+  }
+}
+
 function requireMemberEmail(req: Parameters<typeof getMemberEmail>[0]): string {
   const email = getMemberEmail(req);
   if (!email) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Entra a tu cuenta para continuar.' });
@@ -1437,6 +1449,10 @@ export const appRouter = router({
       partnerSlug: z.string().max(50).optional(),
       partnerRef: z.string().max(32).optional(),
     })).mutation(async ({ input, ctx }) => {
+      // +18: el checkout web lo confirma con un check; acá se exige (antes era solo una regla del navegador).
+      if (!checkoutConfirmedAdult(input.attendeeData)) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Debes confirmar que eres mayor de 18 años para comprar.' });
+      }
       const target = await db.getEventBySlug(input.eventSlug);
       if (target && await coproductionSvc.isEventHiddenByCoproduction(target.id)) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'Las entradas de este evento todavía no están a la venta.' });
@@ -4139,6 +4155,14 @@ export const appRouter = router({
     me: publicProcedure.query(async ({ ctx }) => {
       const email = getMemberEmail(ctx.req);
       return email ? members.getMemberHome(email) : null;
+    }),
+    // Para llenar «Tus datos» del checkout (solo con sesión de «Mi cuenta»; los datos son del mismo socio).
+    checkoutPrefill: publicProcedure.query(async ({ ctx }) => {
+      const email = getMemberEmail(ctx.req);
+      if (!email) return null;
+      const c = await members.findCustomer(email);
+      if (!c) return null;
+      return { fullName: c.fullName || null, email: c.email, phone: c.phone || null, rut: c.rut || null, docType: (c.rut && !isValidRut(c.rut) ? 'passport' : 'rut') as 'rut' | 'passport' };
     }),
     logout: publicProcedure.mutation(async ({ ctx }) => {
       clearMemberSession(ctx.req, ctx.res);
