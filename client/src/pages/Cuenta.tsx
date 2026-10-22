@@ -201,8 +201,8 @@ function TicketWallet({ ev, holder, prepaidBalance, playcoins, movements, compac
 
   if (compact) {
     return (
-      <div className="space-y-3 [@media(max-height:700px)]:space-y-2">
-        {ev && <EventStrip ev={ev} />}
+      <div className="flex min-h-0 flex-1 flex-col justify-center gap-3 [@media(max-height:700px)]:gap-2">
+        {ev && <EventStrip ev={ev} hero />}
         {card}
         {(holderPills || t) && (
           <div className="flex items-center justify-center gap-2">
@@ -280,8 +280,23 @@ function TicketWallet({ ev, holder, prepaidBalance, playcoins, movements, compac
 }
 
 /** Franja del evento: nombre, fecha y cuenta regresiva (sin el QR, que va en la PlayCard). */
-function EventStrip({ ev }: { ev: MeEvent }) {
+function EventStrip({ ev, hero = false }: { ev: MeEvent; hero?: boolean }) {
   const countdown = useCountdown(ev.eventDate);
+  if (hero) {
+    // Versión amplia de la pantalla del celular: crece para llenar el alto que sobra y deja la tarjeta centrada.
+    return (
+      <div className={`min-h-[96px] flex-1 rounded-[28px] p-[1.5px] [@media(min-height:900px)]:max-h-[300px] max-h-[240px] [@media(max-height:700px)]:min-h-0 [@media(max-height:700px)]:flex-none ${NEON_RING}`}>
+        <div className="flex h-full flex-col justify-center gap-2 rounded-[27px] bg-[#0d0712]/55 px-5 py-4 backdrop-blur-xl [@media(max-height:700px)]:flex-row [@media(max-height:700px)]:items-center [@media(max-height:700px)]:justify-between [@media(max-height:700px)]:gap-3 [@media(max-height:700px)]:py-3">
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-pink-300">Tu próximo evento</p>
+            <p className="mt-1 font-heading text-[26px] font-extrabold leading-tight text-white [@media(max-height:700px)]:truncate [@media(max-height:700px)]:text-base">{ev.eventTitle}</p>
+            <p className="mt-1.5 flex items-center gap-1.5 text-sm text-white/65 [@media(max-height:700px)]:hidden"><Calendar className="h-4 w-4 shrink-0" /> {fmtDateTime(ev.eventDate)}{ev.venue ? ` · ${ev.venue}` : ''}</p>
+          </div>
+          <span className="w-fit shrink-0 rounded-full bg-gradient-to-r from-pink-500 to-sky-400 px-4 py-1.5 text-sm font-bold text-white shadow-[0_0_18px_rgba(236,72,153,0.5)] [@media(max-height:700px)]:px-3 [@media(max-height:700px)]:py-1 [@media(max-height:700px)]:text-[11px]">{countdown}</span>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className={`rounded-3xl p-[1.5px] ${NEON_RING}`}>
       <div className="flex items-center justify-between gap-3 rounded-[23px] bg-[#0d0712]/55 px-4 py-3 backdrop-blur-xl">
