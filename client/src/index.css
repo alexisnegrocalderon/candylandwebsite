@@ -565,9 +565,10 @@ html {
   isolation: isolate;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0) 45%),
-    color-mix(in oklab, var(--color-background) 52%, transparent);
-  -webkit-backdrop-filter: blur(26px) saturate(200%) brightness(1.04);
-  backdrop-filter: blur(26px) saturate(200%) brightness(1.04);
+    color-mix(in oklab, var(--color-background) 68%, transparent);
+  /* Más desenfoque y un poco menos de brillo detrás: el texto se lee aunque pase por una foto clara. */
+  -webkit-backdrop-filter: blur(32px) saturate(190%) brightness(0.97);
+  backdrop-filter: blur(32px) saturate(190%) brightness(0.97);
   border: 1px solid color-mix(in oklab, white 55%, transparent);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.85),
@@ -589,12 +590,35 @@ html {
   z-index: -1;
 }
 .glass-float-inset {
-  background: color-mix(in oklab, var(--color-background) 38%, transparent);
+  background: color-mix(in oklab, var(--color-background) 46%, transparent);
   border: 1px solid color-mix(in oklab, white 50%, transparent);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
 }
+/* Texto sobre el vidrio: casi del color pleno del tema (no el gris «muted») y
+   con una sombra suave del color del fondo que lo separa de lo que pasa detrás. */
+.glass-text { color: var(--color-foreground); text-shadow: 0 1px 10px color-mix(in oklab, var(--color-background) 70%, transparent); }
+.glass-text-soft { color: color-mix(in oklab, var(--color-foreground) 88%, transparent); text-shadow: 0 1px 8px color-mix(in oklab, var(--color-background) 70%, transparent); }
 .glass-float-btn {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), inset 0 -1px 1px rgba(0, 0, 0, 0.08), 0 8px 18px -6px color-mix(in oklab, var(--color-primary) 60%, transparent);
+}
+
+/* Sitio instalado como app (iPhone, pantalla completa bajo la barra de estado): detrás de la hora y la
+   batería va el color de la app, y el menú del sitio baja ese alto para no quedar debajo. No toca el
+   panel ni las terminales (llevan data-splash="dark" y su propio manejo). */
+@media (display-mode: standalone) {
+  html:not([data-splash="dark"]) { background-color: #0b0612; }
+  html:not([data-splash="dark"])::before {
+    content: "";
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: env(safe-area-inset-top);
+    background: #0b0612;
+    z-index: 2147483000;
+    pointer-events: none;
+  }
+  html:not([data-splash="dark"]) .site-navbar { top: env(safe-area-inset-top); }
 }
 
 /* Tipografía tipo Apple para la app de socios: SF en iPhone/Mac, Inter/sistema en el resto. */

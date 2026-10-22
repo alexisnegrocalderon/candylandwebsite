@@ -135,7 +135,9 @@ for (const screen of SCREENS) {
     `<meta name="apple-mobile-web-app-capable" content="yes" />`,
     `<meta name="mobile-web-app-capable" content="yes" />`,
     `<meta name="apple-mobile-web-app-title" content="Playroom" />`,
-    `<meta name="apple-mobile-web-app-status-bar-style" content="black" />`,
+    // black-translucent: la app ocupa TODA la pantalla, también bajo la barra de estado (la hora y la
+    // batería van sobre el fondo de la app). Con «black» o sin este meta, iOS deja una franja aparte arriba.
+    `<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />`,
     ...STARTUP_IMAGE_TAGS,
   ].join('\n    ');
   writeFileSync(join(outDir, 'index.html'), baseHtml.replace(viewport[0], `${viewport[0]}\n    ${tags}`));
