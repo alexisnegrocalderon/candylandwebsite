@@ -53,6 +53,9 @@ export default function Ambassador() {
           <p className="text-muted-foreground mb-6">
             Escribe tu código de embajador para ver tus ventas, tu comisión y tus beneficios.
           </p>
+          <p className="text-sm text-muted-foreground mb-6 -mt-3">
+            O entra a <Link href="/cuenta" className="text-primary underline">Mi cuenta</Link> con tu correo de embajador: ahí tienes todo a mano.
+          </p>
           <form
             onSubmit={(e) => { e.preventDefault(); if (codeInput.trim()) setLocation(`/embajador/${codeInput.trim().toUpperCase()}`); }}
             className="flex gap-2 max-w-sm mx-auto"
@@ -160,6 +163,10 @@ export default function Ambassador() {
               </div>
             )}
           </div>
+
+          <p className="text-xs text-muted-foreground text-center -mt-4 mb-6">
+            Tip: entra a <Link href="/cuenta" className="text-primary underline">Mi cuenta</Link> con tu correo de embajador y tendrás todo esto a mano, sin escribir tu código.
+          </p>
 
           <AmbassadorContent code={data.code} events={data.contentEvents ?? []} items={data.contentItems ?? []} material={data.weeklyMaterial ?? null} />
 

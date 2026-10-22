@@ -4283,6 +4283,15 @@ export const appRouter = router({
       const email = getMemberEmail(ctx.req);
       return email ? members.getMemberHome(email) : null;
     }),
+    // Si el correo de la sesión es de un embajador activo: su panel (ventas,
+    // comisión y el contenido aprobado para compartir), el mismo de
+    // /embajador/<CODIGO>. null para todos los demás.
+    ambassador: publicProcedure.query(async ({ ctx }) => {
+      const email = getMemberEmail(ctx.req);
+      if (!email) return null;
+      const ambassador = await ambassadorProgram.findAmbassadorByEmail(email);
+      return ambassador ? ambassadorProgram.getAmbassadorPanel(ambassador.code) : null;
+    }),
     // Para llenar «Tus datos» del checkout (solo con sesión de «Mi cuenta»; los datos son del mismo socio).
     checkoutPrefill: publicProcedure.query(async ({ ctx }) => {
       const email = getMemberEmail(ctx.req);

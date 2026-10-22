@@ -1394,6 +1394,9 @@ export function buildAmbassadorWeeklyEmail(data: {
         <p style="margin:12px 0 0;text-align:center;">
           <a href="${data.panelUrl}#contenido" style="color:${ACCENT.pink.text};font-size:13px;font-weight:800;">📲 Tus imágenes listas para compartir y el paso a paso del sticker →</a>
         </p>
+        <p style="color:${MUTED};font-size:12px;margin:8px 0 0;text-align:center;line-height:1.5;">
+          También puedes entrar a <a href="${data.panelUrl.replace(/\/embajador\/.*$/, "")}/cuenta" style="color:${ACCENT.pink.text};font-weight:700;">Mi cuenta</a> con este mismo correo: ahí tienes tu contenido y tus números siempre a mano.
+        </p>
       `, { bg: ACCENT.pink.bg, border: false })}
       ` : ''}
 

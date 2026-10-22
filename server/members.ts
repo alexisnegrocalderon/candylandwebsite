@@ -3,13 +3,14 @@
  * preventa anticipada).
  *
  * «Socio» = cliente que entró a su cuenta alguna vez (customers.memberSince).
- * Solo pueden entrar correos que ya son clientes: el código nunca se manda a
- * un correo desconocido (y la respuesta es la misma exista o no, para que
+ * Solo pueden entrar correos que ya son clientes (o de un embajador activo):
+ * el código nunca se manda a un correo desconocido (y la respuesta es la misma exista o no, para que
  * nadie averigüe quién es cliente). */
 import { and, desc, eq, gte, inArray, isNotNull, sql } from 'drizzle-orm';
 import { getDb, getSiteSettings } from './db';
 import { sendEmail, buildMemberCodeEmail } from './email';
 import { pushToEmail } from './customerPush';
+import { findAmbassadorByEmail } from './ambassadorProgram';
 import { currentMemberCode, normalizeMemberEmail, randomCouponCode } from './memberAuth';
 import { customers, discountCodes, events, memberCoupons, orders, playcoinsLedger, prepaidLedger, tickets } from '../drizzle/schema';
 import { computeCustomerLevel, daysUntilBirthday } from '../shared/customerInsights';
@@ -36,9 +37,32 @@ export async function isMember(email: string): Promise<boolean> {
   return !!(await findCustomer(email))?.memberSince;
 }
 
-/** Manda el código al correo, solo si es cliente. Devuelve si se mandó (para los límites; nunca se le dice a quien pide). */
+/** Un embajador activo puede entrar a «Mi cuenta» con su correo aunque nunca
+ * haya comprado: se le crea su ficha de cliente (etiquetada «embajador») la
+ * primera vez que pide el código. */
+async function ensureAmbassadorCustomer(email: string): Promise<CustomerRow | null> {
+  const db = await getDb();
+  const ambassador = await findAmbassadorByEmail(email);
+  if (!db || !ambassador) return null;
+  try {
+    await db.insert(customers).values({
+      email: normalizeMemberEmail(email),
+      fullName: ambassador.name,
+      instagram: ambassador.instagram,
+      accessTypes: [],
+      tags: ['embajador'],
+      totalOrders: 0,
+      totalSpent: '0',
+    });
+  } catch {
+    // Dos pedidos de código a la vez: la ficha ya la creó el otro.
+  }
+  return findCustomer(email);
+}
+
+/** Manda el código al correo, solo si es cliente (o embajador). Devuelve si se mandó (para los límites; nunca se le dice a quien pide). */
 export async function sendMemberCode(email: string): Promise<boolean> {
-  const customer = await findCustomer(email);
+  const customer = (await findCustomer(email)) ?? (await ensureAmbassadorCustomer(email));
   if (!customer) return false;
   const html = buildMemberCodeEmail({ code: currentMemberCode(customer.email), name: firstName(customer.fullName) || null });
   await sendEmail({ to: customer.email, subject: '🔐 Tu código para entrar a tu cuenta', html });

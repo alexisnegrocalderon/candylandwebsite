@@ -18,6 +18,7 @@ import { useDarkChrome } from '@/lib/darkChrome';
 import { Pager } from '@/components/site/Pager';
 import { TiltCard } from '@/components/site/TiltCard';
 import { BottomSheet, PayInCajaViewer, SavedCardsSection, TopupSheet, useMemberPayConfig } from '@/components/site/AccountPayments';
+import { AmbassadorAccount, useAmbassadorPanel } from '@/components/site/AmbassadorAccount';
 import { useCustomerPush } from '@/lib/customerPush';
 import { avisosNotice } from '@/lib/pushPromptView';
 import { useIsMobile } from '@/hooks/useMobile';
@@ -578,7 +579,7 @@ function MovementsPreview({ me, onAll }: { me: Me; onAll: () => void }) {
 
 /* ── Celular: una pantalla fija tipo app, con barra de íconos abajo como el panel ── */
 
-type Tab = 'card' | 'entradas' | 'puntos' | 'cupones';
+type Tab = 'card' | 'embajador' | 'entradas' | 'puntos' | 'cupones';
 const TABS: { key: Tab; label: string; icon: typeof CreditCard }[] = [
   { key: 'card', label: 'PlayCard', icon: CreditCard },
   { key: 'entradas', label: 'Entradas', icon: TicketIcon },
@@ -586,8 +587,13 @@ const TABS: { key: Tab; label: string; icon: typeof CreditCard }[] = [
   { key: 'cupones', label: 'Cupones', icon: Gift },
 ];
 
+// Solo para quien entra con el correo de un embajador: su pestaña va segunda.
+const AMBASSADOR_TAB: { key: Tab; label: string; icon: typeof CreditCard } = { key: 'embajador', label: 'Embajador', icon: Crown };
+
 function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | null; onLogout: () => void }) {
   const [tab, setTab] = useState<Tab>('card');
+  const ambassador = useAmbassadorPanel();
+  const tabs = ambassador ? [TABS[0], AMBASSADOR_TAB, ...TABS.slice(1)] : TABS;
   const [more, setMore] = useState(false);
   const sheetDrag = useDragControls();
   const pay = useMemberPayConfig();
@@ -606,7 +612,7 @@ function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | nu
   const go = (next: Tab) => {
     if (next === tab) return;
     tapHaptic();
-    setDir(TABS.findIndex((t) => t.key === next) > TABS.findIndex((t) => t.key === tab) ? 1 : -1);
+    setDir(tabs.findIndex((t) => t.key === next) > tabs.findIndex((t) => t.key === tab) ? 1 : -1);
     setTab(next);
   };
 
@@ -622,12 +628,12 @@ function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | nu
     const p = e.changedTouches[0];
     const dx = p.clientX - start.x, dy = p.clientY - start.y;
     if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
-    const idx = TABS.findIndex((t) => t.key === tab);
-    const next = TABS[idx + (dx < 0 ? 1 : -1)];
+    const idx = tabs.findIndex((t) => t.key === tab);
+    const next = tabs[idx + (dx < 0 ? 1 : -1)];
     if (next) go(next.key);
   };
 
-  const title = tab === 'card' ? `Hola${firstName(me.fullName) ? `, ${firstName(me.fullName)}` : ''} 👋` : TABS.find((t) => t.key === tab)?.label;
+  const title = tab === 'card' ? `Hola${firstName(me.fullName) ? `, ${firstName(me.fullName)}` : ''} 👋` : tabs.find((t) => t.key === tab)?.label;
 
   return (
     <div className="account-font fixed inset-0 z-[60] flex flex-col bg-[#0b0612] text-white">
@@ -651,6 +657,10 @@ function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | nu
               <BuyNextCard me={me} />
             </>
           )}
+          {tab === 'embajador' && ambassador && (
+            // Lo único que se desplaza en vertical: el contenido para compartir es largo.
+            <div className="-mx-1 min-h-0 flex-1 overflow-y-auto overscroll-contain px-1 pb-4"><AmbassadorAccount panel={ambassador} /></div>
+          )}
           {tab === 'entradas' && <TicketsPager events={upcoming} />}
           {tab === 'puntos' && (<>
             <PlaycoinsCard me={me} />
@@ -662,8 +672,8 @@ function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | nu
         </TabBoundary>
       </main>
 
-      <nav className={`lg-pill fixed bottom-[max(12px,env(safe-area-inset-bottom))] left-1/2 z-20 grid -translate-x-1/2 grid-cols-5 rounded-full p-1.5 transition-all duration-300 w-[calc(100vw-24px)] max-w-md`} aria-label="Secciones de mi cuenta">
-        {TABS.map(({ key, label, icon: Icon }) => {
+      <nav className={`lg-pill fixed bottom-[max(12px,env(safe-area-inset-bottom))] left-1/2 z-20 grid -translate-x-1/2 ${ambassador ? 'grid-cols-6' : 'grid-cols-5'} rounded-full p-1.5 transition-all duration-300 w-[calc(100vw-24px)] max-w-md`} aria-label="Secciones de mi cuenta">
+        {tabs.map(({ key, label, icon: Icon }) => {
           const badge = key === 'cupones' ? activeCoupons : 0;
           return (
             <button key={key} type="button" onClick={() => go(key)} aria-current={tab === key ? 'page' : undefined}
@@ -773,7 +783,7 @@ export default function Cuenta() {
           <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
             <div className="text-center">
               <h1 className="font-heading text-3xl font-extrabold text-white">Mi cuenta</h1>
-              <p className="mt-2 text-sm text-white/65">Tu entrada, tus Playcoins y tu saldo a un toque. Entras con un código que te mandamos al correo de tu compra: sin contraseñas.</p>
+              <p className="mt-2 text-sm text-white/65">Tu entrada, tus Playcoins y tu saldo a un toque. Entras con un código que te mandamos al correo de tu compra (o tu correo de embajador): sin contraseñas.</p>
             </div>
             <div className={`${GLASS} p-5`}>
               <MemberLogin tone="dark" onDone={setWelcome} />
@@ -791,6 +801,7 @@ export default function Cuenta() {
 }
 
 function DesktopAccount({ me, welcome, onLogout, shell }: { me: Me; welcome: LoginDone | null; onLogout: () => void; shell: string }) {
+  const ambassador = useAmbassadorPanel();
   const level = CUSTOMER_LEVEL_META[me.level as keyof typeof CUSTOMER_LEVEL_META];
   const upcoming = me.events as MeEvent[];
   const pay = useMemberPayConfig();
@@ -817,6 +828,7 @@ function DesktopAccount({ me, welcome, onLogout, shell }: { me: Me; welcome: Log
           <TicketWallet ev={upcoming[0] ?? null} holder={me.fullName || me.email} prepaidBalance={me.prepaidBalance} playcoins={me.playcoins} movements={me.movements}
             onTopup={pay.accountTopup ? () => setTopupOpen(true) : undefined} onPayCaja={pay.cajaPay ? () => setPayOpen(true) : undefined} />
           <BuyNextCard me={me} />
+          {ambassador && <AmbassadorAccount panel={ambassador} />}
 
           {/* Avisos: bien arriba y llamativo; desaparece solo al activarlos. */}
           <PushPrompt source="puntos" tone="dark" className="shadow-[0_0_28px_rgba(236,72,153,0.22)]" />

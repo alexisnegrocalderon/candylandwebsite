@@ -435,6 +435,17 @@ export function looseCodeKey(code: string): string {
   return (code ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 }
 
+/** El embajador ACTIVO dueño de este correo (para entrar con él a «Mi
+ * cuenta»). Si dos comparten correo, ninguno: no se adivina. */
+export async function findAmbassadorByEmail(email: string) {
+  const db = await getDb();
+  const key = (email ?? '').trim().toLowerCase();
+  if (!db || !key) return null;
+  const rows = await db.select().from(exclusiveAmbassadors)
+    .where(and(eq(exclusiveAmbassadors.active, 1), sql`LOWER(TRIM(${exclusiveAmbassadors.email})) = ${key}`)).limit(2);
+  return rows.length === 1 ? rows[0] : null;
+}
+
 /** Panel público en /embajador/<CODIGO>. El código hace de llave: no hay
  * login de embajadores (mismo criterio que /mis-referidos). */
 export async function getAmbassadorPanel(code: string, now: Date = new Date()) {
