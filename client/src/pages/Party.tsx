@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import { ArrowLeft, Ban, Flag, Send, X } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
+import { useMemberSession } from '@/lib/member';
 import { useSeo } from '@/hooks/useSeo';
 import { PartyAvatar } from '@/components/party/Avatar';
 import { Mansion, type MansionPerson } from '@/components/party/Mansion';
@@ -337,6 +338,7 @@ function MansionView({ ticketCode, myZone, onPick, onZoneChanged, onOpenChat, on
   // Lo que pide acción mía: una invitación por responder, o una que ya me
   // aceptaron y falta pagar.
   const myGifts = trpc.party.myGifts.useQuery({ ticketCode }, { refetchInterval: 10_000 });
+  const memberSession = useMemberSession();
   const pendingGifts =
     (myGifts.data?.received.filter((g) => g.status === 'invited').length ?? 0) +
     (myGifts.data?.sent.filter((g) => g.status === 'accepted').length ?? 0);
@@ -344,7 +346,13 @@ function MansionView({ ticketCode, myZone, onPick, onZoneChanged, onOpenChat, on
   return (
     <div className="max-w-md mx-auto px-4 py-5 pb-24">
       <header className="flex items-center justify-between mb-4">
-        <h1 className="font-heading font-extrabold text-2xl tracking-tight">Playmatch 🍬</h1>
+        <h1 className="flex items-center gap-1 font-heading font-extrabold text-2xl tracking-tight">
+          {/* Abierto desde la app (sesión de «Mi cuenta»): vuelta a la app sin salir a la web. */}
+          {memberSession.data?.loggedIn && (
+            <Link href="/cuenta" aria-label="Volver a mi cuenta" className="-ml-1 grid h-9 w-9 place-items-center rounded-full text-white/70"><ArrowLeft className="h-5 w-5" /></Link>
+          )}
+          Playmatch 🍬
+        </h1>
         <div className="flex items-center gap-3">
           <p className="text-xs text-white/40">
             {mansion.data ? `${mansion.data.touchesLeft} toques` : ''}

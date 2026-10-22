@@ -12,11 +12,12 @@ import { sendEmail, buildMemberCodeEmail } from './email';
 import { pushToEmail } from './customerPush';
 import { findAmbassadorByEmail } from './ambassadorProgram';
 import { currentMemberCode, normalizeMemberEmail, randomCouponCode } from './memberAuth';
-import { customers, discountCodes, events, memberCoupons, orders, playcoinsLedger, prepaidLedger, tickets } from '../drizzle/schema';
+import { customers, discountCodes, events, memberCoupons, orders, playcoinsLedger, prepaidLedger, tickets, ticketTypes } from '../drizzle/schema';
 import { computeCustomerLevel, daysUntilBirthday } from '../shared/customerInsights';
 import { couponStatus, normalizeMemberConfig, type CouponRule, type MemberConfig } from '../shared/memberConfig';
 import { chileParts } from '../shared/pushSchedule';
 import { firstName } from '../shared/pushText';
+import { sortByKind, ticketKind, ticketKindLabel, type TicketKind } from '../shared/ticketKind';
 
 type CustomerRow = typeof customers.$inferSelect;
 
@@ -227,8 +228,11 @@ export async function getMemberHome(email: string, now = new Date()) {
     }).from(memberCoupons).innerJoin(discountCodes, eq(memberCoupons.discountCodeId, discountCodes.id)).where(eq(memberCoupons.email, key)).orderBy(desc(memberCoupons.createdAt)).limit(30),
     db.select({
       ticketCode: tickets.ticketCode, holderName: tickets.holderName, status: tickets.status, qrImageUrl: tickets.qrImageUrl,
+      category: ticketTypes.category, typeName: ticketTypes.name,
       eventId: events.id, eventTitle: events.title, eventSlug: events.slug, eventDate: events.eventDate, venue: events.venue,
+      doorsOpen: events.doorsOpen, eventEnd: events.eventEnd,
     }).from(tickets).innerJoin(orders, eq(tickets.orderId, orders.id)).innerJoin(events, eq(tickets.eventId, events.id))
+      .innerJoin(ticketTypes, eq(tickets.ticketTypeId, ticketTypes.id))
       .where(and(sql`LOWER(${orders.buyerEmail}) = ${key}`, eq(orders.paymentStatus, 'approved'), gte(events.eventDate, new Date(now.getTime() - 12 * 3_600_000)), inArray(events.status, ['published', 'soldout'])))
       .orderBy(events.eventDate),
     db.select({ id: events.id, title: events.title, slug: events.slug, eventDate: events.eventDate, memberEarlyUntil: events.memberEarlyUntil }).from(events)
@@ -240,10 +244,11 @@ export async function getMemberHome(email: string, now = new Date()) {
     ...points.map((r) => ({ type: 'points' as const, label: PLAYCOINS_LABEL[r.reason] ?? r.reason, delta: r.delta, createdAt: r.createdAt })),
   ].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()).slice(0, 8);
 
-  const byEvent = new Map<number, { eventId: number; eventTitle: string; eventSlug: string; eventDate: Date; venue: string | null; tickets: { ticketCode: string; holderName: string | null; status: string; qrImageUrl: string | null }[] }>();
+  const byEvent = new Map<number, { eventId: number; eventTitle: string; eventSlug: string; eventDate: Date; venue: string | null; doorsOpen: Date | null; eventEnd: Date | null; tickets: { ticketCode: string; holderName: string | null; status: string; qrImageUrl: string | null; category: string; kind: TicketKind; kindLabel: string }[] }>();
   for (const t of ticketRows) {
-    const g = byEvent.get(t.eventId) ?? { eventId: t.eventId, eventTitle: t.eventTitle, eventSlug: t.eventSlug, eventDate: t.eventDate, venue: t.venue, tickets: [] };
-    g.tickets.push({ ticketCode: t.ticketCode, holderName: t.holderName, status: t.status, qrImageUrl: t.qrImageUrl ?? null });
+    const g = byEvent.get(t.eventId) ?? { eventId: t.eventId, eventTitle: t.eventTitle, eventSlug: t.eventSlug, eventDate: t.eventDate, venue: t.venue, doorsOpen: t.doorsOpen ?? null, eventEnd: t.eventEnd ?? null, tickets: [] };
+    const kind = ticketKind(t.category, t.typeName);
+    g.tickets.push({ ticketCode: t.ticketCode, holderName: t.holderName, status: t.status, qrImageUrl: t.qrImageUrl ?? null, category: t.category, kind, kindLabel: ticketKindLabel(kind, t.typeName) });
     byEvent.set(t.eventId, g);
   }
 
@@ -259,7 +264,8 @@ export async function getMemberHome(email: string, now = new Date()) {
     prepaidBalance: customer.prepaidBalance,
     memberSince: customer.memberSince,
     movements,
-    events: Array.from(byEvent.values()),
+    // Accesos primero y los extras (estacionamiento, guardarropía…) después.
+    events: Array.from(byEvent.values()).map((e) => ({ ...e, tickets: sortByKind(e.tickets) })),
     coupons: couponRows.map((c) => ({
       id: c.id, kind: c.kind, title: c.title, code: c.code, percent: Number(c.percent), validUntil: c.validUntil,
       status: couponStatus({ usedCount: c.usedCount, maxUses: c.maxUses, validUntil: c.validUntil, isActive: c.isActive }, now),
