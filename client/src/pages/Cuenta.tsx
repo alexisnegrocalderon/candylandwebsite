@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { Component, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { toast } from 'sonner';
@@ -331,6 +331,24 @@ function WelcomeBanner({ welcome }: { welcome: LoginDone | null }) {
   );
 }
 
+/** Si una pestaña falla, el error queda dentro de la pestaña (con el detalle) y la barra de abajo sigue funcionando. */
+class TabBoundary extends Component<{ children: ReactNode; onBack: () => void }, { error: Error | null }> {
+  state = { error: null as Error | null };
+  static getDerivedStateFromError(error: Error) { return { error }; }
+  componentDidCatch(error: Error, info: { componentStack: string }) { console.error('[Cuenta]', error, info.componentStack); }
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div className="account-glass space-y-3 rounded-2xl p-4 text-sm">
+        <p className="font-heading font-bold text-white">No pudimos mostrar esta sección</p>
+        <p className="text-white/65">Tu cuenta y tus entradas están a salvo.</p>
+        <pre className="max-h-32 overflow-auto whitespace-break-spaces text-[11px] text-white/45">{`${this.state.error.name}: ${this.state.error.message}`}</pre>
+        <button type="button" onClick={() => { this.setState({ error: null }); this.props.onBack(); }} className="h-11 w-full rounded-full bg-white/10 font-semibold text-white">Volver a la PlayCard</button>
+      </div>
+    );
+  }
+}
+
 /* ── Celular: una pantalla fija tipo app, con barra de íconos abajo como el panel ── */
 
 type Tab = 'card' | 'entradas' | 'puntos' | 'cupones';
@@ -381,7 +399,8 @@ function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | nu
       </header>
 
       <main className="relative z-10 min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-28" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
-        <motion.div key={tab} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.18 }} className="space-y-3 pt-1">
+        <TabBoundary key={tab} onBack={() => setTab('card')}>
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.18 }} className="space-y-3 pt-1">
           {tab === 'card' && (
             <>
               <WelcomeBanner welcome={welcome} />
@@ -393,6 +412,7 @@ function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | nu
           {tab === 'puntos' && (<><PlaycoinsCard me={me} /><Movements me={me} /></>)}
           {tab === 'cupones' && <CouponsList me={me} />}
         </motion.div>
+        </TabBoundary>
       </main>
 
       <nav className="fixed inset-x-3 bottom-[max(12px,env(safe-area-inset-bottom))] z-20 grid grid-cols-5 rounded-[28px] border border-white/10 bg-[#140b1e]/85 p-1.5 shadow-[0_20px_50px_-12px_rgba(0,0,0,0.7)] backdrop-blur-xl" aria-label="Secciones de mi cuenta">
