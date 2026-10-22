@@ -10,7 +10,7 @@ Puedes usar {nombre} (el primer nombre de la persona) una vez, solo si queda nat
 Da una acción concreta o un motivo para abrir la notificación. No inventes precios, fechas ni cantidades que no te den.
 Responde ÚNICAMENTE con el JSON pedido: 3 propuestas distintas entre sí (una directa, una con urgencia suave, una más cálida).`;
 
-const SCHEMA = {
+export const PUSH_DRAFTS_SCHEMA = {
   name: 'push_drafts',
   strict: true,
   schema: {
@@ -20,7 +20,8 @@ const SCHEMA = {
     properties: {
       drafts: {
         type: 'array',
-        minItems: 3,
+        // El proveedor solo acepta minItems 0 o 1: las 3 propuestas se piden en el texto y se recortan abajo.
+        minItems: 1,
         maxItems: 3,
         items: {
           type: 'object',
@@ -45,12 +46,12 @@ export async function draftPushCopy(input: { idea: string; eventTitle?: string |
   const result = await invokeLLM({
     feature: 'push',
     messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: lines.join('\n') }],
-    responseFormat: { type: 'json_schema', json_schema: SCHEMA },
+    responseFormat: { type: 'json_schema', json_schema: PUSH_DRAFTS_SCHEMA },
   });
   const raw = extractContent(result.choices[0]?.message ?? { content: '' });
   let parsed: unknown;
   try { parsed = JSON.parse(raw); } catch { throw new Error('La IA no devolvió un formato válido. Intenta de nuevo con una idea más concreta.'); }
   const out = Out.safeParse(parsed);
   if (!out.success) throw new Error('La IA no devolvió propuestas válidas. Intenta de nuevo.');
-  return out.data.drafts.map((d) => ({ title: clip(d.title, PUSH_TITLE_MAX), body: clip(d.body, PUSH_BODY_MAX) }));
+  return out.data.drafts.slice(0, 3).map((d) => ({ title: clip(d.title, PUSH_TITLE_MAX), body: clip(d.body, PUSH_BODY_MAX) }));
 }
