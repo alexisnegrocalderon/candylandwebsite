@@ -14,6 +14,7 @@ import { isMemberEarlyAccess } from '@shared/memberConfig';
 import { WalletCard } from '@/components/wallet/WalletCard';
 import { saveTicketImage } from '@/lib/ticketImage';
 import { PushPrompt } from '@/components/site/PushPrompt';
+import { TiltCard } from '@/components/site/TiltCard';
 import { PayInCajaViewer, SavedCardsSection, TopupSheet, useMemberPayConfig } from '@/components/site/AccountPayments';
 import { useCustomerPush } from '@/lib/customerPush';
 import { useIsMobile } from '@/hooks/useMobile';
@@ -65,6 +66,29 @@ function CouponCard({ c }: { c: { id: number; kind: string; title: string; code:
       {live && <p className="mt-2 text-xs text-white/55">Pégalo en el campo de código al comprar tu entrada. Es personal: úsalo con el correo de tu cuenta.</p>}
     </div>
   );
+}
+
+/** Vibración leve al tocar (Android; Safari en iPhone no la permite a las páginas web). */
+const tapHaptic = () => { try { navigator.vibrate?.(8); } catch { /* sin vibración */ } };
+
+/** Números que cuentan hacia arriba al aparecer (saldo, Playcoins). */
+function useCountUp(value: number, ms = 700): number {
+  const [shown, setShown] = useState(value);
+  const from = useRef(0);
+  useEffect(() => {
+    if (typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches) { setShown(value); return; }
+    const start = performance.now(), a = from.current;
+    let raf = 0;
+    const step = (t: number) => {
+      const k = Math.min(1, (t - start) / ms);
+      const eased = 1 - Math.pow(1 - k, 3);
+      setShown(Math.round(a + (value - a) * eased));
+      if (k < 1) raf = requestAnimationFrame(step); else from.current = value;
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [value, ms]);
+  return shown;
 }
 
 /** «Faltan 8 días», «Faltan 5 h 20 min» o «¡Es hoy!». */
@@ -138,6 +162,7 @@ function TicketWallet({ ev, holder, prepaidBalance, playcoins, movements, compac
     <div className={compact ? 'space-y-3' : 'space-y-4'}>
       {ev && <EventStrip ev={ev} />}
       <div className={`rounded-[28px] ${compact ? 'p-3' : 'p-5 md:p-8'}`} style={{ background: 'radial-gradient(120% 120% at 20% 0%, #241432, #0d0712 70%)' }}>
+        <TiltCard>
         <WalletCard
           eventTitle={ev?.eventTitle ?? ''}
           eventDateShort=""
@@ -147,8 +172,9 @@ function TicketWallet({ ev, holder, prepaidBalance, playcoins, movements, compac
           prepaidBalance={prepaidBalance}
           playcoins={playcoins}
           movements={movements.map((m) => ({ ...m, createdAt: new Date(m.createdAt) })) as any}
-          onCardClick={usable ? () => setShowQr(true) : undefined}
+          onCardClick={usable ? () => { tapHaptic(); setShowQr(true); } : undefined}
         />
+        </TiltCard>
         {ev && ev.tickets.length > 1 && (
           <div className={`flex flex-wrap justify-center gap-2 ${compact ? 'mt-2' : 'mt-4'}`}>
             {ev.tickets.map((x, n) => (
@@ -244,15 +270,17 @@ function EarlyCard({ me }: { me: Me }) {
 }
 
 function PlaycoinsCard({ me }: { me: Me }) {
+  const coins = useCountUp(me.playcoins);
   const eligible = canRedeem(me.playcoins);
   const missing = Math.max(0, PLAYCOINS_MIN_REDEEM_BALANCE - me.playcoins);
   const pct = Math.min(100, Math.round((me.playcoins / PLAYCOINS_MIN_REDEEM_BALANCE) * 100));
   return (
     <div className={`${GLASS} p-4`}>
       <div className="flex items-baseline justify-between text-sm">
-        <span className="font-heading font-bold text-white">Tus Playcoins</span>
-        <span className="text-white/60"><b className="text-white">{me.playcoins.toLocaleString('es-CL')}</b> / {PLAYCOINS_MIN_REDEEM_BALANCE.toLocaleString('es-CL')}</span>
+        <span className="font-semibold text-white/80">Tus Playcoins</span>
+        <span className="text-white/50">meta {PLAYCOINS_MIN_REDEEM_BALANCE.toLocaleString('es-CL')}</span>
       </div>
+      <p className="num-apple mt-1 text-5xl text-white">{coins.toLocaleString('es-CL')}</p>
       <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-white/10" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
         <div className="h-full rounded-full bg-gradient-to-r from-pink-500 via-fuchsia-400 to-sky-400 shadow-[0_0_12px_rgba(236,72,153,0.6)] transition-[width] duration-700" style={{ width: `${Math.max(pct, 3)}%` }} />
       </div>
@@ -387,6 +415,23 @@ function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | nu
   const pushPending = push.state === 'ask' || push.state === 'ios-install';
   const earlyOn = !!(me.nextEvent && isMemberEarlyAccess(me.nextEvent));
   const touch = useRef<{ x: number; y: number } | null>(null);
+  // Encabezado grande que se achica al hacer scroll, y barra de abajo que se encoge al bajar (como iOS).
+  const [scrolled, setScrolled] = useState(false);
+  const [compactBar, setCompactBar] = useState(false);
+  const lastY = useRef(0);
+  const [dir, setDir] = useState(1);
+  const go = (next: Tab) => {
+    if (next === tab) return;
+    tapHaptic();
+    setDir(TABS.findIndex((t) => t.key === next) > TABS.findIndex((t) => t.key === tab) ? 1 : -1);
+    setTab(next);
+    setScrolled(false); setCompactBar(false); lastY.current = 0;
+  };
+  const onScroll = (e: React.UIEvent<HTMLElement>) => {
+    const y = e.currentTarget.scrollTop;
+    setScrolled(y > 36);
+    if (Math.abs(y - lastY.current) > 6) { setCompactBar(y > 60 && y > lastY.current); lastY.current = y; }
+  };
 
   // Deslizar a los lados cambia de pestaña.
   const onTouchStart = (e: React.TouchEvent) => { const p = e.touches[0]; touch.current = { x: p.clientX, y: p.clientY }; };
@@ -398,27 +443,30 @@ function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | nu
     if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
     const idx = TABS.findIndex((t) => t.key === tab);
     const next = TABS[idx + (dx < 0 ? 1 : -1)];
-    if (next) setTab(next.key);
+    if (next) go(next.key);
   };
 
   const title = tab === 'card' ? `Hola${firstName(me.fullName) ? `, ${firstName(me.fullName)}` : ''} 👋` : TABS.find((t) => t.key === tab)?.label;
 
   return (
-    <div className="fixed inset-0 z-[60] flex flex-col bg-[#0b0612] text-white">
+    <div className="account-font fixed inset-0 z-[60] flex flex-col bg-[#0b0612] text-white">
       <div className="account-backdrop" />
-      <header className="relative z-10 flex items-center justify-between gap-3 px-4 pb-2 pt-[max(14px,env(safe-area-inset-top))]">
-        <Link href="/" aria-label="Ir al sitio" className="flex min-w-0 items-center gap-2.5">
-          <img src="/candyland/logo-isotipo-transparent.png" alt="" className="h-8 w-8 shrink-0" />
-          <span className="min-w-0">
-            <span className="block truncate font-heading text-lg font-extrabold leading-tight">{title}</span>
-            {tab === 'card' && level && <span className="text-[11px] font-medium text-emerald-300">{level.label}</span>}
-          </span>
-        </Link>
+      {/* Barra compacta de vidrio: aparece al hacer scroll, con el título chico al centro. */}
+      <header className={`fixed inset-x-0 top-0 z-30 flex items-center justify-center px-4 pb-2.5 pt-[max(12px,env(safe-area-inset-top))] transition-all duration-300 ${scrolled ? 'lg-pill rounded-none opacity-100' : 'pointer-events-none opacity-0'}`}>
+        <span className="truncate text-[15px] font-semibold">{title}</span>
       </header>
 
-      <main className="relative z-10 min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-28" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
-        <TabBoundary key={tab} onBack={() => setTab('card')}>
-        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.18 }} className="space-y-3 pt-1">
+      <main onScroll={onScroll} className="relative z-10 min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-32 pt-[max(14px,env(safe-area-inset-top))]" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
+        {/* Título grande (estilo iOS): se va con el scroll y queda la barra compacta de arriba. */}
+        <div className={`mb-3 flex items-center gap-3 transition-opacity duration-300 ${scrolled ? 'opacity-0' : 'opacity-100'}`}>
+          <Link href="/" aria-label="Ir al sitio" className="shrink-0"><img src="/candyland/logo-isotipo-transparent.png" alt="" className="h-9 w-9" /></Link>
+          <div className="min-w-0">
+            <h1 className="truncate text-[30px] font-bold leading-tight tracking-tight">{title}</h1>
+            {tab === 'card' && level && <span className="text-xs font-medium text-emerald-300">{level.label}</span>}
+          </div>
+        </div>
+        <TabBoundary key={tab} onBack={() => go('card')}>
+        <motion.div initial={{ opacity: 0, x: dir * 28 }} animate={{ opacity: 1, x: 0 }} transition={{ type: 'spring', damping: 28, stiffness: 300 }} className="space-y-3">
           {tab === 'card' && (
             <>
               <WelcomeBanner welcome={welcome} />
@@ -438,21 +486,21 @@ function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | nu
         </TabBoundary>
       </main>
 
-      <nav className="fixed inset-x-3 bottom-[max(12px,env(safe-area-inset-bottom))] z-20 grid grid-cols-5 rounded-[28px] border border-white/10 bg-[#140b1e]/85 p-1.5 shadow-[0_20px_50px_-12px_rgba(0,0,0,0.7)] backdrop-blur-xl" aria-label="Secciones de mi cuenta">
+      <nav className={`lg-pill fixed bottom-[max(12px,env(safe-area-inset-bottom))] left-1/2 z-20 grid -translate-x-1/2 grid-cols-5 rounded-full p-1.5 transition-all duration-300 ${compactBar ? 'w-[min(78vw,320px)]' : 'w-[calc(100vw-24px)] max-w-md'}`} aria-label="Secciones de mi cuenta">
         {TABS.map(({ key, label, icon: Icon }) => {
           const badge = key === 'cupones' ? activeCoupons : 0;
           return (
-            <button key={key} type="button" onClick={() => setTab(key)} aria-current={tab === key ? 'page' : undefined}
-              className={`relative flex flex-col items-center gap-1 rounded-[22px] py-2 text-[11px] font-medium transition-colors ${tab === key ? 'bg-white/10 text-white' : 'text-white/60'}`}>
-              <Icon className="h-5 w-5" />
-              {label}
+            <button key={key} type="button" onClick={() => go(key)} aria-current={tab === key ? 'page' : undefined}
+              className={`relative flex flex-col items-center justify-center gap-0.5 rounded-full text-[10.5px] font-medium transition-all duration-300 ${compactBar ? 'py-2.5' : 'py-2'} ${tab === key ? 'bg-white/[0.16] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.3)]' : 'text-white/60'}`}>
+              <Icon className={`transition-all ${compactBar ? 'h-5 w-5' : 'h-[22px] w-[22px]'}`} />
+              {!compactBar && label}
               {badge > 0 && <span className="absolute right-2 top-1 grid h-5 min-w-5 place-items-center rounded-full bg-white px-1 text-[10px] font-bold text-[#0d0712]">{badge}</span>}
             </button>
           );
         })}
-        <button type="button" onClick={() => setMore(true)} className="relative flex flex-col items-center gap-1 rounded-[22px] py-2 text-[11px] font-medium text-white/60">
-          <MoreHorizontal className="h-5 w-5" />
-          Más
+        <button type="button" onClick={() => { tapHaptic(); setMore(true); }} className={`relative flex flex-col items-center justify-center gap-0.5 rounded-full text-[10.5px] font-medium text-white/60 ${compactBar ? 'py-2.5' : 'py-2'}`}>
+          <MoreHorizontal className={compactBar ? 'h-5 w-5' : 'h-[22px] w-[22px]'} />
+          {!compactBar && 'Más'}
           {(pushPending || earlyOn) && <span className="absolute right-4 top-1.5 h-2.5 w-2.5 rounded-full bg-pink-500 shadow-[0_0_8px_rgba(236,72,153,0.9)]" />}
         </button>
       </nav>
@@ -462,7 +510,7 @@ function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | nu
           <>
             <motion.div className="fixed inset-0 z-30 bg-black/50" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setMore(false)} />
             <motion.div
-              className="fixed inset-x-0 bottom-0 z-40 max-h-[85dvh] overflow-y-auto rounded-t-[32px] border-t border-white/10 bg-[#170d22]/95 px-4 pb-[max(20px,env(safe-area-inset-bottom))] pt-3 backdrop-blur-xl"
+              className="lg-sheet fixed inset-x-0 bottom-0 z-40 max-h-[85dvh] overflow-y-auto rounded-t-[32px] px-4 pb-[max(20px,env(safe-area-inset-bottom))] pt-3"
               initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 30, stiffness: 320 }}
               drag="y" dragConstraints={{ top: 0, bottom: 0 }} dragElastic={{ top: 0, bottom: 0.6 }} onDragEnd={(_, info) => { if (info.offset.y > 80) setMore(false); }}
             >
@@ -513,7 +561,7 @@ export default function Cuenta() {
     meta.setAttribute('content', '#0b0612');
     return () => { if (prev) meta.setAttribute('content', prev); };
   }, []);
-  const shell = 'relative min-h-dvh bg-[#0b0612] text-white';
+  const shell = 'account-font relative min-h-dvh bg-[#0b0612] text-white';
 
   if (isLoading) return <div className={`${shell} pt-28`}><div className="account-backdrop" /></div>;
 

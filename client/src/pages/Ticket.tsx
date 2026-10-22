@@ -1,3 +1,4 @@
+import { TiltCard } from '@/components/site/TiltCard';
 import { useEffect, useRef, useState } from 'react';
 import { useRoute, Link } from 'wouter';
 import { motion } from 'framer-motion';
@@ -135,6 +136,7 @@ export default function Ticket() {
           <p className="wcard-error text-center mb-4">No se completó el pago. Puedes intentarlo de nuevo cuando quieras.</p>
         )}
 
+        <TiltCard>
         <WalletCard
           eventTitle={ticket.eventTitle}
           eventDateShort={eventDateShort}
@@ -145,6 +147,7 @@ export default function Ticket() {
           playcoins={wallet?.playcoins ?? 0}
           movements={wallet?.movements ?? []}
         />
+        </TiltCard>
 
         {ticket.qrImageUrl && (
           <p className="text-center text-xs opacity-60 mt-3">Presenta este código QR y tu carnet en la entrada</p>
