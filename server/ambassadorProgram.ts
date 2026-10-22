@@ -428,6 +428,11 @@ export function summarizeSalesByEvent(sales: { eventId: number; eventTitle: stri
   return Array.from(map.values());
 }
 
+/** Clave para comparar códigos sin importar espacios, guiones, guiones bajos ni tildes. */
+export function looseCodeKey(code: string): string {
+  return (code ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
 /** Panel público en /embajador/<CODIGO>. El código hace de llave: no hay
  * login de embajadores (mismo criterio que /mis-referidos). */
 export async function getAmbassadorPanel(code: string, now: Date = new Date()) {
@@ -437,8 +442,17 @@ export async function getAmbassadorPanel(code: string, now: Date = new Date()) {
   const clean = (code ?? '').trim().toUpperCase();
   if (!clean) return null;
 
-  const [ambassador] = await db.select().from(exclusiveAmbassadors)
+  let [ambassador] = await db.select().from(exclusiveAmbassadors)
     .where(eq(exclusiveAmbassadors.code, clean)).limit(1);
+  if (!ambassador) {
+    // Tolerante con lo que la gente escribe a mano: espacios, guiones, tildes.
+    const key = looseCodeKey(clean);
+    if (key) {
+      const all = await db.select().from(exclusiveAmbassadors);
+      const matches = all.filter((a) => looseCodeKey(a.code) === key);
+      if (matches.length === 1) ambassador = matches[0];
+    }
+  }
   if (!ambassador) return null;
 
   const featuredEvent = await getFeaturedEvent();
