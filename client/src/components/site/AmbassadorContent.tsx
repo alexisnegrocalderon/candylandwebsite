@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { toast } from 'sonner';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Check, ChevronDown, Copy, Download, Link2, Loader2, MessageCircle, Share2, Sparkles, Ticket } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { formatChileShortDate } from '@shared/chileDate';
@@ -123,7 +124,16 @@ function LinkStickerGuide() {
         ¿Cómo pongo mi link en una historia? (paso a paso)
         <ChevronDown className={`w-4 h-4 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
+      <AnimatePresence initial={false}>
       {open && (
+        <motion.div
+          key="pasos"
+          initial={{ height: 0, opacity: 0 }}
+          animate={{ height: 'auto', opacity: 1 }}
+          exit={{ height: 0, opacity: 0 }}
+          transition={{ duration: 0.28, ease: [0.32, 0.72, 0, 1] }}
+          className="overflow-hidden"
+        >
         <div className="px-4 pb-4">
           <ol className="space-y-2">
             {STICKER_STEPS.map((step, i) => (
@@ -138,7 +148,9 @@ function LinkStickerGuide() {
             escrito en ella y funciona igual. ¿No te aparece Instagram al tocar «Compartir»? Toca «Guardar» y súbela desde tus fotos.
           </p>
         </div>
+        </motion.div>
       )}
+      </AnimatePresence>
     </div>
   );
 }
