@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
-import { Calendar, Check, Copy, Crown, Gift, LogOut, Sparkles, Ticket as TicketIcon, ArrowRight } from 'lucide-react';
+import { Calendar, Check, Copy, Crown, Gift, LogOut, Sparkles, Ticket as TicketIcon, ArrowRight, Download, Loader2 } from 'lucide-react';
 import { Link } from 'wouter';
 import { trpc } from '@/lib/trpc';
 import { useSeo } from '@/hooks/useSeo';
@@ -9,6 +9,7 @@ import { canRedeem, PLAYCOINS_MIN_REDEEM_BALANCE } from '@shared/playcoins';
 import { CUSTOMER_LEVEL_META } from '@shared/customerInsights';
 import { isMemberEarlyAccess } from '@shared/memberConfig';
 import { WalletCard } from '@/components/wallet/WalletCard';
+import { saveTicketImage } from '@/lib/ticketImage';
 import { PushPrompt } from '@/components/site/PushPrompt';
 import { MemberLogin, type LoginDone } from '@/components/site/MemberLogin';
 import { fmtDate, fmtDateTime } from '@/lib/member';
@@ -76,31 +77,46 @@ function useCountdown(date: string | Date) {
 
 type MeEvent = { eventId: number; eventTitle: string; eventSlug: string; eventDate: string | Date; venue: string | null; tickets: { ticketCode: string; holderName: string | null; status: string; qrImageUrl: string | null }[] };
 
-/** Lo primero que ve quien entra: su entrada del próximo evento, con QR y cuenta regresiva. */
-function NextTicket({ ev }: { ev: MeEvent }) {
+type Movement = { type: 'money' | 'points'; label: string; delta: number; createdAt: string | Date };
+
+/** Lo primero que ve quien entra: su PlayCard con el QR de la entrada del próximo evento.
+ * Tocar la tarjeta la guarda como imagen (Fotos) para mostrarla en la puerta o en caja sin internet. */
+function TicketWallet({ ev, holder, prepaidBalance, playcoins, movements }: { ev: MeEvent | null; holder: string; prepaidBalance: number; playcoins: number; movements: Movement[] }) {
   const [i, setI] = useState(0);
-  const countdown = useCountdown(ev.eventDate);
-  const t = ev.tickets[Math.min(i, ev.tickets.length - 1)];
+  const [saving, setSaving] = useState(false);
+  const t = ev ? ev.tickets[Math.min(i, ev.tickets.length - 1)] : null;
+  const canSave = !!(ev && t?.qrImageUrl && t.status !== 'used');
+
+  const save = async () => {
+    if (!ev || !t?.qrImageUrl || saving) return;
+    setSaving(true);
+    try {
+      const r = await saveTicketImage({ qrImageUrl: t.qrImageUrl, ticketCode: t.ticketCode, holderName: t.holderName || holder, eventTitle: ev.eventTitle, eventDateText: fmtDateTime(ev.eventDate), venue: ev.venue });
+      if (r === 'downloaded') toast.success('Listo: la imagen de tu entrada quedó descargada.');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'No se pudo guardar la imagen');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
-    <div className={`rounded-[28px] p-[1.5px] ${NEON_RING}`}>
-      <div className="rounded-[27px] p-5" style={{ background: 'radial-gradient(120% 120% at 20% 0%, #2a1740, #0d0712 70%)' }}>
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-pink-300">Tu entrada</p>
-            <p className="mt-1 font-heading text-xl font-extrabold leading-tight text-white">{ev.eventTitle}</p>
-            <p className="mt-1 flex items-center gap-1.5 text-xs text-white/60"><Calendar className="h-3.5 w-3.5" /> {fmtDateTime(ev.eventDate)}{ev.venue ? ` · ${ev.venue}` : ''}</p>
-          </div>
-          <span className="shrink-0 rounded-full bg-gradient-to-r from-pink-500 to-sky-400 px-3 py-1 text-[11px] font-bold text-white shadow-[0_0_14px_rgba(236,72,153,0.5)]">{countdown}</span>
-        </div>
-        {t.qrImageUrl && t.status !== 'used' ? (
-          <Link href={`/verificar/${t.ticketCode}`} className="mx-auto mt-4 block w-fit rounded-2xl bg-[#fbeee0] p-3 shadow-[0_0_30px_rgba(236,72,153,0.25)]" aria-label="Abrir mi entrada">
-            <img src={t.qrImageUrl} alt="Código QR de tu entrada" className="h-44 w-44" />
-          </Link>
-        ) : (
-          <p className="mt-4 rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-center text-sm text-white/70">{t.status === 'used' ? '✅ Esta entrada ya fue usada.' : 'Abre tu entrada para ver el QR.'}</p>
-        )}
-        {ev.tickets.length > 1 && (
-          <div className="mt-3 flex flex-wrap justify-center gap-2">
+    <div className="space-y-4">
+      {ev && <EventStrip ev={ev} />}
+      <div className="rounded-[28px] p-5 md:p-8" style={{ background: 'radial-gradient(120% 120% at 20% 0%, #241432, #0d0712 70%)' }}>
+        <WalletCard
+          eventTitle={ev?.eventTitle ?? ''}
+          eventDateShort=""
+          holderName={t?.holderName || holder}
+          ticketCode={t?.ticketCode ?? null}
+          qrImageUrl={t?.status === 'used' ? null : t?.qrImageUrl ?? null}
+          prepaidBalance={prepaidBalance}
+          playcoins={playcoins}
+          movements={movements.map((m) => ({ ...m, createdAt: new Date(m.createdAt) })) as any}
+          onCardClick={canSave ? () => { void save(); } : undefined}
+        />
+        {ev && ev.tickets.length > 1 && (
+          <div className="mt-4 flex flex-wrap justify-center gap-2">
             {ev.tickets.map((x, n) => (
               <button key={x.ticketCode} type="button" onClick={() => setI(n)} className={`rounded-full border px-3.5 py-1.5 text-sm font-semibold interactive ${n === i ? 'border-pink-400 bg-pink-500/20 text-white' : 'border-white/15 text-white/70'}`}>
                 {x.status === 'used' ? '✅ ' : '🎟️ '}{x.holderName ? x.holderName.split(' ')[0] : `Entrada ${n + 1}`}
@@ -108,7 +124,34 @@ function NextTicket({ ev }: { ev: MeEvent }) {
             ))}
           </div>
         )}
-        <Link href={`/verificar/${t.ticketCode}`} className="mt-3 flex items-center justify-center gap-1.5 text-sm font-semibold text-pink-300 interactive">Abrir mi entrada completa <ArrowRight className="h-4 w-4" /></Link>
+      </div>
+      {canSave && t && (
+        <div className="grid grid-cols-2 gap-2">
+          <button type="button" onClick={() => { void save(); }} disabled={saving} className="inline-flex h-12 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-pink-500 via-fuchsia-500 to-sky-500 text-sm font-bold text-white shadow-[0_0_20px_rgba(236,72,153,0.4)] interactive disabled:opacity-60">
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} Guardar en Fotos
+          </button>
+          <Link href={`/verificar/${t.ticketCode}`} className="account-glass inline-flex h-12 items-center justify-center gap-1.5 rounded-full text-sm font-semibold text-white interactive">
+            Ver mi entrada <ArrowRight className="h-4 w-4" />
+          </Link>
+        </div>
+      )}
+      {canSave && <p className="text-center text-xs text-white/50">Toca tu PlayCard para guardarla: así la muestras en la puerta y en caja aunque no tengas señal.</p>}
+    </div>
+  );
+}
+
+/** Franja del evento: nombre, fecha y cuenta regresiva (sin el QR, que va en la PlayCard). */
+function EventStrip({ ev }: { ev: MeEvent }) {
+  const countdown = useCountdown(ev.eventDate);
+  return (
+    <div className={`rounded-3xl p-[1.5px] ${NEON_RING}`}>
+      <div className="flex items-center justify-between gap-3 rounded-[23px] bg-[#0d0712]/95 px-4 py-3.5">
+        <div className="min-w-0">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-pink-300">Tu próximo evento</p>
+          <p className="truncate font-heading text-base font-extrabold text-white">{ev.eventTitle}</p>
+          <p className="flex items-center gap-1.5 truncate text-xs text-white/60"><Calendar className="h-3.5 w-3.5 shrink-0" /> {fmtDateTime(ev.eventDate)}{ev.venue ? ` · ${ev.venue}` : ''}</p>
+        </div>
+        <span className="shrink-0 rounded-full bg-gradient-to-r from-pink-500 to-sky-400 px-3 py-1 text-[11px] font-bold text-white shadow-[0_0_14px_rgba(236,72,153,0.5)]">{countdown}</span>
       </div>
     </div>
   );
@@ -181,9 +224,9 @@ export default function Cuenta() {
             </div>
           )}
 
-          {upcoming[0] ? (
-            <NextTicket ev={upcoming[0]} />
-          ) : me.nextEvent ? (
+          <TicketWallet ev={upcoming[0] ?? null} holder={me.fullName || me.email} prepaidBalance={me.prepaidBalance} playcoins={me.playcoins} movements={me.movements} />
+
+          {!upcoming[0] && me.nextEvent && (
             <Link href={`/checkout/${me.nextEvent.slug}`} className={`block rounded-[28px] p-[1.5px] ${NEON_RING} interactive`}>
               <div className="rounded-[27px] bg-[#0d0712] p-5">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-pink-300">Próximo evento</p>
@@ -192,7 +235,7 @@ export default function Cuenta() {
                 <p className="mt-3 text-sm font-semibold text-pink-300">Comprar mi entrada →</p>
               </div>
             </Link>
-          ) : null}
+          )}
 
           {/* Avisos: bien arriba y llamativo; desaparece solo al activarlos. */}
           <PushPrompt source="puntos" tone="dark" className="shadow-[0_0_28px_rgba(236,72,153,0.22)]" />
@@ -204,10 +247,6 @@ export default function Cuenta() {
               <p className="mt-2 text-sm font-semibold text-pink-300">Comprar mi entrada →</p>
             </Link>
           )}
-
-          <div className="rounded-[28px] p-6 md:p-8" style={{ background: 'radial-gradient(120% 120% at 20% 0%, #241432, #0d0712 70%)' }}>
-            <WalletCard eventTitle="" eventDateShort="" holderName={me.fullName || me.email} ticketCode={null} qrImageUrl={null} prepaidBalance={me.prepaidBalance} playcoins={me.playcoins} movements={me.movements.map((m) => ({ ...m, createdAt: new Date(m.createdAt) })) as any} />
-          </div>
 
           <div className={`${GLASS} p-4`}>
             <div className="flex items-baseline justify-between text-sm">
