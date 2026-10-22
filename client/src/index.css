@@ -607,9 +607,7 @@ html {
    panel ni las terminales (llevan data-splash="dark" y su propio manejo). */
 @media (display-mode: standalone) {
   html:not([data-splash="dark"]) { background-color: #0b0612; }
-  /* La franja solo va en las páginas claras del sitio; las pantallas oscuras de la app (`html.app-dark`)
-     pintan su propio fondo hasta arriba, así el degradado sigue por detrás de la hora y la batería. */
-  html:not([data-splash="dark"]):not(.app-dark)::before {
+  html:not([data-splash="dark"])::before {
     content: "";
     position: fixed;
     top: 0;

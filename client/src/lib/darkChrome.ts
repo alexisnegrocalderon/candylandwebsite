@@ -5,21 +5,6 @@ import { useEffect } from 'react';
  * asome una franja blanca/rosa arriba ni un destello al navegar. Al salir se devuelve todo como estaba. */
 export const DARK_CHROME_BG = '#0b0612';
 
-/** Marca `html.app-dark` mientras haya alguna pantalla oscura de la app a la vista (varias pueden pedirlo a la
- * vez: «Mi cuenta» y el modo app). Devuelve cómo soltarla. */
-let appDarkHolders = 0;
-export function holdAppDark(): () => void {
-  appDarkHolders++;
-  document.documentElement.classList.add('app-dark');
-  let released = false;
-  return () => {
-    if (released) return;
-    released = true;
-    appDarkHolders--;
-    if (appDarkHolders <= 0) { appDarkHolders = 0; document.documentElement.classList.remove('app-dark'); }
-  };
-}
-
 export function useDarkChrome(): void {
   useEffect(() => {
     const root = document.documentElement;
@@ -28,13 +13,10 @@ export function useDarkChrome(): void {
     const prevRoot = root.style.backgroundColor;
     const prevBody = document.body.style.backgroundColor;
     meta?.setAttribute('content', DARK_CHROME_BG);
-    // `app-dark`: la pantalla pinta su propio fondo hasta arriba (ver index.css, franja de la barra de estado).
-    const release = holdAppDark();
     root.style.backgroundColor = DARK_CHROME_BG;
     document.body.style.backgroundColor = DARK_CHROME_BG;
     return () => {
       if (prevMeta !== null) meta?.setAttribute('content', prevMeta);
-      release();
       root.style.backgroundColor = prevRoot;
       document.body.style.backgroundColor = prevBody;
     };
