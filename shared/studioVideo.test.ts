@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { emptySlide, normalizeStudioDesign } from './contentStudio';
 import {
+  cleanAmbassadorCode,
   eventVideo,
+  playcardVideo,
   normalizeStudioVideo,
   scriptVideo,
   slidesVideo,
@@ -118,5 +120,34 @@ describe('composición HyperFrames', () => {
     expect(out).toContain('data-width="1080" data-height="1440"');
     expect(out).not.toContain('tl.fromTo("#l0-in"');
     expect(out).toContain('tl.fromTo("#l1-in"');
+  });
+});
+
+describe('código de embajador y PlayCard', () => {
+  it('el código se limpia: mayúsculas, sin espacios ni símbolos raros', () => {
+    expect(cleanAmbassadorCode(' sofia ')).toBe('SOFIA');
+    expect(cleanAmbassadorCode('camila_2')).toBe('CAMILA_2');
+    expect(cleanAmbassadorCode('a')).toBe('');
+    expect(cleanAmbassadorCode('sofía!')).toBe('');
+    expect(cleanAmbassadorCode('<script>')).toBe('');
+    expect(cleanAmbassadorCode(42)).toBe('');
+  });
+
+  it('el anuncio con código lo pone en el botón y en el texto de la publicación', () => {
+    const e = { id: 1, title: 'Candyland', eventDate: '2026-08-09T01:00:00Z' };
+    const v = eventVideo(e, { code: 'sofia' });
+    expect(v.cta).toBe('Mi código: SOFIA');
+    expect(v.caption).toContain('Usa mi código SOFIA al comprar');
+    expect(eventVideo(e).cta).toBe('Entradas en mansionplayroom.cl');
+    expect(eventVideo(e).caption).not.toContain('código');
+    expect(eventVideo(e, { format: 'feed' }).format).toBe('feed');
+  });
+
+  it('la PlayCard es un reel en la plantilla PlayCard con cierre', () => {
+    const v = playcardVideo();
+    expect(v.theme).toBe('playcard');
+    expect(v.format).toBe('reel');
+    expect(videoTimeline(v).total).toBeGreaterThan(10);
+    expect(norm(v)).not.toBeNull();
   });
 });

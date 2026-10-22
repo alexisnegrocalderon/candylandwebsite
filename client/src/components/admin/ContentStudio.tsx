@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import {
-  ArrowDown, ArrowLeft, ArrowUp, Camera, Clapperboard, Copy, Download, Image as ImageIcon, Layers, Loader2, Palette, Plus, Save, Share2, Sparkles, Trash2, X, Zap,
+  ArrowDown, ArrowLeft, ArrowUp, Camera, Clapperboard, Copy, Download, Image as ImageIcon, Layers, Loader2, Package, Palette, Plus, Save, Share2, Sparkles, Trash2, X, Zap,
 } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
@@ -35,9 +35,10 @@ import {
 import { PASTEL_PALETTE_LABELS, StudioSlideView } from './studio/StudioSlideView';
 import { downloadSlide, downloadZip, shareSlides, slideFileName } from './studio/exportSlides';
 import { newSlide, starterSlides } from './studio/starters';
-import { takeQueuedDesign, takeQueuedVideo } from './studio/handoff';
+import { takeQueuedDesign, takeQueuedEventPack, takeQueuedVideo } from './studio/handoff';
+import { EventPack } from './studio/EventPack';
 import { VideoStudio, type VideoEditing } from './studio/VideoStudio';
-import { eventVideo, slidesVideo, starterPointsVideo, VIDEO_FORMAT_LABEL, VIDEO_TEMPLATE_LABEL, type StudioVideo } from '@shared/studioVideo';
+import { eventVideo, playcardVideo, slidesVideo, starterPointsVideo, VIDEO_FORMAT_LABEL, VIDEO_TEMPLATE_LABEL, type StudioVideo } from '@shared/studioVideo';
 import { AiDesigner } from './studio/AiDesigner';
 import { AiUsageCard } from './studio/AiUsageCard';
 import { SlideFrame } from './studio/SlideFrame';
@@ -133,6 +134,22 @@ export function ContentStudio() {
     return queued ? { video: queued, dirty: true } : null;
   });
 
+  // «Contenido» de un evento (desde la lista de eventos) o la tarjeta «Paquete de un evento».
+  const [pack, setPack] = useState<{ eventId: number | null } | null>(() => {
+    const queued = takeQueuedEventPack();
+    return queued ? { eventId: queued } : null;
+  });
+
+  if (pack) {
+    return (
+      <EventPack
+        initialEventId={pack.eventId}
+        onBack={() => setPack(null)}
+        onOpen={(design) => { setPack(null); setEditing({ design, dirty: true }); }}
+        onOpenVideo={(v) => { setPack(null); setVideo({ video: v, dirty: true }); }}
+      />
+    );
+  }
   if (video) {
     return <VideoStudio editing={video} setEditing={setVideo} onClose={() => setVideo(null)} />;
   }
@@ -145,11 +162,11 @@ export function ContentStudio() {
   if (editing) {
     return <StudioEditor editing={editing} setEditing={setEditing} onClose={() => setEditing(null)} onAnimate={(v) => setVideo({ video: v, dirty: true })} />;
   }
-  return <StudioHome onOpen={setEditing} onOpenAi={setAi} onOpenPhoto={() => setPhoto(emptyPhotoBrief())} onOpenVideo={setVideo} />;
+  return <StudioHome onOpen={setEditing} onOpenAi={setAi} onOpenPhoto={() => setPhoto(emptyPhotoBrief())} onOpenVideo={setVideo} onOpenPack={() => setPack({ eventId: null })} />;
 }
 
-function StudioHome({ onOpen, onOpenAi, onOpenPhoto, onOpenVideo }: {
-  onOpen: (e: Editing) => void; onOpenAi: (a: AiOpen) => void; onOpenPhoto: () => void; onOpenVideo: (v: VideoEditing) => void;
+function StudioHome({ onOpen, onOpenAi, onOpenPhoto, onOpenVideo, onOpenPack }: {
+  onOpen: (e: Editing) => void; onOpenAi: (a: AiOpen) => void; onOpenPhoto: () => void; onOpenVideo: (v: VideoEditing) => void; onOpenPack: () => void;
 }) {
   const utils = trpc.useUtils();
   const { data: designs, isLoading } = trpc.contentStudio.list.useQuery();
@@ -158,7 +175,7 @@ function StudioHome({ onOpen, onOpenAi, onOpenPhoto, onOpenVideo }: {
   const upcomingEvents = (events ?? []).filter((e) => e.status === 'published' || e.status === 'soldout');
   const newVideo = () => {
     const event = upcomingEvents.find((e) => String(e.id) === videoEvent);
-    onOpenVideo({ video: event ? eventVideo(event) : starterPointsVideo(), dirty: true });
+    onOpenVideo({ video: event ? eventVideo(event) : videoEvent === 'playcard' ? playcardVideo() : starterPointsVideo(), dirty: true });
   };
   const openVideo = async (id: number) => {
     setOpening(id);
@@ -237,6 +254,19 @@ function StudioHome({ onOpen, onOpenAi, onOpenPhoto, onOpenVideo }: {
         </CardContent>
       </Card>
 
+      <Card className="rounded-2xl border-0 shadow-md shadow-black/5 bg-gradient-to-br from-pink-500/10 to-sky-500/10">
+        <CardContent className="pt-6 flex flex-wrap items-end gap-3">
+          <div className="min-w-0 flex-1 basis-60">
+            <p className="font-medium flex items-center gap-2"><Package className="w-4 h-4" /> Paquete de un evento <span className="text-xs font-normal text-muted-foreground">· sin IA, gratis</span></p>
+            <p className="text-sm text-muted-foreground">
+              Elige un evento y salen juntas las imágenes (feed 3:4 e historia 9:16), la imagen para compartir el link y los videos del
+              anuncio. Con el código de un embajador, todo sale personalizado para él.
+            </p>
+          </div>
+          <Button onClick={onOpenPack}><Package className="w-4 h-4 mr-2" /> Armar paquete</Button>
+        </CardContent>
+      </Card>
+
       <Card className="rounded-2xl border-0 shadow-md shadow-black/5 bg-gradient-to-br from-violet-500/5 to-pink-500/5">
         <CardContent className="pt-6 flex flex-wrap items-end gap-3">
           <div className="min-w-0 flex-1 basis-60">
@@ -252,6 +282,7 @@ function StudioHome({ onOpen, onOpenAi, onOpenPhoto, onOpenVideo }: {
               <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">Gancho + puntos (ejemplo)</SelectItem>
+                <SelectItem value="playcard">PlayCard animada</SelectItem>
                 {upcomingEvents.map((e) => <SelectItem key={e.id} value={String(e.id)}>Anuncio: {e.title}</SelectItem>)}
               </SelectContent>
             </Select>

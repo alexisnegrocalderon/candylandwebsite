@@ -46,3 +46,26 @@ export function takeQueuedVideo(): StudioVideo | null {
     return null;
   }
 }
+
+/* «Contenido» de un evento (botón en la lista de eventos): deja el id del
+ * evento para que el Estudio abra su paquete ya con ese evento elegido. */
+const PACK_KEY = 'admin-studio-pending-pack';
+
+export function openEventPackInStudio(eventId: number) {
+  try {
+    window.sessionStorage.setItem(PACK_KEY, String(eventId));
+  } catch { /* sin sessionStorage: el Estudio abre igual, sin el evento */ }
+  window.dispatchEvent(new CustomEvent(OPEN_SECTION_EVENT, { detail: 'studio' }));
+}
+
+export function takeQueuedEventPack(): number | null {
+  try {
+    const raw = window.sessionStorage.getItem(PACK_KEY);
+    if (!raw) return null;
+    window.sessionStorage.removeItem(PACK_KEY);
+    const id = Number(raw);
+    return Number.isInteger(id) && id > 0 ? id : null;
+  } catch {
+    return null;
+  }
+}

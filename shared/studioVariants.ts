@@ -7,6 +7,7 @@
  * client/src/components/admin/studio/VariantGallery.tsx. */
 
 import { formatChileDate, formatChileTime } from './chileDate';
+import { cleanAmbassadorCode } from './studioVideo';
 import {
   emptySlide,
   normalizeStudioDesign,
@@ -127,15 +128,22 @@ function capitalize(text: string): string {
 
 /** El anuncio de un evento con sus datos reales: nombre, día y hora (en hora
  * de Chile) y su foto. La dirección nunca va: se entrega solo a quien compró. */
-export function eventPhotoBrief(event: EventForBrief): PhotoBrief {
+export function eventPhotoBrief(event: EventForBrief, opts: { code?: string } = {}): PhotoBrief {
   const when = `${capitalize(formatChileDate(event.eventDate))} · ${formatChileTime(event.doorsOpen ?? event.eventDate)} hrs`;
+  const code = cleanAmbassadorCode(opts.code);
   return {
     imageUrl: event.imageUrl?.trim() ?? '',
     title: event.title,
     body: when,
-    cta: 'Entradas en mansionplayroom.cl',
-    footnote: 'Evento +18',
+    // Con código de embajador, el botón es el código (es lo que se escribe al comprar).
+    cta: code ? `Mi código: ${code}` : 'Entradas en mansionplayroom.cl',
+    footnote: code ? 'mansionplayroom.cl · Evento +18' : 'Evento +18',
     eventId: event.id,
-    caption: [event.shortDescription?.trim(), `📅 ${when}`, '🎟️ Entradas en mansionplayroom.cl', '#MansionPlayroom #FiestaLiberal #VinaDelMar'].filter(Boolean).join('\n\n'),
+    caption: [
+      event.shortDescription?.trim(),
+      `📅 ${when}`,
+      `🎟️ Entradas en mansionplayroom.cl${code ? `\nUsa mi código ${code} al comprar tu entrada.` : ''}`,
+      '#MansionPlayroom #FiestaLiberal #VinaDelMar',
+    ].filter(Boolean).join('\n\n'),
   };
 }
