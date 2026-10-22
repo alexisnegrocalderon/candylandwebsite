@@ -36,13 +36,13 @@ function isTouchDevice(): boolean {
 function Step({ n, children }: { n: number; children: ReactNode }) {
   return (
     <li className="flex items-start gap-3">
-      <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-primary/15 text-[11px] font-bold text-primary">{n}</span>
-      <span className="pt-0.5 text-[13px] leading-snug text-muted-foreground">{children}</span>
+      <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-primary/25 text-[11px] font-bold text-foreground">{n}</span>
+      <span className="glass-text-soft pt-0.5 text-[13.5px] leading-snug">{children}</span>
     </li>
   );
 }
 
-const strong = 'text-foreground';
+const strong = 'glass-text font-bold';
 
 export function InstallAppPrompt() {
   const [location] = useLocation();
@@ -94,13 +94,13 @@ export function InstallAppPrompt() {
           transition={{ type: 'spring', damping: 30, stiffness: 320 }}
         >
           <div className="pointer-events-auto relative mx-auto max-w-md glass-float rounded-[26px] p-4">
-            <button type="button" onClick={close} aria-label="Cerrar" className="absolute right-3 top-3 text-muted-foreground hover:opacity-80"><X className="h-4 w-4" /></button>
+            <button type="button" onClick={close} aria-label="Cerrar" className="glass-text-soft absolute right-3 top-3 hover:opacity-80"><X className="h-4 w-4" /></button>
 
             <div className="flex items-center gap-3 pr-6">
               <img src="/candyland/favicon-192.png" alt="" className="h-11 w-11 shrink-0 rounded-[14px] shadow-md ring-1 ring-white/50" />
               <div className="min-w-0">
-                <p className="font-heading text-[15px] font-bold leading-tight text-foreground">Instala la App de PlayRoom</p>
-                <p className="mt-0.5 text-[12.5px] leading-snug text-muted-foreground">Tu entrada, tu PlayCard y avisos a un toque. Gratis y sin tienda de apps.</p>
+                <p className="glass-text font-heading text-[16px] font-bold leading-tight">Instala la App de PlayRoom</p>
+                <p className="glass-text-soft mt-0.5 text-[13px] leading-snug">Tu entrada, tu PlayCard y avisos a un toque. Gratis y sin tienda de apps.</p>
               </div>
             </div>
 
@@ -134,7 +134,7 @@ export function InstallAppPrompt() {
                         <Step n={3}>Abre <b className={strong}>PlayRoom</b> desde el ícono nuevo.</Step>
                       </ol>
                     ) : (
-                      <p className="text-[13px] text-muted-foreground">Ábrela en tu celular: en Android toca «Instalar app» en el menú de Chrome; en iPhone, Compartir → Agregar a inicio en Safari.</p>
+                      <p className="glass-text-soft text-[13.5px]">Ábrela en tu celular: en Android toca «Instalar app» en el menú de Chrome; en iPhone, Compartir → Agregar a inicio en Safari.</p>
                     )}
                   </div>
                 </motion.div>
@@ -155,7 +155,7 @@ export function InstallAppPrompt() {
                   <ChevronDown className={`h-4 w-4 transition-transform duration-300 ${steps ? 'rotate-180' : ''}`} />
                 </button>
               )}
-              <button type="button" onClick={close} className="h-11 shrink-0 rounded-full px-4 text-sm font-semibold text-foreground/60">Ahora no</button>
+              <button type="button" onClick={close} className="h-11 shrink-0 glass-text-soft rounded-full px-4 text-sm font-semibold">Ahora no</button>
             </div>
           </div>
         </motion.div>
