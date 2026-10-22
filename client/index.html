@@ -180,7 +180,7 @@
           d.setAttribute('data-splash', 'site');
           // Instalada: el fondo detrás de la barra de estado y del rebote del scroll es el de la app, nunca blanco.
           if (standalone) d.style.backgroundColor = '#0b0612';
-          var m = document.querySelector('meta[name="theme-color"]:not([media])');
+          var m = document.querySelector('meta[name="theme-color"]');
           // Barra de estado oscura solo mientras dura la intro; client/src/lib/splash.ts devuelve el color del sitio.
           if (m && standalone) { m.setAttribute('data-site-color', m.getAttribute('content') || ''); m.setAttribute('content', '#0b0612'); }
           var i = document.querySelector('#initial-loader img');

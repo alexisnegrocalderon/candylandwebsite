@@ -23,7 +23,7 @@ export function holdAppDark(): () => void {
 export function useDarkChrome(): void {
   useEffect(() => {
     const root = document.documentElement;
-    const meta = document.querySelector('meta[name="theme-color"]:not([media])');
+    const meta = document.querySelector('meta[name="theme-color"]');
     const prevMeta = meta?.getAttribute('content') ?? null;
     const prevRoot = root.style.backgroundColor;
     const prevBody = document.body.style.backgroundColor;
