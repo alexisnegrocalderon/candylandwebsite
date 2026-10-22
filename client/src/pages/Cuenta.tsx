@@ -2,7 +2,7 @@ import { Component, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, MotionConfig, motion, useDragControls } from 'framer-motion';
 import { toast } from 'sonner';
-import { Calendar, Check, Copy, Crown, Gift, LogOut, Sparkles, Ticket as TicketIcon, ArrowRight, Download, Loader2, X, QrCode, CreditCard, Coins, MoreHorizontal, Home, Wallet, Plus, RefreshCw, Bell, ChevronLeft, ChevronRight, Stamp as StampIcon } from 'lucide-react';
+import { Calendar, Check, Copy, Crown, Gift, LogOut, Sparkles, Ticket as TicketIcon, ArrowRight, Download, Loader2, X, QrCode, CreditCard, Coins, MoreHorizontal, Home, Wallet, Plus, RefreshCw, Bell, ChevronLeft, ChevronRight, Heart, Stamp as StampIcon } from 'lucide-react';
 import { Link } from 'wouter';
 import { trpc } from '@/lib/trpc';
 import type { inferRouterOutputs } from '@trpc/server';
@@ -20,6 +20,7 @@ import { TiltCard } from '@/components/site/TiltCard';
 import { BottomSheet, PayInCajaViewer, SavedCardsSection, TopupSheet, useMemberPayConfig } from '@/components/site/AccountPayments';
 import { AmbassadorAccount, useAmbassadorPanel } from '@/components/site/AmbassadorAccount';
 import { StampsTab } from '@/components/site/StampCard';
+import { canEnterParty, isPartyWindowOpen } from '@shared/party';
 import { useCustomerPush } from '@/lib/customerPush';
 import { avisosNotice } from '@/lib/pushPromptView';
 import { useIsMobile } from '@/hooks/useMobile';
@@ -110,7 +111,7 @@ function useCountdown(date: string | Date) {
   return `Faltan ${hours} h ${mins % 60} min`;
 }
 
-type MeEvent = { eventId: number; eventTitle: string; eventSlug: string; eventDate: string | Date; venue: string | null; tickets: { ticketCode: string; holderName: string | null; status: string; qrImageUrl: string | null }[] };
+type MeEvent = { eventId: number; eventTitle: string; eventSlug: string; eventDate: string | Date; venue: string | null; doorsOpen?: string | Date | null; eventEnd?: string | Date | null; tickets: { ticketCode: string; holderName: string | null; status: string; qrImageUrl: string | null; category?: string }[] };
 
 type Movement = { type: 'money' | 'points'; label: string; delta: number; createdAt: string | Date };
 
@@ -211,9 +212,12 @@ function TicketWallet({ ev, holder, prepaidBalance, playcoins, movements, compac
       {labels[n]}
     </button>
   )));
+  const evWindow = ev ? { eventDate: ev.eventDate, doorsOpen: ev.doorsOpen, eventEnd: ev.eventEnd } : null;
+  const playmatchCode = ev && evWindow ? ev.tickets.find((x) => x.category === 'acceso' && canEnterParty({ status: x.status, eventId: ev.eventId }, evWindow))?.ticketCode ?? null : null;
   const actions = [
-    usable ? { key: 'qr', label: 'Mostrar QR', icon: QrCode, onClick: () => setShowQr(true), primary: true } : null,
-    usable && t ? { key: 'entrada', label: 'Mi entrada', icon: TicketIcon, href: `/verificar/${t.ticketCode}` } : null,
+    // La noche de la fiesta, ya escaneada en la puerta: Playmatch a un toque (sin escribir el código).
+    playmatchCode ? { key: 'playmatch', label: 'Playmatch', icon: Heart, href: `/fiesta/${playmatchCode}`, primary: true } : null,
+    usable ? { key: 'qr', label: 'Mostrar QR', icon: QrCode, onClick: () => setShowQr(true), primary: !playmatchCode } : null,
     onPayCaja ? { key: 'caja', label: 'Pagar', icon: Wallet, onClick: onPayCaja } : null,
     onTopup ? { key: 'recarga', label: 'Recargar', icon: Plus, onClick: onTopup } : null,
   ].filter(Boolean) as { key: string; label: string; icon: typeof Wallet; href?: string; onClick?: () => void; primary?: boolean }[];
@@ -339,6 +343,38 @@ function perkList(me: Me): string[] {
     me.perks.vip && `${me.perks.vip}% cada mes si eres VIP`,
     me.perks.birthday && `${me.perks.birthday}% en tu cumpleaños`,
   ].filter(Boolean) as string[];
+}
+
+/** Playmatch (la fiesta en el celular) desde la app: la noche del evento, con su acceso ya escaneado en la
+ * puerta, entra directo con su propia entrada, sin escribir ningún código. Antes de entrar, un aviso
+ * de que se abre al pasar por la puerta. El servidor de Playmatch revalida todo igual. */
+function PartyEntryCard({ events }: { events: MeEvent[] }) {
+  const now = new Date();
+  const ev = events.find((e) => isPartyWindowOpen({ eventDate: e.eventDate, doorsOpen: e.doorsOpen, eventEnd: e.eventEnd }, now));
+  if (!ev) return null;
+  const access = ev.tickets.filter((t) => t.category === 'acceso');
+  const inside = access.find((t) => canEnterParty({ status: t.status, eventId: ev.eventId }, { eventDate: ev.eventDate, doorsOpen: ev.doorsOpen, eventEnd: ev.eventEnd }, now));
+  if (inside) {
+    return (
+      <Link href={`/fiesta/${inside.ticketCode}`} onClick={tapHaptic} className={`block shrink-0 rounded-[26px] p-[1.5px] ${NEON_RING} interactive`}>
+        <div className="flex items-center gap-3 rounded-[25px] bg-[#0d0712] px-4 py-3.5">
+          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-gradient-to-br from-pink-500 to-sky-500 text-xl">🍬</span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[16px] font-bold leading-tight">Entrar a Playmatch</span>
+            <span className="block truncate text-[12.5px] text-white/60">Mira quién está, conecta y chatea esta noche</span>
+          </span>
+          <ArrowRight className="h-5 w-5 shrink-0 text-pink-300" />
+        </div>
+      </Link>
+    );
+  }
+  if (access.length === 0) return null;
+  return (
+    <div className="account-glass flex shrink-0 items-center gap-3 rounded-[22px] px-4 py-3">
+      <span className="text-xl">🍬</span>
+      <p className="text-[13px] leading-snug text-white/70"><b className="text-white">Playmatch</b> se abre apenas te escaneen en la puerta.</p>
+    </div>
+  );
 }
 
 function BuyNextCard({ me }: { me: Me }) {
@@ -501,7 +537,9 @@ class TabBoundary extends Component<{ children: ReactNode; onBack: () => void },
 }
 
 /** Entradas en páginas: una por evento (y de a 4 entradas por página). */
-function TicketsPager({ events }: { events: MeEvent[] }) {
+function TicketsPager({ events, holder }: { events: MeEvent[]; holder: string }) {
+  // El QR se abre dentro de la app (antes llevaba a la página /verificar del sitio).
+  const [open, setOpen] = useState<{ ev: MeEvent; t: MeEvent['tickets'][number] } | null>(null);
   const pages: { ev: MeEvent; tickets: MeEvent['tickets']; offset: number }[] = [];
   for (const ev of events) {
     for (let o = 0; o < Math.max(1, ev.tickets.length); o += 4) pages.push({ ev, tickets: ev.tickets.slice(o, o + 4), offset: o });
@@ -527,16 +565,17 @@ function TicketsPager({ events }: { events: MeEvent[] }) {
           </div>
           <div className="space-y-2">
             {tickets.map((t, i) => (
-              <Link key={t.ticketCode} href={`/verificar/${t.ticketCode}`} className="lg-pill flex h-14 items-center gap-3 rounded-2xl px-4 interactive">
+              <button key={t.ticketCode} type="button" disabled={t.status !== 'valid' || !t.qrImageUrl} onClick={() => { tapHaptic(); setOpen({ ev, t }); }} className="lg-pill flex h-14 w-full items-center gap-3 rounded-2xl px-4 text-left interactive disabled:opacity-70">
                 <TicketIcon className="h-5 w-5 shrink-0 text-pink-300" />
                 <span className="min-w-0 flex-1 truncate text-[15px] font-semibold">{t.holderName || `Entrada ${offset + i + 1}`}</span>
-                <span className={`shrink-0 text-xs font-medium ${t.status === 'used' ? 'text-white/50' : 'text-emerald-300'}`}>{t.status === 'used' ? 'Usada' : 'Válida'}</span>
-                <ArrowRight className="h-4 w-4 shrink-0 text-white/50" />
-              </Link>
+                <span className={`shrink-0 text-xs font-medium ${t.status === 'used' ? 'text-white/50' : 'text-emerald-300'}`}>{t.status === 'used' ? 'Usada' : 'Ver QR'}</span>
+                {t.status === 'valid' && <QrCode className="h-4 w-4 shrink-0 text-white/50" />}
+              </button>
             ))}
           </div>
         </div>
       ))}
+      {createPortal(<AnimatePresence>{open && <QrViewer ev={open.ev} t={open.t} holder={holder} onClose={() => setOpen(null)} />}</AnimatePresence>, document.body)}
     </Pager>
   );
 }
@@ -824,7 +863,7 @@ function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | nu
       <BottomSheet open={sheet === 'beneficios'} onClose={() => setSheet(null)} title="Beneficios"><PerksCard me={me} /></BottomSheet>
       <BottomSheet open={sheet === 'movimientos'} onClose={() => setSheet(null)} title="Movimientos"><Movements me={me} /></BottomSheet>
       {/* Todas las entradas de los próximos eventos (PlayCard muestra la de la próxima fiesta). */}
-      <BottomSheet open={sheet === 'entradas'} onClose={() => setSheet(null)} title="Mis entradas"><div className="flex min-h-[260px] flex-col"><TicketsPager events={upcoming} /></div></BottomSheet>
+      <BottomSheet open={sheet === 'entradas'} onClose={() => setSheet(null)} title="Mis entradas"><div className="flex min-h-[260px] flex-col"><TicketsPager events={upcoming} holder={me.fullName || me.email} /></div></BottomSheet>
     </div>
     </MotionConfig>
   );
@@ -895,6 +934,7 @@ function DesktopAccount({ me, welcome, onLogout, shell }: { me: Me; welcome: Log
           <WelcomeBanner welcome={welcome} />
           <TicketWallet ev={upcoming[0] ?? null} holder={me.fullName || me.email} prepaidBalance={me.prepaidBalance} playcoins={me.playcoins} movements={me.movements}
             onTopup={pay.accountTopup ? () => setTopupOpen(true) : undefined} onPayCaja={pay.cajaPay ? () => setPayOpen(true) : undefined} />
+          <PartyEntryCard events={upcoming} />
           <BuyNextCard me={me} />
           {ambassador && <AmbassadorAccount panel={ambassador} />}
 
