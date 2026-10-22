@@ -33,7 +33,7 @@ function endSiteSplash(): void {
   const root = document.documentElement;
   if (root.dataset.splash !== 'site') return;
   delete root.dataset.splash;
-  const meta = document.querySelector('meta[name="theme-color"]');
+  const meta = document.querySelector('meta[name="theme-color"]:not([media])');
   const original = meta?.getAttribute('data-site-color');
   if (meta && original) { meta.setAttribute('content', original); meta.removeAttribute('data-site-color'); }
 }

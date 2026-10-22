@@ -140,6 +140,11 @@ for (const screen of SCREENS) {
     `<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />`,
     ...STARTUP_IMAGE_TAGS,
   ].join('\n    ');
-  writeFileSync(join(outDir, 'index.html'), baseHtml.replace(viewport[0], `${viewport[0]}\n    ${tags}`));
+  // Instalada, el color de la barra de estado es el de la app desde el primer cuadro (no depende del JS ni de la
+  // intro). Va ANTES del theme-color del sitio: el navegador toma el primero cuyo `media` coincide.
+  const standaloneTheme = `<meta name="theme-color" media="(display-mode: standalone)" content="#0b0612" />`;
+  const withTheme = baseHtml.replace(/<meta name="theme-color" content="[^"]*"\s*\/?>/, (m) => `${standaloneTheme}\n    ${m}`);
+  if (withTheme === baseHtml) throw new Error('No encontré el theme-color en dist/public/index.html -- revisa client/index.html');
+  writeFileSync(join(outDir, 'index.html'), withTheme.replace(viewport[0], `${viewport[0]}\n    ${tags}`));
   console.log('[generate-pwa-html] index.html <- manifest=/site.webmanifest (sitio instalable)');
 }
