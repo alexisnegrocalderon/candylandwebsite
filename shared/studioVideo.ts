@@ -50,10 +50,53 @@ export const VIDEO_MAX_SECS = 8;
 export const VIDEO_MAX_TOTAL_SECS = 60;
 const CLOSING_SECS = 3;
 
+/** Letras que se pueden elegir. «globo» es el titular de tres capas de Bubble. */
+export const VIDEO_FONTS = {
+  // `cw`: ancho medio de una letra (en «em»), para que el texto quepa sin salirse.
+  globo: { label: 'Globo (Bubble)', css: "'Fredoka Bubble', sans-serif", weight: 700, upper: true, cw: 0.95 },
+  gliker: { label: 'Gliker', css: "'Gliker Semi Bold Expanded', sans-serif", weight: 600, upper: true, cw: 0.95 },
+  unbounded: { label: 'Unbounded', css: "'Unbounded', sans-serif", weight: 800, upper: true, cw: 1.05 },
+  syne: { label: 'Syne', css: "'Syne', sans-serif", weight: 800, upper: false, cw: 0.9 },
+  grotesk: { label: 'Space Grotesk', css: "'Space Grotesk', sans-serif", weight: 700, upper: false, cw: 0.7 },
+  inter: { label: 'Inter', css: "'Inter', sans-serif", weight: 800, upper: false, cw: 0.72 },
+  josefin: { label: 'Josefin Sans', css: "'Josefin Sans Variable', sans-serif", weight: 700, upper: true, cw: 0.8 },
+  allura: { label: 'Allura (manuscrita)', css: "'Allura', cursive", weight: 400, upper: false, cw: 0.55 },
+} as const;
+export type VideoFont = keyof typeof VIDEO_FONTS;
+const FONT_KEYS = Object.keys(VIDEO_FONTS) as VideoFont[];
+
+export const VIDEO_ALIGNS = ['left', 'center', 'right'] as const;
+export type VideoAlign = (typeof VIDEO_ALIGNS)[number];
+export const VIDEO_VPOS = ['top', 'center', 'bottom'] as const;
+export type VideoVpos = (typeof VIDEO_VPOS)[number];
+export const VIDEO_TEXT_SCALE = { min: 0.6, max: 1.6 } as const;
+
+/** Ajustes de diseño. En el video son los de todas las escenas; en una
+ * escena, lo que esa escena cambia. Lo que no viene, lo pone la plantilla. */
+export interface VideoStyle {
+  font?: VideoFont;
+  /** Color del texto grande (#rrggbb). */
+  titleColor?: string;
+  /** Color de acento: etiqueta, número, sombra del texto y botón (#rrggbb). */
+  accentColor?: string;
+  /** Tamaño del texto grande: 1 = el de la plantilla. */
+  textScale?: number;
+  align?: VideoAlign;
+  vpos?: VideoVpos;
+  /** Sobre la foto o video de fondo: oscurecido (0 a 80 %) y desenfoque (0 a 20 px). */
+  overlay?: number;
+  blur?: number;
+}
+
 export interface VideoScene {
   title: string;
   body: string;
   secs: number;
+  /** Foto o video (.mp4/.webm) de fondo de esta escena. */
+  mediaUrl?: string;
+  /** Color de fondo («#rrggbb») o degradado («#rrggbb,#rrggbb»). Vacío = el de la plantilla. */
+  bg?: string;
+  style?: VideoStyle;
 }
 
 export interface StudioVideo {
@@ -63,7 +106,8 @@ export interface StudioVideo {
   theme: StudioTheme;
   eventId: number | null;
   caption: string;
-  /** Foto (o video .mp4/.webm) de fondo de la primera escena. */
+  /** Foto o video de la primera escena en los videos guardados antes de que
+   * cada escena tuviera su fondo. Al limpiar el video pasa a la escena 1. */
   mediaUrl: string;
   scenes: VideoScene[];
   /** Cierre: botón grande y la frase de arriba. Vacíos = sin cierre. */
@@ -72,6 +116,8 @@ export interface StudioVideo {
   /** Solo «laminas»: el diseño que se anima y cuánto dura cada lámina. */
   design: StudioDesign | null;
   secsPerSlide: number;
+  /** Diseño de todas las escenas (cada escena puede cambiarlo). */
+  style?: VideoStyle;
 }
 
 const LIMITS = { title: 200, sceneTitle: 120, sceneBody: 200, cta: 60, ctaLine: 120, caption: 3000, mediaUrl: 1000 } as const;
@@ -95,6 +141,53 @@ function cleanUrl(value: unknown): string {
   return /^https?:\/\//i.test(url) || /^\/(?!\/)/.test(url) ? url : '';
 }
 
+function cleanColor(value: unknown): string | undefined {
+  return typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value.trim()) ? value.trim().toUpperCase() : undefined;
+}
+
+/** Un color o dos (degradado) separados por coma. */
+function cleanBg(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const colors = value.split(',').map(cleanColor);
+  return colors.length <= 2 && colors.every(Boolean) ? colors.join(',') : undefined;
+}
+
+function cleanNumber(value: unknown, min: number, max: number, step: number): number | undefined {
+  const n = typeof value === 'number' ? value : typeof value === 'string' && value.trim() ? Number(value) : NaN;
+  if (!Number.isFinite(n)) return undefined;
+  return Math.round(Math.min(max, Math.max(min, n)) / step) * step;
+}
+
+/** Deja solo los ajustes válidos; sin ninguno, `undefined` (el video queda como antes). */
+export function normalizeVideoStyle(raw: unknown): VideoStyle | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const r = raw as Record<string, unknown>;
+  const style: VideoStyle = {
+    font: typeof r.font === 'string' && (FONT_KEYS as string[]).includes(r.font) ? (r.font as VideoFont) : undefined,
+    titleColor: cleanColor(r.titleColor),
+    accentColor: cleanColor(r.accentColor),
+    textScale: cleanNumber(r.textScale, VIDEO_TEXT_SCALE.min, VIDEO_TEXT_SCALE.max, 0.05),
+    align: typeof r.align === 'string' && (VIDEO_ALIGNS as readonly string[]).includes(r.align) ? (r.align as VideoAlign) : undefined,
+    vpos: typeof r.vpos === 'string' && (VIDEO_VPOS as readonly string[]).includes(r.vpos) ? (r.vpos as VideoVpos) : undefined,
+    overlay: cleanNumber(r.overlay, 0, 80, 1),
+    blur: cleanNumber(r.blur, 0, 20, 1),
+  };
+  if (style.textScale !== undefined) style.textScale = Math.round(style.textScale * 100) / 100;
+  for (const k of Object.keys(style) as (keyof VideoStyle)[]) if (style[k] === undefined) delete style[k];
+  return Object.keys(style).length ? style : undefined;
+}
+
+function normalizeScene(s: Record<string, unknown>): VideoScene {
+  const scene: VideoScene = { title: str(s.title, LIMITS.sceneTitle), body: str(s.body, LIMITS.sceneBody), secs: clampSecs(s.secs, 2.5) };
+  const mediaUrl = cleanUrl(s.mediaUrl);
+  if (mediaUrl) scene.mediaUrl = mediaUrl;
+  const bg = cleanBg(s.bg);
+  if (bg) scene.bg = bg;
+  const style = normalizeVideoStyle(s.style);
+  if (style) scene.style = style;
+  return scene;
+}
+
 /** Limpia un video que viene del panel o de la base. `designNormalizer` deja
  * pasar el diseño de «laminas» (se inyecta para no depender acá de cómo se
  * limpia un diseño; el servidor y el panel pasan `normalizeStudioDesign`). */
@@ -105,7 +198,13 @@ export function normalizeStudioVideo(raw: unknown, designNormalizer: (d: unknown
   const scenes = (Array.isArray(r.scenes) ? r.scenes : [])
     .filter((s): s is Record<string, unknown> => !!s && typeof s === 'object')
     .slice(0, VIDEO_MAX_SCENES)
-    .map((s) => ({ title: str(s.title, LIMITS.sceneTitle), body: str(s.body, LIMITS.sceneBody), secs: clampSecs(s.secs, 2.5) }));
+    .map(normalizeScene);
+  // Videos de antes: la foto del video era la de la escena 1; ahora es de esa escena.
+  let mediaUrl = cleanUrl(r.mediaUrl);
+  if (mediaUrl && scenes[0]) {
+    if (!scenes[0].mediaUrl) scenes[0].mediaUrl = mediaUrl;
+    mediaUrl = '';
+  }
   const design = template === 'laminas' && r.design ? designNormalizer(r.design) : null;
   if (template === 'laminas' ? !design : scenes.length === 0) return null;
   const eventId = Number(r.eventId);
@@ -116,13 +215,19 @@ export function normalizeStudioVideo(raw: unknown, designNormalizer: (d: unknown
     theme: oneOf(r.theme, STUDIO_THEMES, 'bubble'),
     eventId: r.eventId != null && Number.isInteger(eventId) && eventId > 0 ? eventId : null,
     caption: str(r.caption, LIMITS.caption),
-    mediaUrl: cleanUrl(r.mediaUrl),
+    mediaUrl,
     scenes,
     cta: str(r.cta, LIMITS.cta),
     ctaLine: str(r.ctaLine, LIMITS.ctaLine),
     design,
     secsPerSlide: clampSecs(r.secsPerSlide, 2.5),
+    ...(normalizeVideoStyle(r.style) ? { style: normalizeVideoStyle(r.style) } : {}),
   };
+}
+
+/** El fondo (foto o video) de una escena: el suyo o, en la escena 1 de un video sin limpiar, el del video. */
+export function sceneMedia(video: Pick<StudioVideo, 'mediaUrl'>, scene: VideoScene, index: number): string {
+  return scene.mediaUrl || (index === 0 ? video.mediaUrl : '');
 }
 
 function base(partial: Partial<StudioVideo> & Pick<StudioVideo, 'template' | 'scenes'>): StudioVideo {
@@ -381,26 +486,65 @@ window.__timelines["main"] = tl;
 `;
 }
 
+/** Mezcla dos colores #rrggbb (t = 0 el primero, 1 el segundo). */
+function mixHex(a: string, b: string, t: number): string {
+  const ch = (hex: string, i: number) => parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16);
+  return '#' + [0, 1, 2].map((i) => Math.round(ch(a, i) + (ch(b, i) - ch(a, i)) * t).toString(16).padStart(2, '0')).join('').toUpperCase();
+}
+
+/** Fondo de una escena: un color o un degradado de dos. */
+function bgCss(bg: string): string {
+  const [a, b] = bg.split(',');
+  return b ? `linear-gradient(160deg, ${a} 0%, ${b} 100%)` : a;
+}
+
+const FLEX = { left: 'flex-start', top: 'flex-start', center: 'center', right: 'flex-end', bottom: 'flex-end' } as const;
+
+/** Lo que una escena cambia del diseño de la plantilla (todo vacío = igual que siempre). */
+interface SceneLook {
+  bubble: boolean;
+  /** Letra elegida para el titular normal (no globo). */
+  font: (typeof VIDEO_FONTS)[VideoFont] | null;
+  titleColor?: string;
+  accentColor?: string;
+  scale: number;
+  align?: VideoAlign;
+}
+
 /** Titular en letras globo (tres capas, como en el Estudio) o en la letra de la plantilla. */
-function titleHtml(id: string, text: string, look: VideoLook, box: { width: number; height: number }, onPhoto: boolean, max: number): string {
+function titleHtml(id: string, text: string, look: VideoLook, box: { width: number; height: number }, onPhoto: boolean, max: number, sl: SceneLook): string {
   if (!text.trim()) return '';
-  if (look.bubble) {
-    const { lines, size } = layoutBubbleHeadline(text, box, { max, min: 56, maxLines: 4 });
+  const s = sl.scale;
+  if (sl.bubble) {
+    const { lines, size } = layoutBubbleHeadline(text, box, { max: max * s, min: 56 * s, maxLines: 4 });
     const rows = lines.map((line, i) => {
       const l = escapeHtml(line);
       return `<div class="bl ${i % 2 === 0 ? 'pk' : 'wh'}" style="font-size:${size}px"><span class="e">${l}</span><span class="r">${l}</span><span class="f">${l}</span></div>`;
     });
-    return `<div id="${id}" class="ttl bub">${rows.join('')}</div>`;
+    // Con color propio, las filas rosadas toman ese color (con su borde claro y su sombra oscura).
+    const css = [
+      sl.align ? `align-items:${FLEX[sl.align]}` : '',
+      sl.titleColor ? `--bf:${sl.titleColor};--br:${mixHex(sl.titleColor, '#000000', 0.18)};--be:${mixHex(sl.titleColor, '#FFFFFF', 0.7)}` : '',
+    ].filter(Boolean).join(';');
+    return `<div id="${id}" class="ttl bub${sl.titleColor ? ' cc' : ''}"${css ? ` style="${css}"` : ''}>${rows.join('')}</div>`;
   }
-  const size = fitFontSize(text, box, { max, min: 48, charWidth: look.upper ? 0.95 : 0.7, lineHeight: 1.02 });
-  return `<div id="${id}" class="ttl dt${onPhoto ? ' onp' : ''}" style="font-size:${size}px">${escapeHtml(text).replace(/\n/g, '<br>')}</div>`;
+  const charWidth = sl.font ? sl.font.cw : look.upper ? 0.95 : 0.7;
+  const size = fitFontSize(text, box, { max: max * s, min: 48 * s, charWidth, lineHeight: 1.02 });
+  const extra = [
+    sl.font ? `font-family:${sl.font.css.replace(/"/g, "'")};font-weight:${sl.font.weight};text-transform:${sl.font.upper ? 'uppercase' : 'none'}` : '',
+    sl.titleColor ? `color:${sl.titleColor}` : '',
+    onPhoto && sl.accentColor ? `text-shadow:0 6px 0 ${sl.accentColor}, 0 12px 30px rgba(0,0,0,0.45)` : '',
+    sl.align ? `text-align:${sl.align}` : '',
+  ].filter(Boolean).map((x) => `;${x}`).join('');
+  return `<div id="${id}" class="ttl dt${onPhoto ? ' onp' : ''}" style="font-size:${size}px${extra}">${escapeHtml(text).replace(/\n/g, '<br>')}</div>`;
 }
 
-function chipHtml(id: string, text: string, onPhoto: boolean, look: VideoLook): string {
+function chipHtml(id: string, text: string, onPhoto: boolean, look: VideoLook, accent?: string): string {
   if (!text.trim()) return '';
   const size = text.length > 34 ? Math.max(34, Math.round(52 * (34 / text.length))) : 52;
-  const cls = look.bubble || onPhoto ? 'chip line' : 'chip fill';
-  return `<div id="${id}" class="${cls}" style="font-size:${size}px">${escapeHtml(text)}</div>`;
+  const line = look.bubble || onPhoto;
+  const cls = line ? 'chip line' : 'chip fill';
+  return `<div id="${id}" class="${cls}" style="font-size:${size}px${accent && !line ? `;background:${accent}` : ''}">${escapeHtml(text)}</div>`;
 }
 
 /** La composición de un video de plantilla (puntos, anuncio o guion). */
@@ -415,7 +559,6 @@ export function videoCompositionHtml(video: StudioVideo, opts: { asset: AssetUrl
   const boxWidth = width - side * 2;
   const area = height - safeTop - safeBottom;
   const { scenes, closing, total } = videoTimeline(video);
-  const media = video.mediaUrl;
   const asset = opts.asset;
 
   const body: string[] = [];
@@ -425,28 +568,44 @@ export function videoCompositionHtml(video: StudioVideo, opts: { asset: AssetUrl
     const id = `s${i}`;
     const end = round(s.start + s.secs);
     const first = i === 0;
-    // La primera escena va sobre la foto/video si hay; las demás, en los fondos de la plantilla.
-    const onPhoto = first && !!media;
+    // Cada escena va sobre su foto/video si tiene; si no, en su color o en los fondos de la plantilla.
+    const media = sceneMedia(video, s, i);
+    const onPhoto = !!media;
     const mediaIsVideo = onPhoto && isVideoUrl(media);
-    const bg = look.bgs[i % look.bgs.length];
+    const bg = s.bg ? bgCss(s.bg) : look.bgs[i % look.bgs.length];
+    const st: VideoStyle = { ...video.style, ...s.style };
+    const sl: SceneLook = {
+      bubble: st.font ? st.font === 'globo' : look.bubble,
+      font: st.font && st.font !== 'globo' ? VIDEO_FONTS[st.font] : null,
+      titleColor: st.titleColor,
+      accentColor: st.accentColor,
+      scale: st.textScale ?? 1,
+      align: st.align,
+    };
+    // Desenfoque: la foto crece un poco para que el borde borroso no se vea.
+    const blur = onPhoto && st.blur ? st.blur : 0;
+    const mediaStyle = blur ? ` style="filter:blur(${blur}px);left:${-2 * blur}px;top:${-2 * blur}px;width:${width + 4 * blur}px;height:${height + 4 * blur}px"` : '';
     const numbered = video.template === 'puntos' && !first;
     const parts: string[] = [];
     if (onPhoto) {
       // Un video de fondo va suelto en la raíz, debajo de la escena: HyperFrames
       // no sincroniza bien un <video> con tiempos dentro de otro elemento con tiempos.
-      if (mediaIsVideo) body.push(`<video id="${id}-m" class="clip media" src="${escapeHtml(asset(media))}" muted playsinline data-start="${s.start}" data-duration="${s.secs}" data-track-index="0"></video>`);
-      else parts.push(`<img id="${id}-m" class="media" src="${escapeHtml(asset(media))}" alt="">`);
+      if (mediaIsVideo) body.push(`<video id="${id}-m" class="clip media" src="${escapeHtml(asset(media))}" muted playsinline data-start="${s.start}" data-duration="${s.secs}" data-track-index="0"${mediaStyle}></video>`);
+      else parts.push(`<img id="${id}-m" class="media" src="${escapeHtml(asset(media))}" alt=""${mediaStyle}>`);
       parts.push('<div class="shade"></div>');
+      if (st.overlay) parts.push(`<div class="dim" style="background:rgba(0,0,0,${st.overlay / 100})"></div>`);
     } else {
       parts.push('<div class="dots"></div>');
     }
-    const textBox = { width: boxWidth, height: area * (onPhoto ? 0.42 : numbered ? 0.36 : 0.5) };
+    // Un texto más grande necesita más alto (nunca más que la zona segura).
+    const textBox = { width: boxWidth, height: Math.min(area, area * (onPhoto ? 0.42 : numbered ? 0.36 : 0.5) * Math.max(1, sl.scale)) };
     const column = [
-      numbered ? `<div id="${id}-n" class="num">${i}</div>` : '',
-      titleHtml(`${id}-t`, s.title, look, textBox, onPhoto, onPhoto ? 170 : 200),
-      chipHtml(`${id}-b`, s.body, onPhoto, look),
+      numbered ? `<div id="${id}-n" class="num"${sl.accentColor ? ` style="box-shadow:14px 14px 0 ${sl.accentColor}"` : ''}>${i}</div>` : '',
+      titleHtml(`${id}-t`, s.title, look, textBox, onPhoto, onPhoto ? 170 : 200, sl),
+      chipHtml(`${id}-b`, s.body, onPhoto, look, sl.accentColor),
     ].join('');
-    parts.push(`<div class="col ${onPhoto ? 'bottom' : 'center'}">${column}</div>`);
+    const colCss = [st.vpos ? `justify-content:${FLEX[st.vpos]}` : '', st.align ? `align-items:${FLEX[st.align]}` : ''].filter(Boolean).join(';');
+    parts.push(`<div class="col ${onPhoto ? 'bottom' : 'center'}"${colCss ? ` style="${colCss}"` : ''}>${column}</div>`);
     body.push(`<div id="${id}" class="clip scene" data-start="${s.start}" data-duration="${s.secs}" data-track-index="1" style="background:${mediaIsVideo ? 'transparent' : bg}">${parts.join('')}</div>`);
 
     if (onPhoto) js.push(`tl.fromTo("#${id}-m", { scale: 1.12 }, { scale: 1, duration: ${s.secs}, ease: "none" }, ${s.start});`);
@@ -470,7 +629,7 @@ export function videoCompositionHtml(video: StudioVideo, opts: { asset: AssetUrl
 <div class="col center">
 <img id="cl-logo" class="logo" src="${escapeHtml(asset(look.logo))}" alt="Mansion Playroom">
 ${video.ctaLine.trim() ? `<div id="cl-line" class="cline" style="font-size:${lineSize}px">${escapeHtml(video.ctaLine)}</div>` : ''}
-${video.cta.trim() ? `<div id="cl-pulse"><div id="cl-cta" class="cta" style="font-size:${ctaSize}px">${escapeHtml(video.cta)}</div></div>` : ''}
+${video.cta.trim() ? `<div id="cl-pulse"><div id="cl-cta" class="cta" style="font-size:${ctaSize}px${video.style?.accentColor ? `;background:${video.style.accentColor}` : ''}">${escapeHtml(video.cta)}</div></div>` : ''}
 </div>
 </div>`);
     js.push(`tl.fromTo("#cl .burst", { rotate: 0 }, { rotate: 40, duration: ${closing.secs}, ease: "none" }, ${c});`);
@@ -511,7 +670,11 @@ video.media { z-index: 0; }
 .burst { position: absolute; left: 50%; top: 45%; width: 2600px; height: 2600px; margin: -1300px 0 0 -1300px; border-radius: 50%; background: repeating-conic-gradient(rgba(255,255,255,0.16) 0deg 10deg, transparent 10deg 20deg); }
 .logo { width: 720px; height: auto; }
 .cline { font-family: 'Fredoka Bubble', sans-serif; font-weight: 700; text-transform: uppercase; color: ${look.text}; text-align: center; line-height: 1.05; }
-.cta { background: ${look.accent}; color: #FFFFFF; font-family: 'Inter', sans-serif; font-weight: 800; padding: 30px 60px; border-radius: 999px; border: 5px solid #FFFFFF; white-space: nowrap; box-shadow: 0 14px 30px rgba(0,0,0,0.25); }`;
+.cta { background: ${look.accent}; color: #FFFFFF; font-family: 'Inter', sans-serif; font-weight: 800; padding: 30px 60px; border-radius: 999px; border: 5px solid #FFFFFF; white-space: nowrap; box-shadow: 0 14px 30px rgba(0,0,0,0.25); }` + (body.some((b) => b.includes('class="dim"') || b.includes('ttl bub cc')) ? `
+.dim { position: absolute; inset: 0; }
+.cc .bl.pk .e { color: var(--be); -webkit-text-stroke-color: var(--be); }
+.cc .bl.pk .r { color: var(--br); -webkit-text-stroke-color: var(--br); }
+.cc .bl.pk .f { color: var(--bf); }` : '');
 
   return documentHtml({ asset, width, height, total, css, body: body.join('\n'), script: js.join('\n'), title: video.title });
 }

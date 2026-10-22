@@ -35,7 +35,24 @@ describe('normalizeStudioVideo', () => {
 
   it('no acepta una ruta que empiece con // (otro sitio)', () => {
     expect(norm({ ...starterPointsVideo(), mediaUrl: '//malo.test/x.mp4' })!.mediaUrl).toBe('');
-    expect(norm(starterPointsVideo())!.mediaUrl).toBe('/candyland/hero-video-mobile.mp4');
+    // La foto del video pasa a ser la de la escena 1.
+    const v = norm(starterPointsVideo())!;
+    expect(v.mediaUrl).toBe('');
+    expect(v.scenes[0].mediaUrl).toBe('/candyland/hero-video-mobile.mp4');
+  });
+
+  it('limpia el diseño: fuentes, colores, tamaños y fondos válidos; lo demás se descarta', () => {
+    const v = norm({
+      template: 'puntos',
+      style: { font: 'comic', titleColor: 'red', accentColor: '#ff00aa', textScale: 9, align: 'right', vpos: 'diagonal', overlay: 200, blur: -4 },
+      scenes: [
+        { title: 'A', secs: 2, bg: '#112233,#445566', mediaUrl: 'javascript:x', style: { textScale: '0.8', font: 'allura' } },
+        { title: 'B', secs: 2, bg: 'url(x)', style: { nada: 1 } },
+      ],
+    })!;
+    expect(v.style).toEqual({ accentColor: '#FF00AA', textScale: 1.6, align: 'right', overlay: 80, blur: 0 });
+    expect(v.scenes[0]).toEqual({ title: 'A', body: '', secs: 2, bg: '#112233,#445566', style: { textScale: 0.8, font: 'allura' } });
+    expect(v.scenes[1]).toEqual({ title: 'B', body: '', secs: 2 });
   });
 });
 
@@ -75,6 +92,48 @@ describe('plantillas', () => {
     const d = normalizeStudioDesign({ title: 'Test', format: 'historia', theme: 'bubble', slides: [emptySlide('portada')] })!;
     expect(slidesVideo(d).format).toBe('reel');
     expect(slidesVideo({ ...d, format: 'carrusel' }).format).toBe('feed');
+  });
+});
+
+describe('diseño por escena', () => {
+  const asset = siteAssets('https://x.cl');
+  const two = (scene2: Record<string, unknown>, style?: Record<string, unknown>) =>
+    videoCompositionHtml(norm({ template: 'guion', theme: 'azul', style, scenes: [{ title: 'Uno', secs: 2 }, { title: 'Dos', secs: 2, ...scene2 }] })!, { asset });
+
+  it('cada escena puede tener su foto; las demás siguen con el fondo de la plantilla', () => {
+    const html = two({ mediaUrl: 'https://a.public.blob.vercel-storage.com/f.jpg' });
+    expect(html).toContain('<img id="s1-m" class="media" src="https://a.public.blob.vercel-storage.com/f.jpg"');
+    expect(html).not.toContain('id="s0-m"');
+  });
+
+  it('oscurecido y desenfoque sobre la foto', () => {
+    const html = two({ mediaUrl: '/f.jpg', style: { overlay: 40, blur: 8 } });
+    expect(html).toContain('<div class="dim" style="background:rgba(0,0,0,0.4)"></div>');
+    expect(html).toContain('filter:blur(8px)');
+    expect(html).toContain('.dim { position: absolute; inset: 0; }');
+  });
+
+  it('color o degradado de fondo propio', () => {
+    expect(two({ bg: '#112233' })).toContain('data-track-index="1" style="background:#112233"');
+    expect(two({ bg: '#112233,#445566' })).toContain('background:linear-gradient(160deg, #112233 0%, #445566 100%)');
+  });
+
+  it('letra, color, tamaño y posición: la escena gana sobre el video', () => {
+    const html = two({ style: { titleColor: '#00FF00', align: 'left', vpos: 'top' } }, { font: 'syne', titleColor: '#FF0000', textScale: 0.6 });
+    expect(html).toMatch(/id="s0-t" class="ttl dt" style="font-size:\d+px;font-family:'Syne', sans-serif;font-weight:800;text-transform:none;color:#FF0000"/);
+    expect(html).toMatch(/id="s1-t" class="ttl dt" style="font-size:\d+px;font-family:'Syne'[^"]*;color:#00FF00;text-align:left"/);
+    expect(html).toContain('class="col center" style="justify-content:flex-start;align-items:flex-start"');
+  });
+
+  it('un texto más chico sale más chico', () => {
+    const size = (html: string) => Number(/id="s1-t"[^>]*font-size:(\d+)px/.exec(html)![1]);
+    expect(size(two({ style: { textScale: 0.6 } }))).toBeLessThan(size(two({})));
+  });
+
+  it('el titular globo se puede usar en cualquier plantilla y con color propio', () => {
+    const html = two({ style: { font: 'globo', titleColor: '#00AAFF' } });
+    expect(html).toContain('id="s1-t" class="ttl bub cc" style="--bf:#00AAFF;');
+    expect(html).toContain('.cc .bl.pk .f { color: var(--bf); }');
   });
 });
 

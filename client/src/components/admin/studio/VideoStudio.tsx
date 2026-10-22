@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import JSZip from 'jszip';
-import { AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, Clapperboard, Copy, Download, Film, Loader2, Plus, Save, Share2, Trash2, X } from 'lucide-react';
+import { AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, Clapperboard, CopyPlus, Copy, Download, Film, Image as ImageIcon, Loader2, Palette, Plus, Redo2, Save, Share2, Trash2, Undo2 } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,7 +10,6 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { WriteButton } from '@/components/admin/WriteButton';
-import { ImageUploadField } from '@/components/admin/ImageUploadField';
 import { normalizeStudioDesign, STUDIO_THEMES, type StudioTheme } from '@shared/contentStudio';
 import { VARIANT_THEME_LABEL } from '@shared/studioVariants';
 import { contentHash, type RenderSummary } from '@shared/studioRender';
@@ -18,6 +17,7 @@ import { formatChileDateTime } from '@shared/chileDate';
 import {
   normalizeStudioVideo,
   projectAssets,
+  sceneMedia,
   siteAssets,
   slidesVideoHtml,
   videoCompositionHtml,
@@ -32,7 +32,9 @@ import {
   type AssetUrl,
   type StudioVideo,
   type VideoFormat,
+  type VideoScene,
 } from '@shared/studioVideo';
+import { SceneBackgroundControls, TextStyleControls } from './VideoStyleControls';
 import { StudioSlideView } from './StudioSlideView';
 import { VideoPreview } from './VideoPreview';
 import { slideFileName } from './exportSlides';
@@ -155,8 +157,15 @@ async function downloadProject(video: StudioVideo, slidesHtml: string[]) {
   if (missing.length) toast.warning(`${missing.length} archivo(s) no se pudieron bajar; el LEEME dice cuáles.`);
 }
 
+/** Deshacer / rehacer: hasta 50 pasos. Escribir en un mismo campo seguido cuenta como un solo paso. */
+const HISTORY_MAX = 50;
+
 export function VideoStudio({ editing, setEditing, onClose }: { editing: VideoEditing; setEditing: (e: VideoEditing) => void; onClose: () => void }) {
-  const { video } = editing;
+  // Un video guardado antes de que cada escena tuviera su fondo trae la foto en el video: pasa a la escena 1.
+  const video = useMemo(
+    () => (editing.video.mediaUrl && editing.video.template !== 'laminas' ? normalizeStudioVideo(editing.video, normalizeStudioDesign) ?? editing.video : editing.video),
+    [editing.video],
+  );
   const utils = trpc.useUtils();
   const [busy, setBusy] = useState(false);
   const { slidesHtml, nodes } = useSlidesHtml(video);
@@ -183,18 +192,74 @@ export function VideoStudio({ editing, setEditing, onClose }: { editing: VideoEd
     onError: (e) => toast.error(e.message),
   });
 
-  const update = (patch: Partial<StudioVideo>) => {
-    const next = normalizeStudioVideo({ ...video, ...patch }, normalizeStudioDesign);
-    if (next) setEditing({ ...editing, video: next, dirty: true });
+  const past = useRef<StudioVideo[]>([]);
+  const future = useRef<StudioVideo[]>([]);
+  const lastEdit = useRef<{ key: string; at: number } | null>(null);
+  const [, bump] = useState(0);
+  const commit = (next: StudioVideo, key: string) => {
+    const now = Date.now();
+    const same = lastEdit.current && lastEdit.current.key === key && now - lastEdit.current.at < 1000;
+    if (!same) {
+      past.current.push(video);
+      if (past.current.length > HISTORY_MAX) past.current.shift();
+    }
+    future.current = [];
+    lastEdit.current = { key, at: now };
+    setEditing({ ...editing, video: next, dirty: true });
+    bump((n) => n + 1);
   };
-  const setScene = (i: number, patch: Partial<StudioVideo['scenes'][number]>) => update({ scenes: video.scenes.map((s, j) => (j === i ? { ...s, ...patch } : s)) });
+  const update = (patch: Partial<StudioVideo>, key = Object.keys(patch).join(',')) => {
+    const next = normalizeStudioVideo({ ...video, ...patch }, normalizeStudioDesign);
+    if (next) commit(next, key);
+  };
+  const setScene = (i: number, patch: Partial<VideoScene>) => update({ scenes: video.scenes.map((s, j) => (j === i ? { ...s, ...patch } : s)) }, `s${i}:${Object.keys(patch).join(',')}`);
   const moveScene = (i: number, dir: -1 | 1) => {
     const to = i + dir;
     if (to < 0 || to >= video.scenes.length) return;
     const scenes = [...video.scenes];
     [scenes[i], scenes[to]] = [scenes[to], scenes[i]];
-    update({ scenes });
+    update({ scenes }, `move${Date.now()}`);
+    setOpenDesign((o) => (o === i ? to : o === to ? i : o));
   };
+  const duplicateScene = (i: number) => {
+    if (video.scenes.length >= VIDEO_MAX_SCENES) return;
+    update({ scenes: [...video.scenes.slice(0, i + 1), structuredClone(video.scenes[i]), ...video.scenes.slice(i + 1)] }, `dup${Date.now()}`);
+    setOpenDesign(null);
+  };
+  const removeScene = (i: number) => {
+    update({ scenes: video.scenes.filter((_, j) => j !== i) }, `del${Date.now()}`);
+    setOpenDesign(null);
+  };
+  const travel = useCallback((from: typeof past, to: typeof future) => {
+    const prev = from.current.pop();
+    if (!prev) return;
+    to.current.push(video);
+    lastEdit.current = null;
+    setEditing({ ...editing, video: prev, dirty: true });
+    bump((n) => n + 1);
+  }, [video, editing, setEditing]);
+  const undo = useCallback(() => travel(past, future), [travel]);
+  const redo = useCallback(() => travel(future, past), [travel]);
+  // Ctrl/⌘+Z y Ctrl/⌘+Shift+Z (o Ctrl+Y). Dentro de un campo de texto manda el deshacer del propio campo.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'TEXTAREA' || (t.tagName === 'INPUT' && (t as HTMLInputElement).type !== 'range' && (t as HTMLInputElement).type !== 'color') || t.isContentEditable)) return;
+      const k = e.key.toLowerCase();
+      if (k === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
+      else if ((k === 'z' && e.shiftKey) || k === 'y') { e.preventDefault(); redo(); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [undo, redo]);
+
+  // Qué escena tiene abierto su diseño, y a qué segundo salta la vista previa al editar una escena.
+  const [openDesign, setOpenDesign] = useState<number | null>(null);
+  const [videoStyleOpen, setVideoStyleOpen] = useState(false);
+  const [designTab, setDesignTab] = useState<'texto' | 'fondo'>('texto');
+  const [seekTo, setSeekTo] = useState<{ t: number; n: number } | null>(null);
+  const focusedScene = useRef<number | null>(null);
 
   // La vista previa se arma con un pequeño respiro: no se rehace en cada letra.
   const [html, setHtml] = useState('');
@@ -205,6 +270,14 @@ export function VideoStudio({ editing, setEditing, onClose }: { editing: VideoEd
   }, [video, slidesHtml]);
 
   const timeline = useMemo(() => videoTimeline(video), [video]);
+  // Al tocar una escena, la vista previa salta a ella (ya con el texto entrado) y queda en pausa.
+  const focusScene = (i: number) => {
+    const sc = timeline.scenes[i];
+    if (!sc || focusedScene.current === i) return;
+    focusedScene.current = i;
+    setSeekTo((p) => ({ t: round1(sc.start + Math.min(1, sc.secs * 0.6)), n: (p?.n ?? 0) + 1 }));
+  };
+  const setSceneMedia = (i: number, url: string) => update({ mediaUrl: '', scenes: video.scenes.map((sc, j) => (j === i ? { ...sc, mediaUrl: url } : sc)) }, `s${i}:media`);
   const ready = video.template !== 'laminas' || slidesHtml.length > 0;
   const currentHash = useMemo(() => (ready ? contentHash(buildProject(video, slidesHtml).html) : ''), [video, slidesHtml, ready]);
   const stale = render?.status === 'listo' && !!render.contentHash && render.contentHash !== currentHash;
@@ -250,6 +323,15 @@ export function VideoStudio({ editing, setEditing, onClose }: { editing: VideoEd
             <SelectContent>{STUDIO_THEMES.map((t) => <SelectItem key={t} value={t}>{VARIANT_THEME_LABEL[t]}</SelectItem>)}</SelectContent>
           </Select>
         )}
+        <div className="flex gap-1">
+          <Button size="icon" variant="outline" className="h-9 w-9" onClick={undo} disabled={past.current.length === 0} aria-label="Deshacer" title="Deshacer (Ctrl+Z)"><Undo2 className="w-4 h-4" /></Button>
+          <Button size="icon" variant="outline" className="h-9 w-9" onClick={redo} disabled={future.current.length === 0} aria-label="Rehacer" title="Rehacer (Ctrl+Shift+Z)"><Redo2 className="w-4 h-4" /></Button>
+        </div>
+        {!isSlides && (
+          <Button size="sm" variant={videoStyleOpen ? 'default' : 'outline'} onClick={() => setVideoStyleOpen((o) => !o)}>
+            <Palette className="w-4 h-4 mr-2" /> Estilo del video
+          </Button>
+        )}
         <WriteButton size="sm" onClick={() => save.mutate({ id: editing.id, video })} disabled={save.isPending || !editing.dirty}>
           {save.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
           {editing.dirty ? 'Guardar' : 'Guardado'}
@@ -259,7 +341,7 @@ export function VideoStudio({ editing, setEditing, onClose }: { editing: VideoEd
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,440px)]">
         <div className="space-y-3 min-w-0">
           {html
-            ? <VideoPreview html={html} width={size.width} height={size.height} maxWidth={video.format === 'reel' ? 360 : 480} />
+            ? <VideoPreview html={html} width={size.width} height={size.height} maxWidth={video.format === 'reel' ? 360 : 480} seekTo={seekTo} />
             : <div className="mx-auto flex items-center justify-center rounded-lg bg-muted" style={{ maxWidth: 360, aspectRatio: `${size.width} / ${size.height}` }}><Loader2 className="w-5 h-5 animate-spin" /></div>}
           <p className="text-center text-xs text-muted-foreground">
             <Clapperboard className="inline w-3 h-3 mr-1" />
@@ -330,37 +412,81 @@ export function VideoStudio({ editing, setEditing, onClose }: { editing: VideoEd
             </Card>
           ) : (
             <>
-              <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
-                <CardContent className="pt-6 space-y-2">
-                  <Label>Fondo de la primera escena (foto, o pega el link de un video .mp4)</Label>
-                  <div className="flex items-center gap-2">
-                    <ImageUploadField value={isVideo(video.mediaUrl) ? '' : video.mediaUrl} onChange={(url) => update({ mediaUrl: url })} pathPrefix="studio" />
-                    {video.mediaUrl && <Button size="icon" variant="ghost" onClick={() => update({ mediaUrl: '' })} aria-label="Quitar fondo"><X className="w-4 h-4" /></Button>}
-                  </div>
-                  <Input value={video.mediaUrl} maxLength={1000} placeholder="https://… o /candyland/hero-video-mobile.mp4" onChange={(e) => update({ mediaUrl: e.target.value })} />
-                  <p className="text-xs text-muted-foreground">Sin fondo, la primera escena usa el color de la plantilla. El video de fondo va siempre mudo.</p>
-                </CardContent>
-              </Card>
-
-              {video.scenes.map((s, i) => (
-                <Card key={i} className="rounded-2xl border-0 shadow-md shadow-black/5">
-                  <CardContent className="pt-5 space-y-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-sm font-medium">{i === 0 ? 'Gancho (escena 1)' : `Escena ${i + 1}`}<span className="ml-2 text-xs font-normal text-muted-foreground">desde {timeline.scenes[i]?.start ?? '—'} s</span></p>
-                      <div className="flex gap-1">
-                        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => moveScene(i, -1)} disabled={i === 0} aria-label="Mover antes"><ArrowUp className="w-3.5 h-3.5" /></Button>
-                        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => moveScene(i, 1)} disabled={i === video.scenes.length - 1} aria-label="Mover después"><ArrowDown className="w-3.5 h-3.5" /></Button>
-                        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => update({ scenes: video.scenes.filter((_, j) => j !== i) })} disabled={video.scenes.length <= 1} aria-label="Quitar escena"><Trash2 className="w-3.5 h-3.5" /></Button>
-                      </div>
+              {videoStyleOpen && (
+                <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+                  <CardContent className="pt-6 space-y-3">
+                    <div>
+                      <p className="text-sm font-medium">Estilo de todo el video</p>
+                      <p className="text-xs text-muted-foreground">Vale para todas las escenas. Cada escena puede cambiarlo en su botón «Diseño».</p>
                     </div>
-                    <Textarea rows={2} maxLength={120} value={s.title} placeholder="Texto grande (Enter separa líneas)" onChange={(e) => setScene(i, { title: e.target.value })} />
-                    <div className="flex gap-2">
-                      <Input value={s.body} maxLength={200} placeholder="Etiqueta (opcional)" onChange={(e) => setScene(i, { body: e.target.value })} />
-                      <Input type="number" className="w-24" min={VIDEO_MIN_SECS} max={VIDEO_MAX_SECS} step={0.1} value={s.secs} onChange={(e) => setScene(i, { secs: Number(e.target.value) })} aria-label="Segundos" />
-                    </div>
+                    <TextStyleControls scope="video" value={video.style} onChange={(st) => update({ style: st }, 'style')} />
                   </CardContent>
                 </Card>
-              ))}
+              )}
+
+              {video.scenes.map((s, i) => {
+                const media = sceneMedia(video, s, i);
+                const open = openDesign === i;
+                const custom = !!(s.style || s.bg || media);
+                return (
+                  <Card key={i} className={`rounded-2xl border-0 shadow-md shadow-black/5 ${open ? 'ring-2 ring-primary/40' : ''}`} onFocusCapture={() => focusScene(i)} onPointerDownCapture={() => focusScene(i)}>
+                    <CardContent className="pt-5 space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-medium flex items-center gap-2 min-w-0">
+                          {media && (isVideo(media)
+                            ? <video src={`${media}#t=0.5`} muted playsInline preload="metadata" className="h-7 w-7 shrink-0 rounded-md bg-black object-cover" />
+                            : <img src={media} alt="" className="h-7 w-7 shrink-0 rounded-md object-cover" />)}
+                          {!media && s.bg && <span className="h-7 w-7 shrink-0 rounded-md border border-border/50" style={{ background: s.bg.includes(',') ? `linear-gradient(160deg, ${s.bg.replace(',', ', ')})` : s.bg }} />}
+                          <span className="truncate">{i === 0 ? 'Gancho (escena 1)' : `Escena ${i + 1}`}</span>
+                          <span className="text-xs font-normal text-muted-foreground shrink-0">desde {timeline.scenes[i]?.start ?? '—'} s</span>
+                        </p>
+                        <div className="flex gap-1 shrink-0">
+                          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => moveScene(i, -1)} disabled={i === 0} aria-label="Mover antes"><ArrowUp className="w-3.5 h-3.5" /></Button>
+                          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => moveScene(i, 1)} disabled={i === video.scenes.length - 1} aria-label="Mover después"><ArrowDown className="w-3.5 h-3.5" /></Button>
+                          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => duplicateScene(i)} disabled={video.scenes.length >= VIDEO_MAX_SCENES} aria-label="Duplicar escena" title="Duplicar escena"><CopyPlus className="w-3.5 h-3.5" /></Button>
+                          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => removeScene(i)} disabled={video.scenes.length <= 1} aria-label="Quitar escena"><Trash2 className="w-3.5 h-3.5" /></Button>
+                        </div>
+                      </div>
+                      <Textarea rows={2} maxLength={120} value={s.title} placeholder="Texto grande (Enter separa líneas)" onChange={(e) => setScene(i, { title: e.target.value })} />
+                      <div className="flex gap-2">
+                        <Input value={s.body} maxLength={200} placeholder="Etiqueta (opcional)" onChange={(e) => setScene(i, { body: e.target.value })} />
+                        <Input type="number" className="w-24" min={VIDEO_MIN_SECS} max={VIDEO_MAX_SECS} step={0.1} value={s.secs} onChange={(e) => setScene(i, { secs: Number(e.target.value) })} aria-label="Segundos" />
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Button size="sm" variant={open ? 'default' : 'outline'} onClick={() => { setOpenDesign(open ? null : i); setDesignTab('texto'); }}>
+                          <Palette className="w-3.5 h-3.5 mr-1.5" /> Diseño{custom && !open ? ' ·' : ''}
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => { setOpenDesign(i); setDesignTab('fondo'); }}>
+                          <ImageIcon className="w-3.5 h-3.5 mr-1.5" /> {media ? 'Cambiar fondo' : 'Foto o video de fondo'}
+                        </Button>
+                      </div>
+                      {open && (
+                        <div className="mt-2 space-y-4 rounded-xl border border-border/60 p-3">
+                          <div className="inline-flex rounded-xl bg-muted p-0.5">
+                            {(['texto', 'fondo'] as const).map((t) => (
+                              <button key={t} type="button" onClick={() => setDesignTab(t)} className={`h-8 rounded-lg px-4 text-sm font-medium ${designTab === t ? 'bg-background shadow-sm' : 'text-muted-foreground'}`}>
+                                {t === 'texto' ? 'Texto' : 'Fondo'}
+                              </button>
+                            ))}
+                          </div>
+                          {designTab === 'texto' ? (
+                            <TextStyleControls scope="scene" value={s.style} onChange={(st) => setScene(i, { style: st })} />
+                          ) : (
+                            <SceneBackgroundControls
+                              scene={s}
+                              media={media}
+                              onMedia={(url) => setSceneMedia(i, url)}
+                              onBg={(bg) => setScene(i, { bg })}
+                              style={s.style}
+                              onStyle={(st) => setScene(i, { style: st })}
+                            />
+                          )}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })}
               {video.scenes.length < VIDEO_MAX_SCENES && (
                 <Button size="sm" variant="outline" onClick={() => update({ scenes: [...video.scenes, { title: 'Nueva escena', body: '', secs: 2.2 }] })}>
                   <Plus className="w-3 h-3 mr-1" /> Agregar escena
@@ -395,4 +521,8 @@ export function VideoStudio({ editing, setEditing, onClose }: { editing: VideoEd
 
 function isVideo(url: string) {
   return /\.(mp4|webm|mov)(\?|#|$)/i.test(url);
+}
+
+function round1(n: number) {
+  return Math.round(n * 10) / 10;
 }

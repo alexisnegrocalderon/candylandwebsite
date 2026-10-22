@@ -2896,6 +2896,7 @@ export const appRouter = router({
         cta: z.string().max(200).optional(),
         ctaLine: z.string().max(300).optional(),
         secsPerSlide: z.number().optional(),
+        style: z.unknown().optional(),
       }),
     })).mutation(async ({ input }) => {
       try {

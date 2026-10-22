@@ -21,17 +21,16 @@ const ALLOWED_CONTENT_TYPES = [
   "image/png",
   "image/webp",
   "image/gif",
-  // Video no tiene UI todavía (fuera de alcance este round -- ver plan),
-  // pero se deja permitido para no tener que tocar esta ruta de nuevo
-  // cuando se agregue subir el video del Hero.
+  // Fondos de escena en los videos del Estudio (y el video del Hero).
   "video/mp4",
+  "video/webm",
 ];
 
-// Generoso para fotos de celular sin editar (a veces 8-10MB), sin invitar
-// a subir archivos gigantes -- el body nunca pasa por nuestra función de
-// todos modos, así que esto es solo un tope de buen criterio, no una
-// limitación técnica de Vercel.
-const MAX_UPLOAD_BYTES = 15 * 1024 * 1024;
+// Generoso para fotos de celular sin editar (a veces 8-10MB) y clips cortos
+// de video para el Estudio, sin invitar a subir archivos gigantes -- el body
+// nunca pasa por nuestra función de todos modos, así que esto es solo un
+// tope de buen criterio, no una limitación técnica de Vercel.
+const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
 
 /** El SDK solo lee BLOB_READ_WRITE_TOKEN. Al reconectar el store en Vercel, el token quedó
  * con otro nombre (NEW_BLOB_READ_WRITE_TOKEN), así que se acepta cualquiera de los dos. */
