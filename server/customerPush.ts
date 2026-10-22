@@ -31,6 +31,7 @@ import { fillPushText, normalizeCustomerPushConfig, type CustomerPushConfig } fr
 import { chileParts, computeSendAt, recordOpenHour } from '../shared/pushSchedule';
 import { computeCustomerLevel, daysUntilBirthday, hasBirthdayInMonth } from '../shared/customerInsights';
 import { foldText } from '../shared/igCustomerLink';
+import { WELCOME_URL } from '../shared/welcome';
 
 export type PushSource = 'ticket' | 'pago' | 'home' | 'concurso' | 'puntos' | 'app';
 export type PushPlatform = 'ios' | 'android' | 'desktop';
@@ -190,7 +191,8 @@ export async function subscribeCustomer(input: {
         const [sub] = await db.select().from(customerPushSubscriptions).where(eq(customerPushSubscriptions.endpoint, input.subscription.endpoint)).limit(1);
         const names = await namesByEmail(who ? [who.email.toLowerCase()] : []);
         const body = gift > 0 ? `${config.welcome.body} Te regalamos ${gift} Playcoins 🎁` : config.welcome.body;
-        if (sub) await sendDirect([sub], { title: config.welcome.title, body, url: '/' }, { names });
+        // La bienvenida abre la ventana de comunidad del sitio (shared/welcome.ts), no el inicio a secas.
+        if (sub) await sendDirect([sub], { title: config.welcome.title, body, url: WELCOME_URL }, { names });
       }
     } catch (err) {
       console.error('[CustomerPush] Bienvenida:', err);
