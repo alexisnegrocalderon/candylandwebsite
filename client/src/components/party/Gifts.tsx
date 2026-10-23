@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { motion } from 'framer-motion';
 import { toast } from 'sonner';
-import { X } from 'lucide-react';
+import { Check, Wine } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { PaymentBrick } from '@/components/PaymentBrick';
 import { MAX_GIFT_MESSAGE_LENGTH } from '@shared/party';
+import { PmSheet, PM_CTA, tap } from '@/components/party/ui';
 
 /* Invitar un trago. Tiene tres pasos y no uno porque la otra persona puede
  * rechazar, y nadie paga por un trago rechazado: invitas (gratis), te
@@ -38,28 +38,31 @@ export function DrinkPicker({ ticketCode, targetProfileId, targetAlias, onClose,
 
   return (
     <Sheet onClose={onClose}>
-      <h2 className="font-heading font-extrabold text-2xl tracking-tight mb-1">Invítale un trago</h2>
-      <p className="text-sm text-white/45 mb-5">A {targetAlias}. Si acepta, ahí recién pagas.</p>
+      <h2 className="text-title2 font-bold tracking-tight">Invítale un trago</h2>
+      <p className="mb-5 mt-1 text-subhead text-white/70">A {targetAlias}. Si acepta, ahí recién pagas.</p>
 
-      {drinks.isLoading && <p className="text-sm text-white/40 py-6 text-center">Cargando la barra…</p>}
+      {drinks.isLoading && <p className="py-6 text-center text-subhead text-white/60">Cargando la barra…</p>}
       {drinks.data?.length === 0 && (
-        <p className="text-sm text-white/40 py-6 text-center">Esta fiesta no tiene tragos cargados en la barra.</p>
+        <p className="py-6 text-center text-subhead text-white/60">Esta fiesta no tiene tragos cargados en la barra.</p>
       )}
 
       <div className="space-y-2 mb-5 max-h-64 overflow-y-auto">
         {drinks.data?.map((d) => (
           <button
             key={d.id}
-            onClick={() => setSelected(d.id)}
-            className={`w-full flex items-center justify-between gap-3 p-4 rounded-2xl border text-left transition-colors ${
-              selected === d.id ? 'bg-primary/15 border-primary/60' : 'border-white/12'
+            onClick={() => { tap(); setSelected(d.id); }}
+            className={`flex w-full items-center gap-3 rounded-[20px] border p-4 text-left transition-colors ${
+              selected === d.id ? 'border-pink-400/70 bg-pink-500/15' : 'border-white/12 bg-white/[0.04]'
             }`}
           >
-            <span className="min-w-0">
-              <span className="block font-semibold text-sm">{d.name}</span>
-              {d.description && <span className="block text-xs text-white/40 truncate">{d.description}</span>}
+            <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-full ${selected === d.id ? 'bg-pink-500' : 'bg-white/10'}`}>
+              {selected === d.id ? <Check className="h-5 w-5 text-[color:var(--pm-on-accent,#fff)]" /> : <Wine className="h-5 w-5 text-amber-300" />}
             </span>
-            <span className="font-bold text-sm shrink-0">{clp(d.price)}</span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-body font-semibold">{d.name}</span>
+              {d.description && <span className="block truncate text-footnote text-white/60">{d.description}</span>}
+            </span>
+            <span className="shrink-0 text-body font-bold tabular-nums">{clp(d.price)}</span>
           </button>
         ))}
       </div>
@@ -69,17 +72,17 @@ export function DrinkPicker({ ticketCode, targetProfileId, targetAlias, onClose,
         onChange={(e) => setMessage(e.target.value)}
         maxLength={MAX_GIFT_MESSAGE_LENGTH}
         placeholder="Una nota, si quieres (opcional)"
-        className="w-full h-12 px-4 mb-4 rounded-2xl bg-white/[0.06] border border-white/15 text-sm text-white placeholder:text-white/25 focus:outline-none focus:border-primary/50"
+        className="mb-4 h-12 w-full rounded-2xl border border-white/15 bg-white/[0.06] px-4 text-body text-white placeholder:text-white/45 focus:border-pink-400/60 focus:outline-none"
       />
 
       <button
         disabled={!selected || send.isPending}
         onClick={() => selected && send.mutate({ ticketCode, targetProfileId, ticketTypeId: selected, message })}
-        className="w-full h-14 rounded-full bg-primary font-bold disabled:opacity-35"
+        className={`h-14 w-full rounded-full text-headline ${PM_CTA} disabled:opacity-40`}
       >
         {send.isPending ? 'Enviando…' : 'Mandar la invitación'}
       </button>
-      <p className="text-[11px] text-white/30 text-center mt-3">
+      <p className="mt-3 text-center text-caption1 text-white/60">
         No se te cobra nada ahora. Solo pagas si acepta.
       </p>
     </Sheet>
@@ -113,8 +116,8 @@ export function GiftInbox({ ticketCode, onClose }: { ticketCode: string; onClose
   if (paying) {
     return (
       <Sheet onClose={() => setPaying(null)}>
-        <h2 className="font-heading font-extrabold text-2xl tracking-tight mb-1">Paga el trago</h2>
-        <p className="text-sm text-white/45 mb-5">{clp(paying.total)} · al precio de la barra, sin recargo</p>
+        <h2 className="text-title2 font-bold tracking-tight">Paga el trago</h2>
+        <p className="mb-5 mt-1 text-subhead text-white/70">{clp(paying.total)} · al precio de la barra, sin recargo</p>
         <PaymentBrick
           orderNumber={paying.orderNumber}
           amount={paying.total}
@@ -138,76 +141,76 @@ export function GiftInbox({ ticketCode, onClose }: { ticketCode: string; onClose
 
   return (
     <Sheet onClose={onClose}>
-      <h2 className="font-heading font-extrabold text-2xl tracking-tight mb-5">Tragos 🍹</h2>
+      <h2 className="mb-5 text-title2 font-bold tracking-tight">Tragos</h2>
 
-      <p className="text-xs uppercase tracking-wide text-white/45 mb-2">Para ti</p>
-      {received.length === 0 && <p className="text-sm text-white/30 mb-6">Todavía no te invitaron nada.</p>}
+      <p className="mb-2 text-footnote font-semibold uppercase tracking-wide text-white/60">Para ti</p>
+      {received.length === 0 && <p className="mb-6 text-subhead text-white/60">Todavía no te invitaron nada.</p>}
       <div className="space-y-2 mb-6">
         {received.map((g) => (
-          <div key={g.id} className="p-4 rounded-2xl bg-white/[0.05] border border-white/10">
-            <div className="flex items-start justify-between gap-3 mb-1">
-              <p className="font-semibold text-sm">{g.drinkName}</p>
-              <p className="text-xs text-white/40 shrink-0">de {g.fromAlias}</p>
+          <div key={g.id} className="account-glass rounded-[20px] p-4">
+            <div className="mb-1 flex items-start justify-between gap-3">
+              <p className="text-body font-semibold">{g.drinkName}</p>
+              <p className="shrink-0 text-footnote text-white/60">de {g.fromAlias}</p>
             </div>
-            {g.message && <p className="text-xs text-white/50 italic mb-2">"{g.message}"</p>}
+            {g.message && <p className="mb-2 text-footnote italic text-white/70">«{g.message}»</p>}
 
             {g.status === 'invited' && (
               <div className="flex gap-2 mt-3">
                 <button
                   disabled={respond.isPending}
                   onClick={() => respond.mutate({ ticketCode, giftId: g.id, accept: true })}
-                  className="flex-1 h-11 rounded-full bg-primary text-sm font-bold disabled:opacity-40"
+                  className={`h-11 flex-1 rounded-full text-subhead ${PM_CTA} disabled:opacity-40`}
                 >
                   Aceptar
                 </button>
                 <button
                   disabled={respond.isPending}
                   onClick={() => respond.mutate({ ticketCode, giftId: g.id, accept: false })}
-                  className="px-5 h-11 rounded-full border border-white/15 text-sm text-white/55 disabled:opacity-40"
+                  className="lg-pill h-11 rounded-full px-5 text-subhead font-semibold disabled:opacity-40"
                 >
                   No, gracias
                 </button>
               </div>
             )}
 
-            {g.status === 'accepted' && <p className="text-xs text-white/45 mt-2">Aceptado. Esperando que lo pague…</p>}
-            {g.status === 'declined' && <p className="text-xs text-white/35 mt-2">Lo rechazaste.</p>}
-            {g.status === 'expired' && <p className="text-xs text-white/35 mt-2">La invitación venció.</p>}
-            {g.status === 'redeemed' && <p className="text-xs text-white/35 mt-2">Ya lo retiraste en la barra.</p>}
+            {g.status === 'accepted' && <p className="mt-2 text-footnote text-white/65">Aceptado. Esperando que lo pague…</p>}
+            {g.status === 'declined' && <p className="mt-2 text-footnote text-white/60">Lo rechazaste.</p>}
+            {g.status === 'expired' && <p className="mt-2 text-footnote text-white/60">La invitación venció.</p>}
+            {g.status === 'redeemed' && <p className="mt-2 text-footnote text-white/60">Ya lo retiraste en la barra.</p>}
 
             {/* Lo único que importa cuando llegas a la barra: el código,
                 grande y legible en la oscuridad. */}
             {g.status === 'paid' && g.displayCode && (
-              <div className="mt-3 p-4 rounded-2xl bg-primary/15 border border-primary/35 text-center">
-                <p className="text-[10px] uppercase tracking-widest text-white/50 mb-1.5">Muéstralo en la barra</p>
-                <p className="font-mono font-bold text-2xl tracking-widest">{g.displayCode}</p>
+              <div className="mt-3 rounded-2xl border border-pink-400/40 bg-pink-500/15 p-4 text-center">
+                <p className="mb-1.5 text-caption2 font-semibold uppercase tracking-widest text-white/70">Muéstralo en la barra</p>
+                <p className="font-mono text-title1 font-bold tracking-widest">{g.displayCode}</p>
               </div>
             )}
           </div>
         ))}
       </div>
 
-      <p className="text-xs uppercase tracking-wide text-white/45 mb-2">Invitaste</p>
-      {sent.length === 0 && <p className="text-sm text-white/30">Todavía no invitaste ninguno.</p>}
+      <p className="mb-2 text-footnote font-semibold uppercase tracking-wide text-white/60">Invitaste</p>
+      {sent.length === 0 && <p className="text-subhead text-white/60">Todavía no invitaste ninguno.</p>}
       <div className="space-y-2">
         {sent.map((g) => (
-          <div key={g.id} className="p-4 rounded-2xl bg-white/[0.03] border border-white/8">
+          <div key={g.id} className="rounded-[20px] border border-white/10 bg-white/[0.04] p-4">
             <div className="flex items-start justify-between gap-3">
-              <p className="font-semibold text-sm">{g.drinkName}</p>
-              <p className="text-xs text-white/40 shrink-0">para {g.toAlias}</p>
+              <p className="text-body font-semibold">{g.drinkName}</p>
+              <p className="shrink-0 text-footnote text-white/60">para {g.toAlias}</p>
             </div>
 
-            {g.status === 'invited' && <p className="text-xs text-white/40 mt-1.5">Esperando respuesta…</p>}
-            {g.status === 'declined' && <p className="text-xs text-white/35 mt-1.5">No lo quiso. No se te cobró nada.</p>}
-            {g.status === 'expired' && <p className="text-xs text-white/35 mt-1.5">Venció sin respuesta. No se te cobró nada.</p>}
-            {g.status === 'paid' && <p className="text-xs text-emerald-300/70 mt-1.5">Pagado ✅ — puede retirarlo en la barra</p>}
-            {g.status === 'redeemed' && <p className="text-xs text-white/35 mt-1.5">Ya lo retiró 🍹</p>}
+            {g.status === 'invited' && <p className="mt-1.5 text-footnote text-white/65">Esperando respuesta…</p>}
+            {g.status === 'declined' && <p className="mt-1.5 text-footnote text-white/60">No lo quiso. No se te cobró nada.</p>}
+            {g.status === 'expired' && <p className="mt-1.5 text-footnote text-white/60">Venció sin respuesta. No se te cobró nada.</p>}
+            {g.status === 'paid' && <p className="mt-1.5 text-footnote text-emerald-300">Pagado ✅ — puede retirarlo en la barra</p>}
+            {g.status === 'redeemed' && <p className="mt-1.5 text-footnote text-white/60">Ya lo retiró 🍹</p>}
 
             {g.status === 'accepted' && (
               <button
                 disabled={pay.isPending}
                 onClick={() => pay.mutate({ ticketCode, giftId: g.id })}
-                className="w-full h-12 mt-3 rounded-full bg-primary text-sm font-bold disabled:opacity-40"
+                className={`mt-3 h-12 w-full rounded-full text-subhead ${PM_CTA} disabled:opacity-40`}
               >
                 ¡Aceptó! Pagar {clp(g.priceClp)}
               </button>
@@ -220,23 +223,5 @@ export function GiftInbox({ ticketCode, onClose }: { ticketCode: string; onClose
 }
 
 function Sheet({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
-  return (
-    <motion.div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 backdrop-blur-sm"
-      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      onClick={onClose}
-    >
-      <motion.div
-        className="w-full max-w-md max-h-[88dvh] overflow-y-auto bg-[#1a1019] border-t border-white/12 rounded-t-3xl p-6 pb-9"
-        initial={{ y: 240 }} animate={{ y: 0 }} exit={{ y: 240 }}
-        transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex justify-end -mt-2 -mr-2 mb-1">
-          <button onClick={onClose} className="p-2 text-white/40" aria-label="Cerrar"><X className="w-5 h-5" /></button>
-        </div>
-        {children}
-      </motion.div>
-    </motion.div>
-  );
+  return <PmSheet onClose={onClose}>{children}</PmSheet>;
 }

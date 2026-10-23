@@ -11014,6 +11014,7 @@ const ADMIN_SECTIONS = [
   { id: 'flash-promo', label: 'Promo Flash', hub: 'noche', icon: Zap, render: () => <FlashPromoCard /> },
   { id: 'party-gifts', label: 'Tragos de la Fiesta', hub: 'noche', icon: Martini, render: () => <PartyGiftsView /> },
   { id: 'denuncias', label: 'Denuncias', hub: 'noche', icon: ShieldAlert, render: () => <DenunciasView /> },
+  { id: 'mejor-disfraz', label: 'Mejor disfraz', hub: 'noche', icon: Trophy, render: () => <MejorDisfrazView /> },
   { id: 'playmatch-test', label: 'Probar Playmatch', hub: 'noche', icon: FlaskConical, render: () => <PlaymatchTestView /> },
 
   { id: 'orders-web', label: 'Ventas Web', hub: 'ventas', icon: Ticket, render: () => <OrdersView channel="web" /> },
@@ -11168,6 +11169,57 @@ function DenunciasView() {
           {resueltas.map((r) => <Row key={r.id} r={r} />)}
         </div>
       )}
+    </div>
+  );
+}
+
+/** «Mejor disfraz» (aniversario Halloween): los disfraces más votados en Playmatch, para premiar en
+ * vivo. Los votos los ve solo el staff: los invitados saben únicamente a quién votaron ellos. Con el
+ * alias, el disfraz y la zona se encuentra a la persona en la fiesta, y con el nombre de su entrada
+ * se la puede llamar por el micrófono. Se actualiza solo cada 15 segundos. */
+function MejorDisfrazView() {
+  const { data: events } = trpc.events.listAll.useQuery();
+  const [eventId, setEventId] = useState<number | null>(null);
+  const activeId = eventId ?? events?.[0]?.id ?? null;
+  const { data: ranking, isLoading } = trpc.party.costumeRanking.useQuery({ eventId: activeId! }, { enabled: !!activeId, refetchInterval: 15_000 });
+  const medal = (i: number) => (['🥇', '🥈', '🥉'][i] ?? `${i + 1}.`);
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="font-heading text-2xl">Mejor disfraz</h2>
+        <select
+          value={activeId ?? ''}
+          onChange={(e) => setEventId(Number(e.target.value))}
+          className="h-10 rounded-lg border border-border bg-card px-3 text-sm"
+          aria-label="Evento"
+        >
+          {events?.map((e) => <option key={e.id} value={e.id}>{e.title}</option>)}
+        </select>
+      </div>
+      <p className="text-sm text-muted-foreground">Cada invitado vota por hasta 3 disfraces desde Playmatch (solo con el Modo Halloween prendido en Ajustes). Esto lo ves solo tú.</p>
+
+      {isLoading && <p className="text-sm text-muted-foreground">Cargando…</p>}
+      {!isLoading && (ranking?.length ?? 0) === 0 && (
+        <p className="rounded-2xl border border-border/60 bg-card/50 p-6 text-center text-sm text-muted-foreground">Todavía no hay votos para este evento.</p>
+      )}
+      <div className="space-y-2.5">
+        {ranking?.map((r, i) => (
+          <div key={r.profileId} className={`flex items-center gap-4 rounded-2xl border p-4 ${i === 0 ? 'border-amber-400/50 bg-amber-400/10' : 'border-border/60 bg-card/50'} ${r.banned ? 'opacity-50' : ''}`}>
+            <span className="w-9 shrink-0 text-center text-2xl">{medal(i)}</span>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-base font-semibold">{r.costume ?? 'Sin disfraz escrito'}</p>
+              <p className="truncate text-sm text-muted-foreground">
+                {r.alias}{r.zone ? ` · en ${r.zone}` : ''}{r.holderName ? ` · entrada de ${r.holderName}` : ''}{r.banned ? ' · expulsado/a' : ''}
+              </p>
+            </div>
+            <div className="shrink-0 text-right">
+              <p className="font-heading text-3xl leading-none">{r.votes}</p>
+              <p className="text-xs text-muted-foreground">{r.votes === 1 ? 'voto' : 'votos'}</p>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

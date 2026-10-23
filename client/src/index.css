@@ -686,6 +686,37 @@ html {
   .account-backdrop::before, .account-backdrop::after, .lg-sheen-idle { animation: none; }
   .lg-tilt { transition: none; }
 }
+/* Playmatch en modo Halloween: la paleta oficial del dueño (Noir Void #1A1A1A, Cyber Lime #C4FF4D,
+   Vapor Violet #BA8CFF; ver `.halloween`). Playmatch pinta con los colores de Tailwind (rosa, fucsia,
+   celeste), así que acá se redefinen esas variables dentro del contenedor y todo cambia junto: ♥ y
+   botones en lima, Caramelo en violeta. Sobre lima el texto va oscuro (`--pm-on-accent`). */
+.pm-halloween {
+  --pm-bg: #141414;
+  --pm-on-accent: #1a1a1a;
+  --pm-glow: rgba(196, 255, 77, 0.55);
+  --color-pink-200: #e6ffb0;
+  --color-pink-300: #d9ff85;
+  --color-pink-400: #cdff61;
+  --color-pink-500: #c4ff4d;
+  --color-fuchsia-300: #dcc4ff;
+  --color-fuchsia-500: #96e8b4;
+  --color-fuchsia-600: #a8e66a;
+  --color-sky-300: #d6bcff;
+  --color-sky-400: #ba8cff;
+  --color-sky-500: #a374ff;
+}
+.pm-halloween .account-backdrop {
+  background:
+    radial-gradient(900px 600px at 85% -10%, rgb(186 140 255 / 0.32), transparent 60%),
+    radial-gradient(700px 500px at -10% 40%, rgb(196 255 77 / 0.12), transparent 60%),
+    radial-gradient(900px 700px at 60% 120%, rgb(186 140 255 / 0.28), transparent 60%),
+    #141414;
+}
+.pm-halloween .account-backdrop::before { background: radial-gradient(circle, rgb(186 140 255 / 0.5), transparent 65%); }
+.pm-halloween .account-backdrop::after { background: radial-gradient(circle, rgb(196 255 77 / 0.28), transparent 65%); }
+.pm-halloween .lg-sheet {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.02) 30%), rgba(24, 24, 24, 0.93);
+}
 /* Hojas que suben desde abajo: el mismo vidrio, pero bastante más tintado para que lo de atrás no se lea. */
 .lg-sheet {
   isolation: isolate;
@@ -694,4 +725,18 @@ html {
   -webkit-backdrop-filter: var(--lg-bf);
   backdrop-filter: var(--lg-bf);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), 0 -20px 60px -20px rgba(0, 0, 0, 0.8);
+}
+/* Esqueleto de carga de la app: un brillo suave que cruza, como en las apps de Apple. */
+.lg-skeleton { position: relative; overflow: hidden; }
+.lg-skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.07), transparent);
+  animation: lg-skeleton 1.6s ease-in-out infinite;
+}
+@keyframes lg-skeleton { to { transform: translateX(100%); } }
+@media (prefers-reduced-motion: reduce) {
+  .lg-skeleton::after { animation: none; }
 }

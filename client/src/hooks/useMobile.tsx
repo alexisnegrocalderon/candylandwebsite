@@ -3,8 +3,10 @@ import * as React from "react";
 const MOBILE_BREAKPOINT = 768;
 
 export function useIsMobile() {
-  const [isMobile, setIsMobile] = React.useState<boolean | undefined>(
-    undefined
+  // Se lee al tiro (no recién después del primer render): si no, el celular pintaba un cuadro
+  // con la versión de computador antes de cambiar a la suya.
+  const [isMobile, setIsMobile] = React.useState<boolean | undefined>(() =>
+    typeof window === "undefined" ? undefined : window.innerWidth < MOBILE_BREAKPOINT
   );
 
   React.useEffect(() => {

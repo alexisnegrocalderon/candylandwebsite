@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 /* Caché solo en memoria (se pierde al cerrar la pestaña, nunca va a disco): deja
  * pedir la foto de la siguiente tarjeta mientras se mira la actual, para que el
@@ -7,12 +7,12 @@ import { useEffect, useRef, useState } from 'react';
 const PHOTO_CACHE_TTL_MS = 60_000;
 const photoCache = new Map<string, { at: number; blob: Promise<Blob> }>();
 
-function fetchPhotoBlob(ticketCode: string, profileId: number): Promise<Blob> {
-  const key = `${ticketCode}:${profileId}`;
+function fetchPhotoBlob(ticketCode: string, profileId: number, position = 0): Promise<Blob> {
+  const key = `${ticketCode}:${profileId}:${position}`;
   const hit = photoCache.get(key);
   if (hit && Date.now() - hit.at < PHOTO_CACHE_TTL_MS) return hit.blob;
 
-  const blob = fetch(`/api/party/photo/${profileId}`, { headers: { 'x-ticket-code': ticketCode }, cache: 'no-store' })
+  const blob = fetch(`/api/party/photo/${profileId}/${position}`, { headers: { 'x-ticket-code': ticketCode }, cache: 'no-store' })
     .then((res) => { if (!res.ok) throw new Error('sin foto'); return res.blob(); });
   blob.catch(() => photoCache.delete(key));
   if (photoCache.size > 40) photoCache.delete(photoCache.keys().next().value as string);
@@ -21,8 +21,13 @@ function fetchPhotoBlob(ticketCode: string, profileId: number): Promise<Blob> {
 }
 
 /** Pide la foto por adelantado (no dibuja nada). */
-export function preloadPhoto(ticketCode: string, profileId: number) {
-  fetchPhotoBlob(ticketCode, profileId).catch(() => {});
+export function preloadPhoto(ticketCode: string, profileId: number, position = 0) {
+  fetchPhotoBlob(ticketCode, profileId, position).catch(() => {});
+}
+
+/** Olvida las fotos guardadas en memoria de un perfil (al cambiar las propias, para verlas al tiro). */
+export function forgetPhotos(ticketCode: string, profileId: number) {
+  for (const key of Array.from(photoCache.keys())) if (key.startsWith(`${ticketCode}:${profileId}:`)) photoCache.delete(key);
 }
 
 /* Foto de Playmatch con disuasivos contra las capturas. En una web NO se
@@ -34,11 +39,17 @@ export function preloadPhoto(ticketCode: string, profileId: number) {
  *  - se dibuja en <canvas>, sin <img> que guardar ni arrastrar, y sin menú
  *    de "mantener presionado".
  * La imagen se pide con el ticketCode en un header, nunca en la URL. */
-export function ProtectedPhoto({ ticketCode, profileId, viewerAlias, className = '' }: {
+export function ProtectedPhoto({ ticketCode, profileId, position = 0, viewerAlias, className = '', fallback, quiet = false }: {
   ticketCode: string;
   profileId: number;
+  /** Cuál de sus fotos (0 = la principal). */
+  position?: number;
   viewerAlias: string;
   className?: string;
+  /** Lo que se muestra si no hay foto o no se puede ver (por ejemplo, el avatar). */
+  fallback?: ReactNode;
+  /** Miniaturas: sin los textos «Cargando…» ni «Toca para ver». */
+  quiet?: boolean;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -49,7 +60,7 @@ export function ProtectedPhoto({ ticketCode, profileId, viewerAlias, className =
     setState('loading');
     (async () => {
       try {
-        const bitmap = await createImageBitmap(await fetchPhotoBlob(ticketCode, profileId));
+        const bitmap = await createImageBitmap(await fetchPhotoBlob(ticketCode, profileId, position));
         if (cancelled) return;
         const canvas = canvasRef.current;
         const ctx = canvas?.getContext('2d');
@@ -65,7 +76,7 @@ export function ProtectedPhoto({ ticketCode, profileId, viewerAlias, className =
       }
     })();
     return () => { cancelled = true; };
-  }, [ticketCode, profileId, viewerAlias]);
+  }, [ticketCode, profileId, position, viewerAlias]);
 
   useEffect(() => {
     const hide = () => setBlurred(true);
@@ -82,7 +93,8 @@ export function ProtectedPhoto({ ticketCode, profileId, viewerAlias, className =
 
   return (
     <div
-      className={`relative overflow-hidden bg-white/5 select-none ${className}`}
+      // `relative` solo si no viene posicionada desde afuera (`absolute inset-0` en la tarjeta): las dos juntas, ganaba `relative` y la foto quedaba cuadrada arriba.
+      className={`${/\b(absolute|fixed)\b/.test(className) ? '' : 'relative'} overflow-hidden bg-white/5 select-none ${className}`}
       onContextMenu={(e) => e.preventDefault()}
       onClick={() => setBlurred(false)}
       style={{ WebkitTouchCallout: 'none', WebkitUserSelect: 'none', userSelect: 'none', touchAction: 'pan-y' }}
@@ -93,11 +105,12 @@ export function ProtectedPhoto({ ticketCode, profileId, viewerAlias, className =
         className="w-full h-full object-cover pointer-events-none transition-[filter] duration-150"
         style={{ filter: blurred ? 'blur(28px)' : 'none', visibility: state === 'ready' ? 'visible' : 'hidden' }}
       />
-      {blurred && state === 'ready' && (
+      {state === 'error' && fallback && <div className="absolute inset-0">{fallback}</div>}
+      {blurred && state === 'ready' && !quiet && (
         <p className="absolute inset-0 grid place-items-center text-xs text-white/80 font-semibold">Toca para ver</p>
       )}
-      {state === 'loading' && <div className="absolute inset-0 grid place-items-center text-white/30 text-xs">Cargando…</div>}
-      {state === 'error' && <div className="absolute inset-0 grid place-items-center text-white/30 text-xs">Sin foto</div>}
+      {state === 'loading' && <div className={`absolute inset-0 grid place-items-center text-caption1 text-white/60 ${quiet ? 'lg-skeleton' : ''}`}>{quiet ? null : 'Cargando…'}</div>}
+      {state === 'error' && !fallback && <div className="absolute inset-0 grid place-items-center text-caption1 text-white/60">Sin foto</div>}
     </div>
   );
 }

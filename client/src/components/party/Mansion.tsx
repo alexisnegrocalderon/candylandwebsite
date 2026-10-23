@@ -1,5 +1,6 @@
-import { PARTY_ZONES, ZONE_LABELS, isOnline, placeInZone, type PartyGender, type PartyZone } from '@shared/party';
-import { PartyAvatar } from './Avatar';
+import { Check, MapPin, Star } from 'lucide-react';
+import { PARTY_ZONES, ZONE_LABELS, isOnline, type PartyGender, type PartyZone } from '@shared/party';
+import { PersonPhoto, tap } from '@/components/party/ui';
 
 export type MansionPerson = {
   id: number;
@@ -7,108 +8,84 @@ export type MansionPerson = {
   gender: PartyGender;
   avatarId: number;
   zone: PartyZone;
+  costume?: string | null;
   lastSeenAt: string | Date;
   connectionId: number | null;
   connectionStatus: string | null;
   pendingForMe: boolean;
 };
 
-const ZONE_STYLE: Record<PartyZone, { emoji: string; ring: string; glow: string }> = {
-  living: { emoji: '🛋️', ring: 'border-primary/25', glow: 'from-primary/12' },
-  playground: { emoji: '🎠', ring: 'border-violet-electric/25', glow: 'from-violet-electric/12' },
-  piscina: { emoji: '💦', ring: 'border-candy-blue/25', glow: 'from-candy-blue/12' },
-  barra: { emoji: '🍹', ring: 'border-cherry/25', glow: 'from-cherry/12' },
+/* Color de cada zona: un acento por sala, sobre el mismo vidrio de la App. */
+const ZONE_TONE: Record<PartyZone, { dot: string; glow: string }> = {
+  living: { dot: 'bg-pink-400', glow: 'from-pink-500/20' },
+  playground: { dot: 'bg-violet-400', glow: 'from-violet-500/20' },
+  piscina: { dot: 'bg-sky-400', glow: 'from-sky-500/20' },
+  barra: { dot: 'bg-amber-300', glow: 'from-amber-400/15' },
 };
 
-/** La mansión: cuatro zonas, y en cada una los avatares de quienes están
- * ahí. Las posiciones son determinísticas (placeInZone) para que nadie
- * salte de lugar cada vez que la vista se refresca. */
-export function Mansion({ people, myZone, onPick, onChangeZone }: {
+/** La Fiesta: quién está en cada sala de la mansión, como un radar. Las fotos se ven si los dos
+ * participan del swipe; si no, el avatar. Los que están activos llevan el anillo verde. */
+export function Mansion({ people, myZone, onPick, onChangeZone, ticketCode, viewerAlias, canPhoto }: {
   people: MansionPerson[];
   myZone: PartyZone;
   onPick: (person: MansionPerson) => void;
   onChangeZone: (zone: PartyZone) => void;
+  ticketCode: string;
+  viewerAlias: string;
+  canPhoto: boolean;
 }) {
   const now = new Date();
+  // Mi sala primero: es donde está la gente que puedo ir a conocer ahora mismo.
+  const zones = [myZone, ...PARTY_ZONES.filter((z) => z !== myZone)];
 
   return (
-    <div className="space-y-4">
-      {PARTY_ZONES.map((zone) => {
-        const here = people.filter((p) => p.zone === zone);
-        const style = ZONE_STYLE[zone];
+    <div className="space-y-3">
+      {zones.map((zone) => {
+        const here = people.filter((p) => p.zone === zone)
+          .sort((a, b) => Number(isOnline(b.lastSeenAt, now)) - Number(isOnline(a.lastSeenAt, now)));
+        const tone = ZONE_TONE[zone];
         const isMine = myZone === zone;
-
         return (
-          <section
-            key={zone}
-            className={`relative rounded-3xl border ${style.ring} bg-gradient-to-b ${style.glow} to-transparent overflow-hidden`}
-          >
-            <header className="flex items-center justify-between px-4 pt-3.5 pb-1">
-              <h2 className="text-sm font-bold tracking-tight flex items-center gap-2">
-                <span aria-hidden>{style.emoji}</span>
+          <section key={zone} className={`account-glass overflow-hidden rounded-[26px] bg-gradient-to-b ${tone.glow} to-transparent`}>
+            <header className="flex items-center justify-between gap-3 px-4 pb-2 pt-3.5">
+              <h2 className="flex min-w-0 items-center gap-2 text-headline font-bold">
+                <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${tone.dot}`} aria-hidden />
                 {ZONE_LABELS[zone]}
-                <span className="text-white/40 font-normal">{here.length}</span>
+                <span className="text-subhead font-medium text-white/60">{here.length}</span>
               </h2>
               {isMine ? (
-                <span className="text-[11px] px-2.5 py-1 rounded-full bg-primary/20 text-primary font-semibold">Estás acá</span>
+                <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-400/15 px-3 py-1.5 text-caption1 font-semibold text-emerald-300"><Check className="h-3.5 w-3.5" /> Estás acá</span>
               ) : (
-                <button
-                  onClick={() => onChangeZone(zone)}
-                  className="text-[11px] px-2.5 py-1 rounded-full border border-white/15 text-white/60 hover:text-white hover:border-white/35 transition-colors"
-                >
-                  Moverme
+                <button type="button" onClick={() => { tap(); onChangeZone(zone); }} className="lg-pill inline-flex shrink-0 items-center gap-1 rounded-full px-3 py-1.5 text-caption1 font-semibold interactive">
+                  <MapPin className="h-3.5 w-3.5" /> Moverme acá
                 </button>
               )}
             </header>
-
-            {/* Alto fijo para que la zona no colapse cuando está vacía ni
-                crezca sin control cuando se llena. */}
-            <div className="relative h-40">
-              {here.length === 0 && (
-                <p className="absolute inset-0 grid place-items-center text-xs text-white/30">
-                  No hay nadie acá todavía
-                </p>
-              )}
-
-              {here.map((p) => {
-                const { xPct, yPct } = placeInZone(p.id);
-                const online = isOnline(p.lastSeenAt, now);
-                return (
-                  <button
-                    key={p.id}
-                    onClick={() => onPick(p)}
-                    style={{ left: `${xPct}%`, top: `${yPct}%` }}
-                    className="absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-1 group"
-                    aria-label={`Ver a ${p.alias}`}
-                  >
-                    <span className="relative block">
-                      <PartyAvatar
-                        gender={p.gender}
-                        avatarId={p.avatarId}
-                        className={`w-13 h-13 rounded-full transition-transform group-active:scale-90 ${
-                          online ? 'ring-2 ring-emerald-400/70' : 'opacity-45 grayscale'
-                        }`}
-                      />
-                      {/* Un toque esperando respuesta es lo único que pide
-                          acción: se marca fuerte y con animación. */}
-                      {p.pendingForMe && (
-                        <span className="absolute -top-1 -right-1 w-5 h-5 grid place-items-center rounded-full bg-primary text-[11px] animate-bounce shadow-lg">
-                          👋
-                        </span>
-                      )}
-                      {p.connectionStatus === 'accepted' && (
-                        <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 grid place-items-center rounded-full bg-emerald-500 text-[9px]">
-                          💬
-                        </span>
-                      )}
-                    </span>
-                    <span className="max-w-16 truncate text-[11px] font-semibold text-white/85 drop-shadow">
-                      {p.alias}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
+            {here.length === 0 ? (
+              <p className="px-4 pb-4 text-footnote text-white/60">No hay nadie acá todavía.</p>
+            ) : (
+              <div className="flex gap-3 overflow-x-auto px-4 pb-4 pt-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                {here.map((p) => {
+                  const online = isOnline(p.lastSeenAt, now);
+                  return (
+                    <button key={p.id} type="button" onClick={() => { tap(); onPick(p); }} aria-label={`Ver a ${p.alias}`} className="flex w-[68px] shrink-0 flex-col items-center gap-1.5">
+                      <span className="relative block">
+                        <PersonPhoto ticketCode={ticketCode} viewerAlias={viewerAlias} canPhoto={canPhoto} person={p}
+                          className={`h-16 w-16 rounded-full ${online ? 'ring-[2.5px] ring-emerald-400 ring-offset-2 ring-offset-[#120a11]' : 'opacity-50 grayscale'}`} />
+                        {/* Un Caramelo esperando respuesta es lo único que pide acción: se marca fuerte. */}
+                        {p.pendingForMe && (
+                          <span className="absolute -right-1 -top-1 grid h-6 w-6 place-items-center rounded-full bg-sky-400 shadow-[0_0_12px_rgba(56,189,248,0.9)]"><Star className="h-3.5 w-3.5 fill-[#0b0612] text-[#0b0612]" /></span>
+                        )}
+                        {p.connectionStatus === 'accepted' && (
+                          <span className="absolute -bottom-0.5 -right-0.5 h-4 w-4 rounded-full border-2 border-[#120a11] bg-pink-500" aria-label="Match" />
+                        )}
+                      </span>
+                      <span className="w-full truncate text-center text-caption1 font-semibold">{p.alias}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </section>
         );
       })}

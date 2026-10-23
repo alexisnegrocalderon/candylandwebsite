@@ -876,6 +876,34 @@
       "when": 1792850000000,
       "tag": "0124_member_payments",
       "breakpoints": true
+    },
+    {
+      "idx": 125,
+      "version": "5",
+      "when": 1792950000000,
+      "tag": "0125_member_passkeys",
+      "breakpoints": true
+    },
+    {
+      "idx": 126,
+      "version": "5",
+      "when": 1793050000000,
+      "tag": "0126_playmatch_photos_busco_disfraz",
+      "breakpoints": true
+    },
+    {
+      "idx": 127,
+      "version": "5",
+      "when": 1793150000000,
+      "tag": "0127_playmatch_caramelo_leidos",
+      "breakpoints": true
+    },
+    {
+      "idx": 128,
+      "version": "5",
+      "when": 1793250000000,
+      "tag": "0128_playmatch_mejor_disfraz",
+      "breakpoints": true
     }
   ]
 }

@@ -5,10 +5,20 @@
 
 // --- Constantes de política ---
 
-/** Tope de toques por persona y por noche (decisión del dueño). Es lo que
- * hace que recibir un toque signifique algo: sin tope, una sola persona
- * mandando 80 convierte la función en spam la primera noche. */
-export const MAX_TOUCHES_PER_EVENT = 15;
+/** Tope de Caramelos (★, el «toque» de antes: la otra persona se entera) por persona y por noche.
+ * Son 3, como un super like: es lo que hace que recibir uno signifique algo. Sin tope, una sola
+ * persona mandando 80 convierte la función en spam la primera noche. */
+export const MAX_TOUCHES_PER_EVENT = 3;
+
+/** Deshacer el último ✕ del swipe: una vez por noche. */
+export const MAX_REWINDS_PER_EVENT = 1;
+
+/** «Visto»: la otra persona abrió el chat después de mi último mensaje. */
+export function isSeenBy(myLastMessageAt: Date | string | null | undefined, otherReadAt: Date | string | null | undefined): boolean {
+  const mine = toTime(myLastMessageAt);
+  const read = toTime(otherReadAt);
+  return mine !== null && read !== null && read >= mine;
+}
 
 /** En línea si dio señales en los últimos 2 minutos. El cliente refresca
  * la mansión cada 10s, así que tolera varias respuestas perdidas antes de
@@ -280,7 +290,18 @@ export function sanitizeGiftMessage(raw: string): { ok: true; body: string } | {
 // frontera de confianza.
 
 export const PHOTO_MAX_BYTES = 200 * 1024;
-export const PHOTO_SIZE_PX = 480;
+/** Fotos 3:4 (vertical), como la tarjeta del swipe. */
+export const PHOTO_WIDTH_PX = 480;
+export const PHOTO_HEIGHT_PX = 640;
+/** Hasta 3 fotos por perfil (carrusel de la tarjeta). La primera es la principal. */
+export const MAX_PARTY_PHOTOS = 3;
+
+/** Dónde va una foto nueva: reemplaza la de esa posición, o se agrega al final (nunca deja huecos). */
+export function photoSlotFor(requested: number | undefined, count: number): number | null {
+  if (requested === undefined) return count < MAX_PARTY_PHOTOS ? count : null;
+  if (!Number.isInteger(requested) || requested < 0 || requested >= MAX_PARTY_PHOTOS) return null;
+  return Math.min(requested, count);
+}
 
 /** Solo JPEG: es lo que `canvas.toBlob('image/jpeg')` entrega en todos los
  * navegadores (WebP falla en Safari viejo). Se revisa la firma real del
@@ -312,3 +333,54 @@ export const SWIPE_REPORT_REASONS = [
   'Foto inapropiada',
   'Me hizo sentir incómodo/a',
 ] as const;
+
+// --- Busco (filtro mutuo del swipe) ----------------------------------------
+//
+// Cada perfil dice a quién quiere conocer. En el swipe solo aparece alguien si
+// los dos se buscan: yo busco su género y la otra persona busca el mío (como en
+// las apps de citas). Se guarda como texto «hombre,mujer,pareja».
+
+export const DEFAULT_LOOKING_FOR: PartyGender[] = [...PARTY_GENDERS];
+
+export function parseLookingFor(raw: string | null | undefined): PartyGender[] {
+  const list = (raw ?? '').split(',').map((x) => x.trim()).filter((x): x is PartyGender => (PARTY_GENDERS as readonly string[]).includes(x));
+  return list.length > 0 ? Array.from(new Set(list)) : [...DEFAULT_LOOKING_FOR];
+}
+
+export function serializeLookingFor(list: readonly PartyGender[]): string {
+  const clean = PARTY_GENDERS.filter((g) => list.includes(g));
+  return (clean.length > 0 ? clean : DEFAULT_LOOKING_FOR).join(',');
+}
+
+export function isMutualInterest(
+  viewer: { gender: PartyGender | string; lookingFor: string | null | undefined },
+  target: { gender: PartyGender | string; lookingFor: string | null | undefined },
+): boolean {
+  return parseLookingFor(viewer.lookingFor).includes(target.gender as PartyGender)
+    && parseLookingFor(target.lookingFor).includes(viewer.gender as PartyGender);
+}
+
+// --- Mi disfraz -------------------------------------------------------------
+
+export const MAX_COSTUME_LENGTH = 40;
+
+/** El disfraz lo ve toda la fiesta: mismas reglas que el alias (sin arrobas, links ni teléfonos).
+ * Vacío = sin disfraz (`null`). */
+export function sanitizeCostume(raw: string | null | undefined): { ok: true; costume: string | null } | { ok: false; reason: string } {
+  const costume = (raw ?? '').replace(/\s+/g, ' ').trim();
+  if (!costume) return { ok: true, costume: null };
+  if (costume.length > MAX_COSTUME_LENGTH) return { ok: false, reason: `Máximo ${MAX_COSTUME_LENGTH} caracteres` };
+  for (const { re, reason } of ALIAS_FORBIDDEN) {
+    if (re.test(costume)) return { ok: false, reason: reason.replace('en el alias', 'en el disfraz') };
+  }
+  return { ok: true, costume };
+}
+
+// --- Votar «Mejor disfraz» (aniversario Halloween) --------------------------------------
+
+/** Votos por persona y por noche. Pocos a propósito: el voto vale porque hay que elegir. */
+export const MAX_COSTUME_VOTES_PER_EVENT = 3;
+
+export function costumeVotesLeft(used: number): number {
+  return Math.max(0, MAX_COSTUME_VOTES_PER_EVENT - used);
+}

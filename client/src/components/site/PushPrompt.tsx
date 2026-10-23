@@ -14,7 +14,7 @@ import { useInstallPromptVisible } from '@/lib/appInstall';
 /* El sitio es claro (tokens del tema); la página de la entrada es oscura. */
 const TONES = {
   light: { muted: 'text-muted-foreground', strong: 'text-foreground', chip: 'bg-muted', faint: 'text-muted-foreground/70', box: 'border-border bg-card', card: 'border-primary/25 bg-gradient-to-br from-primary/10 via-card to-sky-400/10' },
-  dark: { muted: 'text-white/60', strong: 'text-white', chip: 'bg-white/10', faint: 'text-white/45', box: 'border-white/10 bg-white/[0.04]', card: 'border-primary/25 bg-gradient-to-br from-primary/12 via-white/[0.03] to-sky-400/10' },
+  dark: { muted: 'text-white/60', strong: 'text-white', chip: 'bg-white/10', faint: 'text-white/60', box: 'border-white/10 bg-white/[0.04]', card: 'border-primary/25 bg-gradient-to-br from-primary/12 via-white/[0.03] to-sky-400/10' },
 };
 type Tone = keyof typeof TONES;
 

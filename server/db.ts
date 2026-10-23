@@ -10,11 +10,11 @@ import { findExistingMatch, mergeFields, type ImportFields } from "../shared/blo
 import { ambassadorBuyerDiscount, bestBuyerDiscount, effectiveBuyerDiscountPercent, type GeneralBuyerDiscount } from "../shared/ambassadorDiscount";
 import { normalizeIgHandle, saysAlreadyBought, type BuyerCandidate } from "../shared/igCustomerLink";
 import { computeFans, FAN_WINDOW_DAYS } from "../shared/igEngagement";
-import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, partyPhotos, partySwipes, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog, eventSurveys, eventSurveySettings, accessCredits, type AccessCredit, igComments, type IgComment, igReferrals, type IgReferralRow, igLinkClicks, staffMembers, staffShifts, aiUsage, attendeeContacts } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, partyPhotos, partySwipes, partyCostumeVotes, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog, eventSurveys, eventSurveySettings, accessCredits, type AccessCredit, igComments, type IgComment, igReferrals, type IgReferralRow, igLinkClicks, staffMembers, staffShifts, aiUsage, attendeeContacts } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
 import { isMissionActiveForEvent, missionDepositPrice, personasForAccesoSlug, personasForTicket } from '../shared/mission300';
-import { MAX_TOUCHES_PER_EVENT, PRESENCE_WINDOW_MS, SWIPE_DECK_SIZE, canSeePhotos, giftExpiresAt, isGiftExpired, canPayGift, canRespondToGift, orderedPair, type PartyGender, type PartyZone } from '../shared/party';
+import { MAX_TOUCHES_PER_EVENT, MAX_COSTUME_VOTES_PER_EVENT, costumeVotesLeft, MAX_PARTY_PHOTOS, MAX_REWINDS_PER_EVENT, photoSlotFor, isMutualInterest, isSeenBy, parseLookingFor, PRESENCE_WINDOW_MS, SWIPE_DECK_SIZE, canSeePhotos, giftExpiresAt, isGiftExpired, canPayGift, canRespondToGift, orderedPair, type PartyGender, type PartyZone } from '../shared/party';
 import { playcoinsEarnedForPurchase, clampRedeemAmount } from '../shared/playcoins';
 import { isEventToday } from '../shared/eventDay';
 import { chileHourOf, startOfChileDay } from '../shared/chileDate';
@@ -6651,6 +6651,8 @@ export async function createPartyProfile(params: {
   eventId: number; ticketId: number; alias: string; gender: PartyGender; avatarId: number; zone: PartyZone;
   /** 0 = inscrito antes de entrar: invisible hasta que escaneen su entrada. */
   active?: 0 | 1;
+  lookingFor?: string;
+  costume?: string | null;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -6663,6 +6665,8 @@ export async function createPartyProfile(params: {
     avatarId: params.avatarId,
     zone: params.zone,
     active: params.active ?? 1,
+    lookingFor: params.lookingFor ?? 'hombre,mujer,pareja',
+    costume: params.costume ?? null,
     lastSeenAt: new Date(),
     rulesAcceptedAt: new Date(),
   });
@@ -6671,7 +6675,7 @@ export async function createPartyProfile(params: {
   return profile;
 }
 
-export async function updatePartyProfile(profileId: number, data: { zone?: PartyZone; avatarId?: number; active?: number; alias?: string; gender?: PartyGender; lastSeenAt?: Date }) {
+export async function updatePartyProfile(profileId: number, data: { zone?: PartyZone; avatarId?: number; active?: number; alias?: string; gender?: PartyGender; lastSeenAt?: Date; lookingFor?: string; costume?: string | null }) {
   const db = await getDb();
   if (!db) return;
   await db.update(partyProfiles).set(data).where(eq(partyProfiles.id, profileId));
@@ -6731,6 +6735,7 @@ export async function listPartyMansion(profileId: number, eventId: number) {
         gender: p.gender as PartyGender,
         avatarId: p.avatarId,
         zone: p.zone as PartyZone,
+        costume: (p.costume as string | null) ?? null,
         lastSeenAt: p.lastSeenAt,
         connectionId: c?.id ?? null,
         // `declined` se le muestra a quien tocó como si siguiera pendiente:
@@ -6754,7 +6759,7 @@ export type PartyTouchResult =
 export async function touchPartyProfile(profileId: number, targetProfileId: number, eventId: number): Promise<PartyTouchResult> {
   const db = await getDb();
   if (!db) return { ok: false, reason: 'Base de datos no disponible' };
-  if (profileId === targetProfileId) return { ok: false, reason: 'No puedes tocarte a ti mismo' };
+  if (profileId === targetProfileId) return { ok: false, reason: 'No puedes mandarte un Caramelo a ti mismo' };
 
   const [target] = await db.select().from(partyProfiles).where(eq(partyProfiles.id, targetProfileId)).limit(1);
   if (!target || target.eventId !== eventId || target.active !== 1) {
@@ -6789,7 +6794,7 @@ export async function touchPartyProfile(profileId: number, targetProfileId: numb
   const connections = await getPartyConnectionsFor(db, profileId);
   const touchesUsed = connections.filter((c: any) => c.initiatedById === profileId && !c.viaSwipe).length;
   if (touchesUsed >= MAX_TOUCHES_PER_EVENT) {
-    return { ok: false, reason: `Llegaste al máximo de ${MAX_TOUCHES_PER_EVENT} toques por noche` };
+    return { ok: false, reason: `Ya usaste tus ${MAX_TOUCHES_PER_EVENT} Caramelos de esta noche` };
   }
 
   await db.insert(partyConnections).values({
@@ -6843,9 +6848,183 @@ export async function listPartyMessages(profileId: number, connectionId: number)
     .where(eq(partyMessages.connectionId, connectionId))
     .orderBy(partyMessages.createdAt);
 
+  // Abrir el chat = leerlo hasta ahora (para los no leídos y el «Visto» del otro lado).
+  const iAmLow = c.profileLowId === profileId;
+  await db.update(partyConnections).set(iAmLow ? { lowReadAt: new Date() } : { highReadAt: new Date() }).where(eq(partyConnections.id, c.id));
+
   return {
-    other: other ? { id: other.id, alias: other.alias, gender: other.gender, avatarId: other.avatarId, zone: other.zone, lastSeenAt: other.lastSeenAt } : null,
+    other: other ? { id: other.id, alias: other.alias, gender: other.gender, avatarId: other.avatarId, zone: other.zone, lastSeenAt: other.lastSeenAt, costume: other.costume ?? null } : null,
     messages: messages.map((m: any) => ({ id: m.id, body: m.body, mine: m.fromProfileId === profileId, createdAt: m.createdAt })),
+    otherReadAt: (iAmLow ? c.highReadAt : c.lowReadAt) ?? null,
+  };
+}
+
+export type PartyMatchRow = {
+  connectionId: number;
+  other: { id: number; alias: string; gender: PartyGender; avatarId: number; zone: PartyZone; lastSeenAt: Date; costume: string | null; hasPhoto: boolean };
+  last: { body: string; mine: boolean; createdAt: Date } | null;
+  unread: number;
+  seen: boolean;
+  since: Date;
+};
+
+/* --- Mejor disfraz ---------------------------------------------------------- */
+
+/** A quién ya votó esta persona y cuántos votos le quedan. */
+export async function getMyCostumeVotes(profileId: number) {
+  const db = await getDb();
+  if (!db) return { votedIds: [] as number[], votesLeft: 0 };
+  const rows = await db.select({ to: partyCostumeVotes.toProfileId }).from(partyCostumeVotes).where(eq(partyCostumeVotes.fromProfileId, profileId));
+  return { votedIds: rows.map((r: any) => r.to as number), votesLeft: costumeVotesLeft(rows.length) };
+}
+
+/** Vota (o quita el voto) por el disfraz de alguien. Hay que poder ver su foto (participar del
+ * swipe), no se vota a uno mismo ni a quien se bloqueó, y son pocos votos por noche. */
+export async function toggleCostumeVote(
+  viewer: { id: number; eventId: number; swipeEnabled: number; banned: number },
+  targetProfileId: number,
+): Promise<{ ok: true; voted: boolean; votesLeft: number } | { ok: false; reason: string }> {
+  const db = await getDb();
+  if (!db) return { ok: false, reason: 'Base de datos no disponible' };
+  if (viewer.id === targetProfileId) return { ok: false, reason: 'No puedes votarte a ti mismo' };
+  if (!canSeePhotos(viewer, await partyProfileHasPhoto(viewer.id))) return { ok: false, reason: 'Primero pon tu foto para votar' };
+
+  const [existing] = await db.select().from(partyCostumeVotes)
+    .where(and(eq(partyCostumeVotes.fromProfileId, viewer.id), eq(partyCostumeVotes.toProfileId, targetProfileId))).limit(1);
+  if (existing) {
+    await db.delete(partyCostumeVotes).where(eq(partyCostumeVotes.id, existing.id));
+    return { ok: true, voted: false, votesLeft: (await getMyCostumeVotes(viewer.id)).votesLeft };
+  }
+
+  const [target] = await db.select().from(partyProfiles).where(eq(partyProfiles.id, targetProfileId)).limit(1);
+  if (!target || target.eventId !== viewer.eventId || target.active !== 1 || target.banned || !(await partyProfileHasPhoto(targetProfileId))) {
+    return { ok: false, reason: 'Esa persona ya no está disponible' };
+  }
+  if ((await getPartyHiddenIds(db, viewer.id)).has(targetProfileId)) return { ok: false, reason: 'Esa persona ya no está disponible' };
+
+  const mine = await getMyCostumeVotes(viewer.id);
+  if (mine.votesLeft <= 0) return { ok: false, reason: `Ya usaste tus ${MAX_COSTUME_VOTES_PER_EVENT} votos. Quita uno para votar por otra persona` };
+  try {
+    await db.insert(partyCostumeVotes).values({ eventId: viewer.eventId, fromProfileId: viewer.id, toProfileId: targetProfileId });
+  } catch {
+    // Dos toques seguidos: el voto ya quedó guardado.
+  }
+  return { ok: true, voted: true, votesLeft: (await getMyCostumeVotes(viewer.id)).votesLeft };
+}
+
+/** Ranking para el staff: los disfraces más votados, con lo que hace falta para encontrar a la
+ * persona y entregarle el premio (alias, disfraz, zona, y el nombre de la entrada). Solo admin. */
+export async function getCostumeRanking(eventId: number, limit = 10) {
+  const db = await getDb();
+  if (!db) return [];
+  const top = await db.select({ profileId: partyCostumeVotes.toProfileId, votes: sql<number>`count(*)` })
+    .from(partyCostumeVotes).where(eq(partyCostumeVotes.eventId, eventId))
+    .groupBy(partyCostumeVotes.toProfileId).orderBy(desc(sql`count(*)`), partyCostumeVotes.toProfileId).limit(limit);
+  if (top.length === 0) return [];
+  const profiles = await db.select({
+    id: partyProfiles.id, alias: partyProfiles.alias, costume: partyProfiles.costume, zone: partyProfiles.zone,
+    banned: partyProfiles.banned, lastSeenAt: partyProfiles.lastSeenAt, holderName: tickets.holderName,
+  }).from(partyProfiles).leftJoin(tickets, eq(tickets.id, partyProfiles.ticketId))
+    .where(inArray(partyProfiles.id, top.map((t: any) => t.profileId)));
+  const byId = new Map<number, any>(profiles.map((p: any) => [p.id, p]));
+  return top.map((t: any) => {
+    const p = byId.get(t.profileId);
+    return {
+      profileId: t.profileId as number,
+      votes: Number(t.votes),
+      alias: (p?.alias as string | undefined) ?? 'Perfil eliminado',
+      costume: (p?.costume as string | null | undefined) ?? null,
+      zone: (p?.zone as PartyZone | undefined) ?? null,
+      holderName: (p?.holderName as string | null | undefined) ?? null,
+      banned: !!p?.banned,
+      lastSeenAt: (p?.lastSeenAt as Date | undefined) ?? null,
+    };
+  });
+}
+
+/** Mis matches para la pestaña Matches: con quién, su último mensaje, cuántos no leí y si vio lo
+ * último que le mandé. Solo conexiones aceptadas, sin bloqueados ni gente que ya no está activa. */
+export async function listPartyMatches(profileId: number): Promise<PartyMatchRow[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const [connections, hidden] = await Promise.all([getPartyConnectionsFor(db, profileId), getPartyHiddenIds(db, profileId)]);
+  const accepted = connections.filter((c: any) => c.status === 'accepted');
+  if (accepted.length === 0) return [];
+  const otherOf = (c: any) => (c.profileLowId === profileId ? c.profileHighId : c.profileLowId);
+  const otherIds = accepted.map(otherOf).filter((id: number) => !hidden.has(id));
+  if (otherIds.length === 0) return [];
+  const [others, messages, photos] = await Promise.all([
+    db.select().from(partyProfiles).where(inArray(partyProfiles.id, otherIds)),
+    db.select().from(partyMessages).where(inArray(partyMessages.connectionId, accepted.map((c: any) => c.id))).orderBy(partyMessages.createdAt),
+    db.select({ profileId: partyPhotos.profileId }).from(partyPhotos).where(inArray(partyPhotos.profileId, otherIds)),
+  ]);
+  const byId = new Map<number, any>(others.map((o: any) => [o.id, o]));
+  const withPhoto = new Set<number>(photos.map((p: any) => p.profileId));
+  return accepted
+    .map((c: any): PartyMatchRow | null => {
+      const other = byId.get(otherOf(c));
+      if (!other || other.active !== 1 || other.banned) return null;
+      const iAmLow = c.profileLowId === profileId;
+      const myReadAt = iAmLow ? c.lowReadAt : c.highReadAt;
+      const otherReadAt = iAmLow ? c.highReadAt : c.lowReadAt;
+      const mine = messages.filter((m: any) => m.connectionId === c.id);
+      const last = mine[mine.length - 1] ?? null;
+      const myLast = [...mine].reverse().find((m: any) => m.fromProfileId === profileId) ?? null;
+      const unread = mine.filter((m: any) => m.fromProfileId !== profileId && (!myReadAt || new Date(m.createdAt) > new Date(myReadAt))).length;
+      return {
+        connectionId: c.id as number,
+        other: { id: other.id as number, alias: other.alias as string, gender: other.gender as PartyGender, avatarId: other.avatarId as number, zone: other.zone as PartyZone, lastSeenAt: other.lastSeenAt as Date, costume: (other.costume as string | null) ?? null, hasPhoto: withPhoto.has(other.id) },
+        last: last ? { body: last.body as string, mine: last.fromProfileId === profileId, createdAt: last.createdAt as Date } : null,
+        unread,
+        seen: !!myLast && last?.fromProfileId === profileId && isSeenBy(myLast.createdAt, otherReadAt),
+        since: (last?.createdAt ?? c.respondedAt ?? c.createdAt) as Date,
+      };
+    })
+    .filter((m: PartyMatchRow | null): m is PartyMatchRow => m !== null)
+    .sort((a: PartyMatchRow, b: PartyMatchRow) => new Date(b.since).getTime() - new Date(a.since).getTime());
+}
+
+/** «Les gustas a N personas»: ♥ que me dieron y que todavía no veo (no los swipeé ni hay conexión).
+ * Solo el número, nunca quiénes: los ♥ siguen siendo ciegos. */
+export async function countPartyLikesForMe(profileId: number): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const [likes, mine, connections, hidden] = await Promise.all([
+    db.select({ from: partySwipes.fromProfileId }).from(partySwipes).where(and(eq(partySwipes.toProfileId, profileId), eq(partySwipes.liked, 1))),
+    db.select({ to: partySwipes.toProfileId }).from(partySwipes).where(eq(partySwipes.fromProfileId, profileId)),
+    getPartyConnectionsFor(db, profileId),
+    getPartyHiddenIds(db, profileId),
+  ]);
+  const seen = new Set<number>([...mine.map((m: any) => m.to), ...Array.from(hidden)]);
+  for (const c of connections) seen.add(c.profileLowId === profileId ? c.profileHighId : c.profileLowId);
+  return likes.filter((l: any) => !seen.has(l.from)).length;
+}
+
+/** Deshacer el último ✕ (una vez por noche): borra ese swipe y devuelve la tarjeta para ponerla
+ * de nuevo arriba. */
+export async function undoLastPartyNope(viewer: { id: number; eventId: number; swipeEnabled: number; banned: number; rewindsUsed?: number }) {
+  const db = await getDb();
+  if (!db) return { ok: false as const, reason: 'Base de datos no disponible' };
+  if ((viewer.rewindsUsed ?? 0) >= MAX_REWINDS_PER_EVENT) return { ok: false as const, reason: 'Ya usaste tu deshacer de esta noche' };
+  const [last] = await db.select().from(partySwipes).where(eq(partySwipes.fromProfileId, viewer.id))
+    .orderBy(desc(partySwipes.createdAt), desc(partySwipes.id)).limit(1);
+  if (!last || last.liked !== 0) return { ok: false as const, reason: 'No hay nada que deshacer' };
+  // Si el ✕ fue a un Caramelo, ese rechazo también se deshace: vuelve a estar pendiente.
+  const { low, high } = orderedPair(viewer.id, last.toProfileId);
+  const [conn] = await db.select().from(partyConnections).where(and(eq(partyConnections.profileLowId, low), eq(partyConnections.profileHighId, high))).limit(1);
+  const caramelo = !!conn && conn.status === 'declined' && conn.initiatedById === last.toProfileId;
+  if (caramelo) await db.update(partyConnections).set({ status: 'pending', respondedAt: null }).where(eq(partyConnections.id, conn.id));
+  const target = await isSwipeCandidate(db, viewer.id, viewer.eventId, last.toProfileId);
+  // Si ya no está (se fue, la bloquearon), no se gasta el deshacer.
+  if (!target) {
+    if (caramelo) await db.update(partyConnections).set({ status: 'declined', respondedAt: new Date() }).where(eq(partyConnections.id, conn.id));
+    return { ok: false as const, reason: 'Esa persona ya no está disponible' };
+  }
+  await db.delete(partySwipes).where(eq(partySwipes.id, last.id));
+  await db.update(partyProfiles).set({ rewindsUsed: sql`${partyProfiles.rewindsUsed} + 1` }).where(eq(partyProfiles.id, viewer.id));
+  return {
+    ok: true as const,
+    card: { id: target.id as number, alias: target.alias as string, gender: target.gender as PartyGender, zone: target.zone as PartyZone, costume: (target.costume as string | null) ?? null, photoCount: Math.max(1, await countPartyPhotos(target.id)), caramelo },
   };
 }
 
@@ -7047,20 +7226,56 @@ export async function markPlaymatchTestGuestEntered(ticketCode: string) {
 /* --- Fotos del swipe ------------------------------------------------------ */
 
 /** Guarda (o reemplaza) la foto del perfil y lo suma al swipe. */
-export async function savePartyPhoto(profileId: number, eventId: number, data: Buffer) {
+/** Cuántas fotos tiene un perfil (0 a MAX_PARTY_PHOTOS). */
+export async function countPartyPhotos(profileId: number): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const [row] = await db.select({ n: sql<number>`count(*)` }).from(partyPhotos).where(eq(partyPhotos.profileId, profileId));
+  return Number(row?.n ?? 0);
+}
+
+/** Guarda una foto: reemplaza la de `position` o, sin posición, la agrega al final (máx. 3). Al
+ * tener foto, el perfil entra al swipe. Devuelve la posición donde quedó, o null si ya tiene 3. */
+export async function savePartyPhoto(profileId: number, eventId: number, data: Buffer, position?: number): Promise<number | null> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.delete(partyPhotos).where(eq(partyPhotos.profileId, profileId));
-  await db.insert(partyPhotos).values({ profileId, eventId, data });
+  const slot = photoSlotFor(position, await countPartyPhotos(profileId));
+  if (slot === null) return null;
+  await db.delete(partyPhotos).where(and(eq(partyPhotos.profileId, profileId), eq(partyPhotos.position, slot)));
+  await db.insert(partyPhotos).values({ profileId, eventId, position: slot, data });
   await db.update(partyProfiles).set({ swipeEnabled: 1 }).where(eq(partyProfiles.id, profileId));
+  return slot;
+}
+
+/** Pasa la foto de `position` a principal (intercambia con la 0). El índice único (perfil,
+ * posición) obliga a pasar por una posición temporal. */
+export async function makeMainPartyPhoto(profileId: number, position: number) {
+  const db = await getDb();
+  if (!db || position <= 0) return;
+  const at = (p: number) => and(eq(partyPhotos.profileId, profileId), eq(partyPhotos.position, p));
+  await db.update(partyPhotos).set({ position: -1 }).where(at(position));
+  await db.update(partyPhotos).set({ position }).where(at(0));
+  await db.update(partyPhotos).set({ position: 0 }).where(at(-1));
 }
 
 /** Borra la foto y saca al perfil del swipe, al instante. */
-export async function deletePartyPhoto(profileId: number) {
+/** Borra una foto (y corre las siguientes para no dejar huecos) o, sin posición, todas. Sin
+ * fotos, el perfil sale del swipe al instante. */
+export async function deletePartyPhoto(profileId: number, position?: number) {
   const db = await getDb();
   if (!db) return;
-  await db.delete(partyPhotos).where(eq(partyPhotos.profileId, profileId));
-  await db.update(partyProfiles).set({ swipeEnabled: 0 }).where(eq(partyProfiles.id, profileId));
+  if (position === undefined) {
+    await db.delete(partyPhotos).where(eq(partyPhotos.profileId, profileId));
+  } else {
+    await db.delete(partyPhotos).where(and(eq(partyPhotos.profileId, profileId), eq(partyPhotos.position, position)));
+    // De a una y en orden: así el índice único nunca ve dos fotos en la misma posición.
+    for (let p = position + 1; p < MAX_PARTY_PHOTOS; p++) {
+      await db.update(partyPhotos).set({ position: p - 1 }).where(and(eq(partyPhotos.profileId, profileId), eq(partyPhotos.position, p)));
+    }
+  }
+  if ((await countPartyPhotos(profileId)) === 0) {
+    await db.update(partyProfiles).set({ swipeEnabled: 0 }).where(eq(partyProfiles.id, profileId));
+  }
 }
 
 /** Pausar o reanudar la participación sin perder la foto. */
@@ -7089,12 +7304,13 @@ export async function partyProfileHasPhoto(profileId: number): Promise<boolean> 
 export async function getPartyPhotoForViewer(
   viewer: { id: number; eventId: number; swipeEnabled: number; banned: number },
   targetProfileId: number,
+  position = 0,
 ): Promise<Buffer | null> {
   const db = await getDb();
   if (!db) return null;
 
   const [row] = await db.select({ data: partyPhotos.data, eventId: partyPhotos.eventId })
-    .from(partyPhotos).where(eq(partyPhotos.profileId, targetProfileId)).limit(1);
+    .from(partyPhotos).where(and(eq(partyPhotos.profileId, targetProfileId), eq(partyPhotos.position, position))).limit(1);
   if (!row) return null;
   if (viewer.id === targetProfileId) return row.data;
 
@@ -7138,6 +7354,14 @@ async function isSwipeCandidate(db: any, viewerId: number, eventId: number, targ
   if (viewerId === targetId) return null;
   const [t] = await db.select().from(partyProfiles).where(eq(partyProfiles.id, targetId)).limit(1);
   if (!t || t.eventId !== eventId || t.active !== 1 || t.banned || !t.swipeEnabled) return null;
+  // Busco: el servidor también lo exige (el mazo no es una frontera de confianza). Si la otra
+  // persona ya me mandó un Caramelo, basta con que yo la busque a ella.
+  const [me] = await db.select().from(partyProfiles).where(eq(partyProfiles.id, viewerId)).limit(1);
+  if (!me) return null;
+  const { low, high } = orderedPair(viewerId, targetId);
+  const [conn] = await db.select().from(partyConnections).where(and(eq(partyConnections.profileLowId, low), eq(partyConnections.profileHighId, high))).limit(1);
+  const caramelFromThem = !!conn && conn.status === 'pending' && conn.initiatedById === targetId;
+  if (caramelFromThem ? !parseLookingFor(me.lookingFor).includes(t.gender) : !isMutualInterest(me, t)) return null;
   if (!(await partyProfileHasPhoto(targetId))) return null;
   const hidden = await getPartyHiddenIds(db, viewerId);
   if (hidden.has(targetId)) return null;
@@ -7169,13 +7393,30 @@ export async function getPartySwipeDeck(viewer: { id: number; eventId: number; s
 
   const skip = new Set<number>([viewer.id, ...Array.from(hidden), ...swiped.map((s: any) => s.toProfileId)]);
   for (const c of connections) skip.add(c.profileLowId === viewer.id ? c.profileHighId : c.profileLowId);
-  const photoIds = new Set<number>(withPhoto.map((p: any) => p.profileId));
+  const photoCount = new Map<number, number>();
+  for (const p of withPhoto as any[]) photoCount.set(p.profileId, (photoCount.get(p.profileId) ?? 0) + 1);
+  const me = profiles.find((p: any) => p.id === viewer.id) ?? (await db.select().from(partyProfiles).where(eq(partyProfiles.id, viewer.id)).limit(1))[0];
 
-  return profiles
-    .filter((p: any) => !skip.has(p.id) && photoIds.has(p.id))
+  const toCard = (p: any, caramelo: boolean) => ({
+    id: p.id as number, alias: p.alias as string, gender: p.gender as PartyGender, zone: p.zone as PartyZone,
+    costume: (p.costume as string | null) ?? null, photoCount: photoCount.get(p.id) ?? 1, caramelo,
+  });
+  // Quien me mandó un Caramelo (★) va primero, con su marca: ♥ = match al tiro. Basta con que yo
+  // busque a alguien como esa persona (ella ya dijo que yo le intereso).
+  const caramelIds = new Set<number>(connections
+    .filter((c: any) => c.status === 'pending' && c.initiatedById !== viewer.id)
+    .map((c: any) => (c.profileLowId === viewer.id ? c.profileHighId : c.profileLowId)));
+  const caramels = profiles
+    .filter((p: any) => caramelIds.has(p.id) && !hidden.has(p.id) && photoCount.has(p.id) && (!me || parseLookingFor(me.lookingFor).includes(p.gender)))
+    .map((p: any) => toCard(p, true));
+
+  const rest = profiles
+    // Busco: solo quienes se buscan los dos.
+    .filter((p: any) => !skip.has(p.id) && photoCount.has(p.id) && (!me || isMutualInterest(me, p)))
     .sort((a: any, b: any) => new Date(b.lastSeenAt).getTime() - new Date(a.lastSeenAt).getTime())
-    .slice(0, SWIPE_DECK_SIZE)
-    .map((p: any) => ({ id: p.id, alias: p.alias, gender: p.gender as PartyGender, zone: p.zone as PartyZone }));
+    .map((p: any) => toCard(p, false));
+
+  return [...caramels, ...rest].slice(0, SWIPE_DECK_SIZE);
 }
 
 export type PartySwipeResult =
@@ -7201,16 +7442,24 @@ export async function swipePartyProfile(
   await db.insert(partySwipes)
     .values({ eventId: viewer.eventId, fromProfileId: viewer.id, toProfileId: targetProfileId, liked: liked ? 1 : 0 })
     .onDuplicateKeyUpdate({ set: { liked: liked ? 1 : 0 } });
-  if (!liked) return { ok: true, match: false };
-
-  const [back] = await db.select().from(partySwipes).where(and(
-    eq(partySwipes.fromProfileId, targetProfileId), eq(partySwipes.toProfileId, viewer.id), eq(partySwipes.liked, 1),
-  )).limit(1);
-  if (!back) return { ok: true, match: false };
 
   const { low, high } = orderedPair(viewer.id, targetProfileId);
   const findPair = () => db.select().from(partyConnections)
     .where(and(eq(partyConnections.profileLowId, low), eq(partyConnections.profileHighId, high))).limit(1);
+  const [pending] = await findPair();
+  // Me había mandado un Caramelo: ✕ lo rechaza en silencio (como «Ahora no»), ♥ es match al tiro.
+  const caramelFromThem = !!pending && pending.status === 'pending' && pending.initiatedById === targetProfileId;
+  if (!liked) {
+    if (caramelFromThem) await db.update(partyConnections).set({ status: 'declined', respondedAt: new Date() }).where(eq(partyConnections.id, pending.id));
+    return { ok: true, match: false };
+  }
+
+  if (!caramelFromThem) {
+    const [back] = await db.select().from(partySwipes).where(and(
+      eq(partySwipes.fromProfileId, targetProfileId), eq(partySwipes.toProfileId, viewer.id), eq(partySwipes.liked, 1),
+    )).limit(1);
+    if (!back) return { ok: true, match: false };
+  }
 
   let [conn] = await findPair();
   if (!conn) {
@@ -7245,6 +7494,8 @@ export async function purgeOldPartyMessages(now: Date = new Date()) {
   if (oldEvents.length === 0) return { deletedFor: 0 };
 
   const eventIds = oldEvents.map((e: any) => e.id);
+  // Los votos de «Mejor disfraz» se borran junto con los mensajes (el staff ya premió esa noche).
+  await db.delete(partyCostumeVotes).where(inArray(partyCostumeVotes.eventId, eventIds));
   const conns = await db.select({ id: partyConnections.id }).from(partyConnections)
     .where(inArray(partyConnections.eventId, eventIds));
   if (conns.length === 0) return { deletedFor: 0 };

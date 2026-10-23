@@ -1580,6 +1580,13 @@ export const partyProfiles = mysqlTable("partyProfiles", {
   // Participa del swipe: exige tener foto (ver partyPhotos). Se apaga solo al
   // borrar la foto o al expulsar al perfil.
   swipeEnabled: int("swipeEnabled").default(0).notNull(),
+  // A quién quiere conocer («hombre,mujer,pareja»): el swipe solo junta a quienes se buscan
+  // los dos (isMutualInterest en shared/party.ts).
+  lookingFor: varchar("lookingFor", { length: 32 }).default("hombre,mujer,pareja").notNull(),
+  // «Mi disfraz» (aniversario Halloween): lo ve toda la fiesta, mismas reglas que el alias.
+  costume: varchar("costume", { length: 40 }),
+  // Cuántas veces deshizo un ✕ esta noche (MAX_REWINDS_PER_EVENT).
+  rewindsUsed: int("rewindsUsed").default(0).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => ({
   // El patrón de consulta real: "todos los perfiles activos de este evento".
@@ -1596,16 +1603,19 @@ const mediumblob = customType<{ data: Buffer }>({
   dataType() { return "mediumblob"; },
 });
 
-// Una foto por perfil, tomada con la cámara dentro de la fiesta. Se borra al
-// cerrar la ventana del evento, al borrarla la persona o al expulsarla.
+// Hasta 3 fotos por perfil (MAX_PARTY_PHOTOS): `position` 0 es la principal. Se pueden subir
+// desde que compra la entrada (cámara o galería), pero nadie más las ve hasta que escanean su
+// entrada. Se borran al cerrar la ventana del evento, al borrarlas la persona o al expulsarla.
 export const partyPhotos = mysqlTable("partyPhotos", {
   id: int("id").autoincrement().primaryKey(),
-  profileId: int("profileId").notNull().unique(),
+  profileId: int("profileId").notNull(),
   eventId: int("eventId").notNull(),
+  position: int("position").default(0).notNull(),
   data: mediumblob("data").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => ({
   eventIdx: index("party_photos_event_idx").on(table.eventId),
+  profilePositionIdx: uniqueIndex("party_photos_profile_position_idx").on(table.profileId, table.position),
 }));
 
 export type PartyPhoto = typeof partyPhotos.$inferSelect;
@@ -1626,6 +1636,22 @@ export const partySwipes = mysqlTable("partySwipes", {
 
 export type PartySwipe = typeof partySwipes.$inferSelect;
 
+// Votos de «Mejor disfraz» (aniversario Halloween): un voto por par (quien vota, a quién). Los ve
+// solo el staff en el admin (ranking), nunca los invitados: no cambia lo ciego del swipe. Se borran
+// a las 24 h de terminada la fiesta, junto con los mensajes.
+export const partyCostumeVotes = mysqlTable("partyCostumeVotes", {
+  id: int("id").autoincrement().primaryKey(),
+  eventId: int("eventId").notNull(),
+  fromProfileId: int("fromProfileId").notNull(),
+  toProfileId: int("toProfileId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  pairIdx: uniqueIndex("party_costume_votes_pair_idx").on(table.fromProfileId, table.toProfileId),
+  eventTargetIdx: index("party_costume_votes_event_idx").on(table.eventId, table.toProfileId),
+}));
+
+export type PartyCostumeVote = typeof partyCostumeVotes.$inferSelect;
+
 // Un toque 👋 y su respuesta. El par se guarda SIEMPRE normalizado
 // (profileLowId < profileHighId, ver orderedPair en shared/party.ts): con
 // eso el índice único de abajo impide duplicados en los dos sentidos, y
@@ -1640,8 +1666,11 @@ export const partyConnections = mysqlTable("partyConnections", {
   status: mysqlEnum("status", ["pending", "accepted", "declined"]).default("pending").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   respondedAt: timestamp("respondedAt"),
-  // Nació de un match del swipe: no gasta uno de los 15 toques de la noche.
+  // Nació de un match del swipe: no gasta uno de los Caramelos de la noche.
   viaSwipe: int("viaSwipe").default(0).notNull(),
+  // Hasta cuándo leyó el chat cada lado (no leídos y «Visto»).
+  lowReadAt: timestamp("lowReadAt"),
+  highReadAt: timestamp("highReadAt"),
 }, (table) => ({
   pairIdx: uniqueIndex("party_connections_pair_idx").on(table.profileLowId, table.profileHighId),
   // "mis conexiones" se consulta por cada lado del par.
@@ -3141,3 +3170,24 @@ export const memberPayTokens = mysqlTable("memberPayTokens", {
   emailIdx: index("member_pay_tokens_email_idx").on(table.email, table.createdAt),
 }));
 export type MemberPayToken = typeof memberPayTokens.$inferSelect;
+
+// Passkeys de «Mi cuenta» (Face ID / Touch ID / huella): entrar sin pedir el
+// código al correo. Una fila por dispositivo (o por llavero de iCloud/Google),
+// ligada al correo del socio. Independiente de adminWebauthnCredentials: una
+// llave de socio nunca abre el panel ni al revés.
+export const memberPasskeys = mysqlTable("memberPasskeys", {
+  id: int("id").autoincrement().primaryKey(),
+  email: varchar("email", { length: 320 }).notNull(),
+  credentialId: varchar("credentialId", { length: 255 }).notNull().unique(),
+  publicKey: text("publicKey").notNull(),
+  // Anti-clonado: ver verifyAuthenticationResponse.
+  counter: int("counter").notNull().default(0),
+  transports: json("transports"),
+  // «iPhone», «Android», «Mac»…: para reconocerla en la lista y poder quitarla.
+  deviceLabel: varchar("deviceLabel", { length: 100 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  lastUsedAt: timestamp("lastUsedAt"),
+}, (table) => ({
+  emailIdx: index("member_passkeys_email_idx").on(table.email),
+}));
+export type MemberPasskey = typeof memberPasskeys.$inferSelect;

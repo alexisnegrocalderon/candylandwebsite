@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { Loader2, Mail } from 'lucide-react';
+import { Loader2, Mail, ScanFace } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
+import { biometricName, passkeyUsedHere, usePasskeyAvailable, usePasskeyLogin } from '@/lib/memberPasskey';
 
 const EMAIL_KEY = 'member.email';
 const savedEmail = () => { try { return localStorage.getItem(EMAIL_KEY) ?? ''; } catch { return ''; } };
@@ -11,7 +12,7 @@ const saveEmail = (v: string) => { try { localStorage.setItem(EMAIL_KEY, v); } c
  * con `purchase` el código va al correo de ESA compra (nunca a uno que
  * escriba quien pide) y no hay campo de correo. */
 
-export interface LoginDone { isNew: boolean; granted: { title: string; percent: number; days: number }[] }
+export interface LoginDone { isNew: boolean; granted: { title: string; percent: number; days: number }[]; via?: 'codigo' | 'passkey' }
 
 export function MemberLogin({ purchase, tone = 'light', onDone }: {
   purchase?: { ticketCode?: string; orderNumber?: string };
@@ -27,8 +28,12 @@ export function MemberLogin({ purchase, tone = 'light', onDone }: {
   const requestForPurchase = trpc.member.requestCodeForPurchase.useMutation();
   const verify = trpc.member.verifyCode.useMutation();
   const dark = tone === 'dark';
+  // Face ID solo en el login con correo (desde una compra el código ya va a ese correo).
+  const passkeyOk = usePasskeyAvailable() && !purchase;
+  const passkey = usePasskeyLogin(passkeyOk);
+  const usedHere = passkeyUsedHere();
   const muted = dark ? 'text-white/60' : 'text-muted-foreground';
-  const input = `w-full h-12 rounded-xl border px-4 text-base outline-none focus:ring-2 focus:ring-primary/40 ${dark ? 'bg-white/5 border-white/15 text-white placeholder:text-white/35' : 'bg-background border-border'}`;
+  const input = `w-full h-12 rounded-xl border px-4 text-base outline-none focus:ring-2 focus:ring-primary/40 ${dark ? 'bg-white/5 border-white/15 text-white placeholder:text-white/45' : 'bg-background border-border'}`;
   const btn = 'w-full h-12 rounded-full bg-primary text-primary-foreground font-bold text-sm inline-flex items-center justify-center gap-2 interactive disabled:opacity-60';
 
   const send = async () => {
@@ -52,7 +57,7 @@ export function MemberLogin({ purchase, tone = 'light', onDone }: {
       const r = await verify.mutateAsync({ ...(purchase ?? { email: email.trim() }), code });
       if (!purchase) saveEmail(email.trim());
       await utils.member.invalidate();
-      onDone?.({ isNew: r.isNew, granted: r.granted });
+      onDone?.({ isNew: r.isNew, granted: r.granted, via: 'codigo' });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Código incorrecto o vencido.');
     }
@@ -60,9 +65,29 @@ export function MemberLogin({ purchase, tone = 'light', onDone }: {
 
   const sending = requestCode.isPending || requestForPurchase.isPending;
 
+  const withPasskey = async () => {
+    setError(null);
+    const r = await passkey.login();
+    if (!r) return;
+    await utils.member.invalidate();
+    onDone?.({ isNew: r.isNew, granted: r.granted, via: 'passkey' });
+  };
+  const passkeyBtn = passkeyOk && (
+    <button type="button" onClick={() => { void withPasskey(); }} disabled={passkey.busy}
+      className={usedHere ? btn : `w-full h-12 rounded-full border font-semibold text-sm inline-flex items-center justify-center gap-2 interactive disabled:opacity-60 ${dark ? 'border-white/20 bg-white/[0.06] text-white' : 'border-border bg-background'}`}>
+      {passkey.busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ScanFace className="h-5 w-5" />} Entrar con {biometricName()}
+    </button>
+  );
+  const divider = passkeyOk && (
+    <div className={`flex items-center gap-3 text-xs ${muted}`} aria-hidden><span className={`h-px flex-1 ${dark ? 'bg-white/15' : 'bg-border'}`} />o<span className={`h-px flex-1 ${dark ? 'bg-white/15' : 'bg-border'}`} /></div>
+  );
+
   if (!sentTo) {
     return (
       <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); void send(); }}>
+        {/* Si este teléfono ya usó Face ID, va primero (un toque); si no, queda como alternativa abajo. */}
+        {usedHere && passkeyBtn}
+        {usedHere && divider}
         {!purchase && (
           <input type="email" inputMode="email" autoComplete="email" required placeholder="tu@correo.cl" value={email} onChange={(e) => setEmail(e.target.value)} className={input} aria-label="Tu correo" />
         )}
@@ -70,7 +95,9 @@ export function MemberLogin({ purchase, tone = 'light', onDone }: {
           {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
           {purchase ? 'Mandarme el código al correo de mi compra' : 'Mandarme un código'}
         </button>
-        {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
+        {!usedHere && divider}
+        {!usedHere && passkeyBtn}
+        {(error || passkey.error) && <p className="text-sm text-destructive" role="alert">{error || passkey.error}</p>}
       </form>
     );
   }

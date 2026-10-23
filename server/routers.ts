@@ -22,7 +22,7 @@ import { sellParkingAtDoor } from "./caja/parkingPaid";
 import { MAX_TEST_GUESTS, MIN_TEST_GUESTS } from "../shared/playmatchTest";
 import { UNDO_EXPENSE_WINDOW_MS } from "../shared/expenses";
 import { canUseCaja } from "../shared/cajaRoles";
-import { AVATARS_PER_GENDER, PARTY_GENDERS, PARTY_ZONES, canPreRegister, partyEntryDenial, sanitizeAlias, sanitizeGiftMessage, sanitizeMessage, isPartyWindowOpen, validatePhotoBytes } from "../shared/party";
+import { AVATARS_PER_GENDER, DEFAULT_LOOKING_FOR, MAX_PARTY_PHOTOS, MAX_REWINDS_PER_EVENT, PARTY_GENDERS, PARTY_ZONES, parseLookingFor, sanitizeCostume, serializeLookingFor, canPreRegister, partyEntryDenial, sanitizeAlias, sanitizeGiftMessage, sanitizeMessage, isPartyWindowOpen, validatePhotoBytes } from "../shared/party";
 import * as ambassadorProgram from "./ambassadorProgram";
 import { monthKeyFor } from "../shared/ambassadorProgram";
 import { checkAndAdvanceTandaIfNeeded } from "./tandaAutoAdvance";
@@ -79,6 +79,13 @@ async function requirePartyProfile(ticketCode: string) {
   return { ...actor, profile: actor.profile };
 }
 
+/** Para manejar las propias fotos: con el perfil creado, adentro o antes de la fiesta. */
+async function requirePartyPhotoOwner(ticketCode: string) {
+  const actor = await requirePartyRegistrant(ticketCode);
+  if (!actor.profile) throw new TRPCError({ code: 'FORBIDDEN', message: 'Todavía no creaste tu perfil' });
+  return { ...actor, profile: actor.profile };
+}
+
 /** Para inscribirse (o editar el perfil): adentro de la fiesta, o antes, con la entrada comprada
  * (`canPreRegister`). Devuelve también si ya puede entrar. */
 async function requirePartyRegistrant(ticketCode: string) {
@@ -129,6 +136,7 @@ import { notifyEventLaunch } from "./customerPush";
 import * as appDevices from "./appDevices";
 import * as members from "./members";
 import { getMemberEmail, setMemberSession, clearMemberSession, verifyMemberCode, normalizeMemberEmail } from "./memberAuth";
+import * as memberPasskeys from "./memberPasskeys";
 import { normalizeMemberConfig } from "../shared/memberConfig";
 import * as memberCards from "./memberCards";
 import * as memberPay from "./memberPay";
@@ -2148,7 +2156,13 @@ export const appRouter = router({
           eventEnd: actor.event.eventEnd,
         },
         profile: actor.profile
-          ? { id: actor.profile.id, alias: actor.profile.alias, gender: actor.profile.gender, avatarId: actor.profile.avatarId, zone: actor.profile.zone, swipeEnabled: !!actor.profile.swipeEnabled, hasPhoto: await db.partyProfileHasPhoto(actor.profile.id) }
+          ? await (async (p) => {
+            const photoCount = await db.countPartyPhotos(p.id);
+            return {
+              id: p.id, alias: p.alias, gender: p.gender, avatarId: p.avatarId, zone: p.zone, swipeEnabled: !!p.swipeEnabled,
+              hasPhoto: photoCount > 0, photoCount, lookingFor: parseLookingFor(p.lookingFor), costume: p.costume ?? null,
+            };
+          })(actor.profile)
           : null,
       };
     }),
@@ -2159,15 +2173,19 @@ export const appRouter = router({
       gender: z.enum(PARTY_GENDERS),
       avatarId: z.number().int().min(1).max(AVATARS_PER_GENDER),
       zone: z.enum(PARTY_ZONES),
+      lookingFor: z.array(z.enum(PARTY_GENDERS)).min(1).max(3).optional(),
+      costume: z.string().max(80).optional(),
       acceptedRules: z.literal(true, { message: 'Para entrar tienes que aceptar las reglas de la casa' }),
     })).mutation(async ({ input }) => {
       const actor = await requirePartyRegistrant(input.ticketCode);
       if (actor.profile) return { id: actor.profile.id };
 
-      // El alias lo ve toda la fiesta: se valida en el servidor, no solo en
+      // El alias y el disfraz los ve toda la fiesta: se validan en el servidor, no solo en
       // el formulario.
       const check = sanitizeAlias(input.alias);
       if (!check.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: check.reason });
+      const costume = sanitizeCostume(input.costume);
+      if (!costume.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: costume.reason });
 
       const profile = await db.createPartyProfile({
         eventId: actor.event.id,
@@ -2177,22 +2195,32 @@ export const appRouter = router({
         avatarId: input.avatarId,
         zone: input.zone,
         active: actor.inside ? 1 : 0,
+        lookingFor: serializeLookingFor(input.lookingFor ?? DEFAULT_LOOKING_FOR),
+        costume: costume.costume,
       });
       return { id: profile!.id };
     }),
 
-    // Cambiar alias, género o avatar: antes de la fiesta (inscripción anticipada) o adentro.
+    // Cambiar alias, género, avatar, a quién busca o el disfraz: antes de la fiesta (inscripción anticipada) o adentro.
     updateProfile: publicProcedure.input(z.object({
       ticketCode: z.string(),
       alias: z.string(),
       gender: z.enum(PARTY_GENDERS),
       avatarId: z.number().int().min(1).max(AVATARS_PER_GENDER),
+      lookingFor: z.array(z.enum(PARTY_GENDERS)).min(1).max(3).optional(),
+      costume: z.string().max(80).optional(),
     })).mutation(async ({ input }) => {
       const actor = await requirePartyRegistrant(input.ticketCode);
       if (!actor.profile) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Todavía no creaste tu perfil' });
       const check = sanitizeAlias(input.alias);
       if (!check.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: check.reason });
-      await db.updatePartyProfile(actor.profile.id, { alias: check.alias, gender: input.gender, avatarId: input.avatarId });
+      const costume = sanitizeCostume(input.costume);
+      if (!costume.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: costume.reason });
+      await db.updatePartyProfile(actor.profile.id, {
+        alias: check.alias, gender: input.gender, avatarId: input.avatarId,
+        ...(input.lookingFor ? { lookingFor: serializeLookingFor(input.lookingFor) } : {}),
+        ...(input.costume !== undefined ? { costume: costume.costume } : {}),
+      });
       return { ok: true as const };
     }),
 
@@ -2213,6 +2241,13 @@ export const appRouter = router({
         const actor = await requirePartyProfile(input.ticketCode);
         const res = await db.touchPartyProfile(actor.profile.id, input.targetProfileId, actor.event.id);
         if (!res.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: res.reason });
+        // El Caramelo sí se entera (a diferencia del ♥): le llega un aviso.
+        const otherTicketCode = await db.getPartyProfileTicketCode(input.targetProfileId);
+        if (otherTicketCode) {
+          await sendPushToProfile(input.targetProfileId, res.status === 'accepted'
+            ? { title: '💘 ¡Hicieron match!', body: `Tú y ${actor.profile.alias} se gustaron en Playmatch`, url: `/fiesta/${otherTicketCode}` }
+            : { title: '★ Te mandaron un Caramelo', body: `${actor.profile.alias} quiere conocerte en Playmatch`, url: `/fiesta/${otherTicketCode}` });
+        }
         return res;
       }),
 
@@ -2255,21 +2290,31 @@ export const appRouter = router({
       }),
 
     // --- Foto del swipe (la imagen se sirve por /api/party/photo, no por tRPC) ---
+    // Hasta 3 fotos. Se pueden subir desde la inscripción anticipada (con la entrada comprada):
+    // nadie más las ve hasta que escanean la entrada (ver /api/party/photo).
     uploadPhoto: publicProcedure.input(z.object({
       ticketCode: z.string(),
       // JPEG en base64: ~200KB como mucho, validado de nuevo acá.
       photoBase64: z.string().max(400_000),
+      position: z.number().int().min(0).max(MAX_PARTY_PHOTOS - 1).optional(),
     })).mutation(async ({ input }) => {
-      const actor = await requirePartyProfile(input.ticketCode);
+      const actor = await requirePartyPhotoOwner(input.ticketCode);
       const bytes = Buffer.from(input.photoBase64, 'base64');
       const check = validatePhotoBytes(bytes);
       if (!check.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: check.reason });
-      await db.savePartyPhoto(actor.profile.id, actor.event.id, bytes);
+      const position = await db.savePartyPhoto(actor.profile.id, actor.event.id, bytes, input.position);
+      if (position === null) throw new TRPCError({ code: 'BAD_REQUEST', message: `Puedes tener hasta ${MAX_PARTY_PHOTOS} fotos` });
+      return { ok: true, position };
+    }),
+    // Sin `position` borra todas (salir del swipe de una).
+    deletePhoto: publicProcedure.input(z.object({ ticketCode: z.string(), position: z.number().int().min(0).max(MAX_PARTY_PHOTOS - 1).optional() })).mutation(async ({ input }) => {
+      const actor = await requirePartyPhotoOwner(input.ticketCode);
+      await db.deletePartyPhoto(actor.profile.id, input.position);
       return { ok: true };
     }),
-    deletePhoto: publicProcedure.input(z.object({ ticketCode: z.string() })).mutation(async ({ input }) => {
-      const actor = await requirePartyProfile(input.ticketCode);
-      await db.deletePartyPhoto(actor.profile.id);
+    makeMainPhoto: publicProcedure.input(z.object({ ticketCode: z.string(), position: z.number().int().min(1).max(MAX_PARTY_PHOTOS - 1) })).mutation(async ({ input }) => {
+      const actor = await requirePartyPhotoOwner(input.ticketCode);
+      await db.makeMainPartyPhoto(actor.profile.id, input.position);
       return { ok: true };
     }),
     setSwipeEnabled: publicProcedure.input(z.object({ ticketCode: z.string(), enabled: z.boolean() })).mutation(async ({ input }) => {
@@ -2283,7 +2328,38 @@ export const appRouter = router({
     swipeDeck: publicProcedure.input(z.object({ ticketCode: z.string() })).query(async ({ input }) => {
       const actor = await requirePartyProfile(input.ticketCode);
       // `null` = todavía no participa (sin foto o en pausa), no un error.
-      return { deck: await db.getPartySwipeDeck(actor.profile) };
+      const deck = await db.getPartySwipeDeck(actor.profile);
+      return {
+        deck,
+        likesYou: deck ? await db.countPartyLikesForMe(actor.profile.id) : 0,
+        rewindsLeft: Math.max(0, MAX_REWINDS_PER_EVENT - (actor.profile.rewindsUsed ?? 0)),
+      };
+    }),
+    // Deshacer el último ✕ (una vez por noche).
+    undoSwipe: publicProcedure.input(z.object({ ticketCode: z.string() })).mutation(async ({ input }) => {
+      const actor = await requirePartyProfile(input.ticketCode);
+      const res = await db.undoLastPartyNope(actor.profile);
+      if (!res.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: res.reason });
+      return { card: res.card };
+    }),
+    // «Mejor disfraz» (aniversario Halloween): a quién voté y cuántos votos me quedan.
+    myCostumeVotes: publicProcedure.input(z.object({ ticketCode: z.string() })).query(async ({ input }) => {
+      const actor = await requirePartyProfile(input.ticketCode);
+      return db.getMyCostumeVotes(actor.profile.id);
+    }),
+    // Votar (o quitar el voto). Los votos los ve solo el staff.
+    voteCostume: publicProcedure.input(z.object({ ticketCode: z.string(), targetProfileId: z.number() })).mutation(async ({ input }) => {
+      const actor = await requirePartyProfile(input.ticketCode);
+      const res = await db.toggleCostumeVote(actor.profile, input.targetProfileId);
+      if (!res.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: res.reason });
+      return res;
+    }),
+    // Ranking de disfraces para premiar en vivo (admin).
+    costumeRanking: adminReadProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => db.getCostumeRanking(input.eventId)),
+    // Pestaña Matches: con quién, último mensaje, no leídos y «Visto».
+    myMatches: publicProcedure.input(z.object({ ticketCode: z.string() })).query(async ({ input }) => {
+      const actor = await requirePartyProfile(input.ticketCode);
+      return db.listPartyMatches(actor.profile.id);
     }),
     swipe: publicProcedure.input(z.object({ ticketCode: z.string(), targetProfileId: z.number(), liked: z.boolean() }))
       .mutation(async ({ input }) => {
@@ -4372,6 +4448,62 @@ export const appRouter = router({
     logout: publicProcedure.mutation(async ({ ctx }) => {
       clearMemberSession(ctx.req, ctx.res);
       return { ok: true as const };
+    }),
+
+    // ── Face ID / Touch ID (passkeys): entrar sin el código al correo (server/memberPasskeys.ts) ──
+    // Las llaves de la sesión, más la identidad del llavero (para la Signal API; no es un secreto).
+    passkeys: publicProcedure.query(async ({ ctx }) => {
+      const email = getMemberEmail(ctx.req);
+      if (!email) return null;
+      const rows = await memberPasskeys.listMemberPasskeys(email);
+      return {
+        userId: Buffer.from(memberPasskeys.memberPasskeyUserId(email)).toString('base64url'),
+        email,
+        list: rows.map((r) => ({ id: r.id, credentialId: r.credentialId, deviceLabel: r.deviceLabel, createdAt: r.createdAt, lastUsedAt: r.lastUsedAt })),
+      };
+    }),
+    // Activar: solo con la sesión ya abierta (con el código), así la llave queda ligada a ese correo.
+    passkeyRegisterOptions: publicProcedure.mutation(async ({ ctx }) => {
+      const email = getMemberEmail(ctx.req);
+      if (!email) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Entra a tu cuenta para activar Face ID.' });
+      const customer = await members.findCustomer(email);
+      const { rpID } = getRpIdAndOrigin(ctx.req);
+      return memberPasskeys.registrationOptions({ rpID, email, displayName: customer?.fullName ?? null });
+    }),
+    passkeyRegisterVerify: publicProcedure.input(z.object({ ticket: z.string().max(2000), response: z.any() })).mutation(async ({ input, ctx }) => {
+      const email = getMemberEmail(ctx.req);
+      if (!email) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Entra a tu cuenta para activar Face ID.' });
+      const { rpID, origin } = getRpIdAndOrigin(ctx.req);
+      const ok = await memberPasskeys.verifyAndSaveRegistration({ email, ticket: input.ticket, response: input.response, rpID, origin, userAgent: ctx.req.headers['user-agent'] });
+      if (!ok) throw new TRPCError({ code: 'BAD_REQUEST', message: 'No se pudo activar. Intenta de nuevo.' });
+      return { ok: true as const };
+    }),
+    passkeyDelete: publicProcedure.input(z.object({ id: z.number().int() })).mutation(async ({ input, ctx }) => {
+      const email = getMemberEmail(ctx.req);
+      if (!email) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Entra a tu cuenta.' });
+      await memberPasskeys.deleteMemberPasskey(email, input.id);
+      return { ok: true as const };
+    }),
+    // Entrar: sin sesión. Las llaves son «discoverable»: el teléfono muestra cuál usar, no hay que escribir el correo.
+    passkeyLoginOptions: publicProcedure.mutation(async ({ ctx }) => {
+      const { rpID } = getRpIdAndOrigin(ctx.req);
+      return memberPasskeys.authenticationOptions(rpID);
+    }),
+    passkeyLoginVerify: publicProcedure.input(z.object({ ticket: z.string().max(2000), response: z.any() })).mutation(async ({ input, ctx }) => {
+      const ipKey = `member-passkey-ip:${clientIp(ctx)}`;
+      if (!(await db.checkIpRateLimit(ipKey))) throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos. Espera unos minutos o entra con el código.' });
+      const { rpID, origin } = getRpIdAndOrigin(ctx.req);
+      const r = await memberPasskeys.verifyPasskeyLogin({ ticket: input.ticket, response: input.response, rpID, origin });
+      // Una llave que ya no existe acá no cuenta como intento fallido: el cliente se la hace borrar al llavero.
+      if (!r.ok && r.reason === 'unknown') throw new TRPCError({ code: 'UNAUTHORIZED', message: `UNKNOWN_CREDENTIAL:${r.credentialId}` });
+      if (!r.ok) {
+        await db.recordIpAttempt(ipKey, 20, 15 * 60 * 1000);
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'No pudimos verificar tu Face ID. Intenta de nuevo o entra con el código.' });
+      }
+      if (!(await members.findCustomer(r.email))) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Esta cuenta ya no existe.' });
+      setMemberSession(ctx.req, ctx.res, r.email);
+      const done = await members.completeLogin(r.email);
+      return { ok: true as const, isNew: done.isNew, granted: done.granted.map((g) => ({ title: g.title, percent: g.percent, days: g.days })) };
     }),
 
     // ── Pagos desde «Mi cuenta» (Etapa A; cada pieza con su interruptor, apagado por defecto) ──
