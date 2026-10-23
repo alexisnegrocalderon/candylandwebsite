@@ -4351,6 +4351,12 @@ export const appRouter = router({
       if (!c) return null;
       return { fullName: c.fullName || null, email: c.email, phone: c.phone || null, rut: c.rut || null, docType: (c.rut && !isValidRut(c.rut) ? 'passport' : 'rut') as 'rut' | 'passport' };
     }),
+    // Recompra en un toque: su última entrada y sus acompañantes (solo los de sus propias compras).
+    repurchase: publicProcedure.query(async ({ ctx }) => {
+      const email = getMemberEmail(ctx.req);
+      if (!email) return null;
+      return members.getRepurchase(email);
+    }),
     logout: publicProcedure.mutation(async ({ ctx }) => {
       clearMemberSession(ctx.req, ctx.res);
       return { ok: true as const };

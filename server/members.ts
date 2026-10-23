@@ -18,6 +18,7 @@ import { couponStatus, normalizeMemberConfig, type CouponRule, type MemberConfig
 import { chileParts } from '../shared/pushSchedule';
 import { firstName } from '../shared/pushText';
 import { sortByKind, ticketKind, ticketKindLabel, type TicketKind } from '../shared/ticketKind';
+import { knownCompanions, lastPurchaseFrom } from '../shared/repurchase';
 
 type CustomerRow = typeof customers.$inferSelect;
 
@@ -316,4 +317,18 @@ export async function grantManualCoupon(email: string, percent: number, days: nu
   const g = await grantCoupon({ email: customer.email.toLowerCase(), kind: 'manual', grantKey: `manual:${Date.now()}:${customer.email.toLowerCase()}`, title: title.trim().slice(0, 100) || `${percent}% de regalo`, percent, days });
   if (!g) throw new Error('No se pudo crear el cupón.');
   return g;
+}
+
+/** «Tu entrada de siempre»: la última compra web que se puede repetir y las personas con las que ha
+ * venido, para recomprar en un toque desde la app (shared/repurchase.ts). */
+export async function getRepurchase(email: string) {
+  const db = await getDb();
+  const key = normalizeMemberEmail(email);
+  if (!db || !key) return null;
+  const rows = await db.select({ attendeeData: orders.attendeeData }).from(orders)
+    .where(and(sql`lower(${orders.buyerEmail}) = ${key}`, eq(orders.paymentStatus, 'approved'), eq(orders.channel, 'web'), isNotNull(orders.attendeeData)))
+    .orderBy(desc(orders.createdAt))
+    .limit(12);
+  const list = rows.map((r) => r.attendeeData);
+  return { last: lastPurchaseFrom(list), companions: knownCompanions(list) };
 }

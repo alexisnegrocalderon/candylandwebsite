@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ArrowRight, BookOpen, Check, Pencil, ShieldCheck } from 'lucide-react';
+import { Link } from 'wouter';
 import { trpc } from '@/lib/trpc';
 import { AppScreen, useBackClosable } from '@/components/site/AmbassadorAccount';
 import { PartyAvatar } from '@/components/party/Avatar';
@@ -62,7 +63,7 @@ function opensLabel(ev: PmEvent): string {
   return `${day} desde las ${hour}`;
 }
 
-export function PlaymatchTab({ events, buySlug }: { events: PmEvent[]; buySlug?: string | null }) {
+export function PlaymatchTab({ events, buyHref }: { events: PmEvent[]; buyHref?: string | null }) {
   const now = new Date();
   const pick = pickTicket(events, now);
   const [screen, setScreen] = useState<null | 'guia' | 'normas' | 'editar' | 'fiesta'>(null);
@@ -108,10 +109,10 @@ export function PlaymatchTab({ events, buySlug }: { events: PmEvent[]; buySlug?:
       <div className="space-y-3">
         <Hero title="La fiesta en tu celular" body="Con tu entrada puedes inscribirte en Playmatch desde ya: mira quién está, haz match y chatea durante la fiesta." />
         <Steps />
-        {buySlug && (
-          <a href={`/checkout/${buySlug}`} onClick={tapHaptic} className="flex h-13 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-pink-500 via-fuchsia-500 to-sky-500 py-3.5 text-[15px] font-bold text-white interactive">
+        {buyHref && (
+          <Link href={buyHref} onClick={tapHaptic} className="flex h-13 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-pink-500 via-fuchsia-500 to-sky-500 py-3.5 text-[15px] font-bold text-white interactive">
             Comprar mi entrada <ArrowRight className="h-4 w-4" />
-          </a>
+          </Link>
         )}
         {links}
         {sheets}
