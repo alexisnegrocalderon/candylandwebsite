@@ -129,6 +129,7 @@ import { notifyEventLaunch } from "./customerPush";
 import * as appDevices from "./appDevices";
 import * as members from "./members";
 import { getMemberEmail, setMemberSession, clearMemberSession, verifyMemberCode, normalizeMemberEmail } from "./memberAuth";
+import * as memberPasskeys from "./memberPasskeys";
 import { normalizeMemberConfig } from "../shared/memberConfig";
 import * as memberCards from "./memberCards";
 import * as memberPay from "./memberPay";
@@ -4372,6 +4373,62 @@ export const appRouter = router({
     logout: publicProcedure.mutation(async ({ ctx }) => {
       clearMemberSession(ctx.req, ctx.res);
       return { ok: true as const };
+    }),
+
+    // ── Face ID / Touch ID (passkeys): entrar sin el código al correo (server/memberPasskeys.ts) ──
+    // Las llaves de la sesión, más la identidad del llavero (para la Signal API; no es un secreto).
+    passkeys: publicProcedure.query(async ({ ctx }) => {
+      const email = getMemberEmail(ctx.req);
+      if (!email) return null;
+      const rows = await memberPasskeys.listMemberPasskeys(email);
+      return {
+        userId: Buffer.from(memberPasskeys.memberPasskeyUserId(email)).toString('base64url'),
+        email,
+        list: rows.map((r) => ({ id: r.id, credentialId: r.credentialId, deviceLabel: r.deviceLabel, createdAt: r.createdAt, lastUsedAt: r.lastUsedAt })),
+      };
+    }),
+    // Activar: solo con la sesión ya abierta (con el código), así la llave queda ligada a ese correo.
+    passkeyRegisterOptions: publicProcedure.mutation(async ({ ctx }) => {
+      const email = getMemberEmail(ctx.req);
+      if (!email) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Entra a tu cuenta para activar Face ID.' });
+      const customer = await members.findCustomer(email);
+      const { rpID } = getRpIdAndOrigin(ctx.req);
+      return memberPasskeys.registrationOptions({ rpID, email, displayName: customer?.fullName ?? null });
+    }),
+    passkeyRegisterVerify: publicProcedure.input(z.object({ ticket: z.string().max(2000), response: z.any() })).mutation(async ({ input, ctx }) => {
+      const email = getMemberEmail(ctx.req);
+      if (!email) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Entra a tu cuenta para activar Face ID.' });
+      const { rpID, origin } = getRpIdAndOrigin(ctx.req);
+      const ok = await memberPasskeys.verifyAndSaveRegistration({ email, ticket: input.ticket, response: input.response, rpID, origin, userAgent: ctx.req.headers['user-agent'] });
+      if (!ok) throw new TRPCError({ code: 'BAD_REQUEST', message: 'No se pudo activar. Intenta de nuevo.' });
+      return { ok: true as const };
+    }),
+    passkeyDelete: publicProcedure.input(z.object({ id: z.number().int() })).mutation(async ({ input, ctx }) => {
+      const email = getMemberEmail(ctx.req);
+      if (!email) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Entra a tu cuenta.' });
+      await memberPasskeys.deleteMemberPasskey(email, input.id);
+      return { ok: true as const };
+    }),
+    // Entrar: sin sesión. Las llaves son «discoverable»: el teléfono muestra cuál usar, no hay que escribir el correo.
+    passkeyLoginOptions: publicProcedure.mutation(async ({ ctx }) => {
+      const { rpID } = getRpIdAndOrigin(ctx.req);
+      return memberPasskeys.authenticationOptions(rpID);
+    }),
+    passkeyLoginVerify: publicProcedure.input(z.object({ ticket: z.string().max(2000), response: z.any() })).mutation(async ({ input, ctx }) => {
+      const ipKey = `member-passkey-ip:${clientIp(ctx)}`;
+      if (!(await db.checkIpRateLimit(ipKey))) throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos. Espera unos minutos o entra con el código.' });
+      const { rpID, origin } = getRpIdAndOrigin(ctx.req);
+      const r = await memberPasskeys.verifyPasskeyLogin({ ticket: input.ticket, response: input.response, rpID, origin });
+      // Una llave que ya no existe acá no cuenta como intento fallido: el cliente se la hace borrar al llavero.
+      if (!r.ok && r.reason === 'unknown') throw new TRPCError({ code: 'UNAUTHORIZED', message: `UNKNOWN_CREDENTIAL:${r.credentialId}` });
+      if (!r.ok) {
+        await db.recordIpAttempt(ipKey, 20, 15 * 60 * 1000);
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'No pudimos verificar tu Face ID. Intenta de nuevo o entra con el código.' });
+      }
+      if (!(await members.findCustomer(r.email))) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Esta cuenta ya no existe.' });
+      setMemberSession(ctx.req, ctx.res, r.email);
+      const done = await members.completeLogin(r.email);
+      return { ok: true as const, isNew: done.isNew, granted: done.granted.map((g) => ({ title: g.title, percent: g.percent, days: g.days })) };
     }),
 
     // ── Pagos desde «Mi cuenta» (Etapa A; cada pieza con su interruptor, apagado por defecto) ──

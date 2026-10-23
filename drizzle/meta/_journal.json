@@ -876,6 +876,13 @@
       "when": 1792850000000,
       "tag": "0124_member_payments",
       "breakpoints": true
+    },
+    {
+      "idx": 125,
+      "version": "5",
+      "when": 1792950000000,
+      "tag": "0125_member_passkeys",
+      "breakpoints": true
     }
   ]
 }

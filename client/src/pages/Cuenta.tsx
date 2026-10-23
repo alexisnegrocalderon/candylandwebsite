@@ -2,7 +2,7 @@ import { Component, Fragment, useEffect, useRef, useState, type ReactNode } from
 import { createPortal } from 'react-dom';
 import { AnimatePresence, MotionConfig, motion, useDragControls } from 'framer-motion';
 import { toast } from 'sonner';
-import { Calendar, Check, Copy, Crown, Gift, LogOut, Sparkles, Ticket as TicketIcon, ArrowRight, Download, Loader2, X, QrCode, CreditCard, Home, Wallet, Plus, RefreshCw, Bell, ChevronLeft, ChevronRight, Heart, User, WifiOff } from 'lucide-react';
+import { Calendar, Check, Copy, Crown, Gift, LogOut, Sparkles, Ticket as TicketIcon, ArrowRight, Download, Loader2, X, QrCode, CreditCard, Home, Wallet, Plus, RefreshCw, Bell, ChevronLeft, ChevronRight, Heart, User, WifiOff, ScanFace } from 'lucide-react';
 import { Link } from 'wouter';
 import { trpc } from '@/lib/trpc';
 import type { inferRouterOutputs } from '@trpc/server';
@@ -30,6 +30,8 @@ import { MemberLogin, type LoginDone } from '@/components/site/MemberLogin';
 import { fmtDate, fmtDateTime, useMemberSession } from '@/lib/member';
 import { clearAccountSnapshot, loadAccountSnapshot, saveAccountSnapshot, warmOfflineApp } from '@/lib/offlineAccount';
 import { AccountSkeleton } from '@/components/site/AccountSkeleton';
+import { PasskeySheet } from '@/components/site/PasskeySheet';
+import { biometricName, passkeyOfferSeen, passkeyUsedHere, thisDeviceName, usePasskeyAvailable } from '@/lib/memberPasskey';
 import { firstName } from '@shared/pushText';
 
 /* /cuenta (y /mis-puntos): «Mi cuenta» opcional. Entrar con un código al
@@ -915,7 +917,15 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
   const touch = useRef<{ x: number; y: number } | null>(null);
   const [dir, setDir] = useState(1);
   // Sub-hojas de «Más» y de «Puntos» (cada tema grande abre la suya, para que ninguna pantalla crezca).
-  const [sheet, setSheet] = useState<null | 'tarjetas' | 'beneficios' | 'avisos' | 'movimientos' | 'entradas' | 'embajador'>(null);
+  const [sheet, setSheet] = useState<null | 'tarjetas' | 'beneficios' | 'avisos' | 'movimientos' | 'entradas' | 'embajador' | 'faceid'>(null);
+  // Face ID: recién entró con el código y este teléfono puede → se le ofrece una vez, después de ver su app.
+  const passkeyOk = usePasskeyAvailable();
+  const [faceIdOffer, setFaceIdOffer] = useState(false);
+  useEffect(() => {
+    if (!passkeyOk || welcome?.via !== 'codigo' || passkeyUsedHere() || passkeyOfferSeen()) return;
+    const t = window.setTimeout(() => { setFaceIdOffer(true); setSheet('faceid'); }, 1200);
+    return () => window.clearTimeout(t);
+  }, [passkeyOk, welcome]);
   const go = (next: Tab) => {
     if (next === tab) return;
     tapHaptic();
@@ -1015,6 +1025,7 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
               )}
               <div className="account-glass divide-y divide-white/10 overflow-hidden rounded-[24px]">
                 {([
+                  ...(passkeyOk ? [{ key: 'faceid', label: `Entrar con ${biometricName()}`, sub: passkeyUsedHere() ? `Activado en ${thisDeviceName()}` : 'Con un toque, sin esperar el código', icon: ScanFace, dot: false, onClick: () => { setFaceIdOffer(false); setSheet('faceid'); } }] : []),
                   { key: 'avisos', label: 'Avisos', sub: pushPending ? 'Actívalos para no perderte nada' : 'Recordatorios, preventas y novedades', icon: Bell, dot: pushPending, onClick: () => setSheet('avisos') },
                   ...(pay.savedCards ? [{ key: 'tarjetas', label: 'Mis tarjetas', sub: 'Tus tarjetas guardadas', icon: CreditCard, dot: false, onClick: () => setSheet('tarjetas') }] : []),
                 ] as { key: string; label: string; sub: string; icon: typeof Bell; dot: boolean; onClick: () => void }[]).map(({ key, label, sub, icon: Icon, dot, onClick }) => (
@@ -1029,7 +1040,7 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
                   </button>
                 ))}
               </div>
-              <button type="button" onClick={() => { tapHaptic(); onLogout(); }} className="flex h-12 w-full items-center justify-center gap-2 rounded-full text-subhead font-semibold text-rose-300/90"><LogOut className="h-4 w-4" /> Cerrar sesión</button>
+              <button type="button" onClick={() => { tapHaptic(); try { sessionStorage.removeItem(TAB_KEY); sessionStorage.removeItem(PRIZE_KEY); } catch { /* nada */ } onLogout(); }} className="flex h-12 w-full items-center justify-center gap-2 rounded-full text-subhead font-semibold text-rose-300/90"><LogOut className="h-4 w-4" /> Cerrar sesión</button>
             </div>
           )}
         </motion.div>
@@ -1127,6 +1138,7 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
         )}
         {avisosNotice(push.state) === 'loading' && <p className="account-glass rounded-2xl p-4 text-subhead text-white/65">Revisando tus avisos…</p>}
       </BottomSheet>
+      <PasskeySheet open={sheet === 'faceid'} offer={faceIdOffer} onClose={() => setSheet(null)} />
       <BottomSheet open={sheet === 'tarjetas'} onClose={() => setSheet(null)} title="Mis tarjetas"><SavedCardsSection /></BottomSheet>
       {ambassador && <AppScreen open={sheet === 'embajador'} title="Embajador" onClose={() => setSheet(null)}><AmbassadorAccount panel={ambassador} /></AppScreen>}
       <BottomSheet open={sheet === 'beneficios'} onClose={() => setSheet(null)} title="Beneficios"><PerksCard me={me} /></BottomSheet>

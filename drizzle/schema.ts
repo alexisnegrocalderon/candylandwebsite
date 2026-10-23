@@ -3141,3 +3141,24 @@ export const memberPayTokens = mysqlTable("memberPayTokens", {
   emailIdx: index("member_pay_tokens_email_idx").on(table.email, table.createdAt),
 }));
 export type MemberPayToken = typeof memberPayTokens.$inferSelect;
+
+// Passkeys de «Mi cuenta» (Face ID / Touch ID / huella): entrar sin pedir el
+// código al correo. Una fila por dispositivo (o por llavero de iCloud/Google),
+// ligada al correo del socio. Independiente de adminWebauthnCredentials: una
+// llave de socio nunca abre el panel ni al revés.
+export const memberPasskeys = mysqlTable("memberPasskeys", {
+  id: int("id").autoincrement().primaryKey(),
+  email: varchar("email", { length: 320 }).notNull(),
+  credentialId: varchar("credentialId", { length: 255 }).notNull().unique(),
+  publicKey: text("publicKey").notNull(),
+  // Anti-clonado: ver verifyAuthenticationResponse.
+  counter: int("counter").notNull().default(0),
+  transports: json("transports"),
+  // «iPhone», «Android», «Mac»…: para reconocerla en la lista y poder quitarla.
+  deviceLabel: varchar("deviceLabel", { length: 100 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  lastUsedAt: timestamp("lastUsedAt"),
+}, (table) => ({
+  emailIdx: index("member_passkeys_email_idx").on(table.email),
+}));
+export type MemberPasskey = typeof memberPasskeys.$inferSelect;
