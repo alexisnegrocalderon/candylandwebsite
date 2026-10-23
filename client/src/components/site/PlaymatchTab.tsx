@@ -28,7 +28,7 @@ const NEON_RING = 'bg-gradient-to-br from-pink-500/70 via-fuchsia-400/40 to-sky-
 
 const GUIDE = [
   { emoji: '🍬', title: '¿Qué es Playmatch?', body: 'La fiesta en tu celular: mira quién está en cada zona de la mansión, conecta y chatea. Solo existe mientras dura la fiesta.' },
-  { emoji: '💘', title: 'Cómo se hace match', body: 'Tócale a quien te guste (tienes 15 toques por noche). Si te toca de vuelta es match y se abre el chat. Con tu foto también puedes jugar al swipe.' },
+  { emoji: '💘', title: 'Cómo se hace match', body: 'Pon tu foto y desliza: ♥ a la derecha, ✕ a la izquierda. Si los dos se dan ♥ es match y se abre el chat. Con un Caramelo ★ (hacia arriba) la otra persona se entera al tiro.' },
   { emoji: '🍹', title: 'Invita un trago', body: 'Regálale un trago a alguien desde Playmatch. Si lo acepta, lo retira en la barra.' },
   { emoji: '🔒', title: 'Tu privacidad primero', body: 'Te ven con un alias y un avatar, nunca con tu nombre. La foto se toma adentro y se borra al cerrar la fiesta. Puedes bloquear y denunciar cuando quieras.' },
 ];
@@ -163,7 +163,7 @@ export function PlaymatchTab({ events, buyHref }: { events: PmEvent[]; buyHref?:
             <span className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-gradient-to-br from-pink-500 to-sky-500 text-2xl">🍬</span>
             <span className="min-w-0 flex-1">
               <span className="block text-body font-bold leading-tight">Entrar a Playmatch</span>
-              <span className="block truncate text-footnote text-white/60">Mira quién está, haz match y chatea</span>
+              <span className="block truncate text-footnote text-white/60">Desliza, haz match y chatea</span>
             </span>
             <ArrowRight className="h-5 w-5 shrink-0 text-pink-300" />
           </span>
@@ -290,7 +290,7 @@ function PartyScreen({ open, ticketCode, onClose }: { open: boolean; ticketCode:
       {open && (
         <motion.div
           key="fiesta"
-          className="account-font party-in-app fixed inset-0 z-[80] overflow-y-auto overscroll-contain bg-[#120a11] pt-[env(safe-area-inset-top)] text-white"
+          className="account-font party-in-app fixed inset-0 z-[80] overflow-y-auto overscroll-contain bg-[#0b0612] text-white"
           initial={{ x: '100%' }}
           animate={{ x: 0 }}
           exit={{ x: '100%' }}

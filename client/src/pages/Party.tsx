@@ -1,22 +1,24 @@
 import '@/admin.css';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRoute, Link } from 'wouter';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
-import { ArrowLeft, Ban, Flag, Send, X } from 'lucide-react';
+import { Bell, Camera, ChevronLeft, DoorClosed, Flame, MessageCircle, Moon, PartyPopper, TicketX, Wine } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { useMemberSession } from '@/lib/member';
 import { useSeo } from '@/hooks/useSeo';
-import { PartyAvatar } from '@/components/party/Avatar';
 import { Mansion, type MansionPerson } from '@/components/party/Mansion';
 import { DrinkPicker, GiftInbox } from '@/components/party/Gifts';
 import { MyPhotoPanel } from '@/components/party/MyPhotoPanel';
-import { SwipeView } from '@/components/party/Swipe';
-import {
-  MAX_MESSAGE_LENGTH, ZONE_LABELS, type PartyGender, type PartyZone,
-} from '@shared/party';
+import { DiscoverView, MatchCelebration } from '@/components/party/Swipe';
+import { MatchesView } from '@/components/party/Matches';
+import { Chat } from '@/components/party/Chat';
+import { PersonSheet, type SheetPerson } from '@/components/party/PersonSheet';
+import { ProtectedPhoto } from '@/components/party/ProtectedPhoto';
+import { GlassIconButton, PmSheet, PM_CTA, tap } from '@/components/party/ui';
+import type { PartyGender, PartyZone } from '@shared/party';
 import { rememberTicketCode } from '@/lib/lastTicketCode';
-import { CreateProfile, GENDER_LABELS } from '@/components/site/PartyProfileForm';
+import { CreateProfile } from '@/components/site/PartyProfileForm';
 import { useInstallableApp } from '@/hooks/useInstallableApp';
 
 
@@ -37,7 +39,17 @@ export default function Party() {
 }
 
 /** Playmatch completo. En la página /fiesta ocupa la pantalla; dentro de la app de «Mi cuenta» se
- * abre como una pantalla más (`onBack` = volver a la app, sin salir a la web). */
+ * abre como una pantalla más (`onBack` = volver a la app, sin salir a la web).
+ *
+ * Tres pestañas como una app de citas: Descubrir (el swipe), Fiesta (quién está en cada sala) y
+ * Matches (Caramelos que te mandaron y tus chats). Todo con el vidrio y la letra de la App. */
+type Tab = 'descubrir' | 'fiesta' | 'matches';
+const TABS: { id: Tab; label: string; icon: typeof Flame }[] = [
+  { id: 'descubrir', label: 'Descubrir', icon: Flame },
+  { id: 'fiesta', label: 'Fiesta', icon: PartyPopper },
+  { id: 'matches', label: 'Matches', icon: MessageCircle },
+];
+
 export function PartyExperience({ ticketCode, onBack }: { ticketCode: string; onBack?: () => void }) {
   // Requisito para que las notificaciones push funcionen en iOS (ver
   // NotificationsPanel más abajo): solo registra el service worker, sin
@@ -51,20 +63,27 @@ export function PartyExperience({ ticketCode, onBack }: { ticketCode: string; on
     if (ticketCode && !session.data?.denial) rememberTicketCode(ticketCode);
   }, [ticketCode, session.data?.denial]);
 
-  const [openChat, setOpenChat] = useState<{ connectionId: number; alias: string } | null>(null);
-  const [selected, setSelected] = useState<MansionPerson | null>(null);
+  const [tab, setTab] = useState<Tab>('descubrir');
+  const [openChat, setOpenChat] = useState<{ connectionId: number; alias: string; otherId: number } | null>(null);
+  const [selected, setSelected] = useState<SheetPerson | null>(null);
   const [gifting, setGifting] = useState<{ profileId: number; alias: string } | null>(null);
+  const [match, setMatch] = useState<{ connectionId: number; alias: string; otherId: number } | null>(null);
   const [inboxOpen, setInboxOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [photoOpen, setPhotoOpen] = useState(false);
-  const [tab, setTab] = useState<'mansion' | 'swipe'>('mansion');
+
+  const inside = !!session.data?.profile && !session.data?.denial;
+  // 10 segundos: se siente vivo sin castigar la batería ni la función serverless. El chat abierto va a 3 s.
+  const mansion = trpc.party.listMansion.useQuery({ ticketCode }, { enabled: inside, refetchInterval: 10_000 });
+  const myGifts = trpc.party.myGifts.useQuery({ ticketCode }, { enabled: inside, refetchInterval: 10_000 });
+  const utils = trpc.useUtils();
+  const setZone = trpc.party.setZone.useMutation({
+    onSuccess: () => { session.refetch(); utils.party.listMansion.invalidate(); },
+    onError: (e) => toast.error(e.message),
+  });
 
   if (session.isLoading) {
-    return (
-      <div className="min-h-dvh grid place-items-center bg-[#120a11]">
-        <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
+    return <div className="account-font grid min-h-dvh place-items-center bg-[#0b0612]"><div className="h-8 w-8 animate-spin rounded-full border-2 border-pink-400 border-t-transparent" /></div>;
   }
 
   const denial = session.data?.denial;
@@ -74,81 +93,124 @@ export function PartyExperience({ ticketCode, onBack }: { ticketCode: string; on
     return <CreateProfile ticketCode={ticketCode} onCreated={() => session.refetch()} />;
   }
 
-  return (
-    <div className="min-h-dvh bg-[#120a11] text-white">
-      {tab === 'swipe' ? (
-        <SwipeView
-          ticketCode={ticketCode}
-          alias={session.data.profile.alias}
-          participating={session.data.profile.hasPhoto && session.data.profile.swipeEnabled}
-          onOpenPhoto={() => setPhotoOpen(true)}
-          onOpenChat={(connectionId, alias) => setOpenChat({ connectionId, alias })}
-        />
-      ) : (
-      <MansionView
-        ticketCode={ticketCode}
-        myZone={session.data.profile.zone as PartyZone}
-        onPick={setSelected}
-        onZoneChanged={() => session.refetch()}
-        onOpenChat={(connectionId, alias) => { setSelected(null); setOpenChat({ connectionId, alias }); }}
-        onGift={(profileId, alias) => { setSelected(null); setGifting({ profileId, alias }); }}
-        onOpenInbox={() => setInboxOpen(true)}
-        onOpenNotifications={() => setNotifOpen(true)}
-        onOpenPhoto={() => setPhotoOpen(true)}
-        onBack={onBack}
-        selected={selected}
-        onCloseCard={() => setSelected(null)}
-      />
-      )}
+  const profile = session.data.profile;
+  const canPhoto = profile.hasPhoto && profile.swipeEnabled;
+  const people = (mansion.data?.people ?? []) as MansionPerson[];
+  const caramelosLeft = mansion.data?.touchesLeft ?? 0;
+  const caramelosForMe = people.filter((p) => p.pendingForMe).length;
+  // Lo que pide acción mía en los tragos: una invitación por responder, o una aceptada por pagar.
+  const pendingGifts =
+    (myGifts.data?.received.filter((g) => g.status === 'invited').length ?? 0) +
+    (myGifts.data?.sent.filter((g) => g.status === 'accepted').length ?? 0);
 
-      <nav className="fixed bottom-0 inset-x-0 z-30 bg-[#120a11]/95 backdrop-blur border-t border-white/10" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
-        <div className="max-w-md mx-auto grid grid-cols-2">
-          {([['mansion', '🍬 Mansión'], ['swipe', '💘 Swipe']] as const).map(([id, label]) => (
-            <button
-              key={id}
-              onClick={() => setTab(id)}
-              className={`h-14 text-sm font-bold transition-colors ${tab === id ? 'text-white' : 'text-white/40'}`}
-            >
-              {label}
-            </button>
-          ))}
+  const go = (next: Tab) => { if (next !== tab) { tap(); setTab(next); } };
+  const openPerson = (p: SheetPerson) => setSelected(p);
+  const chatWith = (connectionId: number, alias: string, otherId: number) => { setSelected(null); setMatch(null); setOpenChat({ connectionId, alias, otherId }); };
+  const gift = (profileId: number, alias: string) => { setSelected(null); setGifting({ profileId, alias }); };
+  const celebrate = (m: { connectionId: number; alias: string; otherId: number }) => { setSelected(null); setMatch(m); utils.party.listMansion.invalidate(); };
+
+  return (
+    <div className="account-font account-tokens relative flex h-dvh flex-col overflow-hidden bg-[#0b0612] text-white">
+      <div className="account-backdrop" />
+      <header className="relative z-10 flex shrink-0 items-center gap-2 px-4 pb-2 pt-[max(12px,env(safe-area-inset-top))]">
+        {onBack ? (
+          <button type="button" onClick={onBack} aria-label="Volver a la app" className="-ml-2 grid h-10 w-10 place-items-center rounded-full text-pink-300"><ChevronLeft className="h-7 w-7" /></button>
+        ) : (
+          <MemberBackLink />
+        )}
+        <h1 className="flex min-w-0 flex-1 items-center gap-1.5 text-title2 font-bold tracking-tight">
+          <span className="grid h-7 w-7 shrink-0 place-items-center rounded-[9px] bg-gradient-to-br from-pink-500 via-fuchsia-500 to-sky-500"><Flame className="h-4 w-4 fill-white text-white" /></span>
+          <span className="truncate">Playmatch</span>
+        </h1>
+        <button type="button" onClick={() => { tap(); setPhotoOpen(true); }} aria-label="Mi foto y mi perfil" className="lg-pill relative grid h-11 w-11 place-items-center overflow-hidden rounded-full">
+          {profile.hasPhoto
+            ? <ProtectedPhoto ticketCode={ticketCode} profileId={profile.id} viewerAlias={profile.alias} className="h-full w-full" quiet />
+            : <Camera className="h-5 w-5" />}
+        </button>
+        <GlassIconButton label="Mis tragos" onClick={() => setInboxOpen(true)} badge={pendingGifts}><Wine className="h-5 w-5 text-amber-300" /></GlassIconButton>
+        <GlassIconButton label="Avisos" onClick={() => setNotifOpen(true)}><Bell className="h-5 w-5" /></GlassIconButton>
+      </header>
+
+      <main className="relative z-10 flex min-h-0 flex-1 flex-col pb-[calc(env(safe-area-inset-bottom)+84px)]">
+        <motion.div key={tab} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }} className="flex min-h-0 flex-1 flex-col">
+          {tab === 'descubrir' && (
+            <DiscoverView
+              ticketCode={ticketCode}
+              alias={profile.alias}
+              myProfileId={profile.id}
+              participating={canPhoto}
+              caramelosLeft={caramelosLeft}
+              onOpenPhoto={() => setPhotoOpen(true)}
+              onMatch={celebrate}
+              onGift={gift}
+              onInfo={(card) => openPerson(people.find((p) => p.id === card.id) ?? { ...card, avatarId: 1, connectionId: null, connectionStatus: null, pendingForMe: false })}
+            />
+          )}
+          {tab === 'fiesta' && (
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-4 pt-1">
+              <Mansion people={people} myZone={profile.zone as PartyZone} onPick={openPerson} onChangeZone={(zone) => setZone.mutate({ ticketCode, zone })}
+                ticketCode={ticketCode} viewerAlias={profile.alias} canPhoto={canPhoto} />
+            </div>
+          )}
+          {tab === 'matches' && (
+            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain pt-1">
+              <MatchesView people={people} ticketCode={ticketCode} viewerAlias={profile.alias} canPhoto={canPhoto}
+                onPick={openPerson} onOpenChat={chatWith} onDiscover={() => go('descubrir')} />
+            </div>
+          )}
+        </motion.div>
+      </main>
+
+      {/* La barra de abajo, del mismo vidrio que la de la App. */}
+      <nav aria-label="Secciones de Playmatch" className="fixed bottom-[max(12px,env(safe-area-inset-bottom))] left-1/2 z-20 w-[calc(100vw-48px)] max-w-xs -translate-x-1/2">
+        <div className="lg-pill grid grid-cols-3 rounded-full p-1.5">
+          {TABS.map(({ id, label, icon: Icon }) => {
+            const badge = id === 'matches' ? caramelosForMe : 0;
+            return (
+              <button key={id} type="button" onClick={() => go(id)} aria-current={tab === id ? 'page' : undefined}
+                className={`relative flex flex-col items-center justify-center gap-0.5 rounded-full py-2 text-caption2 font-semibold transition-all duration-300 ${tab === id ? 'bg-white/[0.16] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.3)]' : 'text-white/60'}`}>
+                <Icon className={`h-[22px] w-[22px] ${tab === id && id === 'descubrir' ? 'fill-pink-500 text-pink-400' : ''}`} />
+                {label}
+                {badge > 0 && <span className="absolute right-3 top-0.5 grid h-5 min-w-5 place-items-center rounded-full bg-sky-400 px-1 text-caption2 font-bold text-[#0b0612]">{badge}</span>}
+              </button>
+            );
+          })}
         </div>
       </nav>
 
       <AnimatePresence>
+        {selected && (
+          <PersonSheet key="persona" ticketCode={ticketCode} viewerAlias={profile.alias} canPhoto={canPhoto} person={selected} caramelosLeft={caramelosLeft}
+            onClose={() => setSelected(null)} onOpenChat={chatWith} onGift={gift} onMatch={celebrate} />
+        )}
+        {match && (
+          <MatchCelebration key="match" ticketCode={ticketCode} alias={profile.alias} myProfileId={profile.id} match={match}
+            onChat={() => chatWith(match.connectionId, match.alias, match.otherId)} onGift={() => { const m = match; setMatch(null); setGifting({ profileId: m.otherId, alias: m.alias }); }} onClose={() => setMatch(null)} />
+        )}
         {gifting && (
-          <DrinkPicker
-            ticketCode={ticketCode}
-            targetProfileId={gifting.profileId}
-            targetAlias={gifting.alias}
-            onClose={() => setGifting(null)}
-            onSent={() => setGifting(null)}
-          />
+          <DrinkPicker key="trago" ticketCode={ticketCode} targetProfileId={gifting.profileId} targetAlias={gifting.alias}
+            onClose={() => setGifting(null)} onSent={() => setGifting(null)} />
         )}
-        {inboxOpen && <GiftInbox ticketCode={ticketCode} onClose={() => setInboxOpen(false)} />}
+        {inboxOpen && <GiftInbox key="tragos" ticketCode={ticketCode} onClose={() => setInboxOpen(false)} />}
         {photoOpen && (
-          <MyPhotoPanel
-            ticketCode={ticketCode}
-            profileId={session.data.profile.id}
-            alias={session.data.profile.alias}
-            hasPhoto={session.data.profile.hasPhoto}
-            swipeEnabled={session.data.profile.swipeEnabled}
-            onChanged={() => session.refetch()}
-            onClose={() => setPhotoOpen(false)}
-          />
+          <MyPhotoPanel key="foto" ticketCode={ticketCode} profileId={profile.id} alias={profile.alias} gender={profile.gender as PartyGender} zone={profile.zone as PartyZone}
+            hasPhoto={profile.hasPhoto} swipeEnabled={profile.swipeEnabled} onChanged={() => session.refetch()} onClose={() => setPhotoOpen(false)} />
         )}
-        {notifOpen && <NotificationsPanel ticketCode={ticketCode} onClose={() => setNotifOpen(false)} />}
+        {notifOpen && <NotificationsPanel key="avisos" ticketCode={ticketCode} onClose={() => setNotifOpen(false)} />}
         {openChat && (
-          <Chat
-            ticketCode={ticketCode}
-            connectionId={openChat.connectionId}
-            alias={openChat.alias}
-            onClose={() => setOpenChat(null)}
-          />
+          <Chat key="chat" ticketCode={ticketCode} connectionId={openChat.connectionId} alias={openChat.alias} otherId={openChat.otherId}
+            viewerAlias={profile.alias} canPhoto={canPhoto} onClose={() => setOpenChat(null)} onGift={gift} />
         )}
       </AnimatePresence>
     </div>
   );
+}
+
+/** Abierta como página suelta (/fiesta) con sesión de «Mi cuenta»: vuelta a la cuenta. */
+function MemberBackLink() {
+  const memberSession = useMemberSession();
+  if (!memberSession.data?.loggedIn) return null;
+  return <Link href="/cuenta" aria-label="Volver a mi cuenta" className="-ml-2 grid h-10 w-10 place-items-center rounded-full text-pink-300"><ChevronLeft className="h-7 w-7" /></Link>;
 }
 
 /* --- Puerta cerrada ------------------------------------------------------ */
@@ -160,420 +222,40 @@ function ClosedDoor({ denial, eventTitle, doorsOpen, onBack }: { denial: string;
 
   const copy = {
     sin_ticket: {
-      emoji: '🎫',
+      icon: TicketX,
       title: 'No encontramos tu entrada',
       body: 'Revisa el link de tu email. Si crees que es un error, escríbenos por Instagram.',
     },
     no_ingreso: {
-      emoji: '🚪',
+      icon: DoorClosed,
       title: 'Todavía no estás adentro',
       body: 'Playmatch se abre recién cuando escaneen tu QR en la entrada principal. Muestra tu entrada al anfitrión y vuelve a entrar acá.',
     },
     fuera_de_horario: {
-      emoji: '🌙',
+      icon: Moon,
       title: 'Playmatch no está abierto',
       body: horaApertura
         ? `Esto vive solo durante la fiesta. Se abre a las ${horaApertura} y se cierra cuando termina el evento.`
         : 'Esto vive solo durante el evento. Se abre cuando abren las puertas y se cierra cuando termina.',
     },
-  }[denial] ?? { emoji: '🌙', title: 'Playmatch no está abierto', body: '' };
+  }[denial] ?? { icon: Moon, title: 'Playmatch no está abierto', body: '' };
+  const Icon = copy.icon;
 
   return (
-    <div className="min-h-dvh grid place-items-center bg-[#120a11] text-white px-6">
-      <div className="text-center max-w-sm">
-        <img src="/candyland/logo-wordmark.webp" alt="Mansion Playroom" className="h-10 w-auto mx-auto mb-6" />
-        <p className="text-5xl mb-4" aria-hidden>{copy.emoji}</p>
-        <h1 className="font-heading font-extrabold text-2xl tracking-tight mb-2">{copy.title}</h1>
-        <p className="text-white/50 text-sm mb-8">{copy.body}</p>
-        {eventTitle && <p className="text-xs text-white/30 mb-6">{eventTitle}</p>}
+    <div className="account-font account-tokens relative grid min-h-dvh place-items-center bg-[#0b0612] px-6 pt-[env(safe-area-inset-top)] text-white">
+      <div className="account-backdrop" />
+      <div className="account-glass relative z-10 w-full max-w-sm rounded-[28px] px-6 py-8 text-center">
+        <span className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-gradient-to-br from-pink-500/25 to-sky-500/25"><Icon className="h-8 w-8 text-pink-300" /></span>
+        <h1 className="mt-4 text-title2 font-bold tracking-tight">{copy.title}</h1>
+        <p className="mt-2 text-subhead text-white/70">{copy.body}</p>
+        {eventTitle && <p className="mt-4 text-footnote text-white/60">{eventTitle}</p>}
         {onBack ? (
-          <button type="button" onClick={onBack} className="inline-flex h-12 items-center px-8 rounded-full border border-white/15 text-sm font-semibold">
-            Volver
-          </button>
+          <button type="button" onClick={onBack} className="lg-pill mt-6 inline-flex h-12 items-center rounded-full px-8 text-subhead font-semibold">Volver</button>
         ) : (
-          <Link href="/" className="inline-flex h-12 items-center px-8 rounded-full border border-white/15 text-sm font-semibold">
-            Volver al inicio
-          </Link>
+          <Link href="/" className="lg-pill mt-6 inline-flex h-12 items-center rounded-full px-8 text-subhead font-semibold">Volver al inicio</Link>
         )}
       </div>
     </div>
-  );
-}
-
-/* --- Crear perfil -------------------------------------------------------- */
-
-/* --- La mansión ---------------------------------------------------------- */
-
-function MansionView({ ticketCode, myZone, onPick, onZoneChanged, onOpenChat, onGift, onOpenInbox, onOpenNotifications, onOpenPhoto, onBack, selected, onCloseCard }: {
-  ticketCode: string;
-  myZone: PartyZone;
-  onPick: (p: MansionPerson) => void;
-  onZoneChanged: () => void;
-  onOpenChat: (connectionId: number, alias: string) => void;
-  onGift: (profileId: number, alias: string) => void;
-  onOpenInbox: () => void;
-  onOpenNotifications: () => void;
-  onOpenPhoto: () => void;
-  onBack?: () => void;
-  selected: MansionPerson | null;
-  onCloseCard: () => void;
-}) {
-  // 10 segundos: se siente vivo sin castigar la batería ni la función
-  // serverless. El chat abierto sí va más rápido (3s).
-  const mansion = trpc.party.listMansion.useQuery({ ticketCode }, { refetchInterval: 10_000 });
-  const utils = trpc.useUtils();
-
-  const setZone = trpc.party.setZone.useMutation({
-    onSuccess: () => { onZoneChanged(); utils.party.listMansion.invalidate(); },
-    onError: (e) => toast.error(e.message),
-  });
-
-  const people = mansion.data?.people ?? [];
-  const pending = useMemo(() => people.filter((p) => p.pendingForMe), [people]);
-
-  // Lo que pide acción mía: una invitación por responder, o una que ya me
-  // aceptaron y falta pagar.
-  const myGifts = trpc.party.myGifts.useQuery({ ticketCode }, { refetchInterval: 10_000 });
-  const memberSession = useMemberSession();
-  const pendingGifts =
-    (myGifts.data?.received.filter((g) => g.status === 'invited').length ?? 0) +
-    (myGifts.data?.sent.filter((g) => g.status === 'accepted').length ?? 0);
-
-  return (
-    <div className="max-w-md mx-auto px-4 py-5 pb-24">
-      <header className="flex items-center justify-between mb-4">
-        <h1 className="flex items-center gap-1 font-heading font-extrabold text-2xl tracking-tight">
-          {/* Abierto desde la app (sesión de «Mi cuenta»): vuelta a la app sin salir a la web. */}
-          {onBack ? (
-            <button type="button" onClick={onBack} aria-label="Volver a la app" className="-ml-1 grid h-9 w-9 place-items-center rounded-full text-white/70"><ArrowLeft className="h-5 w-5" /></button>
-          ) : memberSession.data?.loggedIn && (
-            <Link href="/cuenta" aria-label="Volver a mi cuenta" className="-ml-1 grid h-9 w-9 place-items-center rounded-full text-white/70"><ArrowLeft className="h-5 w-5" /></Link>
-          )}
-          Playmatch 🍬
-        </h1>
-        <div className="flex items-center gap-3">
-          <p className="text-xs text-white/40">
-            {mansion.data ? `${mansion.data.touchesLeft} toques` : ''}
-          </p>
-          <button
-            onClick={onOpenPhoto}
-            className="h-9 px-3 rounded-full border border-white/15 text-sm"
-            aria-label="Mi foto"
-          >
-            📸
-          </button>
-          <button
-            onClick={onOpenNotifications}
-            className="h-9 px-3 rounded-full border border-white/15 text-sm"
-            aria-label="Notificaciones"
-          >
-            🔔
-          </button>
-          <button
-            onClick={onOpenInbox}
-            className="relative h-9 px-3 rounded-full border border-white/15 text-sm"
-            aria-label="Mis tragos"
-          >
-            🍹
-            {pendingGifts > 0 && (
-              <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 grid place-items-center rounded-full bg-primary text-[11px] font-bold">
-                {pendingGifts}
-              </span>
-            )}
-          </button>
-        </div>
-      </header>
-
-      {pending.length > 0 && (
-        <div className="mb-5 p-4 rounded-3xl bg-primary/12 border border-primary/30">
-          <p className="text-sm font-bold mb-3">
-            {pending.length === 1 ? 'Alguien te tocó 👋' : `${pending.length} personas te tocaron 👋`}
-          </p>
-          <div className="flex gap-3 overflow-x-auto pb-1">
-            {pending.map((p) => (
-              <button key={p.id} onClick={() => onPick(p)} className="shrink-0 flex flex-col items-center gap-1.5 w-16">
-                <PartyAvatar gender={p.gender} avatarId={p.avatarId} className="w-14 h-14 rounded-full ring-2 ring-primary" />
-                <span className="text-[11px] truncate max-w-full">{p.alias}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <Mansion
-        people={people}
-        myZone={myZone}
-        onPick={onPick}
-        onChangeZone={(zone) => setZone.mutate({ ticketCode, zone })}
-      />
-
-      <AnimatePresence>
-        {selected && (
-          <PersonCard
-            ticketCode={ticketCode}
-            person={selected}
-            onClose={onCloseCard}
-            onOpenChat={onOpenChat}
-            onGift={onGift}
-          />
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
-
-/* --- Tarjeta de una persona ---------------------------------------------- */
-
-function PersonCard({ ticketCode, person, onClose, onOpenChat, onGift }: {
-  ticketCode: string;
-  person: MansionPerson;
-  onClose: () => void;
-  onOpenChat: (connectionId: number, alias: string) => void;
-  onGift: (profileId: number, alias: string) => void;
-}) {
-  const utils = trpc.useUtils();
-  const [reporting, setReporting] = useState(false);
-  const [reason, setReason] = useState('');
-
-  const refresh = () => utils.party.listMansion.invalidate();
-
-  const touch = trpc.party.touch.useMutation({
-    onSuccess: (res) => {
-      refresh();
-      if (res.status === 'accepted') {
-        toast.success('¡Se tocaron los dos! Ya pueden hablar 💬');
-        onOpenChat(res.connectionId, person.alias);
-      } else {
-        toast.success('Toque enviado 👋');
-        onClose();
-      }
-    },
-    onError: (e) => toast.error(e.message),
-  });
-
-  const respond = trpc.party.respondTouch.useMutation({
-    onSuccess: (res) => {
-      refresh();
-      if (res.status === 'accepted' && person.connectionId) {
-        onOpenChat(person.connectionId, person.alias);
-      } else {
-        onClose();
-      }
-    },
-    onError: (e) => toast.error(e.message),
-  });
-
-  const block = trpc.party.block.useMutation({
-    onSuccess: () => { refresh(); toast.success('Listo, no se van a ver más'); onClose(); },
-    onError: (e) => toast.error(e.message),
-  });
-
-  const report = trpc.party.report.useMutation({
-    onSuccess: () => { refresh(); toast.success('Denuncia enviada al equipo del local'); onClose(); },
-    onError: (e) => toast.error(e.message),
-  });
-
-  const busy = touch.isPending || respond.isPending || block.isPending || report.isPending;
-
-  return (
-    <motion.div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 backdrop-blur-sm"
-      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      onClick={onClose}
-    >
-      <motion.div
-        className="w-full max-w-md bg-[#1a1019] border-t border-white/12 rounded-t-3xl p-6 pb-9"
-        initial={{ y: 200 }} animate={{ y: 0 }} exit={{ y: 200 }}
-        transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex justify-end -mt-2 -mr-2 mb-1">
-          <button onClick={onClose} className="p-2 text-white/40" aria-label="Cerrar"><X className="w-5 h-5" /></button>
-        </div>
-
-        <div className="flex flex-col items-center text-center mb-6">
-          <PartyAvatar gender={person.gender} avatarId={person.avatarId} className="w-24 h-24 rounded-full mb-3" />
-          <h2 className="font-heading font-extrabold text-2xl tracking-tight">{person.alias}</h2>
-          <p className="text-sm text-white/45">{GENDER_LABELS[person.gender]} · {ZONE_LABELS[person.zone]}</p>
-        </div>
-
-        {person.pendingForMe && person.connectionId ? (
-          <div className="space-y-2.5">
-            <p className="text-sm text-center text-white/70 mb-3">Te mandó un toque 👋</p>
-            <button
-              disabled={busy}
-              onClick={() => respond.mutate({ ticketCode, connectionId: person.connectionId!, accept: true })}
-              className="w-full h-14 rounded-full bg-primary font-bold disabled:opacity-40"
-            >
-              Aceptar y hablar
-            </button>
-            <button
-              disabled={busy}
-              onClick={() => respond.mutate({ ticketCode, connectionId: person.connectionId!, accept: false })}
-              className="w-full h-12 rounded-full border border-white/15 text-white/60 font-semibold disabled:opacity-40"
-            >
-              Ahora no
-            </button>
-          </div>
-        ) : person.connectionStatus === 'accepted' && person.connectionId ? (
-          <button
-            onClick={() => onOpenChat(person.connectionId!, person.alias)}
-            className="w-full h-14 rounded-full bg-primary font-bold"
-          >
-            Abrir chat 💬
-          </button>
-        ) : person.connectionStatus === 'pending' ? (
-          <p className="text-sm text-center text-white/45 py-4">Ya le mandaste un toque. Queda esperar 🤞</p>
-        ) : (
-          <button
-            disabled={busy}
-            onClick={() => touch.mutate({ ticketCode, targetProfileId: person.id })}
-            className="w-full h-14 rounded-full bg-primary font-bold disabled:opacity-40"
-          >
-            Mandar un toque 👋
-          </button>
-        )}
-
-        {/* Invitar un trago no exige tener el chat abierto: es justamente
-            la forma clásica de acercarse a alguien que no conoces. La otra
-            persona puede rechazarlo, y ahí no se cobra nada. */}
-        <button
-          onClick={() => onGift(person.id, person.alias)}
-          className="w-full h-13 mt-2.5 rounded-full border border-primary/40 bg-primary/10 font-semibold"
-        >
-          Invitarle un trago 🍹
-        </button>
-
-        <div className="mt-6 pt-5 border-t border-white/10">
-          {!reporting ? (
-            <div className="flex gap-3">
-              <button
-                onClick={() => block.mutate({ ticketCode, targetProfileId: person.id })}
-                disabled={busy}
-                className="flex-1 h-11 rounded-full border border-white/12 text-xs text-white/50 font-semibold inline-flex items-center justify-center gap-1.5"
-              >
-                <Ban className="w-3.5 h-3.5" /> Bloquear
-              </button>
-              <button
-                onClick={() => setReporting(true)}
-                className="flex-1 h-11 rounded-full border border-red-500/25 text-xs text-red-300 font-semibold inline-flex items-center justify-center gap-1.5"
-              >
-                <Flag className="w-3.5 h-3.5" /> Denunciar
-              </button>
-            </div>
-          ) : (
-            <div className="space-y-2.5">
-              <input
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                placeholder="¿Qué pasó?"
-                className="w-full h-12 px-4 rounded-2xl bg-white/[0.06] border border-white/15 text-sm text-white placeholder:text-white/25 focus:outline-none focus:border-red-400/50"
-              />
-              <div className="flex gap-2">
-                <button
-                  disabled={reason.trim().length < 3 || busy}
-                  onClick={() => report.mutate({ ticketCode, targetProfileId: person.id, reason: reason.trim() })}
-                  className="flex-1 h-11 rounded-full bg-red-500/85 text-sm font-bold disabled:opacity-35"
-                >
-                  Enviar denuncia
-                </button>
-                <button onClick={() => setReporting(false)} className="px-5 h-11 rounded-full border border-white/12 text-sm text-white/55">
-                  Cancelar
-                </button>
-              </div>
-              <p className="text-[11px] text-white/30 text-center">Al denunciar, también dejan de verse.</p>
-            </div>
-          )}
-        </div>
-      </motion.div>
-    </motion.div>
-  );
-}
-
-/* --- Chat ---------------------------------------------------------------- */
-
-function Chat({ ticketCode, connectionId, alias, onClose }: {
-  ticketCode: string;
-  connectionId: number;
-  alias: string;
-  onClose: () => void;
-}) {
-  const [text, setText] = useState('');
-  const chat = trpc.party.getMessages.useQuery({ ticketCode, connectionId }, { refetchInterval: 3_000 });
-  const utils = trpc.useUtils();
-
-  const send = trpc.party.sendMessage.useMutation({
-    onSuccess: () => { setText(''); utils.party.getMessages.invalidate({ ticketCode, connectionId }); },
-    onError: (e) => toast.error(e.message),
-  });
-
-  const messages = chat.data?.messages ?? [];
-
-  // Pegado abajo con cada mensaje nuevo, como cualquier chat.
-  useEffect(() => {
-    const el = document.getElementById('party-chat-end');
-    el?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages.length]);
-
-  const submit = () => {
-    const body = text.trim();
-    if (!body) return;
-    send.mutate({ ticketCode, connectionId, body });
-  };
-
-  return (
-    <motion.div
-      className="fixed inset-0 z-50 bg-[#120a11] flex flex-col"
-      initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
-      transition={{ type: 'spring', damping: 30, stiffness: 320 }}
-    >
-      <header className="flex items-center gap-3 px-4 py-3 border-b border-white/10 shrink-0">
-        <button onClick={onClose} className="p-1 -ml-1 text-white/60" aria-label="Volver">
-          <ArrowLeft className="w-5 h-5" />
-        </button>
-        {chat.data?.other && (
-          <PartyAvatar gender={chat.data.other.gender as PartyGender} avatarId={chat.data.other.avatarId} className="w-9 h-9 rounded-full" />
-        )}
-        <p className="font-bold">{alias}</p>
-      </header>
-
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-2">
-        {messages.length === 0 && (
-          <p className="text-center text-sm text-white/35 py-10">
-            Se tocaron los dos. Rompe el hielo 🍬
-          </p>
-        )}
-        {messages.map((m) => (
-          <div key={m.id} className={`flex ${m.mine ? 'justify-end' : 'justify-start'}`}>
-            <p className={`max-w-[78%] px-4 py-2.5 rounded-3xl text-sm leading-snug ${
-              m.mine ? 'bg-primary text-white rounded-br-lg' : 'bg-white/10 text-white rounded-bl-lg'
-            }`}>
-              {m.body}
-            </p>
-          </div>
-        ))}
-        <div id="party-chat-end" />
-      </div>
-
-      <div className="p-3 border-t border-white/10 flex gap-2 shrink-0">
-        <input
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
-          maxLength={MAX_MESSAGE_LENGTH}
-          placeholder="Escribe algo…"
-          className="flex-1 h-12 px-4 rounded-full bg-white/[0.07] border border-white/12 text-white text-base placeholder:text-white/25 focus:outline-none focus:border-primary/50"
-        />
-        <button
-          onClick={submit}
-          disabled={!text.trim() || send.isPending}
-          className="w-12 h-12 shrink-0 grid place-items-center rounded-full bg-primary disabled:opacity-35"
-          aria-label="Enviar"
-        >
-          <Send className="w-4.5 h-4.5" />
-        </button>
-      </div>
-    </motion.div>
   );
 }
 
@@ -640,7 +322,7 @@ function NotificationsPanel({ ticketCode, onClose }: { ticketCode: string; onClo
       const json = sub.toJSON();
       await subscribe.mutateAsync({ ticketCode, endpoint: json.endpoint!, p256dh: json.keys!.p256dh, auth: json.keys!.auth });
       setThisDeviceEndpoint(json.endpoint!);
-      toast.success('Notificaciones activadas 🔔');
+      toast.success('Avisos activados');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'No se pudo activar.');
     } finally {
@@ -656,56 +338,43 @@ function NotificationsPanel({ ticketCode, onClose }: { ticketCode: string; onClo
       await sub?.unsubscribe();
       await unsubscribe.mutateAsync({ endpoint: thisDeviceEndpoint });
       setThisDeviceEndpoint(null);
-      toast.success('Notificaciones desactivadas.');
+      toast.success('Avisos desactivados');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'No se pudo desactivar.');
     }
   };
 
   return (
-    <motion.div
-      className="fixed inset-0 z-50 bg-black/70 flex items-end sm:items-center sm:justify-center"
-      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      onClick={onClose}
-    >
-      <motion.div
-        className="w-full sm:max-w-sm bg-[#1a0f18] rounded-t-3xl sm:rounded-3xl p-5 border border-white/10"
-        initial={{ y: 40 }} animate={{ y: 0 }} exit={{ y: 40 }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="font-heading font-extrabold text-lg">🔔 Notificaciones</h2>
-          <button onClick={onClose} aria-label="Cerrar"><X className="w-5 h-5 text-white/50" /></button>
+    <PmSheet title="Avisos" onClose={onClose}>
+      <p className="mb-4 text-subhead text-white/70">
+        Te avisamos cuando alguien te escribe o te manda un Caramelo, y si el anfitrión larga una promo relámpago durante la fiesta.
+      </p>
+
+      {needsInstallFirst && (
+        <div className="mb-4 space-y-1.5 rounded-[20px] border border-pink-400/30 bg-pink-500/10 p-4 text-subhead">
+          <p className="font-bold">Primero agrega Playmatch a Inicio</p>
+          <p className="text-white/70">
+            En iPhone/iPad los avisos solo funcionan si esta página está en tu pantalla de inicio.
+            Toca <span className="font-semibold">Compartir</span> (la cajita con la flecha) y después{' '}
+            <span className="font-semibold">«Agregar a Inicio»</span>. Abre Playmatch desde ese ícono y activa los avisos acá.
+          </p>
         </div>
-        <p className="text-sm text-white/50 mb-4">
-          Avisa cuando alguien te escribe en Playmatch, y si el anfitrión larga una promo relámpago durante la fiesta.
-        </p>
+      )}
 
-        {needsInstallFirst && (
-          <div className="mb-4 p-3.5 rounded-2xl bg-primary/12 border border-primary/30 text-sm space-y-1.5">
-            <p className="font-bold">Primero agrega Playmatch a Inicio</p>
-            <p className="text-white/60">
-              En iPhone/iPad las notificaciones solo funcionan si esta página está agregada a tu pantalla de inicio.
-              Toca <span className="font-semibold">Compartir</span> (el ícono de la cajita con la flecha) y después{' '}
-              <span className="font-semibold">"Agregar a Inicio"</span>. Vuelve a abrir Playmatch desde ese ícono nuevo y activa las notificaciones acá.
-            </p>
-          </div>
-        )}
+      {!notifSupported && !needsInstallFirst && (
+        <p className="mb-4 text-footnote text-white/60">Este navegador no permite recibir avisos.</p>
+      )}
 
-        {!notifSupported && !needsInstallFirst && (
-          <p className="text-xs text-white/40 mb-4">Este navegador no soporta notificaciones push.</p>
-        )}
-
-        {notifSupported && (
-          <button
-            onClick={alreadyOn ? handleDeactivate : handleActivate}
-            disabled={subscribing || needsInstallFirst || !vapid?.publicKey}
-            className="w-full h-12 rounded-full bg-primary font-bold disabled:opacity-35 disabled:bg-white/10"
-          >
-            {subscribing ? 'Activando…' : alreadyOn ? 'Desactivar notificaciones' : 'Activar notificaciones'}
-          </button>
-        )}
-      </motion.div>
-    </motion.div>
+      {notifSupported && (
+        <button
+          type="button"
+          onClick={alreadyOn ? handleDeactivate : handleActivate}
+          disabled={subscribing || needsInstallFirst || !vapid?.publicKey}
+          className={`h-14 w-full rounded-full text-headline disabled:opacity-40 ${alreadyOn ? 'lg-pill font-semibold' : PM_CTA}`}
+        >
+          {subscribing ? 'Activando…' : alreadyOn ? 'Desactivar avisos' : 'Activar avisos'}
+        </button>
+      )}
+    </PmSheet>
   );
 }

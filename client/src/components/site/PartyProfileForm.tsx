@@ -12,6 +12,10 @@ import {
  * anticipada, que carga la hoja pública de estilos; admin.css lo declara
  * con @source para la página /fiesta. */
 
+const LABEL = 'mb-2 block text-footnote font-semibold uppercase tracking-wide text-white/60';
+const SELECTED = 'border-pink-400/70 bg-pink-500/20 text-white';
+const IDLE = 'border-white/15 bg-white/[0.04] text-white/70';
+
 export const GENDER_LABELS: Record<PartyGender, string> = {
   hombre: 'Hombre',
   mujer: 'Mujer',
@@ -53,46 +57,44 @@ export function CreateProfile({ ticketCode, onCreated, mode = 'inside', initial,
   };
 
   const copy = {
-    inside: { title: 'Estás adentro', body: 'Elige cómo te van a ver esta noche. Sin fotos y sin tu nombre real.', cta: 'Entrar a Playmatch', busy: 'Entrando…' },
+    inside: { title: 'Estás adentro', body: 'Elige cómo te van a ver esta noche. Sin tu nombre real; la foto la pones después, si quieres.', cta: 'Entrar a Playmatch', busy: 'Entrando…' },
     pre: { title: 'Inscríbete en Playmatch', body: 'Deja listo tu perfil. Se activa solo cuando escaneen tu entrada en la puerta, y entras al tiro.', cta: 'Inscribirme', busy: 'Guardando…' },
-    edit: { title: 'Tu perfil', body: 'Así te van a ver en la fiesta. Sin fotos y sin tu nombre real.', cta: 'Guardar cambios', busy: 'Guardando…' },
+    edit: { title: 'Tu perfil', body: 'Así te van a ver en la fiesta. Sin tu nombre real.', cta: 'Guardar cambios', busy: 'Guardando…' },
   }[mode];
 
   return (
-    <div className={embedded ? 'text-white' : 'min-h-dvh bg-[#120a11] text-white px-5 py-10'}>
-      <div className="max-w-md mx-auto">
-        {!embedded && <p className="text-4xl text-center mb-3" aria-hidden>🍬</p>}
-        <h1 className={`font-heading font-extrabold tracking-tight text-center mb-2 ${embedded ? 'text-2xl' : 'text-3xl'}`}>{copy.title}</h1>
-        <p className="text-white/60 text-sm text-center mb-8">{copy.body}</p>
+    <div className={embedded ? 'text-white' : 'account-font account-tokens relative min-h-dvh bg-[#0b0612] px-5 pb-10 pt-[max(40px,env(safe-area-inset-top))] text-white'}>
+      {!embedded && <div className="account-backdrop" />}
+      <div className="relative z-10 mx-auto max-w-md">
+        <h1 className={`mb-2 text-center font-bold tracking-tight ${embedded ? 'text-title2' : 'text-large-title'}`}>{copy.title}</h1>
+        <p className="mb-8 text-center text-subhead text-white/70">{copy.body}</p>
 
-        <label className="block text-xs uppercase tracking-wide text-white/60 mb-2">Tu alias</label>
+        <label className={LABEL}>Tu alias</label>
         <input
           value={alias}
           onChange={(e) => setAlias(e.target.value)}
           maxLength={MAX_ALIAS_LENGTH}
           placeholder="Ej: La Reina"
-          className="w-full h-13 px-4 rounded-2xl bg-white/[0.06] border border-white/15 text-white text-base placeholder:text-white/45 focus:border-primary/60 focus:outline-none"
+          className="h-13 w-full rounded-2xl border border-white/15 bg-white/[0.06] px-4 text-body text-white placeholder:text-white/45 focus:border-pink-400/60 focus:outline-none"
         />
-        <p className={`text-xs mt-1.5 mb-6 ${aliasError ? 'text-red-400' : 'text-white/60'}`}>
+        <p className={`mb-6 mt-1.5 text-caption1 ${aliasError ? 'text-rose-300' : 'text-white/60'}`}>
           {aliasError ?? `${alias.length}/${MAX_ALIAS_LENGTH} · sin redes ni teléfonos`}
         </p>
 
-        <p className="text-xs uppercase tracking-wide text-white/60 mb-2">Vengo como</p>
+        <p className={LABEL}>Vengo como</p>
         <div className="grid grid-cols-3 gap-2 mb-6">
           {PARTY_GENDERS.map((g) => (
             <button
               key={g}
               onClick={() => setGender(g)}
-              className={`h-11 rounded-2xl text-sm font-semibold border transition-colors ${
-                gender === g ? 'bg-primary/20 border-primary/60 text-white' : 'border-white/12 text-white/60'
-              }`}
+              className={`h-11 rounded-full border text-subhead font-semibold transition-colors ${gender === g ? SELECTED : IDLE}`}
             >
               {GENDER_LABELS[g]}
             </button>
           ))}
         </div>
 
-        <p className="text-xs uppercase tracking-wide text-white/60 mb-2">Tu avatar</p>
+        <p className={LABEL}>Tu avatar <span className="normal-case tracking-normal text-white/60">· si no pones foto</span></p>
         <div className="grid grid-cols-4 gap-3 mb-6">
           {Array.from({ length: AVATARS_PER_GENDER }, (_, i) => i + 1).map((id) => (
             <button
@@ -100,7 +102,7 @@ export function CreateProfile({ ticketCode, onCreated, mode = 'inside', initial,
               onClick={() => setAvatarId(id)}
               aria-label={`Avatar ${id}`}
               className={`rounded-full transition-transform active:scale-95 ${
-                avatarId === id ? 'ring-3 ring-primary scale-105' : 'opacity-55'
+                avatarId === id ? 'scale-105 ring-[3px] ring-pink-400 ring-offset-2 ring-offset-[#0b0612]' : 'opacity-60'
               }`}
             >
               <PartyAvatar gender={gender} avatarId={id} className="w-full h-auto rounded-full" />
@@ -110,15 +112,13 @@ export function CreateProfile({ ticketCode, onCreated, mode = 'inside', initial,
 
         {/* La zona se elige adentro: antes de llegar no hay dónde estar. */}
         {mode === 'inside' && (<>
-          <p className="text-xs uppercase tracking-wide text-white/60 mb-2">¿Dónde estás ahora?</p>
+          <p className={LABEL}>¿Dónde estás ahora?</p>
           <div className="grid grid-cols-2 gap-2 mb-8">
             {PARTY_ZONES.map((z) => (
               <button
                 key={z}
                 onClick={() => setZone(z)}
-                className={`h-11 rounded-2xl text-sm font-semibold border transition-colors ${
-                  zone === z ? 'bg-primary/20 border-primary/60 text-white' : 'border-white/12 text-white/60'
-                }`}
+                className={`h-11 rounded-full border text-subhead font-semibold transition-colors ${zone === z ? SELECTED : IDLE}`}
               >
                 {ZONE_LABELS[z]}
               </button>
@@ -127,12 +127,12 @@ export function CreateProfile({ ticketCode, onCreated, mode = 'inside', initial,
         </>)}
 
         {mode !== 'edit' && (
-          <label className="flex items-start gap-3 mb-5 text-xs text-white/60 leading-relaxed cursor-pointer">
+          <label className="mb-5 flex cursor-pointer items-start gap-3 text-footnote leading-snug text-white/70">
             <input
               type="checkbox"
               checked={rules}
               onChange={(e) => setRules(e.target.checked)}
-              className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
+              className="mt-0.5 h-5 w-5 shrink-0 accent-pink-500"
             />
             <span>
               Acepto las reglas de la casa: no comparto datos personales (redes, teléfono), no saco capturas ni fotos de
@@ -144,12 +144,12 @@ export function CreateProfile({ ticketCode, onCreated, mode = 'inside', initial,
         <button
           disabled={!check.ok || !rules || pending}
           onClick={submit}
-          className="w-full h-14 rounded-full bg-primary text-white font-bold text-base disabled:opacity-35 transition-opacity"
+          className="h-14 w-full rounded-full bg-gradient-to-r from-pink-500 via-fuchsia-500 to-sky-500 text-headline font-bold text-white shadow-[0_10px_28px_-8px_rgba(236,72,153,0.7),inset_0_1px_0_rgba(255,255,255,0.4)] transition-opacity disabled:opacity-40"
         >
           {pending ? copy.busy : copy.cta}
         </button>
 
-        <p className="text-[11px] text-white/60 text-center mt-4 leading-relaxed">
+        <p className="mt-4 text-center text-caption1 leading-snug text-white/60">
           Nadie puede escribirte sin que aceptes primero. Puedes bloquear y denunciar en cualquier momento.
         </p>
       </div>

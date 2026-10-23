@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 /* Caché solo en memoria (se pierde al cerrar la pestaña, nunca va a disco): deja
  * pedir la foto de la siguiente tarjeta mientras se mira la actual, para que el
@@ -34,11 +34,15 @@ export function preloadPhoto(ticketCode: string, profileId: number) {
  *  - se dibuja en <canvas>, sin <img> que guardar ni arrastrar, y sin menú
  *    de "mantener presionado".
  * La imagen se pide con el ticketCode en un header, nunca en la URL. */
-export function ProtectedPhoto({ ticketCode, profileId, viewerAlias, className = '' }: {
+export function ProtectedPhoto({ ticketCode, profileId, viewerAlias, className = '', fallback, quiet = false }: {
   ticketCode: string;
   profileId: number;
   viewerAlias: string;
   className?: string;
+  /** Lo que se muestra si no hay foto o no se puede ver (por ejemplo, el avatar). */
+  fallback?: ReactNode;
+  /** Miniaturas: sin los textos «Cargando…» ni «Toca para ver». */
+  quiet?: boolean;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -82,7 +86,8 @@ export function ProtectedPhoto({ ticketCode, profileId, viewerAlias, className =
 
   return (
     <div
-      className={`relative overflow-hidden bg-white/5 select-none ${className}`}
+      // `relative` solo si no viene posicionada desde afuera (`absolute inset-0` en la tarjeta): las dos juntas, ganaba `relative` y la foto quedaba cuadrada arriba.
+      className={`${/\b(absolute|fixed)\b/.test(className) ? '' : 'relative'} overflow-hidden bg-white/5 select-none ${className}`}
       onContextMenu={(e) => e.preventDefault()}
       onClick={() => setBlurred(false)}
       style={{ WebkitTouchCallout: 'none', WebkitUserSelect: 'none', userSelect: 'none', touchAction: 'pan-y' }}
@@ -93,11 +98,12 @@ export function ProtectedPhoto({ ticketCode, profileId, viewerAlias, className =
         className="w-full h-full object-cover pointer-events-none transition-[filter] duration-150"
         style={{ filter: blurred ? 'blur(28px)' : 'none', visibility: state === 'ready' ? 'visible' : 'hidden' }}
       />
-      {blurred && state === 'ready' && (
+      {state === 'error' && fallback && <div className="absolute inset-0">{fallback}</div>}
+      {blurred && state === 'ready' && !quiet && (
         <p className="absolute inset-0 grid place-items-center text-xs text-white/80 font-semibold">Toca para ver</p>
       )}
-      {state === 'loading' && <div className="absolute inset-0 grid place-items-center text-white/30 text-xs">Cargando…</div>}
-      {state === 'error' && <div className="absolute inset-0 grid place-items-center text-white/30 text-xs">Sin foto</div>}
+      {state === 'loading' && <div className={`absolute inset-0 grid place-items-center text-caption1 text-white/60 ${quiet ? 'lg-skeleton' : ''}`}>{quiet ? null : 'Cargando…'}</div>}
+      {state === 'error' && !fallback && <div className="absolute inset-0 grid place-items-center text-caption1 text-white/60">Sin foto</div>}
     </div>
   );
 }

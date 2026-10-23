@@ -6754,7 +6754,7 @@ export type PartyTouchResult =
 export async function touchPartyProfile(profileId: number, targetProfileId: number, eventId: number): Promise<PartyTouchResult> {
   const db = await getDb();
   if (!db) return { ok: false, reason: 'Base de datos no disponible' };
-  if (profileId === targetProfileId) return { ok: false, reason: 'No puedes tocarte a ti mismo' };
+  if (profileId === targetProfileId) return { ok: false, reason: 'No puedes mandarte un Caramelo a ti mismo' };
 
   const [target] = await db.select().from(partyProfiles).where(eq(partyProfiles.id, targetProfileId)).limit(1);
   if (!target || target.eventId !== eventId || target.active !== 1) {
@@ -6789,7 +6789,7 @@ export async function touchPartyProfile(profileId: number, targetProfileId: numb
   const connections = await getPartyConnectionsFor(db, profileId);
   const touchesUsed = connections.filter((c: any) => c.initiatedById === profileId && !c.viaSwipe).length;
   if (touchesUsed >= MAX_TOUCHES_PER_EVENT) {
-    return { ok: false, reason: `Llegaste al máximo de ${MAX_TOUCHES_PER_EVENT} toques por noche` };
+    return { ok: false, reason: `Ya usaste tus ${MAX_TOUCHES_PER_EVENT} Caramelos de esta noche` };
   }
 
   await db.insert(partyConnections).values({
