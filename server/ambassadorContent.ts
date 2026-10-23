@@ -1,9 +1,15 @@
 import { and, asc, eq, gte, inArray, isNull, or } from 'drizzle-orm';
 import { getDb } from './db';
 import { contentDesigns, events } from '../drizzle/schema';
+import { pushToEmail } from './customerPush';
+import { getContentDesign, readVideoRender } from './contentStudio';
+import { exclusiveAmbassadors } from '../drizzle/schema';
 import {
+  designToAmbassadorItem,
   eventDrafts,
   normalizeAmbassadorItem,
+  studioAutoKey,
+  uploadedItem,
   type AmbassadorItem,
   type AmbassadorItemStatus,
   type StoredAmbassadorItem,
@@ -142,4 +148,101 @@ export async function ensureAmbassadorDrafts(now: Date = new Date()): Promise<nu
     }
   }
   return created;
+}
+
+
+/* --- Del Estudio a los embajadores ---------------------------------------- */
+
+export interface StudioSendResult {
+  created: number;
+  updated: number;
+  /** Lo que no se pudo enviar, con la razón para el dueño. */
+  skipped: { id: number; reason: string }[];
+}
+
+/** El id y la clave de lo que ya está en la lista de embajadores (incluido lo descartado). */
+async function existingByAutoKey(db: Awaited<ReturnType<typeof requireDb>>) {
+  const rows = await db.select({ id: contentDesigns.id, data: contentDesigns.data }).from(contentDesigns).where(eq(contentDesigns.kind, AMBASSADOR_KIND));
+  const map = new Map<string, { id: number; status: string }>();
+  for (const r of rows) {
+    const d = r.data as { autoKey?: string; status?: string } | null;
+    if (d?.autoKey) map.set(d.autoKey, { id: r.id, status: d.status ?? 'borrador' });
+  }
+  return map;
+}
+
+/** Manda diseños del Estudio (plantillas y videos ya grabados) a «Por aprobar». Si ya estaban, se
+ * actualiza su contenido: lo aprobado sigue aprobado, lo descartado vuelve a «Por aprobar» porque
+ * el dueño lo pidió a propósito. Los del Diseñador IA se envían desde dentro del diseño. */
+export async function sendStudioToAmbassadors(ids: number[]): Promise<StudioSendResult> {
+  const db = await requireDb();
+  const have = await existingByAutoKey(db);
+  const out: StudioSendResult = { created: 0, updated: 0, skipped: [] };
+  for (const id of Array.from(new Set(ids))) {
+    const [row] = await db.select({ kind: contentDesigns.kind }).from(contentDesigns).where(eq(contentDesigns.id, id)).limit(1);
+    if (!row) { out.skipped.push({ id, reason: 'Ya no existe.' }); continue; }
+    let item: AmbassadorItem | null = null;
+    if (row.kind === 'video') {
+      const { render, title } = await readVideoRender(id);
+      const url = render?.status === 'listo' ? render.url : null;
+      if (!url) { out.skipped.push({ id, reason: 'Falta grabar el video a MP4.' }); continue; }
+      const [full] = await db.select({ eventId: contentDesigns.eventId, format: contentDesigns.format, data: contentDesigns.data }).from(contentDesigns).where(eq(contentDesigns.id, id)).limit(1);
+      const caption = (full?.data as { caption?: unknown } | null)?.caption;
+      item = uploadedItem({ mediaUrl: url, eventId: full?.eventId ?? null, mediaFormat: full?.format === 'post' ? 'post' : 'historia', label: title, caption: typeof caption === 'string' ? caption : '' });
+      if (item) item = { ...item, autoKey: studioAutoKey(id) };
+    } else if (row.kind === 'ia') {
+      out.skipped.push({ id, reason: 'Es del Diseñador IA: envíalo desde dentro del diseño.' });
+      continue;
+    } else if (row.kind === 'embajador' || row.kind === 'estilo') {
+      out.skipped.push({ id, reason: 'No es un diseño del Estudio.' });
+      continue;
+    } else {
+      const design = await getContentDesign(id);
+      item = design ? designToAmbassadorItem(design, id) : null;
+    }
+    if (!item) { out.skipped.push({ id, reason: 'No se pudo preparar.' }); continue; }
+    const prev = have.get(item.autoKey);
+    if (prev) {
+      const status = prev.status === 'descartado' ? 'borrador' : prev.status;
+      await db.update(contentDesigns).set(rowValues({ ...item, status: status as AmbassadorItem['status'] })).where(eq(contentDesigns.id, prev.id));
+      out.updated++;
+    } else {
+      await db.insert(contentDesigns).values(rowValues(item));
+      out.created++;
+    }
+  }
+  return out;
+}
+
+/** El «pack del evento» automático: un diseño guardado en el Estudio con un evento queda en «Por
+ * aprobar» por sí solo. Solo la primera vez: si el dueño lo descartó o lo editó, no se toca. */
+export async function autoPackFromDesign(designId: number): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  const design = await getContentDesign(designId);
+  if (!design || design.eventId == null) return false;
+  const have = await existingByAutoKey(db);
+  if (have.has(studioAutoKey(designId))) return false;
+  const item = designToAmbassadorItem(design, designId);
+  if (!item) return false;
+  await db.insert(contentDesigns).values(rowValues(item));
+  return true;
+}
+
+/** Aviso a las embajadoras activas cuando se aprueba contenido nuevo. */
+export async function notifyAmbassadorsNewContent(count: number): Promise<number> {
+  if (count <= 0) return 0;
+  const db = await getDb();
+  if (!db) return 0;
+  const rows = await db.select({ email: exclusiveAmbassadors.email }).from(exclusiveAmbassadors).where(eq(exclusiveAmbassadors.active, 1));
+  let sent = 0;
+  for (const { email } of rows) {
+    if (!email) continue;
+    sent += await pushToEmail(email, {
+      title: '🎨 Tienes contenido nuevo para compartir',
+      body: count === 1 ? 'Hay una pieza nueva en tu sección Embajador, con tu link y tu código.' : `Hay ${count} piezas nuevas en tu sección Embajador, con tu link y tu código.`,
+      url: '/cuenta?tab=embajador',
+    }).catch(() => 0);
+  }
+  return sent;
 }

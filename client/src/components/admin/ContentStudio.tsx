@@ -228,6 +228,19 @@ function StudioHome({ onOpen, onOpenAi, onOpenPhoto, onOpenVideo, onOpenPack, on
     onSuccess: () => { utils.contentStudio.list.invalidate(); toast.success('Diseño eliminado.'); },
     onError: (e) => toast.error(e.message),
   });
+  // Marcar diseños y mandarlos a «Contenido para embajadores» (quedan por aprobar).
+  const [picked, setPicked] = useState<Set<number>>(new Set());
+  const togglePicked = (id: number) => setPicked((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+  const sendToAmbassadors = trpc.ambassadorContent.sendDesigns.useMutation({
+    onSuccess: ({ created, updated, skipped }) => {
+      utils.ambassadorContent.list.invalidate();
+      const sent = created + updated;
+      if (sent > 0) toast.success(`${sent === 1 ? 'Quedó' : `Quedaron ${sent}`} en «Contenido para embajadores», por aprobar.`, { action: { label: 'Revisar', onClick: onOpenAmbassadors } });
+      if (skipped.length > 0) toast.info(skipped.map((s) => s.reason).filter((r, i, a) => a.indexOf(r) === i).join(' '));
+      setPicked(new Set());
+    },
+    onError: (e) => toast.error(e.message),
+  });
 
   const createNew = () => {
     const design = normalizeStudioDesign({ title: `${THEME_LABEL[theme]} nuevo`, format, theme, slides: starterSlides(theme, format) });
@@ -457,9 +470,22 @@ function StudioHome({ onOpen, onOpenAi, onOpenPhoto, onOpenVideo, onOpenPack, on
       ) : !designs?.length ? (
         <p className="text-sm text-muted-foreground">Todavía no hay diseños guardados.</p>
       ) : (
+        <>
+        {picked.size > 0 && (
+          <div className="sticky top-2 z-20 flex flex-wrap items-center gap-2 rounded-2xl bg-card p-3 shadow-lg ring-1 ring-black/10">
+            <p className="text-sm font-medium">{picked.size} {picked.size === 1 ? 'diseño marcado' : 'diseños marcados'}</p>
+            <Button size="sm" className="ml-auto" onClick={() => sendToAmbassadors.mutate({ ids: Array.from(picked) })} disabled={sendToAmbassadors.isPending}>
+              {sendToAmbassadors.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Users className="w-4 h-4 mr-2" />} Enviar a embajadores
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setPicked(new Set())}>Quitar marcas</Button>
+          </div>
+        )}
         <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
           {designs.map((d) => (
-            <div key={d.id} className="space-y-2">
+            <div key={d.id} className="relative space-y-2">
+              <label className="absolute left-2 top-2 z-10 grid h-7 w-7 cursor-pointer place-items-center rounded-full bg-background/90 shadow ring-1 ring-black/10" title="Marcar para enviar a embajadores">
+                <input type="checkbox" checked={picked.has(d.id)} onChange={() => togglePicked(d.id)} className="h-4 w-4 accent-pink-500" aria-label={`Marcar «${d.title}»`} />
+              </label>
               <button
                 type="button"
                 className="block w-full text-left interactive"
@@ -491,11 +517,15 @@ function StudioHome({ onOpen, onOpenAi, onOpenPhoto, onOpenVideo, onOpenPack, on
                     {d.kind === 'video' ? `${VIDEO_FORMAT_LABEL[d.videoFormat]} · ${d.sceneCount} esc.` : `${FORMAT_LABEL[d.format]} · ${d.slideCount} lám.`} · {formatChileDateTime(d.updatedAt)}
                   </p>
                 </div>
-                <ConfirmDeleteButton description={`el diseño «${d.title}»`} onConfirm={(adminPassword) => remove.mutateAsync({ id: d.id, adminPassword })} />
+                <div className="flex shrink-0 items-center">
+                  <Button size="icon" variant="ghost" className="h-8 w-8" title="Enviar a embajadores" aria-label={`Enviar «${d.title}» a embajadores`} disabled={sendToAmbassadors.isPending} onClick={() => sendToAmbassadors.mutate({ ids: [d.id] })}><Users className="w-4 h-4" /></Button>
+                  <ConfirmDeleteButton description={`el diseño «${d.title}»`} onConfirm={(adminPassword) => remove.mutateAsync({ id: d.id, adminPassword })} />
+                </div>
               </div>
             </div>
           ))}
         </div>
+        </>
       )}
     </div>
   );
@@ -520,6 +550,18 @@ function StudioEditor({ editing, setEditing, onClose, onAnimate }: { editing: Ed
     },
     onError: (e) => toast.error(e.message),
   });
+
+  // «Enviar a embajadores»: guarda lo que falte y lo deja en «Por aprobar».
+  const toAmbassadors = trpc.ambassadorContent.sendDesigns.useMutation({
+    onSuccess: () => toast.success('Quedó en «Contenido para embajadores», por aprobar.'),
+    onError: (e) => toast.error(e.message),
+  });
+  const sendToAmbassadors = async () => {
+    try {
+      const id = editing.dirty || editing.id == null ? (await save.mutateAsync({ id: editing.id, design })).id : editing.id;
+      toAmbassadors.mutate({ ids: [id] });
+    } catch { /* el aviso de error ya lo muestra `save` */ }
+  };
 
   const update = (patch: Partial<StudioDesign>) => {
     const next = normalizeStudioDesign({ ...design, ...patch });
@@ -606,6 +648,9 @@ function StudioEditor({ editing, setEditing, onClose, onAnimate }: { editing: Ed
           {save.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
           {editing.dirty ? 'Guardar' : 'Guardado'}
         </WriteButton>
+        <Button size="sm" variant="outline" onClick={sendToAmbassadors} disabled={save.isPending || toAmbassadors.isPending}>
+          {toAmbassadors.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Users className="w-4 h-4 mr-2" />} Enviar a embajadores
+        </Button>
         <Button size="sm" variant={showVariants ? 'default' : 'outline'} onClick={() => setShowVariants((v) => !v)}>
           <Layers className="w-4 h-4 mr-2" /> Variantes
         </Button>

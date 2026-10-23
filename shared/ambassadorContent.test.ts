@@ -1,12 +1,16 @@
 import { describe, expect, it } from 'vitest';
+import { normalizeStudioDesign, emptySlide } from './contentStudio';
 import {
   ambassadorDirectMessage,
   AUTO_DRAFT_KEYS,
+  designToAmbassadorItem,
   eventDrafts,
   fillTokens,
+  itemSection,
   itemsForPanel,
   normalizeAmbassadorItem,
   personalizeItem,
+  studioAutoKey,
   uploadedItem,
   type AmbassadorContentEvent,
 } from './ambassadorContent';
@@ -90,4 +94,32 @@ it('el mensaje para WhatsApp lleva el link personal', () => {
   const msg = ambassadorDirectMessage(event, 'SOFIA');
   expect(msg).toContain(event.referralUrl);
   expect(msg).toContain('mi código es SOFIA');
+});
+
+describe('del Estudio a los embajadores', () => {
+  const design = normalizeStudioDesign({
+    title: 'Carrusel de la noche', format: 'carrusel', theme: 'bubble', eventId: 9, caption: 'Texto con {CODIGO}',
+    slides: [{ ...emptySlide('foto'), title: 'Uno' }, { ...emptySlide('foto'), title: 'Dos' }, { ...emptySlide('foto'), title: 'Tres' }],
+  })!;
+
+  it('un diseño del Estudio llega como pieza en borrador con todas sus láminas', () => {
+    const item = designToAmbassadorItem(design, 42)!;
+    expect(item.kind).toBe('pieza');
+    expect(item.status).toBe('borrador');
+    expect(item.eventId).toBe(9);
+    expect(item.autoKey).toBe(studioAutoKey(42));
+    expect(item.design?.slides).toHaveLength(3);
+    expect(item.caption).toBe('Texto con {CODIGO}');
+    expect(item.hint).toContain('3 láminas');
+  });
+
+  it('las claves son únicas por diseño', () => {
+    expect(studioAutoKey(1)).not.toBe(studioAutoKey(2));
+  });
+
+  it('separa las piezas en historias, posts y videos', () => {
+    expect(itemSection({ kind: 'pieza', mediaFormat: 'historia' })).toBe('historias');
+    expect(itemSection({ kind: 'foto', mediaFormat: 'post' })).toBe('posts');
+    expect(itemSection({ kind: 'video', mediaFormat: 'post' })).toBe('videos');
+  });
 });
