@@ -125,9 +125,9 @@ export function AmbassadorContent({ code, events, items, material, generalLink }
       <div className="bg-gradient-to-br from-secondary/15 to-primary/10 border border-secondary/30 rounded-2xl p-6 mb-4">
         <div className="flex items-center gap-2 mb-1">
           <Sparkles className="w-5 h-5 text-secondary" />
-          <h2 className="font-heading text-2xl">Tu contenido para compartir</h2>
+          <h2 className="font-heading text-title2">Tu contenido para compartir</h2>
         </div>
-        <p className="text-muted-foreground text-sm">
+        <p className="text-muted-foreground text-subhead">
           Acá aparecen tus imágenes y videos listos, con tu link y tu código. Toca <strong className="text-foreground">Compartir</strong> y elige
           Instagram (historia, feed o mensaje) o WhatsApp. El texto se copia solo: lo pegas al publicar.
         </p>
@@ -138,8 +138,8 @@ export function AmbassadorContent({ code, events, items, material, generalLink }
         <div role="tablist" aria-label="Tipo de contenido" className="mb-4 grid grid-cols-4 gap-1 rounded-full bg-muted/60 p-1">
           {FILTERS.map(({ key, label }) => (
             <button key={key} type="button" role="tab" aria-selected={filter === key} onClick={() => setFilter(key)}
-              className={`h-9 rounded-full text-[13px] font-semibold transition-colors ${filter === key ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'}`}>
-              {label}{counts[key] > 0 && <span className="ml-1 text-[11px] opacity-60">{counts[key]}</span>}
+              className={`h-9 rounded-full text-footnote font-semibold transition-colors ${filter === key ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'}`}>
+              {label}{counts[key] > 0 && <span className="ml-1 text-caption2 opacity-60">{counts[key]}</span>}
             </button>
           ))}
         </div>
@@ -147,7 +147,7 @@ export function AmbassadorContent({ code, events, items, material, generalLink }
 
       {view(general).length > 0 && (
         <div className="bg-card border border-border/50 rounded-2xl p-6 mb-4">
-          <h3 className="font-heading text-xl mb-3">Para compartir cuando quieras</h3>
+          <h3 className="font-heading text-title3 mb-3">Para compartir cuando quieras</h3>
           <ItemGrid items={view(general)} copier={copier} link={generalLink} newIds={newIds} />
         </div>
       )}
@@ -173,7 +173,7 @@ function HowItWorks() {
   }, [open]);
   return (
     <div className="mt-3">
-      <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="inline-flex items-center gap-1.5 text-sm font-semibold text-secondary">
+      <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="inline-flex items-center gap-1.5 text-subhead font-semibold text-secondary">
         ¿Cómo uso mi link y mi código? <ChevronDown className={`w-4 h-4 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
       <AnimatePresence initial={false}>
@@ -193,14 +193,14 @@ function TwoWays() {
   return (
     <div className="grid sm:grid-cols-2 gap-3 mt-4">
       <div className="rounded-xl border border-secondary/40 bg-background/60 p-4">
-        <p className="flex items-center gap-2 font-semibold"><Link2 className="w-4 h-4 text-secondary" /> 1. Con tu link <span className="text-xs font-normal px-2 py-0.5 rounded-full bg-secondary/20 text-secondary">recomendado</span></p>
-        <p className="text-sm text-muted-foreground mt-1">
+        <p className="flex items-center gap-2 font-semibold"><Link2 className="w-4 h-4 text-secondary" /> 1. Con tu link <span className="text-caption1 font-normal px-2 py-0.5 rounded-full bg-secondary/20 text-secondary">recomendado</span></p>
+        <p className="text-subhead text-muted-foreground mt-1">
           Lo pones en el sticker «Enlace» de tu historia o lo mandas por WhatsApp. Quien lo toca y compra queda como venta tuya, <strong className="text-foreground">sin escribir nada</strong>.
         </p>
       </div>
       <div className="rounded-xl border border-border/60 bg-background/60 p-4">
         <p className="flex items-center gap-2 font-semibold"><Ticket className="w-4 h-4 text-primary" /> 2. Con tu código</p>
-        <p className="text-sm text-muted-foreground mt-1">
+        <p className="text-subhead text-muted-foreground mt-1">
           Para el feed (ahí Instagram no deja links) o si no te resulta el sticker. Quien compra en mansionplayroom.cl escribe tu código al pagar.
         </p>
       </div>
@@ -239,13 +239,13 @@ function LinkStickerGuide() {
         <div className="px-4 pb-4">
           <ol className="space-y-2">
             {STICKER_STEPS.map((step, i) => (
-              <li key={i} className="flex gap-3 text-sm">
-                <span className="shrink-0 w-6 h-6 rounded-full bg-secondary/20 text-secondary grid place-items-center text-xs font-bold">{i + 1}</span>
+              <li key={i} className="flex gap-3 text-subhead">
+                <span className="shrink-0 w-6 h-6 rounded-full bg-secondary/20 text-secondary grid place-items-center text-caption1 font-bold">{i + 1}</span>
                 <span className="pt-0.5">{step}</span>
               </li>
             ))}
           </ol>
-          <p className="text-xs text-muted-foreground mt-3 pt-3 border-t border-border/40">
+          <p className="text-caption1 text-muted-foreground mt-3 pt-3 border-t border-border/40">
             ¿No te aparece «Enlace»? Actualiza Instagram desde la tienda de apps. Si igual no aparece, usa una imagen «con tu código»: tu código va
             escrito en ella y funciona igual. ¿No te aparece Instagram al tocar «Compartir»? Toca «Guardar» y súbela desde tus fotos.
           </p>
@@ -277,12 +277,12 @@ function EventContent({ event, code, items, hasAny, copier, newIds }: { event: A
 
   return (
     <div className="bg-card border border-border/50 rounded-2xl p-6 mb-4">
-      <p className="text-xs uppercase tracking-[0.2em] text-primary font-semibold">{formatChileShortDate(event.eventDate)}</p>
-      <h3 className="font-heading text-xl mb-3">{event.title}</h3>
+      <p className="text-caption1 uppercase tracking-[0.2em] text-primary font-semibold">{formatChileShortDate(event.eventDate)}</p>
+      <h3 className="font-heading text-title3 mb-3">{event.title}</h3>
 
       <div className="rounded-xl bg-secondary/10 border border-secondary/30 p-3 mb-4">
-        <p className="text-xs text-muted-foreground mb-2">Tu link para este evento</p>
-        <p className="font-mono text-xs break-all mb-3">{event.referralUrl}</p>
+        <p className="text-caption1 text-muted-foreground mb-2">Tu link para este evento</p>
+        <p className="font-mono text-caption1 break-all mb-3">{event.referralUrl}</p>
         <div className="flex flex-wrap gap-2">
           <CopyButton id={`link-${event.id}`} text={event.referralUrl} label="Copiar mi link" copier={copier} icon={<Link2 className="w-4 h-4 mr-2" />} />
           <Button size="sm" variant="outline" className="rounded-full" onClick={shareMessage}>
@@ -293,7 +293,7 @@ function EventContent({ event, code, items, hasAny, copier, newIds }: { event: A
 
       {items.length > 0
         ? <ItemGrid items={items} copier={copier} link={event.referralUrl} newIds={newIds} />
-        : <p className="text-sm text-muted-foreground">{hasAny ? 'No hay piezas de este tipo para este evento.' : 'Las imágenes de este evento están en preparación. Mientras, ya puedes compartir tu link.'}</p>}
+        : <p className="text-subhead text-muted-foreground">{hasAny ? 'No hay piezas de este tipo para este evento.' : 'Las imágenes de este evento están en preparación. Mientras, ya puedes compartir tu link.'}</p>}
     </div>
   );
 }
@@ -449,14 +449,14 @@ const ItemCard = forwardRef<ItemHandle, { item: PanelItem; copier: Copier; link?
         ) : (
           <img src={item.mediaUrl} alt={item.label} loading="lazy" className={`w-full ${ratio} object-cover rounded-lg`} />
         )}
-        {isNew && <span className="absolute left-2 top-2 rounded-full bg-pink-500 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white shadow">Nuevo</span>}
-        {slides.length > 1 && <span className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-full bg-black/65 px-2 py-0.5 text-[10px] font-semibold text-white"><Layers className="w-3 h-3" /> {slides.length} láminas</span>}
+        {isNew && <span className="absolute left-2 top-2 rounded-full bg-pink-500 px-2 py-0.5 text-caption2 font-bold uppercase tracking-wide text-white shadow">Nuevo</span>}
+        {slides.length > 1 && <span className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-full bg-black/65 px-2 py-0.5 text-caption2 font-semibold text-white"><Layers className="w-3 h-3" /> {slides.length} láminas</span>}
       </div>
-      <p className="text-sm font-semibold leading-tight flex items-center gap-1.5">
+      <p className="text-subhead font-semibold leading-tight flex items-center gap-1.5">
         {item.via === 'link' ? <Link2 className="w-3.5 h-3.5 text-secondary shrink-0" /> : <Ticket className="w-3.5 h-3.5 text-primary shrink-0" />}
         {item.label}
       </p>
-      {item.hint && <p className="text-xs text-muted-foreground">{item.hint}</p>}
+      {item.hint && <p className="text-caption1 text-muted-foreground">{item.hint}</p>}
       <Button size="sm" className="w-full rounded-full" onClick={share} disabled={busy != null}>
         {busy === 'share' ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Share2 className="w-4 h-4 mr-2" />}
         {busy === 'share' ? 'Preparando…' : ready ? 'Listo: toca para compartir' : 'Compartir'}
@@ -503,13 +503,13 @@ function WeeklyMaterial({ material, copier }: { material: PanelMaterial; copier:
   ].filter((t): t is { id: string; label: string; text: string } => !!t.text?.trim());
   return (
     <div className="bg-card border border-border/50 rounded-2xl p-6 mb-4">
-      <h3 className="font-heading text-xl mb-1">{material.title?.trim() || 'Material de la semana'}</h3>
-      {material.countdownText && <p className="text-sm text-primary mb-3">{material.countdownText}</p>}
+      <h3 className="font-heading text-title3 mb-1">{material.title?.trim() || 'Material de la semana'}</h3>
+      {material.countdownText && <p className="text-subhead text-primary mb-3">{material.countdownText}</p>}
       <div className="space-y-4">
         {texts.map((t) => (
           <div key={t.id}>
-            <p className="text-sm font-semibold mb-1">{t.label}</p>
-            <p className="text-sm text-muted-foreground whitespace-pre-line mb-2">{t.text}</p>
+            <p className="text-subhead font-semibold mb-1">{t.label}</p>
+            <p className="text-subhead text-muted-foreground whitespace-pre-line mb-2">{t.text}</p>
             <CopyButton id={`material-${t.id}`} text={t.text} label="Copiar" copier={copier} />
           </div>
         ))}
@@ -517,7 +517,7 @@ function WeeklyMaterial({ material, copier }: { material: PanelMaterial; copier:
       {material.links.length > 0 && (
         <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-border/40">
           {material.links.filter((l) => /^https?:\/\//i.test(l.url)).map((l) => (
-            <a key={l.url} href={l.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center h-9 px-4 rounded-full border border-border text-sm interactive">
+            <a key={l.url} href={l.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center h-9 px-4 rounded-full border border-border text-subhead interactive">
               {l.label || 'Abrir'}
             </a>
           ))}
