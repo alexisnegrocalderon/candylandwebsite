@@ -193,7 +193,7 @@ export async function sendStudioToAmbassadors(ids: number[]): Promise<StudioSend
     } else if (row.kind === 'ia') {
       out.skipped.push({ id, reason: 'Es del Diseñador IA: envíalo desde dentro del diseño.' });
       continue;
-    } else if (row.kind === 'embajador' || row.kind === 'estilo') {
+    } else if (row.kind === 'embajador' || row.kind === 'estilo' || row.kind === 'staff') {
       out.skipped.push({ id, reason: 'No es un diseño del Estudio.' });
       continue;
     } else {

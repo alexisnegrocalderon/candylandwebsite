@@ -11,6 +11,7 @@ import { getDb, getSiteSettings } from './db';
 import { sendEmail, buildMemberCodeEmail } from './email';
 import { pushToEmail } from './customerPush';
 import { findAmbassadorByEmail } from './ambassadorProgram';
+import { findStaffByEmail } from './staffPortal';
 import { currentMemberCode, normalizeMemberEmail, randomCouponCode } from './memberAuth';
 import { customers, discountCodes, events, memberCoupons, orders, playcoinsLedger, prepaidLedger, tickets, ticketTypes } from '../drizzle/schema';
 import { computeCustomerLevel, daysUntilBirthday } from '../shared/customerInsights';
@@ -62,9 +63,31 @@ async function ensureAmbassadorCustomer(email: string): Promise<CustomerRow | nu
   return findCustomer(email);
 }
 
-/** Manda el código al correo, solo si es cliente (o embajador). Devuelve si se mandó (para los límites; nunca se le dice a quien pide). */
+/** Lo mismo para el staff: con el correo que se cargó en Finanzas → Equipo entra a su versión de la app. */
+async function ensureStaffCustomer(email: string): Promise<CustomerRow | null> {
+  const db = await getDb();
+  const staff = await findStaffByEmail(email);
+  if (!db || !staff) return null;
+  try {
+    await db.insert(customers).values({
+      email: normalizeMemberEmail(email),
+      fullName: staff.name,
+      phone: staff.phone ? staff.phone.slice(0, 20) : null,
+      rut: staff.rut ? staff.rut.slice(0, 20) : null,
+      accessTypes: [],
+      tags: ['staff'],
+      totalOrders: 0,
+      totalSpent: '0',
+    });
+  } catch {
+    // Dos pedidos de código a la vez: la ficha ya la creó el otro.
+  }
+  return findCustomer(email);
+}
+
+/** Manda el código al correo, solo si es cliente (o embajador, o del staff). Devuelve si se mandó (para los límites; nunca se le dice a quien pide). */
 export async function sendMemberCode(email: string): Promise<boolean> {
-  const customer = (await findCustomer(email)) ?? (await ensureAmbassadorCustomer(email));
+  const customer = (await findCustomer(email)) ?? (await ensureAmbassadorCustomer(email)) ?? (await ensureStaffCustomer(email));
   if (!customer) return false;
   const html = buildMemberCodeEmail({ code: currentMemberCode(customer.email), name: firstName(customer.fullName) || null });
   await sendEmail({ to: customer.email, subject: '🔐 Tu código para entrar a tu cuenta', html });

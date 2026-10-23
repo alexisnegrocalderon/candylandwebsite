@@ -12,10 +12,11 @@ import { parseTicketCodeFromQr } from '@shared/qr';
 import { personasForTicket } from '@shared/mission300';
 import { cashChange, doorParkingScript, summarizeDoorParking, type DoorParkingCharge, type DoorParkingMethod, type DoorParkingOption } from '@shared/parking';
 import {
-  saveSnapshot, getLocalEvent, searchLocal, enqueueOp, getPendingOps,
+  saveSnapshot, getLocalEvent, searchLocal, enqueueOp, getPendingOps, findLocalStaff,
   markOpSynced, clearSyncedOps, pendingOpsCount, correctedNow, countCheckedInPersonas, getLocalParking,
-  type CajaAttendee,
+  type CajaAttendee, type DoorStaff,
 } from './caja/db';
+import { isStaffCode, parseStaffCode } from '@shared/staffPortal';
 
 /* Pantalla de puerta: el anfitrión en la entrada del estacionamiento (se usa
  * desde su celular). Mismo vidrio oscuro que /caja, el panel admin y los
@@ -156,6 +157,7 @@ function Scanner({ operatorName, operatorRole }: { operatorName: string; operato
   const [parkingInfo, setParkingInfo] = useState<ParkingInfo | null>(null);
   const [parkingRecords, setParkingRecords] = useState<ParkingRecord[]>([]);
   const [reviewing, setReviewing] = useState(false);
+  const [staffScan, setStaffScan] = useState<{ code: string; staff: DoorStaff | null } | null>(null);
   const recentRef = useRef<{ code: string; until: number }>({ code: '', until: 0 });
   const eventIdRef = useRef<number | null>(null);
 
@@ -300,11 +302,20 @@ function Scanner({ operatorName, operatorRole }: { operatorName: string; operato
     const code = parseTicketCodeFromQr(raw);
     if (!code) return;
     if (recentRef.current.code === code && Date.now() < recentRef.current.until) return;
+    // Credencial del staff (la de su app): no es una entrada, se muestra quién es.
+    if (isStaffCode(code)) {
+      const eventId = eventIdRef.current;
+      const staff = eventId != null && parseStaffCode(code)?.eventId === eventId ? await findLocalStaff(code, eventId) : null;
+      setStaffScan({ code, staff });
+      if (!muted) playTone(staff ? 'ok' : 'error');
+      vibrateAlert(staff ? 60 : [200, 100, 200]);
+      return;
+    }
     const f = await buildFicha(code);
     // Sin ficha local: puede ser de otro evento o de una compra hecha en el
     // último minuto, todavía no descargada.
     showFicha(f ?? { ticketCode: code, typeName: '', accesoSlug: null, groupSize: null, status: 'desconocido', attendees: [], extras: [], buyerName: '' });
-  }, [buildFicha, showFicha]);
+  }, [buildFicha, showFicha, muted]);
 
   const guardRepeat = (code: string) => { recentRef.current = { code, until: Date.now() + REPEAT_SCAN_GUARD_MS }; };
 
@@ -432,7 +443,7 @@ function Scanner({ operatorName, operatorRole }: { operatorName: string; operato
         {tab === 'escanear' && (
           <div className="relative h-full overflow-hidden rounded-3xl border border-white/10">
             <QrScanner
-              paused={!!ficha}
+              paused={!!ficha || !!staffScan}
               onDecode={handleCode}
               torch={torch}
               onTorchSupport={setTorchSupported}
@@ -518,6 +529,11 @@ function Scanner({ operatorName, operatorRole }: { operatorName: string; operato
         />
       )}
 
+      {staffScan && localEvent && (
+        <StaffCredencial scan={staffScan} eventId={localEvent.id} isOnline={isOnline}
+          onCerrar={() => { guardRepeat(staffScan.code); setStaffScan(null); }} />
+      )}
+
       {reviewing && (
         <RechazadosPanel
           records={parkingRecords.filter((r) => r.status === 'rechazado' && !r.seen)}
@@ -525,6 +541,50 @@ function Scanner({ operatorName, operatorRole }: { operatorName: string; operato
           onClose={() => setReviewing(false)}
         />
       )}
+    </div>
+  );
+}
+
+/* --- Credencial del staff ------------------------------------------------- */
+
+/** Escanearon el QR de la app del staff: quién es y su rol, y se anota su llegada
+ * (con señal; sin señal se avisa que no quedó anotada). */
+function StaffCredencial({ scan, eventId, isOnline, onCerrar }: { scan: { code: string; staff: DoorStaff | null }; eventId: number; isOnline: boolean; onCerrar: () => void }) {
+  const arrival = trpc.puerta.staffArrival.useMutation();
+  const r = arrival.data;
+  const time = (iso: string) => new Date(iso).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/Santiago' });
+  if (!scan.staff) {
+    return (
+      <div role="alertdialog" aria-label="Staff no reconocido" className="fixed inset-0 z-50 flex flex-col bg-[#0b0612] bg-gradient-to-b from-red-600/50 to-transparent p-5">
+        <div className="mx-auto flex w-full max-w-lg flex-1 flex-col items-center justify-center text-center">
+          <AlertTriangle className="mb-5 h-20 w-20 text-red-200" />
+          <h1 className="font-heading text-4xl font-extrabold leading-tight tracking-tight text-red-200">STAFF NO RECONOCIDO</h1>
+          <p className="mt-4 text-lg leading-relaxed text-white/85">Es una credencial de staff, pero no de alguien asignado a esta fiesta. Puede ser de otro evento: confirma con un supervisor.</p>
+        </div>
+        <button onClick={onCerrar} className="mx-auto h-16 w-full max-w-lg rounded-full bg-red-500 text-lg font-bold text-white active:scale-[0.99]">Entendido</button>
+      </div>
+    );
+  }
+  return (
+    <div role="dialog" aria-label={`Staff: ${scan.staff.name}`} className="fixed inset-0 z-50 flex flex-col bg-[#0b0612] bg-gradient-to-b from-violet-600/55 to-transparent p-5">
+      <div className="mx-auto flex w-full max-w-lg flex-1 flex-col items-center justify-center text-center">
+        <span className="rounded-full bg-violet-300 px-4 py-1.5 text-sm font-extrabold tracking-[0.2em] text-black">STAFF</span>
+        <h1 className="mt-5 font-heading text-5xl font-extrabold leading-[1.05] tracking-tight">{scan.staff.name}</h1>
+        <p className="mt-2 text-xl font-semibold text-violet-200">{scan.staff.role || 'Equipo'}</p>
+        <p className="mt-5 text-base text-white/70">Es parte del equipo de esta noche. No ocupa una entrada.</p>
+        {r?.ok && <p className="mt-5 rounded-2xl bg-emerald-400/15 px-4 py-3 text-base font-semibold text-emerald-200">{r.alreadyArrivedAt ? `Ya había llegado a las ${time(r.alreadyArrivedAt)}` : '✓ Llegada anotada'}</p>}
+        {r && !r.ok && <p className="mt-5 rounded-2xl bg-red-500/15 px-4 py-3 text-base text-red-200">{r.reason}</p>}
+        {arrival.error && <p className="mt-5 text-base text-red-200">No se pudo anotar la llegada. Prueba de nuevo.</p>}
+        {!isOnline && <p className="mt-5 text-sm text-amber-200">Sin señal: puede pasar, pero su llegada no queda anotada.</p>}
+      </div>
+      <div className="mx-auto w-full max-w-lg space-y-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+        {!r?.ok && isOnline && (
+          <button disabled={arrival.isPending} onClick={() => arrival.mutate({ eventId, code: scan.code })} className="h-16 w-full rounded-full bg-violet-400 text-lg font-bold text-black active:scale-[0.99] disabled:opacity-60">
+            {arrival.isPending ? 'Anotando…' : 'Anotar llegada'}
+          </button>
+        )}
+        <button onClick={onCerrar} className="h-14 w-full rounded-full bg-white/10 text-base font-semibold active:scale-[0.99]">Listo</button>
+      </div>
     </div>
   );
 }
