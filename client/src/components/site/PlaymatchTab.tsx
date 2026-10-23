@@ -252,7 +252,7 @@ function Guide({ onDone }: { onDone: () => void }) {
       <button type="button" onClick={() => (last ? (tapHaptic(), onDone()) : go(i + 1))} className="flex h-13 w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-pink-500 via-fuchsia-500 to-sky-500 py-3.5 text-subhead font-bold text-white interactive">
         {last ? '¡Vamos!' : 'Siguiente'} <ArrowRight className="h-4 w-4" />
       </button>
-      {!last && <button type="button" onClick={onDone} className="block w-full py-1 text-center text-footnote font-semibold text-white/55">Saltar</button>}
+      {!last && <button type="button" onClick={onDone} className="block w-full py-1 text-center text-footnote font-semibold text-white/60">Saltar</button>}
     </div>
   );
 }
@@ -269,7 +269,7 @@ function Rules() {
           </li>
         ))}
       </ul>
-      <p className="text-caption1 leading-snug text-white/45">Playmatch se abre solo cuando escanean tu entrada en la puerta y se cierra cuando termina la fiesta. Si el equipo te saca por no cumplir las normas, no vuelves a entrar esa noche.</p>
+      <p className="text-caption1 leading-snug text-white/60">Playmatch se abre solo cuando escanean tu entrada en la puerta y se cierra cuando termina la fiesta. Si el equipo te saca por no cumplir las normas, no vuelves a entrar esa noche.</p>
     </div>
   );
 }

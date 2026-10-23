@@ -63,28 +63,28 @@ export function CreateProfile({ ticketCode, onCreated, mode = 'inside', initial,
       <div className="max-w-md mx-auto">
         {!embedded && <p className="text-4xl text-center mb-3" aria-hidden>🍬</p>}
         <h1 className={`font-heading font-extrabold tracking-tight text-center mb-2 ${embedded ? 'text-2xl' : 'text-3xl'}`}>{copy.title}</h1>
-        <p className="text-white/50 text-sm text-center mb-8">{copy.body}</p>
+        <p className="text-white/60 text-sm text-center mb-8">{copy.body}</p>
 
-        <label className="block text-xs uppercase tracking-wide text-white/50 mb-2">Tu alias</label>
+        <label className="block text-xs uppercase tracking-wide text-white/60 mb-2">Tu alias</label>
         <input
           value={alias}
           onChange={(e) => setAlias(e.target.value)}
           maxLength={MAX_ALIAS_LENGTH}
           placeholder="Ej: La Reina"
-          className="w-full h-13 px-4 rounded-2xl bg-white/[0.06] border border-white/15 text-white text-base placeholder:text-white/25 focus:border-primary/60 focus:outline-none"
+          className="w-full h-13 px-4 rounded-2xl bg-white/[0.06] border border-white/15 text-white text-base placeholder:text-white/45 focus:border-primary/60 focus:outline-none"
         />
-        <p className={`text-xs mt-1.5 mb-6 ${aliasError ? 'text-red-400' : 'text-white/30'}`}>
+        <p className={`text-xs mt-1.5 mb-6 ${aliasError ? 'text-red-400' : 'text-white/60'}`}>
           {aliasError ?? `${alias.length}/${MAX_ALIAS_LENGTH} · sin redes ni teléfonos`}
         </p>
 
-        <p className="text-xs uppercase tracking-wide text-white/50 mb-2">Vengo como</p>
+        <p className="text-xs uppercase tracking-wide text-white/60 mb-2">Vengo como</p>
         <div className="grid grid-cols-3 gap-2 mb-6">
           {PARTY_GENDERS.map((g) => (
             <button
               key={g}
               onClick={() => setGender(g)}
               className={`h-11 rounded-2xl text-sm font-semibold border transition-colors ${
-                gender === g ? 'bg-primary/20 border-primary/60 text-white' : 'border-white/12 text-white/55'
+                gender === g ? 'bg-primary/20 border-primary/60 text-white' : 'border-white/12 text-white/60'
               }`}
             >
               {GENDER_LABELS[g]}
@@ -92,7 +92,7 @@ export function CreateProfile({ ticketCode, onCreated, mode = 'inside', initial,
           ))}
         </div>
 
-        <p className="text-xs uppercase tracking-wide text-white/50 mb-2">Tu avatar</p>
+        <p className="text-xs uppercase tracking-wide text-white/60 mb-2">Tu avatar</p>
         <div className="grid grid-cols-4 gap-3 mb-6">
           {Array.from({ length: AVATARS_PER_GENDER }, (_, i) => i + 1).map((id) => (
             <button
@@ -110,14 +110,14 @@ export function CreateProfile({ ticketCode, onCreated, mode = 'inside', initial,
 
         {/* La zona se elige adentro: antes de llegar no hay dónde estar. */}
         {mode === 'inside' && (<>
-          <p className="text-xs uppercase tracking-wide text-white/50 mb-2">¿Dónde estás ahora?</p>
+          <p className="text-xs uppercase tracking-wide text-white/60 mb-2">¿Dónde estás ahora?</p>
           <div className="grid grid-cols-2 gap-2 mb-8">
             {PARTY_ZONES.map((z) => (
               <button
                 key={z}
                 onClick={() => setZone(z)}
                 className={`h-11 rounded-2xl text-sm font-semibold border transition-colors ${
-                  zone === z ? 'bg-primary/20 border-primary/60 text-white' : 'border-white/12 text-white/55'
+                  zone === z ? 'bg-primary/20 border-primary/60 text-white' : 'border-white/12 text-white/60'
                 }`}
               >
                 {ZONE_LABELS[z]}
@@ -149,7 +149,7 @@ export function CreateProfile({ ticketCode, onCreated, mode = 'inside', initial,
           {pending ? copy.busy : copy.cta}
         </button>
 
-        <p className="text-[11px] text-white/30 text-center mt-4 leading-relaxed">
+        <p className="text-[11px] text-white/60 text-center mt-4 leading-relaxed">
           Nadie puede escribirte sin que aceptes primero. Puedes bloquear y denunciar en cualquier momento.
         </p>
       </div>

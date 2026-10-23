@@ -61,9 +61,9 @@ function CouponCard({ c }: { c: { id: number; kind: string; title: string; code:
     <div className={`rounded-2xl border p-4 ${live ? 'border-pink-400/40 bg-gradient-to-br from-pink-500/15 to-sky-400/10' : 'border-white/10 bg-white/[0.03] opacity-60'}`}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-caption2 uppercase tracking-wider text-white/50">{KIND_LABEL[c.kind] ?? 'Cupón'}</p>
+          <p className="text-caption2 uppercase tracking-wider text-white/60">{KIND_LABEL[c.kind] ?? 'Cupón'}</p>
           <p className="font-heading font-bold leading-snug text-white">{c.title}</p>
-          <p className="mt-0.5 text-caption1 text-white/55">
+          <p className="mt-0.5 text-caption1 text-white/60">
             {c.status === 'usado' ? 'Ya lo usaste' : c.status === 'vencido' ? 'Venció' : c.validUntil ? `Vale hasta el ${fmtDate(c.validUntil)}` : ''}
           </p>
         </div>
@@ -73,7 +73,7 @@ function CouponCard({ c }: { c: { id: number; kind: string; title: string; code:
           </button>
         )}
       </div>
-      {live && <p className="mt-2 text-caption1 text-white/55">Pégalo en el campo de código al comprar tu entrada. Es personal: úsalo con el correo de tu cuenta.</p>}
+      {live && <p className="mt-2 text-caption1 text-white/60">Pégalo en el campo de código al comprar tu entrada. Es personal: úsalo con el correo de tu cuenta.</p>}
     </div>
   );
 }
@@ -144,29 +144,29 @@ function QrViewer({ ev, t, holder, onClose }: { ev: MeEvent; t: MeEvent['tickets
     }
   };
   return (
-    <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }} transition={{ duration: 0.22 }} className="fixed inset-0 z-[90] flex flex-col items-center gap-5 overflow-y-auto bg-white px-6 pb-[max(24px,env(safe-area-inset-bottom))] pt-[max(24px,env(safe-area-inset-top))] text-[#0d0712] [&>*:first-child]:shrink-0" role="dialog" aria-label="Código QR de tu entrada">
+    <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }} transition={{ duration: 0.22 }} className="account-font fixed inset-0 z-[90] flex flex-col items-center gap-5 overflow-y-auto bg-white px-6 pb-[max(24px,env(safe-area-inset-bottom))] pt-[max(24px,env(safe-area-inset-top))] text-[#0d0712] [&>*:first-child]:shrink-0" role="dialog" aria-label="Código QR de tu entrada">
       <button type="button" onClick={onClose} aria-label="Cerrar" className="absolute right-4 top-[max(16px,env(safe-area-inset-top))] grid h-11 w-11 place-items-center rounded-full bg-black/5"><X className="h-5 w-5" /></button>
       {t.kind && (
         <p className={`rounded-full px-4 py-1.5 text-center text-subhead font-bold ${t.kind === 'estacionamiento' ? 'bg-sky-100 text-sky-900' : t.kind === 'acceso' ? 'bg-pink-100 text-pink-900' : 'bg-violet-100 text-violet-900'}`}>
           {TICKET_KIND_META[t.kind].emoji} {t.kindLabel ?? TICKET_KIND_META[t.kind].label}
         </p>
       )}
-      <p className="text-center font-heading text-title3 font-extrabold leading-tight">{ev.eventTitle}</p>
-      {t.kind && <p className="-mt-3 text-center text-footnote text-black/55">{TICKET_KIND_META[t.kind].where}</p>}
+      <p className="text-center text-title2 font-bold leading-tight tracking-tight">{ev.eventTitle}</p>
+      {t.kind && <p className="-mt-3 text-center text-footnote text-black/60">{TICKET_KIND_META[t.kind].where}</p>}
       {t.qrImageUrl && <img src={t.qrImageUrl} alt="Código QR de tu entrada" className={`aspect-square [image-rendering:pixelated] ${t.companions && t.companions.length > 0 ? 'w-[min(80vw,40vh)]' : 'w-[min(86vw,58vh)]'}`} />}
       <div className="text-center">
-        <p className="font-heading text-title3 font-bold">{t.holderName || holder}</p>
-        <p className="font-mono text-subhead text-black/50">{t.ticketCode}</p>
+        <p className="text-title3 font-semibold">{t.holderName || holder}</p>
+        <p className="font-mono text-subhead text-black/60">{t.ticketCode}</p>
       </div>
       {t.companions && t.companions.length > 0 && (
         <div className="w-full max-w-sm rounded-2xl bg-black/[0.04] px-4 py-3 text-center">
-          <p className="text-caption2 font-semibold uppercase tracking-[0.18em] text-black/45">{t.companions.length > 1 ? 'Acompañantes' : 'Acompañante'}</p>
+          <p className="text-caption2 font-semibold uppercase tracking-[0.18em] text-black/60">{t.companions.length > 1 ? 'Acompañantes' : 'Acompañante'}</p>
           {t.companions.map((c) => (
-            <p key={c.rut} className="mt-1 text-subhead font-semibold leading-tight">{c.nombre} <span className="font-mono text-footnote font-normal text-black/55">· {c.rut}</span></p>
+            <p key={c.rut} className="mt-1 text-subhead font-semibold leading-tight">{c.nombre} <span className="font-mono text-footnote font-normal text-black/60">· {c.rut}</span></p>
           ))}
         </div>
       )}
-      <p className="text-center text-caption1 text-black/50">Sube el brillo de la pantalla. Muestra tu carnet en la entrada.</p>
+      <p className="text-center text-caption1 text-black/60">Sube el brillo de la pantalla. Muestra tu carnet en la entrada.</p>
       <button type="button" onClick={() => { void save(); }} disabled={saving} className="inline-flex h-12 items-center justify-center gap-2 rounded-full bg-[#0d0712] px-6 text-subhead font-bold text-white interactive disabled:opacity-60">
         {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} Guardar en Fotos
       </button>
@@ -228,7 +228,7 @@ function TicketWallet({ ev, holder, prepaidBalance, playcoins, movements, compac
   const holderPills = ev && ev.tickets.length > 1 && (many ? (
     <div className="flex h-9 items-center gap-1 px-1 text-subhead font-semibold">
       <button type="button" onClick={() => step(-1)} aria-label="Entrada anterior" className="grid h-8 w-8 place-items-center rounded-full text-white/70"><ChevronLeft className="h-4 w-4" /></button>
-      <span className="max-w-[120px] truncate px-1">{labels[i]} <span className="text-white/45">· {i + 1}/{ev.tickets.length}</span></span>
+      <span className="max-w-[120px] truncate px-1">{labels[i]} <span className="text-white/60">· {i + 1}/{ev.tickets.length}</span></span>
       <button type="button" onClick={() => step(1)} aria-label="Entrada siguiente" className="grid h-8 w-8 place-items-center rounded-full text-white/70"><ChevronRight className="h-4 w-4" /></button>
     </div>
   ) : ev.tickets.map((x, n) => (
@@ -299,7 +299,7 @@ function TicketWallet({ ev, holder, prepaidBalance, playcoins, movements, compac
           )}
         </div>
       )}
-      {usable && !compact && <p className="text-center text-caption1 text-white/50">Toca tu PlayCard para ver el QR en grande y guardarlo en Fotos: así entras aunque no tengas señal.</p>}
+      {usable && !compact && <p className="text-center text-caption1 text-white/60">Toca tu PlayCard para ver el QR en grande y guardarlo en Fotos: así entras aunque no tengas señal.</p>}
       {/* Portal: por encima de la barra de abajo y del resto de la pantalla. */}
       {createPortal(<AnimatePresence>{showQr && ev && t && <QrViewer ev={ev} t={t} holder={holder} onClose={() => setShowQr(false)} />}</AnimatePresence>, document.body)}
     </div>
@@ -339,7 +339,7 @@ function EntradaPass({ ev, t, holder }: { ev: MeEvent; t: MeEvent['tickets'][num
   const hora = d.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hour12: false });
   const field = (label: string, value: string, cls = '') => (
     <div className={`min-w-0 ${cls}`}>
-      <p className="text-caption2 font-semibold uppercase tracking-[0.16em] text-white/45">{label}</p>
+      <p className="text-caption2 font-semibold uppercase tracking-[0.16em] text-white/60">{label}</p>
       <p className="mt-0.5 truncate text-subhead font-semibold text-white">{value}</p>
     </div>
   );
@@ -371,7 +371,7 @@ function EntradaPass({ ev, t, holder }: { ev: MeEvent; t: MeEvent['tickets'][num
         {/* Quienes vienen con el titular: nombre y documento, para no perder esos datos. */}
         {(t.kind ?? 'acceso') === 'acceso' && t.companions && t.companions.length > 0 && (
           <div className="relative mt-3 [@media(max-height:700px)]:mt-2">
-            <p className="text-caption2 font-semibold uppercase tracking-[0.16em] text-white/45">{t.companions.length > 1 ? 'Acompañantes' : 'Acompañante'}</p>
+            <p className="text-caption2 font-semibold uppercase tracking-[0.16em] text-white/60">{t.companions.length > 1 ? 'Acompañantes' : 'Acompañante'}</p>
             {t.companions.map((c) => (
               <p key={c.rut} className="mt-0.5 flex items-baseline justify-between gap-3 text-subhead font-semibold text-white"><span className="min-w-0 truncate">{c.nombre}</span><span className="shrink-0 font-mono text-footnote font-normal text-white/60">{c.rut}</span></p>
             ))}
@@ -384,8 +384,8 @@ function EntradaPass({ ev, t, holder }: { ev: MeEvent; t: MeEvent['tickets'][num
           <span className="-mr-2 h-4 w-4 rounded-full bg-[#0b0612]" />
         </div>
         <div className="relative flex items-center justify-between gap-3 text-caption1 [@media(max-height:700px)]:hidden">
-          <span className="shrink-0 whitespace-nowrap font-mono tracking-wider text-white/55">{maskCode(t.ticketCode)}</span>
-          <span className="truncate text-white/55">{meta.where}</span>
+          <span className="shrink-0 whitespace-nowrap font-mono tracking-wider text-white/60">{maskCode(t.ticketCode)}</span>
+          <span className="truncate text-white/60">{meta.where}</span>
         </div>
       </div>
     </div>
@@ -457,7 +457,7 @@ function WalletStack({ ev, t, holder, prepaidBalance, playcoins, movements, hold
         <div className="flex justify-center"><div className="flex min-w-0 items-center gap-1 rounded-full bg-white/[0.06] p-1">{holderPills}</div></div>
       )}
       {hasPass && (
-        <p className="-mt-1 text-center text-caption1 text-white/40 [@media(max-height:700px)]:hidden">{shown === 'entrada' ? 'Toca la tarjeta de atrás para ver tu PlayCard' : 'Toca la tarjeta de atrás para volver a tu entrada'}</p>
+        <p className="-mt-1 text-center text-caption1 text-white/60 [@media(max-height:700px)]:hidden">{shown === 'entrada' ? 'Toca la tarjeta de atrás para ver tu PlayCard' : 'Toca la tarjeta de atrás para volver a tu entrada'}</p>
       )}
       {playmatch && (
         playmatch.href
@@ -562,7 +562,7 @@ function BuyNextCard({ me }: { me: Me }) {
           <Link href={href} onClick={tapHaptic} className="mt-4 flex h-12 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-pink-500 via-fuchsia-500 to-sky-500 text-subhead font-bold text-white interactive">
             Comprar en 1 toque <ArrowRight className="h-4 w-4" />
           </Link>
-          <Link href={`/checkout/${me.nextEvent.slug}`} className="mt-2 block text-center text-footnote font-semibold text-white/55 interactive">Elegir otra entrada</Link>
+          <Link href={`/checkout/${me.nextEvent.slug}`} className="mt-2 block text-center text-footnote font-semibold text-white/60 interactive">Elegir otra entrada</Link>
         </div>
       </div>
     );
@@ -599,7 +599,7 @@ function PlaycoinsCard({ me }: { me: Me }) {
     <div className={`${GLASS} p-4`}>
       <div className="flex items-baseline justify-between text-subhead">
         <span className="font-semibold text-white/80">Tus Playcoins</span>
-        <span className="text-white/50">meta {PLAYCOINS_MIN_REDEEM_BALANCE.toLocaleString('es-CL')}</span>
+        <span className="text-white/60">meta {PLAYCOINS_MIN_REDEEM_BALANCE.toLocaleString('es-CL')}</span>
       </div>
       <p className="num-apple mt-1 text-5xl text-white">{coins.toLocaleString('es-CL')}</p>
       <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-white/10" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
@@ -618,11 +618,11 @@ function Movements({ me }: { me: Me }) {
   return (
     <div className={`${GLASS} p-4`}>
       <p className="font-heading font-bold text-white">Últimos movimientos</p>
-      {me.movements.length === 0 ? <p className="mt-2 text-subhead text-white/55">Todavía no hay movimientos.</p> : (
+      {me.movements.length === 0 ? <p className="mt-2 text-subhead text-white/60">Todavía no hay movimientos.</p> : (
         <ul className="mt-2 divide-y divide-white/10 text-subhead">
           {me.movements.map((m, i) => (
             <li key={i} className="flex items-center justify-between gap-3 py-2">
-              <span className="min-w-0 truncate text-white/75">{m.label}<span className="block text-caption2 text-white/40">{fmtDate(m.createdAt)}</span></span>
+              <span className="min-w-0 truncate text-white/75">{m.label}<span className="block text-caption2 text-white/60">{fmtDate(m.createdAt)}</span></span>
               <span className={`shrink-0 font-semibold ${m.type === 'money' ? (m.delta >= 0 ? 'text-emerald-300' : 'text-rose-300') : 'text-violet-300'}`}>
                 {m.delta >= 0 ? '+' : '−'}{m.type === 'money' ? `$${Math.abs(m.delta).toLocaleString('es-CL')}` : `${Math.abs(m.delta).toLocaleString('es-CL')} pc`}
               </span>
@@ -636,13 +636,13 @@ function Movements({ me }: { me: Me }) {
 
 function TicketsList({ events, from = 0 }: { events: MeEvent[]; from?: number }) {
   const list = events.slice(from);
-  if (list.length === 0) return <p className="account-glass rounded-2xl p-4 text-subhead text-white/55">No tienes entradas para próximos eventos. <Link href="/eventos" className="text-pink-300 underline">Ver eventos</Link></p>;
+  if (list.length === 0) return <p className="account-glass rounded-2xl p-4 text-subhead text-white/60">No tienes entradas para próximos eventos. <Link href="/eventos" className="text-pink-300 underline">Ver eventos</Link></p>;
   return (
     <>
       {list.map((ev) => (
         <div key={ev.eventId} className={`${GLASS} p-4`}>
           <p className="font-heading font-bold text-white">{ev.eventTitle}</p>
-          <p className="mt-0.5 flex items-center gap-1.5 text-caption1 text-white/55"><Calendar className="h-3.5 w-3.5" /> {fmtDateTime(ev.eventDate)}{ev.venue ? ` · ${ev.venue}` : ''}</p>
+          <p className="mt-0.5 flex items-center gap-1.5 text-caption1 text-white/60"><Calendar className="h-3.5 w-3.5" /> {fmtDateTime(ev.eventDate)}{ev.venue ? ` · ${ev.venue}` : ''}</p>
           <div className="mt-3 flex flex-wrap gap-2">
             {ev.tickets.map((t, i) => (
               <Link key={t.ticketCode} href={`/verificar/${t.ticketCode}`} className="rounded-full border border-pink-400/40 px-3.5 py-1.5 text-subhead font-semibold text-white interactive">
@@ -661,11 +661,11 @@ function CouponsList({ me }: { me: Me }) {
   return (
     <>
       {me.coupons.length === 0 ? (
-        <p className="account-glass rounded-2xl p-4 text-subhead text-white/55">
+        <p className="account-glass rounded-2xl p-4 text-subhead text-white/60">
           Todavía no tienes cupones.{perkList(me).length ? ' Te vamos regalando según lo que desbloqueas.' : ''}
         </p>
       ) : me.coupons.map((c) => <CouponCard key={c.id} c={c} />)}
-      {active.length === 0 && me.coupons.length > 0 && <p className="text-caption1 text-white/50">No tienes cupones disponibles ahora.</p>}
+      {active.length === 0 && me.coupons.length > 0 && <p className="text-caption1 text-white/60">No tienes cupones disponibles ahora.</p>}
     </>
   );
 }
@@ -721,7 +721,7 @@ class TabBoundary extends Component<{ children: ReactNode; onBack: () => void },
       <div className="account-glass space-y-3 rounded-2xl p-4 text-subhead">
         <p className="font-heading font-bold text-white">No pudimos mostrar esta sección</p>
         <p className="text-white/65">Tu cuenta y tus entradas están a salvo.</p>
-        <pre className="max-h-32 overflow-auto whitespace-break-spaces text-caption2 text-white/45">{`${this.state.error.name}: ${this.state.error.message}`}</pre>
+        <pre className="max-h-32 overflow-auto whitespace-break-spaces text-caption2 text-white/60">{`${this.state.error.name}: ${this.state.error.message}`}</pre>
         <button type="button" onClick={() => { this.setState({ error: null }); this.props.onBack(); }} className="h-11 w-full rounded-full bg-white/10 font-semibold text-white">Volver a la PlayCard</button>
       </div>
     );
@@ -761,9 +761,9 @@ function TicketsPager({ events, holder }: { events: MeEvent[]; holder: string })
                 <span className="w-6 shrink-0 text-center text-title3">{TICKET_KIND_META[t.kind ?? 'acceso'].emoji}</span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-subhead font-semibold leading-tight">{(t.kind ?? 'acceso') === 'acceso' ? (t.holderName || `Entrada ${offset + i + 1}`) : (t.kindLabel ?? TICKET_KIND_META[t.kind!].label)}</span>
-                  <span className="block truncate text-caption1 text-white/50">{t.kindLabel ?? 'Acceso'}{t.companions && t.companions.length > 0 ? ` · con ${t.companions.map((c) => c.nombre.split(' ')[0]).join(', ')}` : ''}</span>
+                  <span className="block truncate text-caption1 text-white/60">{t.kindLabel ?? 'Acceso'}{t.companions && t.companions.length > 0 ? ` · con ${t.companions.map((c) => c.nombre.split(' ')[0]).join(', ')}` : ''}</span>
                 </span>
-                <span className={`shrink-0 text-caption1 font-medium ${t.status === 'used' ? 'text-white/50' : 'text-emerald-300'}`}>{t.status === 'used' ? 'Usada' : 'Ver QR'}</span>
+                <span className={`shrink-0 text-caption1 font-medium ${t.status === 'used' ? 'text-white/60' : 'text-emerald-300'}`}>{t.status === 'used' ? 'Usada' : 'Ver QR'}</span>
                 {t.status === 'valid' && <QrCode className="h-4 w-4 shrink-0 text-white/50" />}
               </button>
             ))}
@@ -804,7 +804,7 @@ function CouponsPager({ me }: { me: Me }) {
                 <button type="button" onClick={() => { void copy(c.id, c.code); }} className="lg-pill flex h-14 w-full items-center justify-center gap-2 rounded-2xl font-mono text-title3 font-bold tracking-[0.2em] interactive" aria-label={`Copiar el código ${c.code}`}>
                   {c.code} {copied === c.id ? <Check className="h-5 w-5 text-pink-300" /> : <Copy className="h-5 w-5 text-white/60" />}
                 </button>
-                <p className="text-caption1 text-white/50">Pégalo en el campo de código al comprar. Es personal: úsalo con el correo de tu cuenta.</p>
+                <p className="text-caption1 text-white/60">Pégalo en el campo de código al comprar. Es personal: úsalo con el correo de tu cuenta.</p>
               </>
             )}
           </div>
@@ -823,11 +823,11 @@ function MovementsPreview({ me, onAll }: { me: Me; onAll: () => void }) {
         <p className="font-semibold text-white/80">Últimos movimientos</p>
         {me.movements.length > 3 && <button type="button" onClick={onAll} className="text-caption1 font-semibold text-pink-300">Ver todos</button>}
       </div>
-      {last.length === 0 ? <p className="mt-2 text-subhead text-white/55">Todavía no hay movimientos.</p> : (
+      {last.length === 0 ? <p className="mt-2 text-subhead text-white/60">Todavía no hay movimientos.</p> : (
         <ul className="mt-1 divide-y divide-white/10 text-subhead">
           {last.map((m, i) => (
             <li key={i} className="flex items-center justify-between gap-3 py-2">
-              <span className="min-w-0 truncate text-white/75">{m.label}<span className="block text-caption2 text-white/40">{fmtDate(m.createdAt)}</span></span>
+              <span className="min-w-0 truncate text-white/75">{m.label}<span className="block text-caption2 text-white/60">{fmtDate(m.createdAt)}</span></span>
               <span className={`shrink-0 font-semibold ${m.type === 'money' ? (m.delta >= 0 ? 'text-emerald-300' : 'text-rose-300') : 'text-violet-300'}`}>
                 {m.delta >= 0 ? '+' : '−'}{m.type === 'money' ? `$${Math.abs(m.delta).toLocaleString('es-CL')}` : `${Math.abs(m.delta).toLocaleString('es-CL')} pc`}
               </span>
@@ -1022,10 +1022,10 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
                     <Icon className="h-5 w-5 shrink-0 text-pink-300" />
                     <span className="min-w-0 flex-1">
                       <span className="block text-subhead font-semibold leading-tight">{label}</span>
-                      <span className="block truncate text-footnote text-white/55">{sub}</span>
+                      <span className="block truncate text-footnote text-white/60">{sub}</span>
                     </span>
                     {dot && <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-pink-500 shadow-[0_0_8px_rgba(236,72,153,0.9)]" />}
-                    <ChevronRight className="h-4 w-4 shrink-0 text-white/35" />
+                    <ChevronRight className="h-4 w-4 shrink-0 text-white/45" />
                   </button>
                 ))}
               </div>
@@ -1181,7 +1181,7 @@ export default function Cuenta() {
           <div className={`${GLASS} p-5`}>
             <MemberLogin tone="dark" onDone={setWelcome} />
           </div>
-          <p className="text-center text-caption1 text-white/55">Es opcional: para comprar tu entrada no necesitas cuenta. ¿Aún no compras? Cuando lo hagas, ya podrás entrar con ese correo.</p>
+          <p className="text-center text-caption1 text-white/60">Es opcional: para comprar tu entrada no necesitas cuenta. ¿Aún no compras? Cuando lo hagas, ya podrás entrar con ese correo.</p>
         </motion.div>
       </div>
     </div>
@@ -1234,7 +1234,7 @@ function DesktopAccount({ me, welcome, onLogout, shell, offlineAt }: { me: Me; w
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <h1 className="font-heading text-title1 font-extrabold leading-tight text-white">Hola{firstName(me.fullName) ? `, ${firstName(me.fullName)}` : ''} 👋</h1>
-              <p className="mt-1 flex flex-wrap items-center gap-2 text-subhead text-white/55">
+              <p className="mt-1 flex flex-wrap items-center gap-2 text-subhead text-white/60">
                 <span className="truncate">{me.email}</span>
                 {level && <span className="rounded-full bg-emerald-400/15 px-2.5 py-0.5 text-caption1 font-medium text-emerald-300">{level.label}</span>}
               </p>

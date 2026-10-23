@@ -29,9 +29,9 @@ function StampMark({ slot, index, fresh }: { slot: StampSlot; index: number; fre
     return (
       <div className="flex flex-col items-center gap-1.5">
         <div className={`grid h-[74px] w-[74px] place-items-center rounded-full border-2 border-dashed ${last ? 'border-amber-300/60 bg-amber-300/[0.06]' : 'border-white/20'}`}>
-          {last ? <Gift className="h-6 w-6 text-amber-200/80" /> : <span className="text-title3 font-semibold text-white/25">{index + 1}</span>}
+          {last ? <Gift className="h-6 w-6 text-amber-200/80" /> : <span className="text-title3 font-semibold text-white/40">{index + 1}</span>}
         </div>
-        <span className="h-4 text-caption2 text-white/35">{last ? 'Dúo gratis' : ' '}</span>
+        <span className="h-4 text-caption2 text-white/60">{last ? 'Dúo gratis' : ' '}</span>
       </div>
     );
   }
@@ -112,7 +112,7 @@ export function StampCardView({ data, buySlug }: { data: StampData; buySlug: str
               {data.remaining === 0 ? 'Tu Acceso Dúo gratis ya está listo.' : 'para tu Acceso Dúo gratis. Cada fiesta a la que entras suma un sello.'}
             </p>
           </div>
-          <span className="num-apple shrink-0 text-large-title leading-none">{data.filled}<span className="text-white/35">/{STAMPS_PER_CARD}</span></span>
+          <span className="num-apple shrink-0 text-large-title leading-none">{data.filled}<span className="text-white/45">/{STAMPS_PER_CARD}</span></span>
         </div>
         <div className="mt-5 grid grid-cols-3 gap-x-2 gap-y-4">
           {data.slots.map((slot, i) => <StampMark key={i} slot={slot} index={i} fresh={i >= freshFrom && slot.kind !== 'vacio'} />)}
@@ -129,7 +129,7 @@ function StampHistory({ history }: { history: StampData['history'] }) {
     <div className="account-glass rounded-[28px] p-5">
       <p className="text-body font-bold">Tus fiestas</p>
       {history.length === 0 ? (
-        <p className="mt-1 text-footnote text-white/55">Cuando te escaneen en la puerta, tu fiesta aparece acá con su sello.</p>
+        <p className="mt-1 text-footnote text-white/60">Cuando te escaneen en la puerta, tu fiesta aparece acá con su sello.</p>
       ) : (
         <ol className="mt-3">
           {history.map((h, i) => (
@@ -138,7 +138,7 @@ function StampHistory({ history }: { history: StampData['history'] }) {
               <span className="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full bg-gradient-to-br from-pink-500 to-sky-500"><Check className="h-3.5 w-3.5 text-white" /></span>
               <span className="min-w-0">
                 <span className="block truncate text-subhead font-semibold">{h.title}</span>
-                <span className="block text-caption1 text-white/50">{fmtLong(h.date)} · sello ganado</span>
+                <span className="block text-caption1 text-white/60">{fmtLong(h.date)} · sello ganado</span>
               </span>
             </li>
           ))}

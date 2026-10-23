@@ -28,7 +28,7 @@ export function MemberLogin({ purchase, tone = 'light', onDone }: {
   const verify = trpc.member.verifyCode.useMutation();
   const dark = tone === 'dark';
   const muted = dark ? 'text-white/60' : 'text-muted-foreground';
-  const input = `w-full h-12 rounded-xl border px-4 text-base outline-none focus:ring-2 focus:ring-primary/40 ${dark ? 'bg-white/5 border-white/15 text-white placeholder:text-white/35' : 'bg-background border-border'}`;
+  const input = `w-full h-12 rounded-xl border px-4 text-base outline-none focus:ring-2 focus:ring-primary/40 ${dark ? 'bg-white/5 border-white/15 text-white placeholder:text-white/45' : 'bg-background border-border'}`;
   const btn = 'w-full h-12 rounded-full bg-primary text-primary-foreground font-bold text-sm inline-flex items-center justify-center gap-2 interactive disabled:opacity-60';
 
   const send = async () => {

@@ -98,19 +98,19 @@ export function PayInCajaViewer({ onClose, prepaidBalance, playcoins }: { onClos
 
   const secs = Math.max(0, Math.ceil((expiresAt - now) / 1000));
   return createPortal(
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[90] flex flex-col items-center justify-center gap-5 bg-white px-6 pb-[max(24px,env(safe-area-inset-bottom))] pt-[max(24px,env(safe-area-inset-top))] text-[#0d0712]" role="dialog" aria-label="QR para pagar en caja">
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="account-font fixed inset-0 z-[90] flex flex-col items-center justify-center gap-5 bg-white px-6 pb-[max(24px,env(safe-area-inset-bottom))] pt-[max(24px,env(safe-area-inset-top))] text-[#0d0712]" role="dialog" aria-label="QR para pagar en caja">
       <button type="button" onClick={onClose} aria-label="Cerrar" className="absolute right-4 top-[max(16px,env(safe-area-inset-top))] grid h-11 w-11 place-items-center rounded-full bg-black/5"><X className="h-5 w-5" /></button>
-      <p className="font-heading text-title3 font-extrabold">Pagar en caja</p>
+      <p className="text-title2 font-bold tracking-tight">Pagar en caja</p>
       <div className="flex gap-6 text-center">
-        <div><p className="text-caption2 uppercase tracking-wider text-black/50">Saldo</p><p className="font-heading text-title2 font-bold">{fmtClp(prepaidBalance)}</p></div>
-        <div><p className="text-caption2 uppercase tracking-wider text-black/50">Playcoins</p><p className="font-heading text-title2 font-bold text-violet-600">{playcoins.toLocaleString('es-CL')}</p></div>
+        <div><p className="text-caption2 uppercase tracking-wider text-black/60">Saldo</p><p className="text-title2 font-bold tabular-nums">{fmtClp(prepaidBalance)}</p></div>
+        <div><p className="text-caption2 uppercase tracking-wider text-black/60">Playcoins</p><p className="text-title2 font-bold tabular-nums text-violet-600">{playcoins.toLocaleString('es-CL')}</p></div>
       </div>
       {qr ? <img src={qr} alt="QR de pago" className="aspect-square w-[min(80vw,52vh)] [image-rendering:pixelated]" /> : (
         <div className="grid aspect-square w-[min(80vw,52vh)] place-items-center rounded-2xl bg-black/5">{error ? <p className="px-6 text-center text-subhead text-rose-600">{error}</p> : <Loader2 className="h-8 w-8 animate-spin text-black/40" />}</div>
       )}
       <p className="text-center text-subhead text-black/60">Muéstralo a la cajera: cobra de tu saldo sin pedirte el PIN.<br />{qr && <span className="font-semibold">Se renueva en {secs} s · sirve una sola vez</span>}</p>
       {error && <button type="button" onClick={() => { void refresh(); }} className="h-11 rounded-full bg-[#0d0712] px-6 text-subhead font-bold text-white">Reintentar</button>}
-      <p className="text-center text-caption1 text-black/40">Necesita conexión. Si ves algo raro, cierra y vuelve a abrir.</p>
+      <p className="text-center text-caption1 text-black/60">Necesita conexión. Si ves algo raro, cierra y vuelve a abrir.</p>
     </motion.div>,
     document.body,
   );
@@ -137,7 +137,7 @@ export function SavedCardsSection() {
               {c.thumbnail ? <img src={c.thumbnail} alt="" className="h-6 w-9 shrink-0 rounded object-contain" /> : <CreditCard className="h-5 w-5 shrink-0 text-white/60" />}
               <div className="min-w-0 flex-1">
                 <p className="truncate text-subhead font-semibold">{c.brandName} •••• {c.last4}</p>
-                <p className="text-caption2 text-white/50">{c.expiry ? `Vence ${c.expiry}` : ''}{c.isDefault ? ' · Principal' : ''}</p>
+                <p className="text-caption2 text-white/60">{c.expiry ? `Vence ${c.expiry}` : ''}{c.isDefault ? ' · Principal' : ''}</p>
               </div>
               {!c.isDefault && (
                 <button type="button" onClick={() => setDefault.mutate({ cardId: c.id })} disabled={setDefault.isPending} aria-label="Usar como principal" className="grid h-9 w-9 place-items-center rounded-full bg-white/10"><Star className="h-4 w-4" /></button>
@@ -151,7 +151,7 @@ export function SavedCardsSection() {
           ))}
         </ul>
       )}
-      <p className="text-caption2 text-white/40">Tus tarjetas las guarda Mercado Pago de forma segura; nosotros nunca vemos el número.</p>
+      <p className="text-caption2 text-white/60">Tus tarjetas las guarda Mercado Pago de forma segura; nosotros nunca vemos el número.</p>
     </section>
   );
 }
