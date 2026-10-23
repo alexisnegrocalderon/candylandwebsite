@@ -28,6 +28,8 @@ import { ContestBuyerInvite } from '@/components/ContestBuyerInvite';
 import { MemberEarlyGate } from '@/components/site/MemberEarlyGate';
 import { useMemberSession } from '@/lib/member';
 import { isMemberEarlyAccess } from '@shared/memberConfig';
+import { isInstalledApp } from '@/lib/appInstall';
+import { PurchaseCelebration } from '@/components/site/PurchaseCelebration';
 
 /** Mini vista previa de la Tarjeta Playroom, mostrada justo donde se pide el
  * PIN -- para que quede claro que el PIN protege ESTA tarjeta (saldo +
@@ -353,6 +355,16 @@ function CheckoutInner({ partnerSlug }: { partnerSlug?: string } = {}) {
   const initialFromUrl = itemsParam.split(',')[0]?.split(':')[0] || '';
   const initialQtyFromUrl = Math.max(1, Number(itemsParam.split(',')[0]?.split(':')[1]) || 1);
   const skipVibe = SPECIAL_SKIP_VIBE.includes(initialFromUrl);
+  // Recompra en un toque desde la app (`?rapida=1&op=pareja`): con su acceso y sus datos de siempre
+  // salta directo al resumen; si falta algo, para justo en ese paso. Las opciones con código no.
+  const expressParams = new URLSearchParams(search);
+  const expressOp = !isPartner && expressParams.get('rapida') === '1'
+    ? ACCESO_OPTIONS.find((o) => o.key === expressParams.get('op') && o.key !== 'soltero' && o.key !== 'dos-hombres')
+    : undefined;
+  const repurchase = trpc.member.repurchase.useQuery(undefined, { enabled: !isPartner, retry: false, staleTime: 60_000 });
+  const memberSession = useMemberSession();
+  const [expressBusy, setExpressBusy] = useState(!!expressOp);
+  const utils = trpc.useUtils();
 
   const { data: event } = trpc.events.getBySlug.useQuery({ slug: eventSlug }, { retry: false });
   const { data: liveTicketsData } = trpc.events.getTicketTypes.useQuery({ slug: eventSlug }, { retry: false });
@@ -651,6 +663,45 @@ function CheckoutInner({ partnerSlug }: { partnerSlug?: string } = {}) {
     fill('buyer__whatsapp', src.whatsapp);
     fill('buyer__rut', src.rut);
   }, [prefill.isLoading, prefill.data, setValue, watch]);
+
+  /* ── Recompra en un toque ─────────────────────────────── */
+  const expressStage = useRef<'idle' | 'acceso' | 'done'>('idle');
+  const fillCompanion = (n: number, c: { nombre: string; rut: string; docTipo?: 'rut' | 'passport' }, force = false) => {
+    const set = (k: string, v?: string) => { if (v && (force || !watch(k as any))) setValue(k as any, v, { shouldValidate: force }); };
+    set(`acceso__acomp${n}_nombre`, c.nombre);
+    set(`acceso__acomp${n}_rut`, c.rut);
+    set(`acceso__acomp${n}_docTipo`, c.docTipo ?? 'rut');
+  };
+  useEffect(() => {
+    if (!expressOp || expressStage.current !== 'idle') return;
+    if (prefill.isLoading || repurchase.isLoading || !liveTicketsData) return;
+    if (!useConfig && !findLiveTicket(expressOp.slug)) { expressStage.current = 'done'; setExpressBusy(false); return; }
+    expressStage.current = 'acceso';
+    setGroupSize(expressOp.size);
+    setDuoComposicion(expressOp.composicion ?? null);
+    setAccesoSlug(expressOp.slug);
+    // Las mismas personas que la última vez (si fue el mismo acceso).
+    const last = repurchase.data?.last;
+    if (last && last.option === expressOp.key) last.companions.forEach((c, i) => fillCompanion(i + 1, c));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expressOp, prefill.isLoading, repurchase.isLoading, liveTicketsData]);
+  // Con el acceso ya resuelto: revisa paso por paso con los datos guardados y salta al primero que
+  // falte, o directo al resumen. El +18 se confirma en el resumen.
+  useEffect(() => {
+    if (expressStage.current !== 'acceso' || !acceso) return;
+    expressStage.current = 'done';
+    void (async () => {
+      const resumen = pasos.findIndex((p) => p.id === 'resumen');
+      for (let i = 0; i < resumen; i++) {
+        if (pasos[i].id === 'acceso') continue;
+        const keys = pasos[i].keys.filter((k) => k !== 'buyer__mayorEdad');
+        if (keys.length === 0 || !(await trigger(keys as any, { shouldFocus: false }))) { setPaso(i); setExpressBusy(false); return; }
+      }
+      setPaso(resumen);
+      setExpressBusy(false);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [acceso, pasos]);
 
   useEffect(() => {
     if (draft.accesoSlug) setAccesoSlug(draft.accesoSlug);
@@ -959,6 +1010,10 @@ function CheckoutInner({ partnerSlug }: { partnerSlug?: string } = {}) {
     return Array.from(map.entries()).sort((a, b) => a[0] - b[0]).map(([n, fields]) => ({ n, fields }));
   })();
 
+  if (ordenPago && pagoResultado === 'approved' && memberSession.data?.loggedIn && !isPartner) {
+    return <PurchaseCelebration eventTitle={event?.title ?? EVENTO.nombre} onShown={() => { void utils.member.me.invalidate(); }} />;
+  }
+
   if (ordenPago && pagoResultado === 'approved') {
     return (
       <div className="min-h-dvh pt-24 pb-16 flex items-center justify-center">
@@ -1066,6 +1121,19 @@ function CheckoutInner({ partnerSlug }: { partnerSlug?: string } = {}) {
    * espacio reservado para que no la tape tiene que ser el mismo siempre --
    * reducirlo en tablet/desktop dejaba contenido tapado detrás de la barra
    * (reportado con el paso de extras, que es más alto que el resto). */
+  if (expressBusy) {
+    return (
+      <div className="min-h-dvh pt-24 pb-16 flex flex-col items-center justify-center gap-3 text-center">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" aria-hidden />
+        <p className="text-sm text-muted-foreground">Preparando tu entrada de siempre…</p>
+      </div>
+    );
+  }
+
+  const datosIdx = pasos.findIndex((p) => p.id === 'datos');
+  const usedCompanion = (c: { nombre: string }) => acompGroups.some((g) => (watch(`acceso__acomp${g.n}_nombre` as any) || '').trim().toLowerCase() === c.nombre.toLowerCase());
+  const companionChoices = (repurchase.data?.companions ?? []).filter((c) => !usedCompanion(c));
+
   return (
     <div className="min-h-dvh pt-20 pb-40 flex flex-col">
       <div className="container max-w-lg flex-1">
@@ -1228,6 +1296,29 @@ function CheckoutInner({ partnerSlug }: { partnerSlug?: string } = {}) {
               {/* Paso: acompañantes — todos juntos, nombre y documento de cada uno. */}
               {pasoActual.id === 'acompanantes' && (
                 <div className="space-y-4">
+                  {/* Con quienes ya ha venido: un toque y queda completo. */}
+                  {companionChoices.length > 0 && (
+                    <div>
+                      <p className="mb-2 text-xs font-semibold uppercase tracking-[0.15em] text-muted-foreground">Vienen de nuevo · toca para completar</p>
+                      <div className="flex flex-wrap gap-2">
+                        {companionChoices.map((c) => (
+                          <button
+                            key={c.rut}
+                            type="button"
+                            onClick={() => {
+                              const slot = acompGroups.find((g) => !(watch(`acceso__acomp${g.n}_nombre` as any) || '').trim()) ?? acompGroups[acompGroups.length - 1];
+                              if (!slot) return;
+                              try { navigator.vibrate?.(8); } catch { /* sin vibración */ }
+                              fillCompanion(slot.n, c, true);
+                            }}
+                            className="inline-flex h-10 items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-4 text-sm font-semibold interactive"
+                          >
+                            <Plus className="h-3.5 w-3.5" /> {c.nombre.split(' ')[0]}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   {acompGroups.map((g) => (
                     <div key={g.n} className="glass-candy rounded-2xl p-4 space-y-3">
                       <p className="text-xs font-bold uppercase tracking-[0.15em] text-primary">{acompGroups.length > 1 ? `Acompañante ${g.n}` : 'Tu acompañante'}</p>
@@ -1245,6 +1336,34 @@ function CheckoutInner({ partnerSlug }: { partnerSlug?: string } = {}) {
               {/* Paso: extras reales del evento (category="extra" en el admin).
                   Dos bloques con lenguaje visual distinto a propósito -- ver
                   el comentario de prepagoTickets/topupTiers más arriba. */}
+              {/* Recompra en un toque: sus datos de siempre, a la vista y editables. */}
+              {pasoActual.id === 'resumen' && expressOp && (
+                <div className="glass-candy rounded-2xl p-4 mb-4 space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold uppercase tracking-[0.15em] text-primary">Tu entrada de siempre</p>
+                      <p className="mt-1 font-bold">{expressOp.emoji} {acceso?.nombre ?? expressOp.label}{qty > 1 ? ` × ${qty}` : ''}</p>
+                    </div>
+                    {datosIdx >= 0 && (
+                      <button type="button" onClick={() => { setPaso(datosIdx); window.scrollTo({ top: 0 }); }} className="shrink-0 text-sm font-semibold text-primary interactive">Editar</button>
+                    )}
+                  </div>
+                  <ul className="space-y-1 text-sm text-muted-foreground">
+                    <li><span className="text-foreground font-semibold">{watch('buyer__nombre' as any)}</span> · {watch('buyer__rut' as any)}</li>
+                    <li>{watch('buyer__email' as any)} · {watch('buyer__whatsapp' as any)}</li>
+                    {acompGroups.map((g) => {
+                      const nombre = watch(`acceso__acomp${g.n}_nombre` as any);
+                      return nombre ? <li key={g.n}>+ {nombre}</li> : null;
+                    })}
+                  </ul>
+                  <label className={`flex items-start gap-3 rounded-2xl border p-3.5 cursor-pointer transition-colors ${watch('buyer__mayorEdad') ? 'border-primary bg-primary/10' : 'border-border/60'}`}>
+                    <input type="checkbox" {...register('buyer__mayorEdad' as any)} className="mt-0.5 w-5 h-5 shrink-0 accent-[oklch(0.70_0.19_340)]" />
+                    <span className="text-sm leading-snug"><span className="font-semibold">Confirmo que soy mayor de {CANDYLAND.edadMinima} años</span> y llevaré mi carnet o pasaporte a la entrada.</span>
+                  </label>
+                  {err('buyer__mayorEdad') && <p className="text-sm text-destructive" role="alert">{err('buyer__mayorEdad')}</p>}
+                </div>
+              )}
+
               {pasoActual.id === 'resumen' && useDbExtras && (
                 <details className="group mb-4 glass-candy rounded-2xl" open={dbExtrasTotal > 0 || isPartner}>
                   <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3.5 text-sm font-semibold">
@@ -1603,9 +1722,19 @@ export default function Checkout(props: { partnerSlug?: string } = {}) {
   const slug = props.partnerSlug ? '' : params?.eventSlug ?? CANDYLAND.slug;
   const { data: event } = trpc.events.getBySlug.useQuery({ slug }, { enabled: !!slug, retry: false });
   const { data: session, isLoading } = useMemberSession();
+  const search = useSearch();
   if (slug && event && isMemberEarlyAccess(event as any)) {
     if (isLoading) return <div className="min-h-dvh" />;
     if (!(session?.loggedIn && session.isMember)) return <MemberEarlyGate event={event as any} />;
   }
-  return <CheckoutInner {...props} />;
+  // Desde la app (instalada con sesión, o la recompra en un toque): la compra con la misma cara de
+  // la app, oscura y de vidrio, no la del sitio.
+  const appSheet = !props.partnerSlug && ((isInstalledApp() && !!session?.loggedIn) || new URLSearchParams(search).get('rapida') === '1');
+  if (!appSheet) return <CheckoutInner {...props} />;
+  return (
+    <div className="account-font account-tokens checkout-app relative min-h-dvh bg-[#0b0612] text-white">
+      <div className="account-backdrop" />
+      <CheckoutInner {...props} />
+    </div>
+  );
 }

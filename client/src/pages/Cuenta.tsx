@@ -362,7 +362,19 @@ function perkList(me: Me): string[] {
   ].filter(Boolean) as string[];
 }
 
+/** Link de compra: con su entrada de siempre va directo al resumen (recompra en un toque). */
+function useBuyHref(slug: string | null | undefined): { href: string | null; last: import('@shared/repurchase').LastPurchase | null } {
+  const repurchase = trpc.member.repurchase.useQuery(undefined, { retry: false, staleTime: 60_000 });
+  if (!slug) return { href: null, last: null };
+  const last = repurchase.data?.last ?? null;
+  if (!last?.option) return { href: `/checkout/${slug}`, last: null };
+  return { href: `/checkout/${slug}?items=${encodeURIComponent(last.accesoSlug)}:${last.qty}&rapida=1&op=${encodeURIComponent(last.option)}`, last };
+}
+
+const OPTION_EMOJI: Record<string, string> = { soltera: '🍭', pareja: '💑', 'dos-mujeres': '👭', trio: '🎭', grupo: '🌈' };
+
 function BuyNextCard({ me }: { me: Me }) {
+  const { href, last } = useBuyHref(me.nextEvent?.slug);
   if ((me.events as MeEvent[])[0]) return null;
   // Sin entrada y sin fiesta anunciada: igual se invita a mirar lo que viene (nunca una tarjeta vacía sola).
   if (!me.nextEvent) {
@@ -373,6 +385,24 @@ function BuyNextCard({ me }: { me: Me }) {
         <p className="mt-0.5 text-sm text-white/60">Activa los avisos y te contamos apenas abra la preventa.</p>
         <p className="mt-3 text-sm font-semibold text-pink-300">Ver eventos →</p>
       </Link>
+    );
+  }
+  // Ya compró antes: su misma entrada, con sus datos y sus acompañantes, en un toque.
+  if (last && href) {
+    const withWho = last.companions.map((c) => c.nombre.split(' ')[0]).filter(Boolean);
+    return (
+      <div className={`shrink-0 rounded-[28px] p-[1.5px] ${NEON_RING}`}>
+        <div className="rounded-[27px] bg-[#0d0712] p-5">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-pink-300">Tu entrada de siempre</p>
+          <p className="mt-1 text-xl font-bold leading-tight text-white">{OPTION_EMOJI[last.option ?? ''] ?? '🎟️'} {last.accesoName ?? 'Tu acceso'}{last.qty > 1 ? ` × ${last.qty}` : ''}</p>
+          <p className="mt-0.5 truncate text-sm text-white/60">{me.nextEvent.title} · {fmtDateTime(me.nextEvent.eventDate)}</p>
+          {withWho.length > 0 && <p className="mt-0.5 truncate text-sm text-white/60">Con {withWho.join(', ')}</p>}
+          <Link href={href} onClick={tapHaptic} className="mt-4 flex h-12 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-pink-500 via-fuchsia-500 to-sky-500 text-[15px] font-bold text-white interactive">
+            Comprar en 1 toque <ArrowRight className="h-4 w-4" />
+          </Link>
+          <Link href={`/checkout/${me.nextEvent.slug}`} className="mt-2 block text-center text-[13px] font-semibold text-white/55 interactive">Elegir otra entrada</Link>
+        </div>
+      </div>
     );
   }
   return (
@@ -698,6 +728,7 @@ function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | nu
   const level = CUSTOMER_LEVEL_META[me.level as keyof typeof CUSTOMER_LEVEL_META];
   const upcoming = me.events as MeEvent[];
   const activeCoupons = me.coupons.filter((c) => c.status === 'disponible').length;
+  const { href: buyHref } = useBuyHref(me.nextEvent?.slug);
   // La noche de la fiesta, ya escaneada: un punto en la pestaña Playmatch.
   const playmatchLive = upcoming.some((e) => e.tickets.some((x) => (x.category ?? 'acceso') === 'acceso' && canEnterParty({ status: x.status, eventId: e.eventId }, { eventDate: e.eventDate, doorsOpen: e.doorsOpen, eventEnd: e.eventEnd })));
   const pushPending = push.state === 'ask' || push.state === 'ios-install';
@@ -760,7 +791,7 @@ function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | nu
             <RememberScroll><AmbassadorAccount panel={ambassador} /></RememberScroll>
           )}
           {tab === 'playmatch' && (
-            <div className="-mx-1 min-h-0 flex-1 overflow-y-auto overscroll-contain px-1 pb-4"><PlaymatchTab events={upcoming} buySlug={me.nextEvent?.slug ?? null} /></div>
+            <div className="-mx-1 min-h-0 flex-1 overflow-y-auto overscroll-contain px-1 pb-4"><PlaymatchTab events={upcoming} buyHref={buyHref} /></div>
           )}
           {tab === 'sellos' && (
             <div className="-mx-1 min-h-0 flex-1 overflow-y-auto overscroll-contain px-1 pb-4"><StampsTab buySlug={me.nextEvent?.slug ?? null} /></div>
@@ -910,6 +941,7 @@ export default function Cuenta() {
 }
 
 function DesktopAccount({ me, welcome, onLogout, shell }: { me: Me; welcome: LoginDone | null; onLogout: () => void; shell: string }) {
+  const { href: buyHref } = useBuyHref(me.nextEvent?.slug);
   const ambassador = useAmbassadorPanel();
   const level = CUSTOMER_LEVEL_META[me.level as keyof typeof CUSTOMER_LEVEL_META];
   const upcoming = me.events as MeEvent[];
@@ -938,7 +970,7 @@ function DesktopAccount({ me, welcome, onLogout, shell }: { me: Me; welcome: Log
             onTopup={pay.accountTopup ? () => setTopupOpen(true) : undefined} onPayCaja={pay.cajaPay ? () => setPayOpen(true) : undefined} />
           <section className="space-y-3">
             <h2 className="font-heading text-xl font-bold text-white">Playmatch 🍬</h2>
-            <PlaymatchTab events={upcoming} buySlug={me.nextEvent?.slug ?? null} />
+            <PlaymatchTab events={upcoming} buyHref={buyHref} />
           </section>
           <BuyNextCard me={me} />
           {ambassador && <AmbassadorAccount panel={ambassador} />}
