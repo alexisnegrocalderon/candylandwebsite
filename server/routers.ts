@@ -5001,12 +5001,20 @@ export const appRouter = router({
     })).mutation(async ({ input, ctx }) => {
       const { id, email, ...rest } = input;
       const r = await staffSvc.saveStaff(rest, id);
+      let newEmail: string | null = null;
       if (email !== undefined) {
-        try { await staffPortal.setStaffEmail(r.id, email); }
+        try { newEmail = await staffPortal.setStaffEmail(r.id, email); }
         catch (e: any) { throw new TRPCError({ code: 'BAD_REQUEST', message: e?.message ?? 'No se pudo guardar el correo' }); }
       }
       await db.recordAdminAudit({ action: id ? 'finance.staffUpdate' : 'finance.staffCreate', targetType: 'staffMember', targetId: r.id, ip: clientIp(ctx) });
-      return r;
+      // Correo nuevo: le llega la bienvenida con el botón a su app (si falla el envío, igual queda guardado).
+      const invited = newEmail ? await staffPortal.sendStaffWelcome(r.id).catch(() => false) : false;
+      return { ...r, invited };
+    }),
+    staffInvite: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => {
+      const sent = await staffPortal.sendStaffWelcome(input.id).catch(() => false);
+      if (!sent) throw new TRPCError({ code: 'BAD_REQUEST', message: 'No se pudo mandar: revisa que tenga correo y esté activa.' });
+      return { success: true };
     }),
     staffDelete: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
       const r = await staffSvc.deleteStaff(input.id);

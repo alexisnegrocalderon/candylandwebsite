@@ -89,9 +89,10 @@ function TeamEditor() {
   const [editingId, setEditingId] = useState<number | 'new' | null>(null);
   const [f, setF] = useState({ name: '', role: '', rate: '', phone: '', rut: '', notes: '', email: '' });
   const save = trpc.finance.staffSave.useMutation({
-    onSuccess: () => { utils.finance.staffList.invalidate(); utils.finance.shiftsList.invalidate(); setEditingId(null); toast.success('Equipo actualizado'); },
+    onSuccess: (r) => { utils.finance.staffList.invalidate(); utils.finance.shiftsList.invalidate(); setEditingId(null); toast.success(r.invited ? 'Guardado · le mandamos el correo para entrar a su app' : 'Equipo actualizado'); },
     onError: onErr,
   });
+  const invite = trpc.finance.staffInvite.useMutation({ onSuccess: () => toast.success('Invitación enviada'), onError: onErr });
   const del = trpc.finance.staffDelete.useMutation({
     onSuccess: (r) => { utils.finance.staffList.invalidate(); utils.finance.shiftsList.invalidate(); toast.success(r.archived ? 'Tiene historial: quedó archivado' : 'Persona eliminada'); },
     onError: onErr,
@@ -116,7 +117,7 @@ function TeamEditor() {
         <Input placeholder="RUT" value={f.rut} onChange={(e) => setF({ ...f, rut: e.target.value })} />
         <Input placeholder="Notas" value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} />
         <Input type="email" inputMode="email" autoCapitalize="none" placeholder="Correo para la app del staff" className="sm:col-span-2" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} />
-        <p className="text-[11px] leading-snug text-[var(--admin-muted)] self-center">Con este correo entra a «Mi cuenta» y ve su credencial, sus turnos y la info del evento.</p>
+        <p className="text-[11px] leading-snug text-[var(--admin-muted)] self-center">Le llega un correo con el botón para entrar a su app: ahí ve su credencial, sus turnos y la info del evento.</p>
       </div>
       <div className="flex gap-2">
         <button type="button" disabled={!f.name.trim() || save.isPending || isDemo} onClick={submit} className={`${pillBase} bg-emerald-500 text-white`}>Guardar</button>
@@ -141,6 +142,9 @@ function TeamEditor() {
             </p>
             {m.notes && <p className="text-xs text-[var(--admin-muted)]">{m.notes}</p>}
           </div>
+          {m.email && m.active && (
+            <button type="button" disabled={isDemo || invite.isPending} onClick={() => invite.mutate({ id: m.id })} className={`${pillBase} ${pillOff}`} title={`Manda otra vez el correo con el acceso a ${m.email}`}>Reenviar acceso</button>
+          )}
           <button type="button" disabled={isDemo} onClick={() => open(m)} className={`${pillBase} ${pillOff}`}>Editar</button>
           <button type="button" disabled={isDemo || save.isPending} onClick={() => save.mutate({ id: m.id, name: m.name, role: m.role, defaultRateClp: m.defaultRateClp, phone: m.phone, rut: m.rut, notes: m.notes, active: !m.active })} className={`${pillBase} ${pillOff}`}>{m.active ? 'Archivar' : 'Reactivar'}</button>
           <button type="button" disabled={isDemo || del.isPending} aria-label={`Eliminar a ${m.name}`}
