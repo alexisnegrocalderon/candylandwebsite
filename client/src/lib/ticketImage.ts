@@ -46,6 +46,8 @@ export interface TicketImageData {
   eventTitle: string;
   eventDateText: string;
   venue?: string | null;
+  /** Quienes vienen con el titular (nombre y documento): salen en la imagen para no perder esos datos. */
+  companions?: { nombre: string; rut: string }[];
 }
 
 export async function renderTicketImage(d: TicketImageData): Promise<Blob> {
@@ -99,9 +101,11 @@ export async function renderTicketImage(d: TicketImageData): Promise<Blob> {
   const cx = 70, cy = 450, cw = W - 140;
   ctx.font = `800 58px ${heading}`;
   const titleLines = wrap(ctx, d.eventTitle, cw - 120, 2);
-  const qs = 680;
+  const companions = (d.companions ?? []).slice(0, 3);
+  const qs = companions.length > 0 ? 490 : 680;
+  const compExtra = companions.length > 0 ? 60 + companions.length * 48 : 0;
   const qrTop = cy + 180 + (titleLines.length - 1) * 68 + 62 + 50;
-  const ch = qrTop + qs + 90 + 56 + 70 - cy;
+  const ch = qrTop + qs + 90 + 56 + 70 - cy + compExtra;
   ctx.save();
   ctx.shadowColor = 'rgba(0,0,0,0.6)';
   ctx.shadowBlur = 60;
@@ -158,6 +162,23 @@ export async function renderTicketImage(d: TicketImageData): Promise<Blob> {
   ctx.fillStyle = 'rgba(255,255,255,0.55)';
   ctx.font = `500 32px ui-monospace, "SF Mono", Menlo, monospace`;
   ctx.fillText(d.ticketCode, W / 2, y + 56);
+
+  // Acompañantes: nombre y documento.
+  if (companions.length > 0) {
+    let cyy = y + 56 + 66;
+    ctx.fillStyle = '#f9a8d4';
+    ctx.font = `600 24px ${body}`;
+    ctx.letterSpacing = '5px';
+    ctx.fillText(companions.length > 1 ? 'ACOMPAÑANTES' : 'ACOMPAÑANTE', W / 2, cyy);
+    ctx.letterSpacing = '0px';
+    ctx.fillStyle = '#ffffff';
+    ctx.font = `600 32px ${body}`;
+    for (const c of companions) {
+      cyy += 48;
+      const text = `${c.nombre}  ·  ${c.rut}`;
+      ctx.fillText(wrap(ctx, text, cw - 100, 1)[0] ?? text, W / 2, cyy);
+    }
+  }
 
   // Pie.
   ctx.fillStyle = 'rgba(255,255,255,0.75)';

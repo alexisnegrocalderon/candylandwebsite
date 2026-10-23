@@ -18,7 +18,7 @@ import { couponStatus, normalizeMemberConfig, type CouponRule, type MemberConfig
 import { chileParts } from '../shared/pushSchedule';
 import { firstName } from '../shared/pushText';
 import { sortByKind, ticketKind, ticketKindLabel, type TicketKind } from '../shared/ticketKind';
-import { knownCompanions, lastPurchaseFrom } from '../shared/repurchase';
+import { companionsFromCampos, knownCompanions, lastPurchaseFrom, type Companion } from '../shared/repurchase';
 
 type CustomerRow = typeof customers.$inferSelect;
 
@@ -231,7 +231,7 @@ export async function getMemberHome(email: string, now = new Date()) {
       ticketCode: tickets.ticketCode, holderName: tickets.holderName, status: tickets.status, qrImageUrl: tickets.qrImageUrl,
       category: ticketTypes.category, typeName: ticketTypes.name,
       eventId: events.id, eventTitle: events.title, eventSlug: events.slug, eventDate: events.eventDate, venue: events.venue,
-      doorsOpen: events.doorsOpen, eventEnd: events.eventEnd,
+      doorsOpen: events.doorsOpen, eventEnd: events.eventEnd, attendeeData: orders.attendeeData,
     }).from(tickets).innerJoin(orders, eq(tickets.orderId, orders.id)).innerJoin(events, eq(tickets.eventId, events.id))
       .innerJoin(ticketTypes, eq(tickets.ticketTypeId, ticketTypes.id))
       .where(and(sql`LOWER(${orders.buyerEmail}) = ${key}`, eq(orders.paymentStatus, 'approved'), gte(events.eventDate, new Date(now.getTime() - 12 * 3_600_000)), inArray(events.status, ['published', 'soldout'])))
@@ -245,11 +245,16 @@ export async function getMemberHome(email: string, now = new Date()) {
     ...points.map((r) => ({ type: 'points' as const, label: PLAYCOINS_LABEL[r.reason] ?? r.reason, delta: r.delta, createdAt: r.createdAt })),
   ].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()).slice(0, 8);
 
-  const byEvent = new Map<number, { eventId: number; eventTitle: string; eventSlug: string; eventDate: Date; venue: string | null; doorsOpen: Date | null; eventEnd: Date | null; tickets: { ticketCode: string; holderName: string | null; status: string; qrImageUrl: string | null; category: string; kind: TicketKind; kindLabel: string }[] }>();
+  const byEvent = new Map<number, { eventId: number; eventTitle: string; eventSlug: string; eventDate: Date; venue: string | null; doorsOpen: Date | null; eventEnd: Date | null; tickets: { ticketCode: string; holderName: string | null; status: string; qrImageUrl: string | null; category: string; kind: TicketKind; kindLabel: string; companions: Companion[] }[] }>();
   for (const t of ticketRows) {
     const g = byEvent.get(t.eventId) ?? { eventId: t.eventId, eventTitle: t.eventTitle, eventSlug: t.eventSlug, eventDate: t.eventDate, venue: t.venue, doorsOpen: t.doorsOpen ?? null, eventEnd: t.eventEnd ?? null, tickets: [] };
     const kind = ticketKind(t.category, t.typeName);
-    g.tickets.push({ ticketCode: t.ticketCode, holderName: t.holderName, status: t.status, qrImageUrl: t.qrImageUrl ?? null, category: t.category, kind, kindLabel: ticketKindLabel(kind, t.typeName) });
+    // Los acompañantes (nombre y documento) que se anotaron al comprar: solo en el acceso, nunca en los extras.
+    let companions: Companion[] = [];
+    if (kind === 'acceso' && t.attendeeData) {
+      try { companions = companionsFromCampos((JSON.parse(t.attendeeData) as { campos?: Record<string, unknown> })?.campos); } catch { /* datos viejos: sin acompañantes */ }
+    }
+    g.tickets.push({ ticketCode: t.ticketCode, holderName: t.holderName, status: t.status, qrImageUrl: t.qrImageUrl ?? null, category: t.category, kind, kindLabel: ticketKindLabel(kind, t.typeName), companions });
     byEvent.set(t.eventId, g);
   }
 
