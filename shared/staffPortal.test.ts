@@ -50,3 +50,14 @@ describe('app del staff', () => {
     expect(dialable('+56 9 1234-5678')).toBe('+56912345678');
   });
 });
+
+describe('linkStaffTools', () => {
+  it('suma los sistemas de operador al rol y deja el operador elegido en el link', async () => {
+    const { linkStaffTools } = await import('./staffPortal');
+    const tools = linkStaffTools(staffToolsForRole('Puerta'), [{ key: 'caja', operatorId: 7 }]);
+    expect(tools.map((t) => t.key)).toEqual(['puerta', 'caja']);
+    expect(tools[0].href).toBe('/puerta?desde=app');
+    expect(tools[1].href).toBe('/caja?op=7&desde=app');
+    expect(linkStaffTools([], [])).toEqual([]);
+  });
+});

@@ -9,7 +9,8 @@ import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 import QRCode from 'qrcode';
 import { contentDesigns, events, staffMembers, staffShifts } from '../drizzle/schema';
 import { ENV } from './_core/env';
-import { getDb } from './db';
+import { getActiveEventForCaja, getDb, listOperatorsByEmail } from './db';
+import { staffSystemsFor } from '../shared/cajaRoles';
 import { buildStaffWelcomeEmail, sendEmail } from './email';
 import { honorariosBreakdown } from '../shared/honorarios';
 import { monthKeyFor } from '../shared/ambassadorProgram';
@@ -19,6 +20,7 @@ import {
   noteForRole,
   parseStaffCode,
   roleKey,
+  linkStaffTools,
   staffToolsForRole,
   type StaffContact,
   type StaffEventInfo,
@@ -189,6 +191,19 @@ export async function recordStaffArrival(eventId: number, code: string) {
 
 /* --- Lo que ve la persona en su app --------------------------------------- */
 
+/** Los sistemas en que este correo es operador del evento activo (Admin → Operadores). Sin evento o
+ * sin base: ninguno (las herramientas del rol igual se muestran). */
+async function operatorSystems(email: string) {
+  try {
+    const event = await getActiveEventForCaja();
+    if (!event) return [];
+    const ops = await listOperatorsByEmail(event.id, email);
+    return staffSystemsFor(ops.map((o: any) => ({ id: o.id as number, role: o.role as string })));
+  } catch {
+    return [];
+  }
+}
+
 export async function getStaffPortal(email: string, now: Date = new Date()) {
   const staff = await findStaffByEmail(email);
   if (!staff) return null;
@@ -246,7 +261,7 @@ export async function getStaffPortal(email: string, now: Date = new Date()) {
   return {
     name: staff.name,
     role: staff.role,
-    tools: staffToolsForRole(staff.role),
+    tools: linkStaffTools(staffToolsForRole(staff.role), await operatorSystems(email)),
     credential: credential ? { ...credential, qrImageUrl } : null,
     shifts,
   };

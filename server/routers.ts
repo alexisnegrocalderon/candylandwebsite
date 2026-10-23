@@ -137,6 +137,7 @@ import * as appDevices from "./appDevices";
 import * as members from "./members";
 import { getMemberEmail, setMemberSession, clearMemberSession, verifyMemberCode, normalizeMemberEmail } from "./memberAuth";
 import * as memberPasskeys from "./memberPasskeys";
+import * as demoAccount from "./demoAccount";
 import { normalizeMemberConfig } from "../shared/memberConfig";
 import * as memberCards from "./memberCards";
 import * as memberPay from "./memberPay";
@@ -834,6 +835,25 @@ function requireMemberEmail(req: Parameters<typeof getMemberEmail>[0]): string {
 }
 
 export const appRouter = router({
+  // Cuenta de prueba de la App (admin → Noche → «Cuenta de prueba»): server/demoAccount.ts.
+  demoAccount: router({
+    status: adminReadProcedure.query(async () => demoAccount.getDemoStatus()),
+    create: adminProcedure.input(z.object({ email: z.string().email().max(200), name: z.string().max(80) })).mutation(async ({ input }) => {
+      try {
+        return await demoAccount.createDemoAccount(input);
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo crear la cuenta de prueba' });
+      }
+    }),
+    setPhase: adminProcedure.input(z.object({ phase: z.enum(['antes', 'durante']) })).mutation(async ({ input }) => {
+      try {
+        return await demoAccount.setDemoPhase(input.phase);
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo cambiar la fiesta de prueba' });
+      }
+    }),
+    delete: adminProcedure.mutation(async () => demoAccount.deleteDemoAccount()),
+  }),
   system: systemRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),

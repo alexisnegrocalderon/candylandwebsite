@@ -11016,6 +11016,7 @@ const ADMIN_SECTIONS = [
   { id: 'denuncias', label: 'Denuncias', hub: 'noche', icon: ShieldAlert, render: () => <DenunciasView /> },
   { id: 'mejor-disfraz', label: 'Mejor disfraz', hub: 'noche', icon: Trophy, render: () => <MejorDisfrazView /> },
   { id: 'playmatch-test', label: 'Probar Playmatch', hub: 'noche', icon: FlaskConical, render: () => <PlaymatchTestView /> },
+  { id: 'cuenta-demo', label: 'Cuenta de prueba', hub: 'noche', icon: UserCheck, render: () => <CuentaDemoView /> },
 
   { id: 'orders-web', label: 'Ventas Web', hub: 'ventas', icon: Ticket, render: () => <OrdersView channel="web" /> },
   { id: 'orders-caja', label: 'Ventas Caja', hub: 'ventas', icon: ShoppingBag, render: () => <OrdersView channel="caja" /> },
@@ -11220,6 +11221,100 @@ function MejorDisfrazView() {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+/** Cuenta de prueba de la App (server/demoAccount.ts): una cuenta con todo lo que la App puede
+ * mostrar, en eventos ocultos. Se entra a la App con el correo que se escribe acá (llega el código).
+ * «Borrar todo» deja la base como estaba. */
+function CuentaDemoView() {
+  const utils = trpc.useUtils();
+  const { data, isLoading } = trpc.demoAccount.status.useQuery(undefined, { refetchInterval: 10_000 });
+  const [email, setEmail] = useState('');
+  const [name, setName] = useState('');
+  const refresh = () => utils.demoAccount.status.invalidate();
+  const create = trpc.demoAccount.create.useMutation({
+    onSuccess: () => { refresh(); toast.success('Cuenta de prueba lista: entra a la App con ese correo'); },
+    onError: onMutationError,
+  });
+  const phase = trpc.demoAccount.setPhase.useMutation({
+    onSuccess: (r) => {
+      refresh();
+      toast.success(r.phase === 'durante'
+        ? (r.interactions ? 'Fiesta en curso: entrada escaneada, Playmatch abierto, con Caramelo, likes y un match' : 'Fiesta en curso. Inscríbete en Playmatch desde la App y vuelve a apretar para ver Caramelo, likes y match')
+        : 'Volvió a «antes de la fiesta»');
+    },
+    onError: onMutationError,
+  });
+  const del = trpc.demoAccount.delete.useMutation({
+    onSuccess: () => { refresh(); toast.success('Cuenta de prueba borrada'); },
+    onError: onMutationError,
+  });
+  const durante = data?.exists && data.phase === 'durante';
+
+  return (
+    <div className="space-y-5">
+      <h2 className="font-heading text-2xl">Cuenta de prueba</h2>
+      <p className="text-muted-foreground text-sm">
+        Arma una cuenta de la App con todo lo que puede mostrar: entrada «Acceso Trío» con 2 acompañantes y los 5 extras
+        (estacionamiento, guardarropía, consumo, merch y extra), nivel VIP, saldo, Playcoins y movimientos, cupones (vigente,
+        usado y vencido), sellos, panel de embajador e invitados de Playmatch con foto y disfraz. Todo en eventos ocultos y
+        a $0: no aparece en el sitio ni en la caja, no suma plata en las ventas, y los códigos de prueba no sirven en compras reales. El cliente de prueba sí aparece en Clientes mientras exista.
+      </p>
+
+      <div className="space-y-3 rounded-2xl border border-border/50 bg-card/50 p-4">
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="text-sm">
+            <span className="mb-1 block text-muted-foreground">Correo para entrar</span>
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="tu.otro.correo@gmail.com"
+              className="h-10 w-72 max-w-full rounded-lg border border-border bg-background px-3" />
+          </label>
+          <label className="text-sm">
+            <span className="mb-1 block text-muted-foreground">Nombre</span>
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Camila Prueba"
+              className="h-10 w-48 rounded-lg border border-border bg-background px-3" />
+          </label>
+          <WriteButton disabled={create.isPending || !email.includes('@')}
+            onClick={() => { if (!data?.exists || confirm('Esto borra la cuenta de prueba anterior y crea una nueva. ¿Seguir?')) create.mutate({ email, name }); }}>
+            {create.isPending ? 'Creando…' : data?.exists ? 'Recrear cuenta' : 'Crear cuenta de prueba'}
+          </WriteButton>
+        </div>
+        <p className="text-xs text-muted-foreground">Usa un correo que nunca haya comprado (uno secundario tuyo): al borrar se borra ese cliente completo.</p>
+      </div>
+
+      {isLoading && <p className="text-sm text-muted-foreground">Cargando…</p>}
+      {!isLoading && !data?.exists && <p className="text-sm text-muted-foreground">Todavía no hay cuenta de prueba.</p>}
+
+      {data?.exists && (
+        <div className="space-y-4 rounded-2xl border border-border/50 bg-card/50 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="font-semibold">{data.email}</p>
+              <p className="text-sm text-muted-foreground">
+                {durante ? 'Fiesta en curso (entrada escaneada, Playmatch abierto)' : 'Antes de la fiesta (cuenta regresiva y QR)'}
+                {' · '}{data.playmatchEnrolled ? 'inscrita en Playmatch' : 'todavía no se inscribe en Playmatch'}
+                {data.ambassadorCode ? ` · embajador ${data.ambassadorCode}` : ''}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <WriteButton variant="outline" disabled={phase.isPending} onClick={() => phase.mutate({ phase: durante ? 'antes' : 'durante' })}>
+                {durante ? 'Volver a «antes»' : 'Empezar la fiesta'}
+              </WriteButton>
+              <WriteButton variant="outline" disabled={del.isPending}
+                onClick={() => { if (confirm('¿Borrar la cuenta de prueba completa (cliente, entradas, cupones, embajador y Playmatch)?')) del.mutate(); }}>
+                Borrar todo
+              </WriteButton>
+            </div>
+          </div>
+          <ol className="list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
+            <li>Entra a la App (Mi cuenta) con ese correo: te llega el código.</li>
+            <li>En la pestaña Playmatch inscríbete y sube tus fotos.</li>
+            <li>Aprieta «Empezar la fiesta»: tu entrada queda escaneada, Playmatch abre y los invitados de prueba te mandan un Caramelo, te dan ♥ y uno ya es match con mensajes. Puedes apretarlo de nuevo para repetir.</li>
+            <li>Para ver la sección «Staff»: en Operadores crea uno del evento activo con este mismo correo.</li>
+          </ol>
+        </div>
+      )}
     </div>
   );
 }

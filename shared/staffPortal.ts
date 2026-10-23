@@ -46,6 +46,18 @@ export function staffToolsForRole(role: string | null | undefined): StaffTool[] 
   return out;
 }
 
+/** Une las herramientas del rol (Finanzas → Equipo) con los sistemas en que la persona es operador del
+ * evento activo (Admin → Operadores, `staffSystemsFor`). Cuando hay operador, el link lleva su id para
+ * que el login de PIN abra con el nombre ya elegido (client/src/lib/staffLink.ts); `desde=app` muestra
+ * «Volver a mi cuenta». */
+export function linkStaffTools(roleTools: StaffTool[], operatorSystems: { key: StaffToolKey; operatorId: number }[]): StaffTool[] {
+  const keys = new Set<StaffToolKey>([...roleTools.map((t) => t.key), ...operatorSystems.map((s) => s.key)]);
+  return (Object.keys(TOOLS) as StaffToolKey[]).filter((k) => keys.has(k)).map((k) => {
+    const op = operatorSystems.find((s) => s.key === k);
+    return { ...TOOLS[k], href: op ? `${TOOLS[k].href}?op=${op.operatorId}&desde=app` : `${TOOLS[k].href}?desde=app` };
+  });
+}
+
 /** La clave con que se guarda la nota de un rol: «Barra», «barra » y «BARRA» son el mismo. */
 export function roleKey(role: string | null | undefined): string {
   return plain(role).replace(/\s+/g, ' ');
