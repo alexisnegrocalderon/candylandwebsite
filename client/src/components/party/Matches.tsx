@@ -91,7 +91,7 @@ export function MatchesView({ people, ticketCode, viewerAlias, canPhoto, onPick,
                         {m.last?.mine ? 'Tú: ' : ''}{m.last?.body}
                       </span>
                       {m.unread > 0
-                        ? <span className="grid h-5 min-w-5 shrink-0 place-items-center rounded-full bg-pink-500 px-1.5 text-caption2 font-bold">{m.unread}</span>
+                        ? <span className="grid h-5 min-w-5 shrink-0 place-items-center rounded-full bg-pink-500 px-1.5 text-caption2 font-bold text-[color:var(--pm-on-accent,#fff)]">{m.unread}</span>
                         : m.seen && <span className="shrink-0 text-caption2 font-semibold text-white/60">Visto</span>}
                     </span>
                   </span>

@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { Ban, Flag, MapPin, MessageCircle, Sparkles, Star, Wine } from 'lucide-react';
+import { Ban, Flag, MapPin, MessageCircle, Sparkles, Star, Trophy, Wine } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { Chip, PersonPhoto, PmSheet, PM_CTA, tap } from '@/components/party/ui';
+import type { CostumeVoting } from '@/components/party/costumeVotes';
 import { SWIPE_REPORT_REASONS, ZONE_LABELS, type PartyGender, type PartyZone } from '@shared/party';
 
 const GENDER_LABELS: Record<PartyGender, string> = { hombre: 'Hombre', mujer: 'Mujer', pareja: 'Pareja' };
@@ -22,12 +23,14 @@ export type SheetPerson = {
 /** El perfil de una persona (desde la Fiesta, Matches o la «i» de la tarjeta): su foto grande y
  * lo que se puede hacer: aceptar su Caramelo, mandarle uno, abrir el chat, invitarle un trago,
  * bloquear o denunciar. */
-export function PersonSheet({ ticketCode, viewerAlias, canPhoto, person, caramelosLeft, onClose, onOpenChat, onGift, onMatch }: {
+export function PersonSheet({ ticketCode, viewerAlias, canPhoto, person, caramelosLeft, voting, onClose, onOpenChat, onGift, onMatch }: {
   ticketCode: string;
   viewerAlias: string;
   canPhoto: boolean;
   person: SheetPerson;
   caramelosLeft: number;
+  /** «Mejor disfraz»: solo en modo Halloween. */
+  voting?: CostumeVoting;
   onClose: () => void;
   onOpenChat: (connectionId: number, alias: string, otherId: number) => void;
   onGift: (profileId: number, alias: string) => void;
@@ -96,13 +99,20 @@ export function PersonSheet({ ticketCode, viewerAlias, canPhoto, person, caramel
         ) : (
           <button type="button" disabled={busy || caramelosLeft <= 0} onClick={() => { tap(); touch.mutate({ ticketCode, targetProfileId: person.id }); }}
             className={`flex h-14 w-full items-center justify-center gap-2 rounded-full text-headline ${PM_CTA} disabled:opacity-50`}>
-            <Star className="h-5 w-5 fill-white" /> {caramelosLeft > 0 ? `Mandarle un Caramelo · te quedan ${caramelosLeft}` : 'Ya usaste tus Caramelos'}
+            <Star className="h-5 w-5 fill-current" /> {caramelosLeft > 0 ? `Mandarle un Caramelo · te quedan ${caramelosLeft}` : 'Ya usaste tus Caramelos'}
           </button>
         )}
         {/* Invitar un trago no exige match: es la forma clásica de acercarse. Si lo rechaza, no se cobra. */}
         <button type="button" onClick={() => { tap(); onGift(person.id, person.alias); }} className="lg-pill flex h-12 w-full items-center justify-center gap-2 rounded-full text-subhead font-semibold">
           <Wine className="h-4 w-4 text-amber-300" /> Invitarle un trago
         </button>
+        {voting && canPhoto && (
+          <button type="button" onClick={() => { tap(); voting.toggle(person.id, person.alias); }} aria-pressed={voting.votedIds.has(person.id)}
+            className={`flex h-12 w-full items-center justify-center gap-2 rounded-full text-subhead font-semibold ${voting.votedIds.has(person.id) ? 'bg-amber-300 text-[#1a1a1a]' : 'lg-pill'}`}>
+            <Trophy className={`h-4 w-4 ${voting.votedIds.has(person.id) ? 'fill-current' : 'text-amber-300'}`} />
+            {voting.votedIds.has(person.id) ? 'Votaste su disfraz · toca para quitar' : `Votar mejor disfraz · te quedan ${voting.votesLeft}`}
+          </button>
+        )}
       </div>
 
       <div className="mt-5 border-t border-white/10 pt-4">

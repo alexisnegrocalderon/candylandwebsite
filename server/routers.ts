@@ -2342,6 +2342,20 @@ export const appRouter = router({
       if (!res.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: res.reason });
       return { card: res.card };
     }),
+    // «Mejor disfraz» (aniversario Halloween): a quién voté y cuántos votos me quedan.
+    myCostumeVotes: publicProcedure.input(z.object({ ticketCode: z.string() })).query(async ({ input }) => {
+      const actor = await requirePartyProfile(input.ticketCode);
+      return db.getMyCostumeVotes(actor.profile.id);
+    }),
+    // Votar (o quitar el voto). Los votos los ve solo el staff.
+    voteCostume: publicProcedure.input(z.object({ ticketCode: z.string(), targetProfileId: z.number() })).mutation(async ({ input }) => {
+      const actor = await requirePartyProfile(input.ticketCode);
+      const res = await db.toggleCostumeVote(actor.profile, input.targetProfileId);
+      if (!res.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: res.reason });
+      return res;
+    }),
+    // Ranking de disfraces para premiar en vivo (admin).
+    costumeRanking: adminReadProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => db.getCostumeRanking(input.eventId)),
     // Pestaña Matches: con quién, último mensaje, no leídos y «Visto».
     myMatches: publicProcedure.input(z.object({ ticketCode: z.string() })).query(async ({ input }) => {
       const actor = await requirePartyProfile(input.ticketCode);

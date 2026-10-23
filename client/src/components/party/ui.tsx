@@ -13,7 +13,9 @@ export const tap = () => { try { navigator.vibrate?.(8); } catch { /* sin vibrac
 
 /** El degradado de la marca, el mismo de la App. */
 export const PM_GRADIENT = 'bg-gradient-to-r from-pink-500 via-fuchsia-500 to-sky-500';
-export const PM_CTA = `${PM_GRADIENT} text-white font-bold shadow-[0_10px_28px_-8px_rgba(236,72,153,0.7),inset_0_1px_0_rgba(255,255,255,0.4)]`;
+/** Color del texto/ícono encima del degradado de la marca: blanco, y oscuro en modo Halloween (sobre lima el blanco no se lee). */
+export const ON_ACCENT = 'text-[color:var(--pm-on-accent,#fff)]';
+export const PM_CTA = `${PM_GRADIENT} ${ON_ACCENT} font-bold shadow-[0_10px_28px_-8px_var(--pm-glow,rgba(236,72,153,0.7)),inset_0_1px_0_rgba(255,255,255,0.4)]`;
 
 /** Hoja que sube desde abajo; se cierra tocando afuera, con la X o arrastrando la manija. */
 export function PmSheet({ title, onClose, children, tall = false }: { title?: string; onClose: () => void; children: ReactNode; tall?: boolean }) {
@@ -47,7 +49,7 @@ export function GlassIconButton({ label, onClick, badge = 0, children }: { label
   return (
     <button type="button" onClick={() => { tap(); onClick(); }} aria-label={label} className="lg-pill relative grid h-11 w-11 place-items-center rounded-full text-white interactive">
       {children}
-      {badge > 0 && <span className="absolute -right-0.5 -top-0.5 grid h-5 min-w-5 place-items-center rounded-full bg-pink-500 px-1 text-caption2 font-bold shadow-[0_0_10px_rgba(236,72,153,0.8)]">{badge}</span>}
+      {badge > 0 && <span className={`absolute -right-0.5 -top-0.5 grid h-5 min-w-5 place-items-center rounded-full bg-pink-500 px-1 text-caption2 font-bold ${ON_ACCENT}`}>{badge}</span>}
     </button>
   );
 }

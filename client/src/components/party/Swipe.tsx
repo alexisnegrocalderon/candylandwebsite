@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { animate, motion, useMotionValue, useTransform } from 'framer-motion';
 import { toast } from 'sonner';
-import { Camera, Heart, Info, MapPin, RotateCcw, Sparkles, Star, Wine, X } from 'lucide-react';
+import { Camera, Heart, Info, MapPin, RotateCcw, Sparkles, Star, Trophy, Wine, X } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { ProtectedPhoto, preloadPhoto } from '@/components/party/ProtectedPhoto';
 import { Confetti } from '@/components/site/Confetti';
 import { Chip, PM_CTA, tap } from '@/components/party/ui';
+import type { CostumeVoting } from '@/components/party/costumeVotes';
 import { ZONE_LABELS, type PartyGender, type PartyZone } from '@shared/party';
 
 const GENDER_LABELS: Record<PartyGender, string> = { hombre: 'Hombre', mujer: 'Mujer', pareja: 'Pareja' };
@@ -17,12 +18,14 @@ type Verdict = 'like' | 'nope' | 'caramelo';
  * ★ Caramelo hacia arriba. Los ♥ son ciegos (la otra persona solo se entera si hay match); el
  * Caramelo sí le llega (es el «toque» de siempre, con su tope por noche). Solo entra quien puso su
  * foto (el servidor lo exige igual). */
-export function DiscoverView({ ticketCode, alias, myProfileId, participating, caramelosLeft, onOpenPhoto, onMatch, onGift, onInfo }: {
+export function DiscoverView({ ticketCode, alias, myProfileId, participating, caramelosLeft, voting, onOpenPhoto, onMatch, onGift, onInfo }: {
   ticketCode: string;
   alias: string;
   myProfileId: number;
   participating: boolean;
   caramelosLeft: number;
+  /** «Mejor disfraz»: solo en modo Halloween. */
+  voting?: CostumeVoting;
   onOpenPhoto: () => void;
   onMatch: (m: { connectionId: number; alias: string; otherId: number }) => void;
   onGift: (profileId: number, alias: string) => void;
@@ -116,7 +119,7 @@ export function DiscoverView({ ticketCode, alias, myProfileId, participating, ca
       <div className="flex flex-1 flex-col items-center justify-center px-6 pb-8 text-center">
         <div className="relative mb-6 grid h-40 w-32 place-items-center rounded-[26px] border border-white/15 bg-white/[0.06]">
           <Camera className="h-10 w-10 text-pink-300" strokeWidth={1.6} />
-          <span className="absolute -right-5 top-5 grid h-11 w-11 rotate-12 place-items-center rounded-full bg-gradient-to-br from-pink-500 to-fuchsia-500 shadow-[0_8px_24px_-6px_rgba(236,72,153,0.8)]"><Heart className="h-5 w-5 fill-white text-white" /></span>
+          <span className="absolute -right-5 top-5 grid h-11 w-11 rotate-12 place-items-center rounded-full bg-gradient-to-br from-pink-500 to-fuchsia-500 shadow-[0_8px_24px_-6px_rgba(236,72,153,0.8)]"><Heart className="h-5 w-5 fill-[color:var(--pm-on-accent,#fff)] text-[color:var(--pm-on-accent,#fff)]" /></span>
         </div>
         <h2 className="text-title1 font-bold tracking-tight">Pon tu foto y entra al juego</h2>
         <p className="mt-2 max-w-xs text-subhead leading-snug text-white/70">
@@ -153,7 +156,7 @@ export function DiscoverView({ ticketCode, alias, myProfileId, participating, ca
           );
         })}
         <SwipeCard key={top.id} ticketCode={ticketCode} viewerAlias={alias} card={top} command={command} caramelo={caramelosLeft > 0}
-          onVerdict={(v) => resolve(top, v)} onInfo={() => onInfo(top)} />
+          voting={voting} onVerdict={(v) => resolve(top, v)} onInfo={() => onInfo(top)} />
       </div>
 
       <div className="mt-4 flex items-center justify-center gap-3">
@@ -165,7 +168,7 @@ export function DiscoverView({ ticketCode, alias, myProfileId, participating, ca
           <Star className="h-6 w-6 fill-sky-300 text-sky-300" />
           <span className="absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-full bg-sky-400 px-1 text-caption2 font-bold text-[#0b0612]">{caramelosLeft}</span>
         </RoundButton>
-        <RoundButton label="Me gusta" size="lg" primary onClick={() => press('like')}><Heart className="h-8 w-8 fill-white text-white" /></RoundButton>
+        <RoundButton label="Me gusta" size="lg" primary onClick={() => press('like')}><Heart className="h-8 w-8 fill-[color:var(--pm-on-accent,#fff)] text-[color:var(--pm-on-accent,#fff)]" /></RoundButton>
         <RoundButton label={`Invitarle un trago a ${top.alias}`} onClick={() => { tap(); onGift(top.id, top.alias); }}><Wine className="h-6 w-6 text-amber-300" /></RoundButton>
       </div>
     </div>
@@ -175,7 +178,7 @@ export function DiscoverView({ ticketCode, alias, myProfileId, participating, ca
 function RoundButton({ label, onClick, children, size = 'md', primary = false, dim = false }: { label: string; onClick: () => void; children: React.ReactNode; size?: 'sm' | 'md' | 'lg'; primary?: boolean; dim?: boolean }) {
   const dims = size === 'lg' ? 'h-[66px] w-[66px]' : size === 'sm' ? 'h-11 w-11' : 'h-[50px] w-[50px]';
   const look = primary
-    ? 'bg-gradient-to-br from-pink-500 via-fuchsia-500 to-sky-500 shadow-[0_12px_30px_-6px_rgba(236,72,153,0.75),inset_0_1px_0_rgba(255,255,255,0.45)]'
+    ? 'bg-gradient-to-br from-pink-500 via-fuchsia-500 to-sky-500 shadow-[0_12px_30px_-6px_var(--pm-glow,rgba(236,72,153,0.75)),inset_0_1px_0_rgba(255,255,255,0.45)]'
     : 'lg-pill';
   return (
     <button type="button" onClick={onClick} aria-label={label} className={`relative grid ${dims} shrink-0 place-items-center rounded-full transition-transform active:scale-90 ${look} ${dim ? 'opacity-45' : ''}`}>
@@ -184,12 +187,13 @@ function RoundButton({ label, onClick, children, size = 'md', primary = false, d
   );
 }
 
-function SwipeCard({ ticketCode, viewerAlias, card, command, caramelo, onVerdict, onInfo }: {
+function SwipeCard({ ticketCode, viewerAlias, card, command, caramelo, voting, onVerdict, onInfo }: {
   ticketCode: string;
   viewerAlias: string;
   card: DeckCard;
   command: { v: Verdict; n: number } | null;
   caramelo: boolean;
+  voting?: CostumeVoting;
   onVerdict: (v: Verdict) => void;
   onInfo: () => void;
 }) {
@@ -270,10 +274,19 @@ function SwipeCard({ ticketCode, viewerAlias, card, command, caramelo, onVerdict
           <Chip><MapPin className="h-3 w-3" /> En {ZONE_LABELS[card.zone]}</Chip>
         </div>
       </div>
-      <button type="button" onClick={() => { tap(); onInfo(); }} onPointerDownCapture={(e) => e.stopPropagation()} aria-label={`Ver el perfil de ${card.alias}`}
-        className="absolute bottom-5 right-4 grid h-10 w-10 place-items-center rounded-full bg-white/15 backdrop-blur-md">
-        <Info className="h-5 w-5" />
-      </button>
+      <div className="absolute bottom-5 right-4 flex gap-2">
+        {voting && (
+          <button type="button" onClick={() => { tap(); voting.toggle(card.id, card.alias); }} onPointerDownCapture={(e) => e.stopPropagation()}
+            aria-pressed={voting.votedIds.has(card.id)} aria-label={voting.votedIds.has(card.id) ? `Quitar mi voto de mejor disfraz a ${card.alias}` : `Votar el disfraz de ${card.alias} como el mejor`}
+            className={`grid h-10 w-10 place-items-center rounded-full backdrop-blur-md ${voting.votedIds.has(card.id) ? 'bg-amber-300 text-[#1a1a1a]' : 'bg-white/15'}`}>
+            <Trophy className={`h-5 w-5 ${voting.votedIds.has(card.id) ? 'fill-current' : ''}`} />
+          </button>
+        )}
+        <button type="button" onClick={() => { tap(); onInfo(); }} onPointerDownCapture={(e) => e.stopPropagation()} aria-label={`Ver el perfil de ${card.alias}`}
+          className="grid h-10 w-10 place-items-center rounded-full bg-white/15 backdrop-blur-md">
+          <Info className="h-5 w-5" />
+        </button>
+      </div>
 
       {/* Los sellos: ME GUSTA (rosa), NOPE (blanco) y CARAMELO (celeste, hacia arriba). */}
       <motion.span style={{ opacity: likeOpacity }} className="pointer-events-none absolute left-5 top-8 -rotate-[14deg] rounded-xl border-[3px] border-pink-400 px-3 py-1 text-title2 font-black tracking-wider text-pink-400 shadow-[0_0_24px_rgba(236,72,153,0.6)]">

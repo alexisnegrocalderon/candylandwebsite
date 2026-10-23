@@ -375,3 +375,12 @@ export function sanitizeCostume(raw: string | null | undefined): { ok: true; cos
   }
   return { ok: true, costume };
 }
+
+// --- Votar «Mejor disfraz» (aniversario Halloween) --------------------------------------
+
+/** Votos por persona y por noche. Pocos a propósito: el voto vale porque hay que elegir. */
+export const MAX_COSTUME_VOTES_PER_EVENT = 3;
+
+export function costumeVotesLeft(used: number): number {
+  return Math.max(0, MAX_COSTUME_VOTES_PER_EVENT - used);
+}

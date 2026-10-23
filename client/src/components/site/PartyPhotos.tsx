@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { ImagePlus, Loader2, Repeat, Star, Trash2 } from 'lucide-react';
+import { useHalloweenMode } from '@/lib/halloween';
 import { trpc } from '@/lib/trpc';
 import { compressSelfie } from '@/lib/partyPhoto';
 import { ProtectedPhoto, forgetPhotos } from '@/components/party/ProtectedPhoto';
@@ -24,6 +25,9 @@ export function PartyPhotos({ ticketCode, profileId, alias, photoCount, onChange
   const [target, setTarget] = useState<number | null>(null);
   const [menu, setMenu] = useState<number | null>(null);
   const [busy, setBusy] = useState<number | null>(null);
+  // Modo Halloween: se ofrece el marco del evento, prendido de entrada (se pinta en la foto al subirla).
+  const halloween = useHalloweenMode();
+  const [frame, setFrame] = useState(true);
   const [version, setVersion] = useState(0);
   const upload = trpc.party.uploadPhoto.useMutation();
   const remove = trpc.party.deletePhoto.useMutation();
@@ -37,7 +41,7 @@ export function PartyPhotos({ ticketCode, profileId, alias, photoCount, onChange
     if (!file || position === null) return;
     setBusy(position);
     try {
-      await upload.mutateAsync({ ticketCode, photoBase64: await compressSelfie(file), position });
+      await upload.mutateAsync({ ticketCode, photoBase64: await compressSelfie(file, { frame: halloween && frame }), position });
       toast.success('Foto lista');
       refresh();
     } catch (err) {
@@ -85,6 +89,16 @@ export function PartyPhotos({ ticketCode, profileId, alias, photoCount, onChange
           <button type="button" onClick={() => run(menu, () => remove.mutateAsync({ ticketCode, position: menu }), 'Foto borrada')}
             className="flex h-11 flex-1 items-center justify-center gap-1.5 rounded-full bg-rose-500/10 text-footnote font-semibold text-rose-300"><Trash2 className="h-4 w-4" /> Borrar</button>
         </div>
+      )}
+      {halloween && (
+        <button type="button" role="switch" aria-checked={frame} onClick={() => { tap(); setFrame((v) => !v); }}
+          className="lg-pill mt-3 flex h-12 w-full items-center gap-3 rounded-full px-4 text-left">
+          <span className="text-title3" aria-hidden>🎃</span>
+          <span className="min-w-0 flex-1 text-subhead font-semibold">Marco de Aniversario <span className="font-normal text-white/60">· en las fotos nuevas</span></span>
+          <span className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${frame ? 'bg-[#c4ff4d]' : 'bg-white/20'}`}>
+            <span className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-all ${frame ? 'left-[22px]' : 'left-0.5'}`} />
+          </span>
+        </button>
       )}
       <input ref={input} type="file" accept="image/*" className="hidden" onChange={(e) => { void onFile(e.target.files?.[0]); }} />
     </div>

@@ -15,7 +15,9 @@ import { MatchesView } from '@/components/party/Matches';
 import { Chat } from '@/components/party/Chat';
 import { PersonSheet, type SheetPerson } from '@/components/party/PersonSheet';
 import { ProtectedPhoto } from '@/components/party/ProtectedPhoto';
-import { GlassIconButton, PmSheet, PM_CTA, tap } from '@/components/party/ui';
+import { GlassIconButton, ON_ACCENT, PmSheet, PM_CTA, tap } from '@/components/party/ui';
+import { useCostumeVotes } from '@/components/party/costumeVotes';
+import { useHalloweenMode } from '@/lib/halloween';
 import type { PartyGender, PartyZone } from '@shared/party';
 import { rememberTicketCode } from '@/lib/lastTicketCode';
 import { CreateProfile } from '@/components/site/PartyProfileForm';
@@ -73,6 +75,9 @@ export function PartyExperience({ ticketCode, onBack }: { ticketCode: string; on
   const [photoOpen, setPhotoOpen] = useState(false);
 
   const inside = !!session.data?.profile && !session.data?.denial;
+  // Modo Halloween (el interruptor del admin): paleta lima y violeta, y votar «Mejor disfraz».
+  const halloween = useHalloweenMode();
+  const voting = useCostumeVotes(ticketCode, inside && halloween);
   // 10 segundos: se siente vivo sin castigar la batería ni la función serverless. El chat abierto va a 3 s.
   const mansion = trpc.party.listMansion.useQuery({ ticketCode }, { enabled: inside, refetchInterval: 10_000 });
   const myGifts = trpc.party.myGifts.useQuery({ ticketCode }, { enabled: inside, refetchInterval: 10_000 });
@@ -113,7 +118,7 @@ export function PartyExperience({ ticketCode, onBack }: { ticketCode: string; on
   const celebrate = (m: { connectionId: number; alias: string; otherId: number }) => { setSelected(null); setMatch(m); utils.party.listMansion.invalidate(); utils.party.myMatches.invalidate(); };
 
   return (
-    <div className="account-font account-tokens relative flex h-dvh flex-col overflow-hidden bg-[#0b0612] text-white">
+    <div className={`account-font account-tokens relative flex h-dvh flex-col overflow-hidden bg-[color:var(--pm-bg,#0b0612)] text-white ${halloween ? 'pm-halloween' : ''}`}>
       <div className="account-backdrop" />
       <header className="relative z-10 flex shrink-0 items-center gap-2 px-4 pb-2 pt-[max(12px,env(safe-area-inset-top))]">
         {onBack ? (
@@ -143,6 +148,7 @@ export function PartyExperience({ ticketCode, onBack }: { ticketCode: string; on
               myProfileId={profile.id}
               participating={canPhoto}
               caramelosLeft={caramelosLeft}
+              voting={halloween ? voting : undefined}
               onOpenPhoto={() => setPhotoOpen(true)}
               onMatch={celebrate}
               onGift={gift}
@@ -174,7 +180,7 @@ export function PartyExperience({ ticketCode, onBack }: { ticketCode: string; on
                 className={`relative flex flex-col items-center justify-center gap-0.5 rounded-full py-2 text-caption2 font-semibold transition-all duration-300 ${tab === id ? 'bg-white/[0.16] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.3)]' : 'text-white/60'}`}>
                 <Icon className={`h-[22px] w-[22px] ${tab === id && id === 'descubrir' ? 'fill-pink-500 text-pink-400' : ''}`} />
                 {label}
-                {badge > 0 && <span className="absolute right-3 top-0.5 grid h-5 min-w-5 place-items-center rounded-full bg-pink-500 px-1 text-caption2 font-bold text-white shadow-[0_0_10px_rgba(236,72,153,0.8)]">{badge}</span>}
+                {badge > 0 && <span className={`absolute right-3 top-0.5 grid h-5 min-w-5 place-items-center rounded-full bg-pink-500 px-1 text-caption2 font-bold ${ON_ACCENT}`}>{badge}</span>}
               </button>
             );
           })}
@@ -183,7 +189,7 @@ export function PartyExperience({ ticketCode, onBack }: { ticketCode: string; on
 
       <AnimatePresence>
         {selected && (
-          <PersonSheet key="persona" ticketCode={ticketCode} viewerAlias={profile.alias} canPhoto={canPhoto} person={selected} caramelosLeft={caramelosLeft}
+          <PersonSheet key="persona" ticketCode={ticketCode} viewerAlias={profile.alias} canPhoto={canPhoto} person={selected} caramelosLeft={caramelosLeft} voting={halloween ? voting : undefined}
             onClose={() => setSelected(null)} onOpenChat={chatWith} onGift={gift} onMatch={celebrate} />
         )}
         {match && (

@@ -56,7 +56,7 @@ export function DrinkPicker({ ticketCode, targetProfileId, targetAlias, onClose,
             }`}
           >
             <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-full ${selected === d.id ? 'bg-pink-500' : 'bg-white/10'}`}>
-              {selected === d.id ? <Check className="h-5 w-5" /> : <Wine className="h-5 w-5 text-amber-300" />}
+              {selected === d.id ? <Check className="h-5 w-5 text-[color:var(--pm-on-accent,#fff)]" /> : <Wine className="h-5 w-5 text-amber-300" />}
             </span>
             <span className="min-w-0 flex-1">
               <span className="block text-body font-semibold">{d.name}</span>

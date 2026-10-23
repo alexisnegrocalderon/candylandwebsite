@@ -1636,6 +1636,22 @@ export const partySwipes = mysqlTable("partySwipes", {
 
 export type PartySwipe = typeof partySwipes.$inferSelect;
 
+// Votos de «Mejor disfraz» (aniversario Halloween): un voto por par (quien vota, a quién). Los ve
+// solo el staff en el admin (ranking), nunca los invitados: no cambia lo ciego del swipe. Se borran
+// a las 24 h de terminada la fiesta, junto con los mensajes.
+export const partyCostumeVotes = mysqlTable("partyCostumeVotes", {
+  id: int("id").autoincrement().primaryKey(),
+  eventId: int("eventId").notNull(),
+  fromProfileId: int("fromProfileId").notNull(),
+  toProfileId: int("toProfileId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  pairIdx: uniqueIndex("party_costume_votes_pair_idx").on(table.fromProfileId, table.toProfileId),
+  eventTargetIdx: index("party_costume_votes_event_idx").on(table.eventId, table.toProfileId),
+}));
+
+export type PartyCostumeVote = typeof partyCostumeVotes.$inferSelect;
+
 // Un toque 👋 y su respuesta. El par se guarda SIEMPRE normalizado
 // (profileLowId < profileHighId, ver orderedPair en shared/party.ts): con
 // eso el índice único de abajo impide duplicados en los dos sentidos, y

@@ -49,7 +49,7 @@ export function Chat({ ticketCode, connectionId, alias, otherId, viewerAlias, ca
 
   return (
     <motion.div
-      className="account-font account-tokens fixed inset-0 z-[88] flex flex-col bg-[#0b0612] text-white"
+      className="account-font account-tokens fixed inset-0 z-[88] flex flex-col bg-[color:var(--pm-bg,#0b0612)] text-white"
       initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
       transition={{ type: 'spring', damping: 32, stiffness: 320 }}
     >
@@ -86,7 +86,7 @@ export function Chat({ ticketCode, connectionId, alias, otherId, viewerAlias, ca
             <div key={m.id} className={`flex ${m.mine ? 'justify-end' : 'justify-start'} ${tail ? 'pb-1.5' : ''}`}>
               <p className={`max-w-[78%] whitespace-pre-wrap break-words px-4 py-2.5 text-body leading-snug ${
                 m.mine
-                  ? `bg-gradient-to-br from-pink-500 to-fuchsia-600 text-white ${tail ? 'rounded-[20px] rounded-br-[6px]' : 'rounded-[20px]'}`
+                  ? `bg-gradient-to-br from-pink-500 to-fuchsia-600 text-[color:var(--pm-on-accent,#fff)] ${tail ? 'rounded-[20px] rounded-br-[6px]' : 'rounded-[20px]'}`
                   : `bg-white/[0.12] text-white backdrop-blur-md ${tail ? 'rounded-[20px] rounded-bl-[6px]' : 'rounded-[20px]'}`
               }`}>
                 {m.body}
@@ -110,7 +110,7 @@ export function Chat({ ticketCode, connectionId, alias, otherId, viewerAlias, ca
           className="h-11 min-w-0 flex-1 rounded-full border border-white/15 bg-white/[0.07] px-4 text-body text-white placeholder:text-white/45 focus:border-pink-400/60 focus:outline-none"
         />
         <button type="button" onClick={submit} disabled={!text.trim() || send.isPending} aria-label="Enviar"
-          className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-gradient-to-br from-pink-500 to-fuchsia-600 transition-opacity disabled:opacity-35">
+          className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-gradient-to-br from-pink-500 to-fuchsia-600 text-[color:var(--pm-on-accent,#fff)] transition-opacity disabled:opacity-35">
           <ArrowUp className="h-5 w-5" strokeWidth={2.6} />
         </button>
       </div>

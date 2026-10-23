@@ -61,3 +61,14 @@ describe('«Visto» en el chat', () => {
     expect(isSeenBy(null, '2026-10-31T23:01:00Z')).toBe(false);
   });
 });
+
+describe('Votar «Mejor disfraz»', () => {
+  it('son 3 votos por noche', async () => {
+    const { costumeVotesLeft, MAX_COSTUME_VOTES_PER_EVENT } = await import('./party');
+    expect(MAX_COSTUME_VOTES_PER_EVENT).toBe(3);
+    expect(costumeVotesLeft(0)).toBe(3);
+    expect(costumeVotesLeft(2)).toBe(1);
+    expect(costumeVotesLeft(3)).toBe(0);
+    expect(costumeVotesLeft(9)).toBe(0);
+  });
+});

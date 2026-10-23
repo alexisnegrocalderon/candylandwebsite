@@ -10,11 +10,11 @@ import { findExistingMatch, mergeFields, type ImportFields } from "../shared/blo
 import { ambassadorBuyerDiscount, bestBuyerDiscount, effectiveBuyerDiscountPercent, type GeneralBuyerDiscount } from "../shared/ambassadorDiscount";
 import { normalizeIgHandle, saysAlreadyBought, type BuyerCandidate } from "../shared/igCustomerLink";
 import { computeFans, FAN_WINDOW_DAYS } from "../shared/igEngagement";
-import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, partyPhotos, partySwipes, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog, eventSurveys, eventSurveySettings, accessCredits, type AccessCredit, igComments, type IgComment, igReferrals, type IgReferralRow, igLinkClicks, staffMembers, staffShifts, aiUsage, attendeeContacts } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, partyPhotos, partySwipes, partyCostumeVotes, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog, eventSurveys, eventSurveySettings, accessCredits, type AccessCredit, igComments, type IgComment, igReferrals, type IgReferralRow, igLinkClicks, staffMembers, staffShifts, aiUsage, attendeeContacts } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
 import { isMissionActiveForEvent, missionDepositPrice, personasForAccesoSlug, personasForTicket } from '../shared/mission300';
-import { MAX_TOUCHES_PER_EVENT, MAX_PARTY_PHOTOS, MAX_REWINDS_PER_EVENT, photoSlotFor, isMutualInterest, isSeenBy, parseLookingFor, PRESENCE_WINDOW_MS, SWIPE_DECK_SIZE, canSeePhotos, giftExpiresAt, isGiftExpired, canPayGift, canRespondToGift, orderedPair, type PartyGender, type PartyZone } from '../shared/party';
+import { MAX_TOUCHES_PER_EVENT, MAX_COSTUME_VOTES_PER_EVENT, costumeVotesLeft, MAX_PARTY_PHOTOS, MAX_REWINDS_PER_EVENT, photoSlotFor, isMutualInterest, isSeenBy, parseLookingFor, PRESENCE_WINDOW_MS, SWIPE_DECK_SIZE, canSeePhotos, giftExpiresAt, isGiftExpired, canPayGift, canRespondToGift, orderedPair, type PartyGender, type PartyZone } from '../shared/party';
 import { playcoinsEarnedForPurchase, clampRedeemAmount } from '../shared/playcoins';
 import { isEventToday } from '../shared/eventDay';
 import { chileHourOf, startOfChileDay } from '../shared/chileDate';
@@ -6868,6 +6868,80 @@ export type PartyMatchRow = {
   since: Date;
 };
 
+/* --- Mejor disfraz ---------------------------------------------------------- */
+
+/** A quién ya votó esta persona y cuántos votos le quedan. */
+export async function getMyCostumeVotes(profileId: number) {
+  const db = await getDb();
+  if (!db) return { votedIds: [] as number[], votesLeft: 0 };
+  const rows = await db.select({ to: partyCostumeVotes.toProfileId }).from(partyCostumeVotes).where(eq(partyCostumeVotes.fromProfileId, profileId));
+  return { votedIds: rows.map((r: any) => r.to as number), votesLeft: costumeVotesLeft(rows.length) };
+}
+
+/** Vota (o quita el voto) por el disfraz de alguien. Hay que poder ver su foto (participar del
+ * swipe), no se vota a uno mismo ni a quien se bloqueó, y son pocos votos por noche. */
+export async function toggleCostumeVote(
+  viewer: { id: number; eventId: number; swipeEnabled: number; banned: number },
+  targetProfileId: number,
+): Promise<{ ok: true; voted: boolean; votesLeft: number } | { ok: false; reason: string }> {
+  const db = await getDb();
+  if (!db) return { ok: false, reason: 'Base de datos no disponible' };
+  if (viewer.id === targetProfileId) return { ok: false, reason: 'No puedes votarte a ti mismo' };
+  if (!canSeePhotos(viewer, await partyProfileHasPhoto(viewer.id))) return { ok: false, reason: 'Primero pon tu foto para votar' };
+
+  const [existing] = await db.select().from(partyCostumeVotes)
+    .where(and(eq(partyCostumeVotes.fromProfileId, viewer.id), eq(partyCostumeVotes.toProfileId, targetProfileId))).limit(1);
+  if (existing) {
+    await db.delete(partyCostumeVotes).where(eq(partyCostumeVotes.id, existing.id));
+    return { ok: true, voted: false, votesLeft: (await getMyCostumeVotes(viewer.id)).votesLeft };
+  }
+
+  const [target] = await db.select().from(partyProfiles).where(eq(partyProfiles.id, targetProfileId)).limit(1);
+  if (!target || target.eventId !== viewer.eventId || target.active !== 1 || target.banned || !(await partyProfileHasPhoto(targetProfileId))) {
+    return { ok: false, reason: 'Esa persona ya no está disponible' };
+  }
+  if ((await getPartyHiddenIds(db, viewer.id)).has(targetProfileId)) return { ok: false, reason: 'Esa persona ya no está disponible' };
+
+  const mine = await getMyCostumeVotes(viewer.id);
+  if (mine.votesLeft <= 0) return { ok: false, reason: `Ya usaste tus ${MAX_COSTUME_VOTES_PER_EVENT} votos. Quita uno para votar por otra persona` };
+  try {
+    await db.insert(partyCostumeVotes).values({ eventId: viewer.eventId, fromProfileId: viewer.id, toProfileId: targetProfileId });
+  } catch {
+    // Dos toques seguidos: el voto ya quedó guardado.
+  }
+  return { ok: true, voted: true, votesLeft: (await getMyCostumeVotes(viewer.id)).votesLeft };
+}
+
+/** Ranking para el staff: los disfraces más votados, con lo que hace falta para encontrar a la
+ * persona y entregarle el premio (alias, disfraz, zona, y el nombre de la entrada). Solo admin. */
+export async function getCostumeRanking(eventId: number, limit = 10) {
+  const db = await getDb();
+  if (!db) return [];
+  const top = await db.select({ profileId: partyCostumeVotes.toProfileId, votes: sql<number>`count(*)` })
+    .from(partyCostumeVotes).where(eq(partyCostumeVotes.eventId, eventId))
+    .groupBy(partyCostumeVotes.toProfileId).orderBy(desc(sql`count(*)`), partyCostumeVotes.toProfileId).limit(limit);
+  if (top.length === 0) return [];
+  const profiles = await db.select({
+    id: partyProfiles.id, alias: partyProfiles.alias, costume: partyProfiles.costume, zone: partyProfiles.zone,
+    banned: partyProfiles.banned, lastSeenAt: partyProfiles.lastSeenAt, holderName: tickets.holderName,
+  }).from(partyProfiles).leftJoin(tickets, eq(tickets.id, partyProfiles.ticketId))
+    .where(inArray(partyProfiles.id, top.map((t: any) => t.profileId)));
+  const byId = new Map<number, any>(profiles.map((p: any) => [p.id, p]));
+  return top.map((t: any) => {
+    const p = byId.get(t.profileId);
+    return {
+      profileId: t.profileId as number,
+      votes: Number(t.votes),
+      alias: (p?.alias as string | undefined) ?? 'Perfil eliminado',
+      costume: (p?.costume as string | null | undefined) ?? null,
+      zone: (p?.zone as PartyZone | undefined) ?? null,
+      holderName: (p?.holderName as string | null | undefined) ?? null,
+      banned: !!p?.banned,
+      lastSeenAt: (p?.lastSeenAt as Date | undefined) ?? null,
+    };
+  });
+}
+
 /** Mis matches para la pestaña Matches: con quién, su último mensaje, cuántos no leí y si vio lo
  * último que le mandé. Solo conexiones aceptadas, sin bloqueados ni gente que ya no está activa. */
 export async function listPartyMatches(profileId: number): Promise<PartyMatchRow[]> {
@@ -7420,6 +7494,8 @@ export async function purgeOldPartyMessages(now: Date = new Date()) {
   if (oldEvents.length === 0) return { deletedFor: 0 };
 
   const eventIds = oldEvents.map((e: any) => e.id);
+  // Los votos de «Mejor disfraz» se borran junto con los mensajes (el staff ya premió esa noche).
+  await db.delete(partyCostumeVotes).where(inArray(partyCostumeVotes.eventId, eventIds));
   const conns = await db.select({ id: partyConnections.id }).from(partyConnections)
     .where(inArray(partyConnections.eventId, eventIds));
   if (conns.length === 0) return { deletedFor: 0 };
