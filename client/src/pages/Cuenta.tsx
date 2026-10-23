@@ -2,7 +2,7 @@ import { Component, Fragment, useEffect, useRef, useState, type ReactNode } from
 import { createPortal } from 'react-dom';
 import { AnimatePresence, MotionConfig, motion, useDragControls } from 'framer-motion';
 import { toast } from 'sonner';
-import { Calendar, Check, Copy, Crown, Gift, LogOut, Sparkles, Ticket as TicketIcon, ArrowRight, Download, Loader2, X, QrCode, CreditCard, Coins, MoreHorizontal, Home, Wallet, Plus, RefreshCw, Bell, ChevronLeft, ChevronRight, Heart, Stamp as StampIcon } from 'lucide-react';
+import { Calendar, Check, Copy, Crown, Gift, LogOut, Sparkles, Ticket as TicketIcon, ArrowRight, Download, Loader2, X, QrCode, CreditCard, Home, Wallet, Plus, RefreshCw, Bell, ChevronLeft, ChevronRight, Heart, User } from 'lucide-react';
 import { Link } from 'wouter';
 import { trpc } from '@/lib/trpc';
 import type { inferRouterOutputs } from '@trpc/server';
@@ -18,7 +18,7 @@ import { useDarkChrome } from '@/lib/darkChrome';
 import { Pager } from '@/components/site/Pager';
 import { TiltCard } from '@/components/site/TiltCard';
 import { BottomSheet, PayInCajaViewer, SavedCardsSection, TopupSheet, useMemberPayConfig } from '@/components/site/AccountPayments';
-import { AmbassadorAccount, useAmbassadorPanel } from '@/components/site/AmbassadorAccount';
+import { AmbassadorAccount, AppScreen, useAmbassadorPanel } from '@/components/site/AmbassadorAccount';
 import { StampsTab } from '@/components/site/StampCard';
 import { PlaymatchTab } from '@/components/site/PlaymatchTab';
 import { canEnterParty } from '@shared/party';
@@ -664,62 +664,64 @@ function MovementsPreview({ me, onAll }: { me: Me; onAll: () => void }) {
 
 /* ── Celular: una pantalla fija tipo app, con barra de íconos abajo como el panel ── */
 
-type Tab = 'card' | 'embajador' | 'playmatch' | 'sellos' | 'puntos' | 'cupones';
+/* La barra de abajo: 4 secciones y un «+» al centro con todo lo demás. Sellos, Puntos y Cupones
+ * viven juntos en «Premios»; «Embajador», Avisos y Cerrar sesión, en «Perfil». */
+type Tab = 'card' | 'playmatch' | 'premios' | 'perfil';
+type Prize = 'sellos' | 'puntos' | 'cupones';
 const TABS: { key: Tab; label: string; icon: typeof CreditCard }[] = [
   { key: 'card', label: 'PlayCard', icon: CreditCard },
   { key: 'playmatch', label: 'Playmatch', icon: Heart },
-  { key: 'sellos', label: 'Sellos', icon: StampIcon },
-  { key: 'puntos', label: 'Puntos', icon: Coins },
-  { key: 'cupones', label: 'Cupones', icon: Gift },
+  { key: 'premios', label: 'Premios', icon: Gift },
+  { key: 'perfil', label: 'Perfil', icon: User },
+];
+const PRIZES: { key: Prize; label: string }[] = [
+  { key: 'sellos', label: 'Sellos' },
+  { key: 'puntos', label: 'Puntos' },
+  { key: 'cupones', label: 'Cupones' },
 ];
 
-const TAB_KEY = 'cuenta.tab';
-const SCROLL_KEY = 'cuenta.embajador.scroll';
-
-/** La pestaña «Embajador» es larga: se recuerda hasta dónde bajó, para volver ahí. */
-function RememberScroll({ children }: { children: ReactNode }) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    let saved = 0;
-    try { saved = Number(sessionStorage.getItem(SCROLL_KEY) || 0); } catch { /* nada */ }
-    // Espera a que el contenido tenga alto antes de bajar.
-    const t = window.setTimeout(() => { el.scrollTop = saved; }, 60);
-    const onScroll = () => { try { sessionStorage.setItem(SCROLL_KEY, String(el.scrollTop)); } catch { /* nada */ } };
-    el.addEventListener('scroll', onScroll, { passive: true });
-    return () => { window.clearTimeout(t); el.removeEventListener('scroll', onScroll); };
-  }, []);
-  return <div ref={ref} className="-mx-1 min-h-0 flex-1 overflow-y-auto overscroll-contain px-1 pb-4">{children}</div>;
+/** Una pestaña guardada (o la de un aviso: `?tab=`) a la barra nueva; las viejas se acomodan solas. */
+function resolveTab(raw: string | null | undefined): { tab: Tab; prize?: Prize; open?: 'embajador' } | null {
+  if (!raw) return null;
+  if ((['card', 'playmatch', 'premios', 'perfil'] as string[]).includes(raw)) return { tab: raw as Tab };
+  if (raw === 'sellos' || raw === 'puntos' || raw === 'cupones') return { tab: 'premios', prize: raw };
+  if (raw === 'embajador') return { tab: 'perfil', open: 'embajador' };
+  return null;
 }
 
-// Solo para quien entra con el correo de un embajador: su pestaña va segunda.
-const AMBASSADOR_TAB: { key: Tab; label: string; icon: typeof CreditCard } = { key: 'embajador', label: 'Embajador', icon: Crown };
+const TAB_KEY = 'cuenta.tab';
+const PRIZE_KEY = 'cuenta.premios';
 
 function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | null; onLogout: () => void }) {
   // Al volver de otra pantalla (comprar, un evento…) se abre en la misma pestaña donde estaba.
-  const [tab, setTabState] = useState<Tab>(() => {
-    const valid = (t: string | null): t is Tab => !!t && (['card', 'embajador', 'playmatch', 'sellos', 'puntos', 'cupones'] as string[]).includes(t);
+  const initial = (() => {
     // Un aviso puede abrir una pestaña (?tab=playmatch, al escanear la entrada).
     try {
-      const fromUrl = new URLSearchParams(window.location.search).get('tab');
-      if (valid(fromUrl)) return fromUrl;
+      const fromUrl = resolveTab(new URLSearchParams(window.location.search).get('tab'));
+      if (fromUrl) return fromUrl;
     } catch { /* nada */ }
-    try {
-      const saved = sessionStorage.getItem(TAB_KEY);
-      return valid(saved) ? saved : 'card';
-    } catch { return 'card'; }
+    try { return resolveTab(sessionStorage.getItem(TAB_KEY)) ?? { tab: 'card' as Tab }; } catch { return { tab: 'card' as Tab }; }
+  })();
+  const [tab, setTabState] = useState<Tab>(initial.tab);
+  const [prize, setPrizeState] = useState<Prize>(() => {
+    if (initial.prize) return initial.prize;
+    try { const saved = sessionStorage.getItem(PRIZE_KEY); return saved === 'puntos' || saved === 'cupones' ? saved : 'sellos'; } catch { return 'sellos'; }
   });
   const setTab = (next: Tab) => {
     setTabState(next);
     try { sessionStorage.setItem(TAB_KEY, next); } catch { /* sin almacenamiento: parte en PlayCard */ }
   };
+  const setPrize = (next: Prize) => {
+    tapHaptic();
+    setPrizeState(next);
+    try { sessionStorage.setItem(PRIZE_KEY, next); } catch { /* nada */ }
+  };
   const ambassador = useAmbassadorPanel();
-  // Pestaña guardada de «Embajador» pero ya no lo es (o es otra cuenta): vuelve a PlayCard.
-  const ambassadorChecked = trpc.member.ambassador.useQuery(undefined, { retry: false, staleTime: 60_000 }).isFetched;
-  useEffect(() => { if (tab === 'embajador' && ambassadorChecked && !ambassador) setTab('card'); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [tab, ambassadorChecked, ambassador]);
-  const tabs = ambassador ? [TABS[0], AMBASSADOR_TAB, ...TABS.slice(1)] : TABS;
+  const tabs = TABS;
+  // El aviso de contenido nuevo (`?tab=embajador`) abre directo la pantalla Embajador, una sola vez.
+  const openEmb = useRef(initial.open === 'embajador' && new URLSearchParams(window.location.search).get('tab') === 'embajador');
   const [more, setMore] = useState(false);
+  useEffect(() => { if (openEmb.current && ambassador) { openEmb.current = false; setSheet('embajador'); } }, [ambassador]);
   const sheetDrag = useDragControls();
   const pay = useMemberPayConfig();
   const [topupOpen, setTopupOpen] = useState(false);
@@ -728,7 +730,7 @@ function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | nu
   const level = CUSTOMER_LEVEL_META[me.level as keyof typeof CUSTOMER_LEVEL_META];
   const upcoming = me.events as MeEvent[];
   const activeCoupons = me.coupons.filter((c) => c.status === 'disponible').length;
-  const { href: buyHref } = useBuyHref(me.nextEvent?.slug);
+  const { href: buyHref, last: lastBuy } = useBuyHref(me.nextEvent?.slug);
   // La noche de la fiesta, ya escaneada: un punto en la pestaña Playmatch.
   const playmatchLive = upcoming.some((e) => e.tickets.some((x) => (x.category ?? 'acceso') === 'acceso' && canEnterParty({ status: x.status, eventId: e.eventId }, { eventDate: e.eventDate, doorsOpen: e.doorsOpen, eventEnd: e.eventEnd })));
   const pushPending = push.state === 'ask' || push.state === 'ios-install';
@@ -736,7 +738,7 @@ function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | nu
   const touch = useRef<{ x: number; y: number } | null>(null);
   const [dir, setDir] = useState(1);
   // Sub-hojas de «Más» y de «Puntos» (cada tema grande abre la suya, para que ninguna pantalla crezca).
-  const [sheet, setSheet] = useState<null | 'tarjetas' | 'beneficios' | 'avisos' | 'movimientos' | 'entradas'>(null);
+  const [sheet, setSheet] = useState<null | 'tarjetas' | 'beneficios' | 'avisos' | 'movimientos' | 'entradas' | 'embajador'>(null);
   const go = (next: Tab) => {
     if (next === tab) return;
     tapHaptic();
@@ -786,44 +788,104 @@ function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | nu
               <BuyNextCard me={me} />
             </>
           )}
-          {tab === 'embajador' && ambassador && (
-            // Lo único que se desplaza en vertical: el contenido para compartir es largo.
-            <RememberScroll><AmbassadorAccount panel={ambassador} /></RememberScroll>
-          )}
           {tab === 'playmatch' && (
             <div className="-mx-1 min-h-0 flex-1 overflow-y-auto overscroll-contain px-1 pb-4"><PlaymatchTab events={upcoming} buyHref={buyHref} /></div>
           )}
-          {tab === 'sellos' && (
-            <div className="-mx-1 min-h-0 flex-1 overflow-y-auto overscroll-contain px-1 pb-4"><StampsTab buySlug={me.nextEvent?.slug ?? null} /></div>
-          )}
-          {tab === 'puntos' && (<>
-            <PlaycoinsCard me={me} />
-            {pay.accountTopup && <button type="button" onClick={() => setTopupOpen(true)} className="inline-flex h-12 w-full shrink-0 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-pink-500 via-fuchsia-500 to-sky-500 text-sm font-bold text-white"><Plus className="h-4 w-4" /> Recargar saldo (hoy {`$${me.prepaidBalance.toLocaleString('es-CL')}`})</button>}
-            <MovementsPreview me={me} onAll={() => setSheet('movimientos')} />
+          {tab === 'premios' && (<>
+            {/* Sellos, Puntos y Cupones en una sola sección. */}
+            <div role="tablist" aria-label="Premios" className="account-glass grid shrink-0 grid-cols-3 gap-1 rounded-full p-1">
+              {PRIZES.map(({ key, label }) => (
+                <button key={key} type="button" role="tab" aria-selected={prize === key} onClick={() => setPrize(key)}
+                  className={`relative h-9 rounded-full text-[13.5px] font-semibold transition-all duration-300 ${prize === key ? 'bg-white/[0.18] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.3)]' : 'text-white/60'}`}>
+                  {label}
+                  {key === 'cupones' && activeCoupons > 0 && <span className="ml-1.5 inline-grid h-[18px] min-w-[18px] place-items-center rounded-full bg-white px-1 align-middle text-[10px] font-bold text-[#0d0712]">{activeCoupons}</span>}
+                </button>
+              ))}
+            </div>
+            {prize === 'sellos' && (
+              <div className="-mx-1 min-h-0 flex-1 overflow-y-auto overscroll-contain px-1 pb-4"><StampsTab buySlug={me.nextEvent?.slug ?? null} /></div>
+            )}
+            {prize === 'puntos' && (<>
+              <PlaycoinsCard me={me} />
+              {pay.accountTopup && <button type="button" onClick={() => setTopupOpen(true)} className="inline-flex h-12 w-full shrink-0 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-pink-500 via-fuchsia-500 to-sky-500 text-sm font-bold text-white"><Plus className="h-4 w-4" /> Recargar saldo (hoy {`$${me.prepaidBalance.toLocaleString('es-CL')}`})</button>}
+              <MovementsPreview me={me} onAll={() => setSheet('movimientos')} />
+            </>)}
+            {prize === 'cupones' && <CouponsPager me={me} />}
           </>)}
-          {tab === 'cupones' && <CouponsPager me={me} />}
+          {tab === 'perfil' && (
+            <div className="-mx-1 min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-1 pb-4">
+              <div className="account-glass flex items-center gap-3.5 rounded-[26px] px-4 py-4">
+                <span className="grid h-14 w-14 shrink-0 place-items-center rounded-full bg-gradient-to-br from-pink-500 to-sky-500 text-[22px] font-bold">{(firstName(me.fullName) || me.email).charAt(0).toUpperCase()}</span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[18px] font-bold leading-tight">{me.fullName || 'Mi cuenta'}</p>
+                  <p className="truncate text-[13px] text-white/60">{me.email}</p>
+                </div>
+                {level && <span className="shrink-0 rounded-full bg-emerald-400/15 px-2.5 py-1 text-[11px] font-medium text-emerald-300">{level.label}</span>}
+              </div>
+              {/* Solo para quien entra con el correo de un embajador. */}
+              {ambassador && (
+                <button type="button" onClick={() => { tapHaptic(); setSheet('embajador'); }} className="block w-full rounded-[24px] bg-gradient-to-r from-amber-300/70 via-pink-400/50 to-fuchsia-400/60 p-[1.5px] text-left interactive">
+                  <span className="flex items-center gap-3 rounded-[23px] bg-[#0d0712] px-4 py-3.5">
+                    <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-amber-300/15 text-amber-300"><Crown className="h-5 w-5" /></span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[16px] font-bold leading-tight">Embajador</span>
+                      <span className="block truncate text-[12.5px] text-white/60">Tu contenido para compartir y tus ventas</span>
+                    </span>
+                    <ArrowRight className="h-5 w-5 shrink-0 text-amber-300" />
+                  </span>
+                </button>
+              )}
+              <div className="account-glass divide-y divide-white/10 overflow-hidden rounded-[24px]">
+                {([
+                  { key: 'avisos', label: 'Avisos', sub: pushPending ? 'Actívalos para no perderte nada' : 'Recordatorios, preventas y novedades', icon: Bell, dot: pushPending, onClick: () => setSheet('avisos') },
+                  ...(pay.savedCards ? [{ key: 'tarjetas', label: 'Mis tarjetas', sub: 'Tus tarjetas guardadas', icon: CreditCard, dot: false, onClick: () => setSheet('tarjetas') }] : []),
+                ] as { key: string; label: string; sub: string; icon: typeof Bell; dot: boolean; onClick: () => void }[]).map(({ key, label, sub, icon: Icon, dot, onClick }) => (
+                  <button key={key} type="button" onClick={() => { tapHaptic(); onClick(); }} className="relative flex w-full items-center gap-3 px-4 py-3.5 text-left interactive">
+                    <Icon className="h-5 w-5 shrink-0 text-pink-300" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[15px] font-semibold leading-tight">{label}</span>
+                      <span className="block truncate text-[12.5px] text-white/55">{sub}</span>
+                    </span>
+                    {dot && <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-pink-500 shadow-[0_0_8px_rgba(236,72,153,0.9)]" />}
+                    <ChevronRight className="h-4 w-4 shrink-0 text-white/35" />
+                  </button>
+                ))}
+              </div>
+              <button type="button" onClick={() => { tapHaptic(); onLogout(); }} className="flex h-12 w-full items-center justify-center gap-2 rounded-full text-sm font-semibold text-rose-300/90"><LogOut className="h-4 w-4" /> Cerrar sesión</button>
+            </div>
+          )}
         </motion.div>
         </TabBoundary>
       </main>
 
-      <nav className={`lg-pill fixed bottom-[max(12px,env(safe-area-inset-bottom))] left-1/2 z-20 grid -translate-x-1/2 ${ambassador ? 'grid-cols-7' : 'grid-cols-6'} rounded-full p-1.5 transition-all duration-300 w-[calc(100vw-24px)] max-w-md`} aria-label="Secciones de mi cuenta">
-        {tabs.map(({ key, label, icon: Icon }) => {
-          const badge = key === 'cupones' ? activeCoupons : 0;
-          const live = key === 'playmatch' && playmatchLive;
-          return (
-            <button key={key} type="button" onClick={() => go(key)} aria-current={tab === key ? 'page' : undefined}
-              className={`relative flex flex-col items-center justify-center gap-0.5 rounded-full text-[10.5px] font-medium transition-all duration-300 py-2 ${tab === key ? 'bg-white/[0.16] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.3)]' : 'text-white/60'}`}>
-              <Icon className="h-[22px] w-[22px]" />
-              {label}
-              {live && <span className="absolute right-3 top-1.5 h-2.5 w-2.5 rounded-full bg-pink-500 shadow-[0_0_8px_rgba(236,72,153,0.9)]" />}
-              {badge > 0 && <span className="absolute right-2 top-1 grid h-5 min-w-5 place-items-center rounded-full bg-white px-1 text-[10px] font-bold text-[#0d0712]">{badge}</span>}
-            </button>
-          );
-        })}
-        <button type="button" onClick={() => { tapHaptic(); setMore(true); }} className={`relative flex flex-col items-center justify-center gap-0.5 rounded-full text-[10.5px] font-medium text-white/60 py-2`}>
-          <MoreHorizontal className="h-[22px] w-[22px]" />
-          Más
-          {(pushPending || earlyOn) && <span className="absolute right-4 top-1.5 h-2.5 w-2.5 rounded-full bg-pink-500 shadow-[0_0_8px_rgba(236,72,153,0.9)]" />}
+      {/* Barra de vidrio partida en dos con el «+» al centro: lo más usado a los lados y el resto en el «+». */}
+      <nav className={`fixed bottom-[max(12px,env(safe-area-inset-bottom))] left-1/2 flex w-[calc(100vw-24px)] max-w-md -translate-x-1/2 items-end gap-1 ${more ? 'z-[50]' : 'z-20'}`} aria-label="Secciones de mi cuenta">
+        {[tabs.slice(0, 2), tabs.slice(2)].map((group, g) => (
+          <Fragment key={g}>
+          {/* Hueco del centro: ahí queda el «+», sin tapar ningún botón. */}
+          {g === 1 && <div aria-hidden className="w-[68px] shrink-0" />}
+          <div className={`lg-pill grid min-w-0 flex-1 grid-cols-2 rounded-full p-1.5 transition-all duration-300 ${more ? 'pointer-events-none translate-y-2 opacity-0' : ''}`}>
+            {group.map(({ key, label, icon: Icon }) => {
+              const badge = key === 'premios' ? activeCoupons : 0;
+              const live = key === 'playmatch' && playmatchLive;
+              const dot = key === 'perfil' && pushPending;
+              return (
+                <button key={key} type="button" onClick={() => go(key)} aria-current={tab === key ? 'page' : undefined}
+                  className={`relative flex flex-col items-center justify-center gap-0.5 rounded-full py-2 text-[10.5px] font-medium transition-all duration-300 ${tab === key ? 'bg-white/[0.16] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.3)]' : 'text-white/60'}`}>
+                  <Icon className="h-[22px] w-[22px]" />
+                  {label}
+                  {(live || dot) && <span className="absolute right-3 top-1.5 h-2.5 w-2.5 rounded-full bg-pink-500 shadow-[0_0_8px_rgba(236,72,153,0.9)]" />}
+                  {badge > 0 && <span className="absolute right-1 top-0.5 grid h-5 min-w-5 place-items-center rounded-full bg-white px-1 text-[10px] font-bold text-[#0d0712]">{badge}</span>}
+                </button>
+              );
+            })}
+          </div>
+          </Fragment>
+        ))}
+        <button type="button" onClick={() => { tapHaptic(); setMore((v) => !v); }} aria-label={more ? 'Cerrar' : 'Más acciones'} aria-expanded={more}
+          className="absolute bottom-3 left-1/2 grid h-16 w-16 -translate-x-1/2 place-items-center rounded-full bg-gradient-to-br from-pink-500 via-fuchsia-500 to-sky-500 text-white shadow-[0_10px_30px_-4px_rgba(236,72,153,0.65),inset_0_1px_0_rgba(255,255,255,0.45)] ring-[5px] ring-[#0b0612]/70 transition-transform duration-300 active:scale-95">
+          <Plus className={`h-7 w-7 transition-transform duration-300 ${more ? 'rotate-45' : ''}`} strokeWidth={2.4} />
+          {earlyOn && !more && <span className="absolute right-0.5 top-0.5 h-3 w-3 rounded-full border-2 border-[#0b0612] bg-amber-300" />}
         </button>
       </nav>
 
@@ -832,27 +894,23 @@ function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | nu
           <>
             <motion.div className="fixed inset-0 z-30 bg-black/50" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setMore(false)} />
             <motion.div
-              className="lg-sheet fixed inset-x-0 bottom-0 z-40 max-h-[88dvh] overflow-y-auto overscroll-contain rounded-t-[32px] px-4 pb-[calc(env(safe-area-inset-bottom)+20px)] pt-3"
+              className="lg-sheet fixed inset-x-0 bottom-0 z-40 max-h-[88dvh] overflow-y-auto overscroll-contain rounded-t-[32px] px-4 pb-[calc(env(safe-area-inset-bottom)+104px)] pt-3"
               initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 30, stiffness: 320 }}
               drag="y" dragControls={sheetDrag} dragListener={false} dragConstraints={{ top: 0, bottom: 0 }} dragElastic={{ top: 0, bottom: 0.6 }} onDragEnd={(_, info) => { if (info.offset.y > 80) setMore(false); }}
             >
-              {/* Solo la manija arrastra la hoja: el resto se desliza normal (si no, no se podía hacer scroll hasta «Cerrar sesión»). */}
+              {/* Solo la manija arrastra la hoja: el resto se desliza normal. */}
               <div onPointerDown={(e) => sheetDrag.start(e)} className="-mx-4 mb-2 flex h-8 cursor-grab touch-none items-center justify-center"><div className="h-1.5 w-10 rounded-full bg-white/25" /></div>
-              <div className="mb-4 flex items-center justify-between gap-3 [@media(max-height:700px)]:mb-2">
-                <div className="min-w-0">
-                  <p className="truncate font-heading text-lg font-bold">{me.fullName || 'Mi cuenta'}</p>
-                  <p className="truncate text-xs text-white/55">{me.email}</p>
-                </div>
-                <button type="button" onClick={() => setMore(false)} aria-label="Cerrar" className="grid h-10 w-10 place-items-center rounded-full bg-white/10"><X className="h-4 w-4" /></button>
+              <div className="mb-4 [@media(max-height:700px)]:mb-2">
+                <p className="font-heading text-lg font-bold">¿Qué quieres hacer?</p>
               </div>
               <div className="space-y-3">
                 <EarlyCard me={me} />
-                {me.nextEvent && (
-                  <Link href={`/checkout/${me.nextEvent.slug}`} className="flex min-h-[60px] items-center gap-3 rounded-[22px] bg-gradient-to-r from-pink-500/90 via-fuchsia-500/90 to-sky-500/90 px-4 py-2.5 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.35)]">
+                {me.nextEvent && buyHref && (
+                  <Link href={buyHref} className="flex min-h-[60px] items-center gap-3 rounded-[22px] bg-gradient-to-r from-pink-500/90 via-fuchsia-500/90 to-sky-500/90 px-4 py-2.5 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.35)]">
                     <TicketIcon className="h-5 w-5 shrink-0" />
                     <span className="min-w-0 flex-1">
-                      <span className="block text-[15px] font-bold leading-tight">Comprar entrada</span>
-                      <span className="block truncate text-xs text-white/85">{me.nextEvent.title}</span>
+                      <span className="block text-[15px] font-bold leading-tight">{lastBuy ? 'Comprar en 1 toque' : 'Comprar entrada'}</span>
+                      <span className="block truncate text-xs text-white/85">{lastBuy ? `Tu entrada de siempre · ${me.nextEvent.title}` : me.nextEvent.title}</span>
                     </span>
                     <ArrowRight className="h-4 w-4 shrink-0" />
                   </Link>
@@ -860,19 +918,18 @@ function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | nu
                 {/* Mosaicos iguales: cada tema abre su propia hoja, así esta nunca crece. */}
                 <div className="grid grid-cols-3 gap-2.5">
                   {([
-                    { key: 'avisos', label: 'Avisos', icon: Bell, dot: pushPending, onClick: () => { setMore(false); setSheet('avisos'); } },
-                    ...(pay.savedCards ? [{ key: 'tarjetas', label: 'Mis tarjetas', icon: CreditCard, dot: false, onClick: () => { setMore(false); setSheet('tarjetas'); } }] : []),
-                    { key: 'entradas', label: 'Mis entradas', icon: TicketIcon, dot: false, onClick: () => { setMore(false); setSheet('entradas'); } },
-                    { key: 'beneficios', label: 'Beneficios', icon: Sparkles, dot: false, onClick: () => { setMore(false); setSheet('beneficios'); } },
-                    { key: 'eventos', label: 'Eventos', icon: Calendar, dot: false, href: '/eventos' },
-                    { key: 'sitio', label: 'Ir al sitio', icon: Home, dot: false, href: '/' },
-                  ] as { key: string; label: string; icon: typeof Bell; dot: boolean; onClick?: () => void; href?: string }[]).map(({ key, label, icon: Icon, dot, onClick, href }) => {
+                    { key: 'entradas', label: 'Mis entradas', icon: TicketIcon, onClick: () => { setMore(false); setSheet('entradas'); } },
+                    ...(pay.cajaPay ? [{ key: 'caja', label: 'Pagar en caja', icon: Wallet, onClick: () => { setMore(false); setPayOpen(true); } }] : []),
+                    ...(pay.accountTopup ? [{ key: 'recarga', label: 'Recargar saldo', icon: Plus, onClick: () => { setMore(false); setTopupOpen(true); } }] : []),
+                    { key: 'beneficios', label: 'Beneficios', icon: Sparkles, onClick: () => { setMore(false); setSheet('beneficios'); } },
+                    { key: 'eventos', label: 'Eventos', icon: Calendar, href: '/eventos' },
+                    { key: 'sitio', label: 'Ir al sitio', icon: Home, href: '/' },
+                  ] as { key: string; label: string; icon: typeof Bell; onClick?: () => void; href?: string }[]).map(({ key, label, icon: Icon, onClick, href }) => {
                     const cls = 'account-glass relative flex h-[84px] flex-col items-center justify-center gap-1.5 rounded-[22px] text-[12.5px] font-semibold text-white interactive [@media(max-height:700px)]:h-[66px] [@media(max-height:700px)]:gap-1';
-                    const inner = (<><Icon className="h-5 w-5 text-pink-300" />{label}{dot && <span className="absolute right-3 top-3 h-2.5 w-2.5 rounded-full bg-pink-500 shadow-[0_0_8px_rgba(236,72,153,0.9)]" />}</>);
+                    const inner = (<><Icon className="h-5 w-5 text-pink-300" />{label}</>);
                     return href ? <Link key={key} href={href} onClick={tapHaptic} className={cls}>{inner}</Link> : <button key={key} type="button" onClick={() => { tapHaptic(); onClick?.(); }} className={cls}>{inner}</button>;
                   })}
                 </div>
-                <button type="button" onClick={() => { tapHaptic(); onLogout(); }} className="flex h-12 w-full items-center justify-center gap-2 rounded-full text-sm font-semibold text-rose-300/90"><LogOut className="h-4 w-4" /> Cerrar sesión</button>
               </div>
             </motion.div>
           </>
@@ -893,6 +950,7 @@ function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | nu
         {avisosNotice(push.state) === 'loading' && <p className="account-glass rounded-2xl p-4 text-sm text-white/65">Revisando tus avisos…</p>}
       </BottomSheet>
       <BottomSheet open={sheet === 'tarjetas'} onClose={() => setSheet(null)} title="Mis tarjetas"><SavedCardsSection /></BottomSheet>
+      {ambassador && <AppScreen open={sheet === 'embajador'} title="Embajador" onClose={() => setSheet(null)}><AmbassadorAccount panel={ambassador} /></AppScreen>}
       <BottomSheet open={sheet === 'beneficios'} onClose={() => setSheet(null)} title="Beneficios"><PerksCard me={me} /></BottomSheet>
       <BottomSheet open={sheet === 'movimientos'} onClose={() => setSheet(null)} title="Movimientos"><Movements me={me} /></BottomSheet>
       {/* Todas las entradas de los próximos eventos (PlayCard muestra la de la próxima fiesta). */}
