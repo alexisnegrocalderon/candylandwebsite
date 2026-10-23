@@ -1,6 +1,7 @@
 import '@/admin.css';
 import { useDarkGlassDocument } from '@/components/admin/shell/AdminShell';
 import { OPERATOR_ROLE_LABELS } from '@shared/cajaRoles';
+import { openedFromApp, preselectedOperatorId } from '@/lib/staffLink';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useHideSplashWhenSettled } from '@/lib/splash';
 import { toast } from 'sonner';
@@ -487,10 +488,18 @@ function PinLogin() {
     onSuccess: () => { utils.caja.me.invalidate(); },
     onError: (e) => { toast.error(e.message); setPin(''); },
   });
+  // Desde la sección «Staff» de la App: el nombre ya viene elegido (igual se pide el PIN).
+  const preselect = useRef(preselectedOperatorId());
+  useEffect(() => {
+    const id = preselect.current;
+    const op = id ? operators?.find((o) => o.id === id) : undefined;
+    if (op) { preselect.current = null; setSelected({ id: op.id, name: op.name }); }
+  }, [operators]);
 
   if (!selected) {
     return (
       <div className="fixed inset-0 overscroll-none bg-transparent text-white flex flex-col items-center justify-center gap-8 p-6">
+        {openedFromApp() && <a href="/cuenta?tab=perfil" className="absolute left-4 top-[max(16px,env(safe-area-inset-top))] inline-flex h-11 items-center gap-1 rounded-full px-3 text-sm font-semibold text-white/80">← Volver a mi cuenta</a>}
         <div className="flex flex-col items-center gap-2 text-center">
           <img src="/candyland/logo-isotipo-transparent.png" alt="" className="h-14 w-14 object-contain" />
           <h1 className="font-heading text-2xl tracking-tight"><span className="admin-brand-text">MANSION PLAYROOM</span> · Caja</h1>
@@ -522,6 +531,7 @@ function PinLogin() {
 
   return (
     <div className="fixed inset-0 overscroll-none bg-transparent text-white flex flex-col items-center justify-center gap-6 p-6">
+      {openedFromApp() && <a href="/cuenta?tab=perfil" className="absolute left-4 top-[max(16px,env(safe-area-inset-top))] inline-flex h-11 items-center gap-1 rounded-full px-3 text-sm font-semibold text-white/80">← Volver a mi cuenta</a>}
       <button onClick={() => { setSelected(null); setPin(''); }} className="text-white/50 text-sm">← Cambiar de operador</button>
       <h1 className="text-xl font-bold">{selected.name}</h1>
       <div className="flex gap-3" role="status" aria-label={`${digits.length} de 6 dígitos ingresados`}>

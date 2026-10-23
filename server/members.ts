@@ -6,7 +6,7 @@
  * Solo pueden entrar correos que ya son clientes (o de un embajador activo):
  * el código nunca se manda a un correo desconocido (y la respuesta es la misma exista o no, para que
  * nadie averigüe quién es cliente). */
-import { and, desc, eq, gte, inArray, isNotNull, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNotNull, or, sql } from 'drizzle-orm';
 import { getDb, getSiteSettings } from './db';
 import { sendEmail, buildMemberCodeEmail } from './email';
 import { pushToEmail } from './customerPush';
@@ -19,6 +19,7 @@ import { chileParts } from '../shared/pushSchedule';
 import { firstName } from '../shared/pushText';
 import { sortByKind, ticketKind, ticketKindLabel, type TicketKind } from '../shared/ticketKind';
 import { companionsFromCampos, knownCompanions, lastPurchaseFrom, type Companion } from '../shared/repurchase';
+import { DEMO_EVENT_SLUG } from '../shared/demoAccount';
 
 type CustomerRow = typeof customers.$inferSelect;
 
@@ -234,7 +235,8 @@ export async function getMemberHome(email: string, now = new Date()) {
       doorsOpen: events.doorsOpen, eventEnd: events.eventEnd, attendeeData: orders.attendeeData,
     }).from(tickets).innerJoin(orders, eq(tickets.orderId, orders.id)).innerJoin(events, eq(tickets.eventId, events.id))
       .innerJoin(ticketTypes, eq(tickets.ticketTypeId, ticketTypes.id))
-      .where(and(sql`LOWER(${orders.buyerEmail}) = ${key}`, eq(orders.paymentStatus, 'approved'), gte(events.eventDate, new Date(now.getTime() - 12 * 3_600_000)), inArray(events.status, ['published', 'soldout'])))
+      // El evento oculto de la cuenta de prueba (admin → Noche) también: solo lo compró ese correo.
+      .where(and(sql`LOWER(${orders.buyerEmail}) = ${key}`, eq(orders.paymentStatus, 'approved'), gte(events.eventDate, new Date(now.getTime() - 12 * 3_600_000)), or(inArray(events.status, ['published', 'soldout']), eq(events.slug, DEMO_EVENT_SLUG))))
       .orderBy(events.eventDate),
     db.select({ id: events.id, title: events.title, slug: events.slug, eventDate: events.eventDate, memberEarlyUntil: events.memberEarlyUntil }).from(events)
       .where(and(eq(events.status, 'published'), gte(events.eventDate, new Date(now.getTime() - 12 * 3_600_000)))).orderBy(events.eventDate).limit(1),

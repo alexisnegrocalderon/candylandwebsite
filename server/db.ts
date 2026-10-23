@@ -18,6 +18,7 @@ import { MAX_TOUCHES_PER_EVENT, MAX_COSTUME_VOTES_PER_EVENT, costumeVotesLeft, M
 import { playcoinsEarnedForPurchase, clampRedeemAmount } from '../shared/playcoins';
 import { isEventToday } from '../shared/eventDay';
 import { chileHourOf, startOfChileDay } from '../shared/chileDate';
+import { isDemoAmbassadorCode } from '../shared/demoAccount';
 import { salesByChileHour } from '../shared/cajaStats';
 import { groupSalesByChileDay, type SalesDay } from '../shared/salesByDay';
 import { matchLeadForOrder as matchLeadForOrderImpl, syncLeadsAsMailingAudience as syncLeadsAsMailingAudienceImpl } from './leadsMailing';
@@ -2961,6 +2962,9 @@ export async function getGeneralBuyerDiscount(): Promise<GeneralBuyerDiscount | 
 export async function getActiveExclusiveAmbassadorByCode(code: string) {
   const db = await getDb();
   if (!db) return null;
+  // El embajador de la cuenta de prueba (código DEMO…) existe solo para ver el panel: su código nunca
+  // da descuento ni comisión en una compra.
+  if (isDemoAmbassadorCode(code)) return null;
   const [row] = await db.select().from(exclusiveAmbassadors)
     .where(and(
       eq(exclusiveAmbassadors.code, code.trim().toUpperCase()),
@@ -3003,6 +3007,18 @@ export async function getOperatorById(id: number) {
 }
 
 /** Lista solo lo necesario para la pantalla de "toca tu nombre" del login por PIN (§10.2) — nunca el pinHash. */
+/** Operadores del evento activo cuyo correo es el de esta persona (sección «Staff» de la App). */
+export async function listOperatorsByEmail(eventId: number, email: string) {
+  const db = await getDb();
+  if (!db) return [];
+  const key = (email ?? '').trim().toLowerCase();
+  if (!key) return [];
+  return db.select({ id: operators.id, name: operators.name, role: operators.role })
+    .from(operators)
+    .where(and(eq(operators.active, 1), eq(operators.eventId, eventId), sql`LOWER(TRIM(${operators.email})) = ${key}`))
+    .orderBy(operators.name);
+}
+
 export async function listActiveOperatorsPublic(eventId: number) {
   const db = await getDb();
   if (!db) return [];

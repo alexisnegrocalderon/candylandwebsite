@@ -137,6 +137,7 @@ import * as appDevices from "./appDevices";
 import * as members from "./members";
 import { getMemberEmail, setMemberSession, clearMemberSession, verifyMemberCode, normalizeMemberEmail } from "./memberAuth";
 import * as memberPasskeys from "./memberPasskeys";
+import * as demoAccount from "./demoAccount";
 import { normalizeMemberConfig } from "../shared/memberConfig";
 import * as memberCards from "./memberCards";
 import * as memberPay from "./memberPay";
@@ -833,6 +834,25 @@ function requireMemberEmail(req: Parameters<typeof getMemberEmail>[0]): string {
 }
 
 export const appRouter = router({
+  // Cuenta de prueba de la App (admin → Noche → «Cuenta de prueba»): server/demoAccount.ts.
+  demoAccount: router({
+    status: adminReadProcedure.query(async () => demoAccount.getDemoStatus()),
+    create: adminProcedure.input(z.object({ email: z.string().email().max(200), name: z.string().max(80) })).mutation(async ({ input }) => {
+      try {
+        return await demoAccount.createDemoAccount(input);
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo crear la cuenta de prueba' });
+      }
+    }),
+    setPhase: adminProcedure.input(z.object({ phase: z.enum(['antes', 'durante']) })).mutation(async ({ input }) => {
+      try {
+        return await demoAccount.setDemoPhase(input.phase);
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo cambiar la fiesta de prueba' });
+      }
+    }),
+    delete: adminProcedure.mutation(async () => demoAccount.deleteDemoAccount()),
+  }),
   system: systemRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
@@ -4425,6 +4445,18 @@ export const appRouter = router({
     // Si el correo de la sesión es de un embajador activo: su panel (ventas,
     // comisión y el contenido aprobado para compartir), el mismo de
     // /embajador/<CODIGO>. null para todos los demás.
+    // Sección «Staff» de la App: si el correo de la sesión es el de un operador del evento activo
+    // (Admin → Operadores), sus atajos a caja, puerta, cocina o guardarropía. El ingreso sigue siendo
+    // con PIN (y la caja, solo en dispositivos autorizados): esto solo deja el nombre ya elegido.
+    staff: publicProcedure.query(async ({ ctx }) => {
+      const email = getMemberEmail(ctx.req);
+      if (!email) return null;
+      const event = await db.getActiveEventForCaja();
+      if (!event) return null;
+      const ops = await db.listOperatorsByEmail(event.id, email);
+      if (ops.length === 0) return null;
+      return { eventTitle: event.title as string, operators: ops.map((o: any) => ({ id: o.id as number, name: o.name as string, role: o.role as string })) };
+    }),
     ambassador: publicProcedure.query(async ({ ctx }) => {
       const email = getMemberEmail(ctx.req);
       if (!email) return null;

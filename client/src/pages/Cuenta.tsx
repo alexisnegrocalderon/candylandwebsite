@@ -2,7 +2,7 @@ import { Component, Fragment, useEffect, useRef, useState, type ReactNode } from
 import { createPortal } from 'react-dom';
 import { AnimatePresence, MotionConfig, motion, useDragControls } from 'framer-motion';
 import { toast } from 'sonner';
-import { Calendar, Check, Copy, Crown, Gift, LogOut, Sparkles, Ticket as TicketIcon, ArrowRight, Download, Loader2, X, QrCode, CreditCard, Home, Wallet, Plus, RefreshCw, Bell, ChevronLeft, ChevronRight, Heart, User, WifiOff, ScanFace } from 'lucide-react';
+import { Calendar, Check, Copy, Crown, Gift, LogOut, Sparkles, Ticket as TicketIcon, ArrowRight, Download, Loader2, X, QrCode, CreditCard, Home, Wallet, Plus, RefreshCw, Bell, ChevronLeft, ChevronRight, Heart, User, WifiOff, ScanFace, ScanLine, ChefHat, Shirt, BadgeCheck } from 'lucide-react';
 import { Link } from 'wouter';
 import { trpc } from '@/lib/trpc';
 import type { inferRouterOutputs } from '@trpc/server';
@@ -33,6 +33,8 @@ import { AccountSkeleton } from '@/components/site/AccountSkeleton';
 import { PasskeySheet } from '@/components/site/PasskeySheet';
 import { biometricName, passkeyOfferSeen, passkeyUsedHere, thisDeviceName, usePasskeyAvailable } from '@/lib/memberPasskey';
 import { firstName } from '@shared/pushText';
+import { OPERATOR_ROLE_LABELS, staffSystemsFor, type StaffSystemKey } from '@shared/cajaRoles';
+import { staffLink } from '@/lib/staffLink';
 
 /* /cuenta (y /mis-puntos): «Mi cuenta» opcional. Entrar con un código al
  * correo (sin contraseña) y ver saldo, Playcoins, entradas y cupones. Nadie la
@@ -841,6 +843,44 @@ function MovementsPreview({ me, onAll }: { me: Me; onAll: () => void }) {
   );
 }
 
+/** Sección «Staff»: si tu correo es el de un operador del evento activo, tus atajos a caja, puerta,
+ * cocina o guardarropía. Abren el sistema con tu nombre ya elegido; el PIN se pide igual (y la caja,
+ * como siempre, solo abre en dispositivos autorizados por el admin). Nadie más la ve. */
+const STAFF_ICONS: Record<StaffSystemKey, typeof Wallet> = { caja: Wallet, puerta: ScanLine, cocina: ChefHat, guardarropia: Shirt };
+
+function StaffCard() {
+  const { data } = trpc.member.staff.useQuery(undefined, { retry: false, staleTime: 60_000 });
+  if (!data) return null;
+  const systems = staffSystemsFor(data.operators);
+  if (systems.length === 0) return null;
+  const roles = Array.from(new Set(data.operators.map((o) => OPERATOR_ROLE_LABELS[o.role] ?? o.role))).join(' · ');
+  return (
+    <div className="rounded-[24px] bg-gradient-to-r from-sky-400/60 via-violet-400/50 to-pink-400/60 p-[1.5px]">
+      <div className="rounded-[23px] bg-[#0d0712] px-4 py-3.5">
+        <div className="flex items-center gap-3">
+          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-sky-400/15 text-sky-300"><BadgeCheck className="h-5 w-5" /></span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-body font-bold leading-tight">Staff · {roles}</span>
+            <span className="block truncate text-footnote text-white/60">{data.eventTitle}</span>
+          </span>
+        </div>
+        <div className={`mt-3 grid gap-2 ${systems.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`}>
+          {systems.map((sys) => {
+            const Icon = STAFF_ICONS[sys.key];
+            return (
+              <a key={sys.key} href={staffLink(sys.path, sys.operatorId)} onClick={tapHaptic}
+                className="lg-pill flex h-12 items-center justify-center gap-2 rounded-full text-subhead font-semibold interactive">
+                <Icon className="h-4 w-4 text-sky-300" /> {sys.label}
+              </a>
+            );
+          })}
+        </div>
+        <p className="mt-2.5 text-caption1 text-white/60">Entras con tu PIN. La caja abre solo en dispositivos autorizados.</p>
+      </div>
+    </div>
+  );
+}
+
 /* ── Celular: una pantalla fija tipo app, con barra de íconos abajo como el panel ── */
 
 /* La barra de abajo: 4 secciones y un «+» al centro con todo lo demás. Sellos, Puntos y Cupones
@@ -1010,6 +1050,8 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
                 </div>
                 {level && <span className="shrink-0 rounded-full bg-emerald-400/15 px-2.5 py-1 text-caption2 font-medium text-emerald-300">{level.label}</span>}
               </div>
+              {/* Solo para quien es operador del evento activo (Admin → Operadores, con su correo). */}
+              <StaffCard />
               {/* Solo para quien entra con el correo de un embajador. */}
               {ambassador && (
                 <button type="button" onClick={() => { tapHaptic(); setSheet('embajador'); }} className="block w-full rounded-[24px] bg-gradient-to-r from-amber-300/70 via-pink-400/50 to-fuchsia-400/60 p-[1.5px] text-left interactive">
