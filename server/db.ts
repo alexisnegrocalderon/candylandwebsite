@@ -6649,6 +6649,8 @@ export async function resolvePartyEntryCode(rawCode: string): Promise<string | n
 
 export async function createPartyProfile(params: {
   eventId: number; ticketId: number; alias: string; gender: PartyGender; avatarId: number; zone: PartyZone;
+  /** 0 = inscrito antes de entrar: invisible hasta que escaneen su entrada. */
+  active?: 0 | 1;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -6660,6 +6662,7 @@ export async function createPartyProfile(params: {
     gender: params.gender,
     avatarId: params.avatarId,
     zone: params.zone,
+    active: params.active ?? 1,
     lastSeenAt: new Date(),
     rulesAcceptedAt: new Date(),
   });
@@ -6668,7 +6671,7 @@ export async function createPartyProfile(params: {
   return profile;
 }
 
-export async function updatePartyProfile(profileId: number, data: { zone?: PartyZone; avatarId?: number; active?: number }) {
+export async function updatePartyProfile(profileId: number, data: { zone?: PartyZone; avatarId?: number; active?: number; alias?: string; gender?: PartyGender; lastSeenAt?: Date }) {
   const db = await getDb();
   if (!db) return;
   await db.update(partyProfiles).set(data).where(eq(partyProfiles.id, profileId));

@@ -91,6 +91,20 @@ export function partyEntryDenial(
   return null;
 }
 
+/** Inscripción anticipada en Playmatch: con la entrada comprada (sin anular) y
+ * antes de que termine la fiesta se puede crear el perfil y aceptar las
+ * normas. Queda guardado pero invisible (`active=0`) hasta que escanean la
+ * entrada en la puerta; ahí se activa solo. */
+export function canPreRegister(
+  ticket: PartyTicketState | null | undefined,
+  event: PartyEventWindow | null | undefined,
+  now: Date = new Date()
+): boolean {
+  if (!ticket || !event || ticket.status === 'cancelled') return false;
+  const window = partyWindow(event);
+  return !!window && now.getTime() < window.closesAt;
+}
+
 export function canEnterParty(
   ticket: PartyTicketState | null | undefined,
   event: PartyEventWindow | null | undefined,

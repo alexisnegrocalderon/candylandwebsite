@@ -20,7 +20,8 @@ import { TiltCard } from '@/components/site/TiltCard';
 import { BottomSheet, PayInCajaViewer, SavedCardsSection, TopupSheet, useMemberPayConfig } from '@/components/site/AccountPayments';
 import { AmbassadorAccount, useAmbassadorPanel } from '@/components/site/AmbassadorAccount';
 import { StampsTab } from '@/components/site/StampCard';
-import { canEnterParty, isPartyWindowOpen } from '@shared/party';
+import { PlaymatchTab } from '@/components/site/PlaymatchTab';
+import { canEnterParty } from '@shared/party';
 import { TICKET_KIND_META, type TicketKind } from '@shared/ticketKind';
 import { useCustomerPush } from '@/lib/customerPush';
 import { avisosNotice } from '@/lib/pushPromptView';
@@ -185,7 +186,7 @@ function holderLabels(list: { holderName: string | null; kind?: TicketKind }[]):
 
 /** Lo primero que ve quien entra: su PlayCard con el QR de la entrada del próximo evento.
  * Tocar la tarjeta abre el QR a pantalla completa (y desde ahí se guarda en Fotos). */
-function TicketWallet({ ev, holder, prepaidBalance, playcoins, movements, compact = false, onTopup, onPayCaja }: { ev: MeEvent | null; holder: string; prepaidBalance: number; playcoins: number; movements: Movement[]; compact?: boolean; onTopup?: () => void; onPayCaja?: () => void }) {
+function TicketWallet({ ev, holder, prepaidBalance, playcoins, movements, compact = false, onTopup, onPayCaja, onPlaymatch }: { ev: MeEvent | null; holder: string; prepaidBalance: number; playcoins: number; movements: Movement[]; compact?: boolean; onTopup?: () => void; onPayCaja?: () => void; onPlaymatch?: () => void }) {
   const [i, setI] = useState(0);
   const [showQr, setShowQr] = useState(false);
   const t = ev ? ev.tickets[Math.min(i, ev.tickets.length - 1)] : null;
@@ -232,7 +233,7 @@ function TicketWallet({ ev, holder, prepaidBalance, playcoins, movements, compac
   const playmatchCode = ev && evWindow ? ev.tickets.find((x) => x.category === 'acceso' && canEnterParty({ status: x.status, eventId: ev.eventId }, evWindow))?.ticketCode ?? null : null;
   const actions = [
     // La noche de la fiesta, ya escaneada en la puerta: Playmatch a un toque (sin escribir el código).
-    playmatchCode ? { key: 'playmatch', label: 'Playmatch', icon: Heart, href: `/fiesta/${playmatchCode}`, primary: true } : null,
+    playmatchCode ? { key: 'playmatch', label: 'Playmatch', icon: Heart, ...(onPlaymatch ? { onClick: onPlaymatch } : { href: `/fiesta/${playmatchCode}` }), primary: true } : null,
     usable ? { key: 'qr', label: 'Mostrar QR', icon: QrCode, onClick: () => setShowQr(true), primary: !playmatchCode } : null,
     onPayCaja ? { key: 'caja', label: 'Pagar', icon: Wallet, onClick: onPayCaja } : null,
     onTopup ? { key: 'recarga', label: 'Recargar', icon: Plus, onClick: onTopup } : null,
@@ -359,38 +360,6 @@ function perkList(me: Me): string[] {
     me.perks.vip && `${me.perks.vip}% cada mes si eres VIP`,
     me.perks.birthday && `${me.perks.birthday}% en tu cumpleaños`,
   ].filter(Boolean) as string[];
-}
-
-/** Playmatch (la fiesta en el celular) desde la app: la noche del evento, con su acceso ya escaneado en la
- * puerta, entra directo con su propia entrada, sin escribir ningún código. Antes de entrar, un aviso
- * de que se abre al pasar por la puerta. El servidor de Playmatch revalida todo igual. */
-function PartyEntryCard({ events }: { events: MeEvent[] }) {
-  const now = new Date();
-  const ev = events.find((e) => isPartyWindowOpen({ eventDate: e.eventDate, doorsOpen: e.doorsOpen, eventEnd: e.eventEnd }, now));
-  if (!ev) return null;
-  const access = ev.tickets.filter((t) => t.category === 'acceso');
-  const inside = access.find((t) => canEnterParty({ status: t.status, eventId: ev.eventId }, { eventDate: ev.eventDate, doorsOpen: ev.doorsOpen, eventEnd: ev.eventEnd }, now));
-  if (inside) {
-    return (
-      <Link href={`/fiesta/${inside.ticketCode}`} onClick={tapHaptic} className={`block shrink-0 rounded-[26px] p-[1.5px] ${NEON_RING} interactive`}>
-        <div className="flex items-center gap-3 rounded-[25px] bg-[#0d0712] px-4 py-3.5">
-          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-gradient-to-br from-pink-500 to-sky-500 text-xl">🍬</span>
-          <span className="min-w-0 flex-1">
-            <span className="block text-[16px] font-bold leading-tight">Entrar a Playmatch</span>
-            <span className="block truncate text-[12.5px] text-white/60">Mira quién está, conecta y chatea esta noche</span>
-          </span>
-          <ArrowRight className="h-5 w-5 shrink-0 text-pink-300" />
-        </div>
-      </Link>
-    );
-  }
-  if (access.length === 0) return null;
-  return (
-    <div className="account-glass flex shrink-0 items-center gap-3 rounded-[22px] px-4 py-3">
-      <span className="text-xl">🍬</span>
-      <p className="text-[13px] leading-snug text-white/70"><b className="text-white">Playmatch</b> se abre apenas te escaneen en la puerta.</p>
-    </div>
-  );
 }
 
 function BuyNextCard({ me }: { me: Me }) {
@@ -665,9 +634,10 @@ function MovementsPreview({ me, onAll }: { me: Me; onAll: () => void }) {
 
 /* ── Celular: una pantalla fija tipo app, con barra de íconos abajo como el panel ── */
 
-type Tab = 'card' | 'embajador' | 'sellos' | 'puntos' | 'cupones';
+type Tab = 'card' | 'embajador' | 'playmatch' | 'sellos' | 'puntos' | 'cupones';
 const TABS: { key: Tab; label: string; icon: typeof CreditCard }[] = [
   { key: 'card', label: 'PlayCard', icon: CreditCard },
+  { key: 'playmatch', label: 'Playmatch', icon: Heart },
   { key: 'sellos', label: 'Sellos', icon: StampIcon },
   { key: 'puntos', label: 'Puntos', icon: Coins },
   { key: 'cupones', label: 'Cupones', icon: Gift },
@@ -699,9 +669,15 @@ const AMBASSADOR_TAB: { key: Tab; label: string; icon: typeof CreditCard } = { k
 function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | null; onLogout: () => void }) {
   // Al volver de otra pantalla (comprar, un evento…) se abre en la misma pestaña donde estaba.
   const [tab, setTabState] = useState<Tab>(() => {
+    const valid = (t: string | null): t is Tab => !!t && (['card', 'embajador', 'playmatch', 'sellos', 'puntos', 'cupones'] as string[]).includes(t);
+    // Un aviso puede abrir una pestaña (?tab=playmatch, al escanear la entrada).
     try {
-      const saved = sessionStorage.getItem(TAB_KEY) as Tab | null;
-      return saved && (['card', 'embajador', 'sellos', 'puntos', 'cupones'] as Tab[]).includes(saved) ? saved : 'card';
+      const fromUrl = new URLSearchParams(window.location.search).get('tab');
+      if (valid(fromUrl)) return fromUrl;
+    } catch { /* nada */ }
+    try {
+      const saved = sessionStorage.getItem(TAB_KEY);
+      return valid(saved) ? saved : 'card';
     } catch { return 'card'; }
   });
   const setTab = (next: Tab) => {
@@ -722,6 +698,8 @@ function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | nu
   const level = CUSTOMER_LEVEL_META[me.level as keyof typeof CUSTOMER_LEVEL_META];
   const upcoming = me.events as MeEvent[];
   const activeCoupons = me.coupons.filter((c) => c.status === 'disponible').length;
+  // La noche de la fiesta, ya escaneada: un punto en la pestaña Playmatch.
+  const playmatchLive = upcoming.some((e) => e.tickets.some((x) => (x.category ?? 'acceso') === 'acceso' && canEnterParty({ status: x.status, eventId: e.eventId }, { eventDate: e.eventDate, doorsOpen: e.doorsOpen, eventEnd: e.eventEnd })));
   const pushPending = push.state === 'ask' || push.state === 'ios-install';
   const earlyOn = !!(me.nextEvent && isMemberEarlyAccess(me.nextEvent));
   const touch = useRef<{ x: number; y: number } | null>(null);
@@ -773,13 +751,16 @@ function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | nu
             <>
               <WelcomeBanner welcome={welcome} />
               <TicketWallet compact ev={upcoming[0] ?? null} holder={me.fullName || me.email} prepaidBalance={me.prepaidBalance} playcoins={me.playcoins} movements={me.movements}
-                onTopup={pay.accountTopup ? () => setTopupOpen(true) : undefined} onPayCaja={pay.cajaPay ? () => setPayOpen(true) : undefined} />
+                onTopup={pay.accountTopup ? () => setTopupOpen(true) : undefined} onPayCaja={pay.cajaPay ? () => setPayOpen(true) : undefined} onPlaymatch={() => go('playmatch')} />
               <BuyNextCard me={me} />
             </>
           )}
           {tab === 'embajador' && ambassador && (
             // Lo único que se desplaza en vertical: el contenido para compartir es largo.
             <RememberScroll><AmbassadorAccount panel={ambassador} /></RememberScroll>
+          )}
+          {tab === 'playmatch' && (
+            <div className="-mx-1 min-h-0 flex-1 overflow-y-auto overscroll-contain px-1 pb-4"><PlaymatchTab events={upcoming} buySlug={me.nextEvent?.slug ?? null} /></div>
           )}
           {tab === 'sellos' && (
             <div className="-mx-1 min-h-0 flex-1 overflow-y-auto overscroll-contain px-1 pb-4"><StampsTab buySlug={me.nextEvent?.slug ?? null} /></div>
@@ -794,14 +775,16 @@ function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | nu
         </TabBoundary>
       </main>
 
-      <nav className={`lg-pill fixed bottom-[max(12px,env(safe-area-inset-bottom))] left-1/2 z-20 grid -translate-x-1/2 ${ambassador ? 'grid-cols-6' : 'grid-cols-5'} rounded-full p-1.5 transition-all duration-300 w-[calc(100vw-24px)] max-w-md`} aria-label="Secciones de mi cuenta">
+      <nav className={`lg-pill fixed bottom-[max(12px,env(safe-area-inset-bottom))] left-1/2 z-20 grid -translate-x-1/2 ${ambassador ? 'grid-cols-7' : 'grid-cols-6'} rounded-full p-1.5 transition-all duration-300 w-[calc(100vw-24px)] max-w-md`} aria-label="Secciones de mi cuenta">
         {tabs.map(({ key, label, icon: Icon }) => {
           const badge = key === 'cupones' ? activeCoupons : 0;
+          const live = key === 'playmatch' && playmatchLive;
           return (
             <button key={key} type="button" onClick={() => go(key)} aria-current={tab === key ? 'page' : undefined}
               className={`relative flex flex-col items-center justify-center gap-0.5 rounded-full text-[10.5px] font-medium transition-all duration-300 py-2 ${tab === key ? 'bg-white/[0.16] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.3)]' : 'text-white/60'}`}>
               <Icon className="h-[22px] w-[22px]" />
               {label}
+              {live && <span className="absolute right-3 top-1.5 h-2.5 w-2.5 rounded-full bg-pink-500 shadow-[0_0_8px_rgba(236,72,153,0.9)]" />}
               {badge > 0 && <span className="absolute right-2 top-1 grid h-5 min-w-5 place-items-center rounded-full bg-white px-1 text-[10px] font-bold text-[#0d0712]">{badge}</span>}
             </button>
           );
@@ -953,7 +936,10 @@ function DesktopAccount({ me, welcome, onLogout, shell }: { me: Me; welcome: Log
           <WelcomeBanner welcome={welcome} />
           <TicketWallet ev={upcoming[0] ?? null} holder={me.fullName || me.email} prepaidBalance={me.prepaidBalance} playcoins={me.playcoins} movements={me.movements}
             onTopup={pay.accountTopup ? () => setTopupOpen(true) : undefined} onPayCaja={pay.cajaPay ? () => setPayOpen(true) : undefined} />
-          <PartyEntryCard events={upcoming} />
+          <section className="space-y-3">
+            <h2 className="font-heading text-xl font-bold text-white">Playmatch 🍬</h2>
+            <PlaymatchTab events={upcoming} buySlug={me.nextEvent?.slug ?? null} />
+          </section>
           <BuyNextCard me={me} />
           {ambassador && <AmbassadorAccount panel={ambassador} />}
 

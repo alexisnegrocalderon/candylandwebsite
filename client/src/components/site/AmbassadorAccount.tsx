@@ -76,7 +76,7 @@ export function AmbassadorSummary({ panel, onDetails }: { panel: AmbassadorPanel
  * «Volver» siempre a la vista. Lo de abajo no se desmonta: al volver queda
  * exactamente donde estaba (misma pestaña, mismo scroll). El gesto o botón
  * «atrás» del teléfono también la cierra, en vez de salir de «Mi cuenta». */
-function useBackClosable(open: boolean, onClose: () => void) {
+export function useBackClosable(open: boolean, onClose: () => void) {
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
   const pushed = useRef(false);

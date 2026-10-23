@@ -24,6 +24,7 @@
 @source "./components/admin/**";
 @source "./components/party/**";
 @source "./components/QrScanner.tsx";
+@source "./components/site/PartyProfileForm.tsx";
 
 /* Compartido con la hoja pública (components/ui/** y PaymentBrick.tsx se
  * usan desde ambos lados) -- que sus clases aparezcan también acá es

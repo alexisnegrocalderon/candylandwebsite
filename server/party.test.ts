@@ -4,6 +4,7 @@ import {
   MAX_ALIAS_LENGTH,
   MAX_TOUCHES_PER_EVENT,
   canEnterParty,
+  canPreRegister,
   hasTouchesLeft,
   isOnline,
   isPartyWindowOpen,
@@ -219,5 +220,18 @@ describe("canSeePhotos", () => {
     expect(canSeePhotos({ swipeEnabled: 1 }, false)).toBe(false);
     expect(canSeePhotos({ swipeEnabled: 0 }, true)).toBe(false);
     expect(canSeePhotos({ swipeEnabled: 1, banned: 1 }, true)).toBe(false);
+  });
+});
+
+describe("inscripción anticipada en Playmatch", () => {
+  const event = { eventDate: "2026-11-07T23:00:00Z", eventEnd: "2026-11-08T06:00:00Z" };
+  it("con la entrada comprada se inscribe desde ya, aunque falten días", () => {
+    expect(canPreRegister({ status: "valid", eventId: 1 }, event, new Date("2026-11-01T12:00:00Z"))).toBe(true);
+    expect(canPreRegister({ status: "used", eventId: 1 }, event, new Date("2026-11-08T01:00:00Z"))).toBe(true);
+  });
+  it("no con la entrada anulada, sin entrada o con la fiesta terminada", () => {
+    expect(canPreRegister({ status: "cancelled", eventId: 1 }, event, new Date("2026-11-01T12:00:00Z"))).toBe(false);
+    expect(canPreRegister(null, event)).toBe(false);
+    expect(canPreRegister({ status: "valid", eventId: 1 }, event, new Date("2026-11-08T07:00:00Z"))).toBe(false);
   });
 });
