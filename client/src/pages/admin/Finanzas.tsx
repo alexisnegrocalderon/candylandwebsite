@@ -9,6 +9,7 @@ import { honorariosBreakdown } from '@shared/honorarios';
 import { useIsDemo, DEMO_TOOLTIP } from '@/lib/demoMode';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { BentoGrid, BentoTile } from '@/components/admin/BentoGrid';
@@ -16,6 +17,7 @@ import { StatTile } from '@/components/admin/StatTile';
 import { EmptyState } from '@/components/admin/EmptyState';
 import { CameraCaptureField } from '@/components/admin/CameraCaptureField';
 import { EXPENSE_CATEGORIES } from '@shared/expenses';
+import { roleKey } from '@shared/staffPortal';
 import { StatementUpload } from '@/components/admin/finanzas/StatementUpload';
 import { MercadoPagoTab } from '@/components/admin/finanzas/MercadoPagoTab';
 
@@ -85,24 +87,25 @@ function TeamEditor() {
   const utils = trpc.useUtils();
   const { data: team } = trpc.finance.staffList.useQuery();
   const [editingId, setEditingId] = useState<number | 'new' | null>(null);
-  const [f, setF] = useState({ name: '', role: '', rate: '', phone: '', rut: '', notes: '' });
+  const [f, setF] = useState({ name: '', role: '', rate: '', phone: '', rut: '', notes: '', email: '' });
   const save = trpc.finance.staffSave.useMutation({
-    onSuccess: () => { utils.finance.staffList.invalidate(); utils.finance.shiftsList.invalidate(); setEditingId(null); toast.success('Equipo actualizado'); },
+    onSuccess: (r) => { utils.finance.staffList.invalidate(); utils.finance.shiftsList.invalidate(); setEditingId(null); toast.success(r.invited ? 'Guardado · le mandamos el correo para entrar a su app' : 'Equipo actualizado'); },
     onError: onErr,
   });
+  const invite = trpc.finance.staffInvite.useMutation({ onSuccess: () => toast.success('Invitación enviada'), onError: onErr });
   const del = trpc.finance.staffDelete.useMutation({
     onSuccess: (r) => { utils.finance.staffList.invalidate(); utils.finance.shiftsList.invalidate(); toast.success(r.archived ? 'Tiene historial: quedó archivado' : 'Persona eliminada'); },
     onError: onErr,
   });
   const open = (m: any | null) => {
     setEditingId(m ? m.id : 'new');
-    setF(m ? { name: m.name, role: m.role ?? '', rate: String(m.defaultRateClp || ''), phone: m.phone ?? '', rut: m.rut ?? '', notes: m.notes ?? '' }
-      : { name: '', role: '', rate: '', phone: '', rut: '', notes: '' });
+    setF(m ? { name: m.name, role: m.role ?? '', rate: String(m.defaultRateClp || ''), phone: m.phone ?? '', rut: m.rut ?? '', notes: m.notes ?? '', email: m.email ?? '' }
+      : { name: '', role: '', rate: '', phone: '', rut: '', notes: '', email: '' });
   };
   const submit = () => save.mutate({
     id: editingId === 'new' || editingId == null ? undefined : editingId,
     name: f.name.trim(), role: f.role.trim() || null, defaultRateClp: Math.max(0, Math.round(Number(f.rate) || 0)),
-    phone: f.phone.trim() || null, rut: f.rut.trim() || null, notes: f.notes.trim() || null,
+    phone: f.phone.trim() || null, rut: f.rut.trim() || null, notes: f.notes.trim() || null, email: f.email.trim() || null,
   });
   const form = (
     <div className="admin-clay-sm p-3 space-y-2">
@@ -113,6 +116,8 @@ function TeamEditor() {
         <Input placeholder="Teléfono" value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} />
         <Input placeholder="RUT" value={f.rut} onChange={(e) => setF({ ...f, rut: e.target.value })} />
         <Input placeholder="Notas" value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} />
+        <Input type="email" inputMode="email" autoCapitalize="none" placeholder="Correo para la app del staff" className="sm:col-span-2" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} />
+        <p className="text-[11px] leading-snug text-[var(--admin-muted)] self-center">Le llega un correo con el botón para entrar a su app: ahí ve su credencial, sus turnos y la info del evento.</p>
       </div>
       <div className="flex gap-2">
         <button type="button" disabled={!f.name.trim() || save.isPending || isDemo} onClick={submit} className={`${pillBase} bg-emerald-500 text-white`}>Guardar</button>
@@ -133,10 +138,13 @@ function TeamEditor() {
           <div className="flex-1 min-w-[10rem]">
             <p className="font-medium">{m.name} {!m.active && <span className="text-xs text-[var(--admin-muted)]">(archivado)</span>}</p>
             <p className="text-xs text-[var(--admin-muted)]">
-              {[m.role || 'Sin rol', m.defaultRateClp ? `tarifa ${money(m.defaultRateClp)}` : null, m.phone, m.rut].filter(Boolean).join(' · ')}
+              {[m.role || 'Sin rol', m.defaultRateClp ? `tarifa ${money(m.defaultRateClp)}` : null, m.phone, m.rut, m.email ? `📱 ${m.email}` : null].filter(Boolean).join(' · ')}
             </p>
             {m.notes && <p className="text-xs text-[var(--admin-muted)]">{m.notes}</p>}
           </div>
+          {m.email && m.active && (
+            <button type="button" disabled={isDemo || invite.isPending} onClick={() => invite.mutate({ id: m.id })} className={`${pillBase} ${pillOff}`} title={`Manda otra vez el correo con el acceso a ${m.email}`}>Reenviar acceso</button>
+          )}
           <button type="button" disabled={isDemo} onClick={() => open(m)} className={`${pillBase} ${pillOff}`}>Editar</button>
           <button type="button" disabled={isDemo || save.isPending} onClick={() => save.mutate({ id: m.id, name: m.name, role: m.role, defaultRateClp: m.defaultRateClp, phone: m.phone, rut: m.rut, notes: m.notes, active: !m.active })} className={`${pillBase} ${pillOff}`}>{m.active ? 'Archivar' : 'Reactivar'}</button>
           <button type="button" disabled={isDemo || del.isPending} aria-label={`Eliminar a ${m.name}`}
@@ -144,6 +152,64 @@ function TeamEditor() {
             className="p-2 rounded-full hover:bg-black/5"><Trash2 className="w-4 h-4" /></button>
         </div>
       ))}
+    </div>
+  );
+}
+
+/** Lo que el staff ve en su app para este evento: lo general, la vestimenta, a quién llamar y una nota por rol. */
+function StaffInfoEditor({ eventId, roles }: { eventId: number; roles: string[] }) {
+  const isDemo = useIsDemo();
+  const utils = trpc.useUtils();
+  const { data: info } = trpc.finance.staffInfo.useQuery({ eventId });
+  const [draft, setDraft] = useState<{ general: string; dressCode: string; contacts: { label: string; phone: string }[]; byRole: Record<string, string> } | null>(null);
+  const save = trpc.finance.staffInfoSave.useMutation({
+    onSuccess: () => { utils.finance.staffInfo.invalidate({ eventId }); setDraft(null); toast.success('Info para el staff guardada'); },
+    onError: onErr,
+  });
+  // Un rol por nota, aunque en el equipo se escriba distinto («Barra», «barra »).
+  const roleList = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const r of [...roles, ...Object.keys(info?.byRole ?? {})]) if (!seen.has(roleKey(r))) seen.set(roleKey(r), r.trim());
+    return Array.from(seen.entries()).filter(([k]) => k);
+  }, [roles, info?.byRole]);
+  const d = draft ?? { general: info?.general ?? '', dressCode: info?.dressCode ?? '', contacts: info?.contacts ?? [], byRole: info?.byRole ?? {} };
+  const edit = (patch: Partial<typeof d>) => setDraft({ ...d, ...patch });
+  const contacts = d.contacts.length > 0 ? d.contacts : [{ label: '', phone: '' }];
+
+  return (
+    <div className="pt-3 border-t border-black/5 space-y-3">
+      <div>
+        <p className="text-sm font-semibold">📱 Info para el staff</p>
+        <p className="text-xs text-[var(--admin-muted)]">La ve cada persona asignada en su app («Mi cuenta» con su correo), junto a su credencial y su hora de citación.</p>
+      </div>
+      <Textarea rows={3} placeholder="Para todo el equipo: horario, reglas de la noche, dónde dejar las cosas…" value={d.general} onChange={(e) => edit({ general: e.target.value })} />
+      <Input placeholder="Vestimenta (ej: todo negro, zapatillas cómodas)" value={d.dressCode} onChange={(e) => edit({ dressCode: e.target.value })} />
+      <div className="space-y-2">
+        <p className="text-xs text-[var(--admin-muted)]">Contactos de la noche</p>
+        {contacts.map((c, i) => (
+          <div key={i} className="flex gap-2">
+            <Input placeholder="Quién (ej: Producción)" value={c.label} onChange={(e) => edit({ contacts: contacts.map((x, j) => j === i ? { ...x, label: e.target.value } : x) })} />
+            <Input type="tel" placeholder="+56 9…" className="w-40" value={c.phone} onChange={(e) => edit({ contacts: contacts.map((x, j) => j === i ? { ...x, phone: e.target.value } : x) })} />
+            <button type="button" aria-label="Quitar contacto" className="p-2 rounded-full hover:bg-black/5" onClick={() => edit({ contacts: contacts.filter((_, j) => j !== i) })}><Trash2 className="w-4 h-4" /></button>
+          </div>
+        ))}
+        {contacts.length < 6 && <button type="button" className={`${pillBase} ${pillOff}`} onClick={() => edit({ contacts: [...contacts, { label: '', phone: '' }] })}>+ Contacto</button>}
+      </div>
+      {roleList.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs text-[var(--admin-muted)]">Nota por rol (solo la ve quien tiene ese rol)</p>
+          {roleList.map(([key, label]) => (
+            <div key={key} className="space-y-1">
+              <p className="text-xs font-semibold capitalize">{label}</p>
+              <Textarea rows={2} placeholder={`Para ${label}…`} value={d.byRole[key] ?? ''} onChange={(e) => edit({ byRole: { ...d.byRole, [key]: e.target.value } })} />
+            </div>
+          ))}
+        </div>
+      )}
+      <button type="button" disabled={isDemo || !draft || save.isPending} title={isDemo ? DEMO_TOOLTIP : undefined} className={`${pillBase} ${pillOn} px-6 py-2`}
+        onClick={() => save.mutate({ eventId, general: d.general, dressCode: d.dressCode, contacts: d.contacts.filter((c) => c.label.trim() || c.phone.trim()), byRole: d.byRole })}>
+        {save.isPending ? 'Guardando…' : 'Guardar info'}
+      </button>
     </div>
   );
 }
@@ -162,6 +228,8 @@ function StaffPanel({ eventId, report }: { eventId: number; report: any }) {
   const addShift = trpc.finance.shiftAdd.useMutation({ onSuccess: () => { refresh(); setStaffId(''); setAmount(''); }, onError: onErr });
   const updShift = trpc.finance.shiftUpdate.useMutation({ onSuccess: refresh, onError: onErr });
   const delShift = trpc.finance.shiftRemove.useMutation({ onSuccess: refresh, onError: onErr });
+  const { data: info } = trpc.finance.staffInfo.useQuery({ eventId });
+  const setCallTime = trpc.finance.shiftCallTime.useMutation({ onSuccess: () => utils.finance.staffInfo.invalidate({ eventId }), onError: onErr });
 
   const shifts: any[] = sh?.shifts ?? [];
   const totals = sh?.totals ?? { gross: 0, retention: 0, net: 0, cost: 0 };
@@ -203,7 +271,18 @@ function StaffPanel({ eventId, report }: { eventId: number; report: any }) {
                 <div className="min-w-[8rem] flex-1">
                   <p className="font-medium">{s.name}</p>
                   <p className="text-xs text-[var(--admin-muted)]">{s.role || 'Sin rol'}</p>
+                  {info?.arrivals[String(s.staffId)] && (
+                    <p className="text-[11px] font-semibold text-emerald-600">✓ Llegó {formatChileTime(info.arrivals[String(s.staffId)])}</p>
+                  )}
                 </div>
+                <label className="flex items-center gap-1.5 text-xs text-[var(--admin-muted)]">
+                  Citación
+                  <Input
+                    key={`${s.id}-${info?.callTimes[String(s.staffId)] ?? ''}`} type="time" className="w-[6.5rem]" disabled={isDemo}
+                    defaultValue={info?.callTimes[String(s.staffId)] ?? ''} aria-label={`Hora de citación de ${s.name}`}
+                    onBlur={(e) => { const v = e.target.value.slice(0, 5); if (v !== (info?.callTimes[String(s.staffId)] ?? '')) setCallTime.mutate({ eventId, staffId: s.staffId, time: v || null }); }}
+                  />
+                </label>
                 <Input
                   key={`${s.id}-${s.amountClp}`} type="number" inputMode="numeric" className="w-28" defaultValue={s.amountClp} disabled={isDemo}
                   aria-label={`Monto pactado con ${s.name}`}
@@ -258,6 +337,8 @@ function StaffPanel({ eventId, report }: { eventId: number; report: any }) {
             <PayLine pay={honorariosPreview(Number(amount), payMode, sh?.year)} />
           )}
         </div>
+
+        <StaffInfoEditor eventId={eventId} roles={shifts.map((s) => s.role).filter(Boolean)} />
 
         <TeamEditor />
       </CardContent>
