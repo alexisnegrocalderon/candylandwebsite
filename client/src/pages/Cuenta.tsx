@@ -681,11 +681,11 @@ const PRIZES: { key: Prize; label: string }[] = [
 ];
 
 /** Una pestaña guardada (o la de un aviso: `?tab=`) a la barra nueva; las viejas se acomodan solas. */
-function resolveTab(raw: string | null | undefined): { tab: Tab; prize?: Prize } | null {
+function resolveTab(raw: string | null | undefined): { tab: Tab; prize?: Prize; open?: 'embajador' } | null {
   if (!raw) return null;
   if ((['card', 'playmatch', 'premios', 'perfil'] as string[]).includes(raw)) return { tab: raw as Tab };
   if (raw === 'sellos' || raw === 'puntos' || raw === 'cupones') return { tab: 'premios', prize: raw };
-  if (raw === 'embajador') return { tab: 'perfil' };
+  if (raw === 'embajador') return { tab: 'perfil', open: 'embajador' };
   return null;
 }
 
@@ -718,7 +718,10 @@ function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | nu
   };
   const ambassador = useAmbassadorPanel();
   const tabs = TABS;
+  // El aviso de contenido nuevo (`?tab=embajador`) abre directo la pantalla Embajador, una sola vez.
+  const openEmb = useRef(initial.open === 'embajador' && new URLSearchParams(window.location.search).get('tab') === 'embajador');
   const [more, setMore] = useState(false);
+  useEffect(() => { if (openEmb.current && ambassador) { openEmb.current = false; setSheet('embajador'); } }, [ambassador]);
   const sheetDrag = useDragControls();
   const pay = useMemberPayConfig();
   const [topupOpen, setTopupOpen] = useState(false);
