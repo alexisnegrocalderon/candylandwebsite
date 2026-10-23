@@ -30,7 +30,7 @@ const NEON_RING = 'bg-gradient-to-br from-pink-500/70 via-fuchsia-400/40 to-sky-
 
 const GUIDE = [
   { emoji: '🍬', title: '¿Qué es Playmatch?', body: 'La fiesta en tu celular: mira quién está en cada zona de la mansión, conecta y chatea. Solo existe mientras dura la fiesta.' },
-  { emoji: '💘', title: 'Cómo se hace match', body: 'Pon tu foto y desliza: ♥ a la derecha, ✕ a la izquierda. Si los dos se dan ♥ es match y se abre el chat. Con un Caramelo ★ (hacia arriba) la otra persona se entera al tiro.' },
+  { emoji: '💘', title: 'Cómo se hace match', body: 'Pon tu foto y desliza: ♥ a la derecha, ✕ a la izquierda. Si los dos se dan ♥ es match y se abre el chat. Tienes 3 Caramelos ★ por noche (hacia arriba): con esos la otra persona se entera al tiro.' },
   { emoji: '🍹', title: 'Invita un trago', body: 'Regálale un trago a alguien desde Playmatch. Si lo acepta, lo retira en la barra.' },
   { emoji: '🔒', title: 'Tu privacidad primero', body: 'Te ven con un alias y un avatar, nunca con tu nombre. La foto se toma adentro y se borra al cerrar la fiesta. Puedes bloquear y denunciar cuando quieras.' },
 ];

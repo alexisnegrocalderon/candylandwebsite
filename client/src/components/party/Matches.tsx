@@ -1,10 +1,14 @@
-import { ChevronRight, Heart, MapPin, Star } from 'lucide-react';
-import { isOnline, ZONE_LABELS } from '@shared/party';
+import { Heart, Star } from 'lucide-react';
+import { isOnline } from '@shared/party';
+import { trpc } from '@/lib/trpc';
 import { PersonPhoto, tap } from '@/components/party/ui';
 import type { MansionPerson } from '@/components/party/Mansion';
 
-/** Matches: los Caramelos que te mandaron (piden respuesta), tus matches (abren el chat) y a
- * cuántos les mandaste uno. Sale de la misma lista de la mansión, sin otra consulta. */
+const hhmm = (d: Date | string) => new Date(d).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hour12: false });
+
+/** Matches: los Caramelos que te mandaron (piden respuesta), los matches nuevos (todavía sin
+ * escribirse, en fila como en las apps de citas) y los chats con su último mensaje, la hora, los no
+ * leídos y el «Visto». */
 export function MatchesView({ people, ticketCode, viewerAlias, canPhoto, onPick, onOpenChat, onDiscover }: {
   people: MansionPerson[];
   ticketCode: string;
@@ -15,16 +19,19 @@ export function MatchesView({ people, ticketCode, viewerAlias, canPhoto, onPick,
   onDiscover: () => void;
 }) {
   const now = new Date();
+  const matches = trpc.party.myMatches.useQuery({ ticketCode }, { refetchInterval: 8_000 });
   const caramelos = people.filter((p) => p.pendingForMe);
-  const matches = people.filter((p) => p.connectionStatus === 'accepted' && p.connectionId);
+  const list = matches.data ?? [];
+  const fresh = list.filter((m) => !m.last);
+  const chats = list.filter((m) => m.last);
   const waiting = people.filter((p) => p.connectionStatus === 'pending' && !p.pendingForMe).length;
 
-  if (caramelos.length === 0 && matches.length === 0) {
+  if (caramelos.length === 0 && list.length === 0) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center px-8 pb-10 text-center">
         <span className="grid h-20 w-20 place-items-center rounded-full bg-gradient-to-br from-pink-500/25 to-sky-500/25"><Heart className="h-9 w-9 text-pink-300" /></span>
-        <p className="mt-4 text-title3 font-bold">Todavía no hay matches</p>
-        <p className="mt-1 text-subhead text-white/65">{waiting > 0 ? `Le mandaste un Caramelo a ${waiting === 1 ? '1 persona' : `${waiting} personas`}. ` : ''}Desliza en Descubrir: cuando los dos se den ♥, aparece acá.</p>
+        <p className="mt-4 text-title3 font-bold">{matches.isLoading ? 'Cargando…' : 'Todavía no hay matches'}</p>
+        {!matches.isLoading && <p className="mt-1 text-subhead text-white/65">{waiting > 0 ? `Le mandaste un Caramelo a ${waiting === 1 ? '1 persona' : `${waiting} personas`}. ` : ''}Desliza en Descubrir: cuando los dos se den ♥, aparece acá.</p>}
         <button type="button" onClick={() => { tap(); onDiscover(); }} className="lg-pill mt-5 h-12 rounded-full px-6 text-subhead font-semibold interactive">Ir a Descubrir</button>
       </div>
     );
@@ -46,23 +53,48 @@ export function MatchesView({ people, ticketCode, viewerAlias, canPhoto, onPick,
         </section>
       )}
 
-      {matches.length > 0 && (
+      {fresh.length > 0 && (
         <section>
-          <h2 className="mb-3 text-headline font-bold">Tus matches <span className="font-medium text-white/60">{matches.length}</span></h2>
+          <h2 className="mb-3 text-headline font-bold">Nuevos matches <span className="font-medium text-white/60">{fresh.length}</span></h2>
+          <div className="flex gap-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {fresh.map((m) => (
+              <button key={m.connectionId} type="button" onClick={() => { tap(); onOpenChat(m.connectionId, m.other.alias, m.other.id); }} className="flex w-[76px] shrink-0 flex-col items-center gap-1.5">
+                <span className="relative block rounded-full bg-gradient-to-br from-pink-500 via-fuchsia-500 to-sky-500 p-[2.5px]">
+                  <PersonPhoto ticketCode={ticketCode} viewerAlias={viewerAlias} canPhoto={canPhoto && m.other.hasPhoto} person={m.other} className="h-[68px] w-[68px] rounded-full border-2 border-[#0b0612]" />
+                </span>
+                <span className="w-full truncate text-center text-caption1 font-semibold">{m.other.alias}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {chats.length > 0 && (
+        <section>
+          <h2 className="mb-3 text-headline font-bold">Mensajes</h2>
           <div className="account-glass divide-y divide-white/10 overflow-hidden rounded-[24px]">
-            {matches.map((p) => {
-              const online = isOnline(p.lastSeenAt, now);
+            {chats.map((m) => {
+              const online = isOnline(m.other.lastSeenAt, now);
               return (
-                <button key={p.id} type="button" onClick={() => { tap(); onOpenChat(p.connectionId!, p.alias, p.id); }} className="flex w-full items-center gap-3 px-4 py-3 text-left interactive">
+                <button key={m.connectionId} type="button" onClick={() => { tap(); onOpenChat(m.connectionId, m.other.alias, m.other.id); }} className="flex w-full items-center gap-3 px-4 py-3 text-left interactive">
                   <span className="relative shrink-0">
-                    <PersonPhoto ticketCode={ticketCode} viewerAlias={viewerAlias} canPhoto={canPhoto} person={p} className="h-14 w-14 rounded-full" />
+                    <PersonPhoto ticketCode={ticketCode} viewerAlias={viewerAlias} canPhoto={canPhoto && m.other.hasPhoto} person={m.other} className="h-14 w-14 rounded-full" />
                     {online && <span className="absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-[#1a0f18] bg-emerald-400" aria-label="Activa ahora" />}
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-body font-semibold">{p.alias}</span>
-                    <span className="flex items-center gap-1 truncate text-footnote text-white/60"><MapPin className="h-3 w-3 shrink-0" /> En {ZONE_LABELS[p.zone]} · Toca para escribirle</span>
+                    <span className="flex items-baseline justify-between gap-2">
+                      <span className={`truncate text-body ${m.unread > 0 ? 'font-bold' : 'font-semibold'}`}>{m.other.alias}</span>
+                      <span className={`shrink-0 text-caption1 ${m.unread > 0 ? 'font-semibold text-pink-300' : 'text-white/60'}`}>{m.last && hhmm(m.last.createdAt)}</span>
+                    </span>
+                    <span className="flex items-center justify-between gap-2">
+                      <span className={`truncate text-footnote ${m.unread > 0 ? 'font-semibold text-white' : 'text-white/60'}`}>
+                        {m.last?.mine ? 'Tú: ' : ''}{m.last?.body}
+                      </span>
+                      {m.unread > 0
+                        ? <span className="grid h-5 min-w-5 shrink-0 place-items-center rounded-full bg-pink-500 px-1.5 text-caption2 font-bold">{m.unread}</span>
+                        : m.seen && <span className="shrink-0 text-caption2 font-semibold text-white/60">Visto</span>}
+                    </span>
                   </span>
-                  <ChevronRight className="h-4 w-4 shrink-0 text-white/45" />
                 </button>
               );
             })}

@@ -22,7 +22,7 @@ import { sellParkingAtDoor } from "./caja/parkingPaid";
 import { MAX_TEST_GUESTS, MIN_TEST_GUESTS } from "../shared/playmatchTest";
 import { UNDO_EXPENSE_WINDOW_MS } from "../shared/expenses";
 import { canUseCaja } from "../shared/cajaRoles";
-import { AVATARS_PER_GENDER, DEFAULT_LOOKING_FOR, MAX_PARTY_PHOTOS, PARTY_GENDERS, PARTY_ZONES, parseLookingFor, sanitizeCostume, serializeLookingFor, canPreRegister, partyEntryDenial, sanitizeAlias, sanitizeGiftMessage, sanitizeMessage, isPartyWindowOpen, validatePhotoBytes } from "../shared/party";
+import { AVATARS_PER_GENDER, DEFAULT_LOOKING_FOR, MAX_PARTY_PHOTOS, MAX_REWINDS_PER_EVENT, PARTY_GENDERS, PARTY_ZONES, parseLookingFor, sanitizeCostume, serializeLookingFor, canPreRegister, partyEntryDenial, sanitizeAlias, sanitizeGiftMessage, sanitizeMessage, isPartyWindowOpen, validatePhotoBytes } from "../shared/party";
 import * as ambassadorProgram from "./ambassadorProgram";
 import { monthKeyFor } from "../shared/ambassadorProgram";
 import { checkAndAdvanceTandaIfNeeded } from "./tandaAutoAdvance";
@@ -2241,6 +2241,13 @@ export const appRouter = router({
         const actor = await requirePartyProfile(input.ticketCode);
         const res = await db.touchPartyProfile(actor.profile.id, input.targetProfileId, actor.event.id);
         if (!res.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: res.reason });
+        // El Caramelo sí se entera (a diferencia del ♥): le llega un aviso.
+        const otherTicketCode = await db.getPartyProfileTicketCode(input.targetProfileId);
+        if (otherTicketCode) {
+          await sendPushToProfile(input.targetProfileId, res.status === 'accepted'
+            ? { title: '💘 ¡Hicieron match!', body: `Tú y ${actor.profile.alias} se gustaron en Playmatch`, url: `/fiesta/${otherTicketCode}` }
+            : { title: '★ Te mandaron un Caramelo', body: `${actor.profile.alias} quiere conocerte en Playmatch`, url: `/fiesta/${otherTicketCode}` });
+        }
         return res;
       }),
 
@@ -2321,7 +2328,24 @@ export const appRouter = router({
     swipeDeck: publicProcedure.input(z.object({ ticketCode: z.string() })).query(async ({ input }) => {
       const actor = await requirePartyProfile(input.ticketCode);
       // `null` = todavía no participa (sin foto o en pausa), no un error.
-      return { deck: await db.getPartySwipeDeck(actor.profile) };
+      const deck = await db.getPartySwipeDeck(actor.profile);
+      return {
+        deck,
+        likesYou: deck ? await db.countPartyLikesForMe(actor.profile.id) : 0,
+        rewindsLeft: Math.max(0, MAX_REWINDS_PER_EVENT - (actor.profile.rewindsUsed ?? 0)),
+      };
+    }),
+    // Deshacer el último ✕ (una vez por noche).
+    undoSwipe: publicProcedure.input(z.object({ ticketCode: z.string() })).mutation(async ({ input }) => {
+      const actor = await requirePartyProfile(input.ticketCode);
+      const res = await db.undoLastPartyNope(actor.profile);
+      if (!res.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: res.reason });
+      return { card: res.card };
+    }),
+    // Pestaña Matches: con quién, último mensaje, no leídos y «Visto».
+    myMatches: publicProcedure.input(z.object({ ticketCode: z.string() })).query(async ({ input }) => {
+      const actor = await requirePartyProfile(input.ticketCode);
+      return db.listPartyMatches(actor.profile.id);
     }),
     swipe: publicProcedure.input(z.object({ ticketCode: z.string(), targetProfileId: z.number(), liked: z.boolean() }))
       .mutation(async ({ input }) => {

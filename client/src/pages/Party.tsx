@@ -76,6 +76,7 @@ export function PartyExperience({ ticketCode, onBack }: { ticketCode: string; on
   // 10 segundos: se siente vivo sin castigar la batería ni la función serverless. El chat abierto va a 3 s.
   const mansion = trpc.party.listMansion.useQuery({ ticketCode }, { enabled: inside, refetchInterval: 10_000 });
   const myGifts = trpc.party.myGifts.useQuery({ ticketCode }, { enabled: inside, refetchInterval: 10_000 });
+  const myMatches = trpc.party.myMatches.useQuery({ ticketCode }, { enabled: inside, refetchInterval: 10_000 });
   const utils = trpc.useUtils();
   const setZone = trpc.party.setZone.useMutation({
     onSuccess: () => { session.refetch(); utils.party.listMansion.invalidate(); },
@@ -98,6 +99,8 @@ export function PartyExperience({ ticketCode, onBack }: { ticketCode: string; on
   const people = (mansion.data?.people ?? []) as MansionPerson[];
   const caramelosLeft = mansion.data?.touchesLeft ?? 0;
   const caramelosForMe = people.filter((p) => p.pendingForMe).length;
+  // Lo que pide respuesta en Matches: Caramelos por contestar y mensajes sin leer.
+  const unreadChats = (myMatches.data ?? []).reduce((n, m) => n + m.unread, 0);
   // Lo que pide acción mía en los tragos: una invitación por responder, o una aceptada por pagar.
   const pendingGifts =
     (myGifts.data?.received.filter((g) => g.status === 'invited').length ?? 0) +
@@ -107,7 +110,7 @@ export function PartyExperience({ ticketCode, onBack }: { ticketCode: string; on
   const openPerson = (p: SheetPerson) => setSelected(p);
   const chatWith = (connectionId: number, alias: string, otherId: number) => { setSelected(null); setMatch(null); setOpenChat({ connectionId, alias, otherId }); };
   const gift = (profileId: number, alias: string) => { setSelected(null); setGifting({ profileId, alias }); };
-  const celebrate = (m: { connectionId: number; alias: string; otherId: number }) => { setSelected(null); setMatch(m); utils.party.listMansion.invalidate(); };
+  const celebrate = (m: { connectionId: number; alias: string; otherId: number }) => { setSelected(null); setMatch(m); utils.party.listMansion.invalidate(); utils.party.myMatches.invalidate(); };
 
   return (
     <div className="account-font account-tokens relative flex h-dvh flex-col overflow-hidden bg-[#0b0612] text-white">
@@ -165,13 +168,13 @@ export function PartyExperience({ ticketCode, onBack }: { ticketCode: string; on
       <nav aria-label="Secciones de Playmatch" className="fixed bottom-[max(12px,env(safe-area-inset-bottom))] left-1/2 z-20 w-[calc(100vw-48px)] max-w-xs -translate-x-1/2">
         <div className="lg-pill grid grid-cols-3 rounded-full p-1.5">
           {TABS.map(({ id, label, icon: Icon }) => {
-            const badge = id === 'matches' ? caramelosForMe : 0;
+            const badge = id === 'matches' ? caramelosForMe + unreadChats : 0;
             return (
               <button key={id} type="button" onClick={() => go(id)} aria-current={tab === id ? 'page' : undefined}
                 className={`relative flex flex-col items-center justify-center gap-0.5 rounded-full py-2 text-caption2 font-semibold transition-all duration-300 ${tab === id ? 'bg-white/[0.16] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.3)]' : 'text-white/60'}`}>
                 <Icon className={`h-[22px] w-[22px] ${tab === id && id === 'descubrir' ? 'fill-pink-500 text-pink-400' : ''}`} />
                 {label}
-                {badge > 0 && <span className="absolute right-3 top-0.5 grid h-5 min-w-5 place-items-center rounded-full bg-sky-400 px-1 text-caption2 font-bold text-[#0b0612]">{badge}</span>}
+                {badge > 0 && <span className="absolute right-3 top-0.5 grid h-5 min-w-5 place-items-center rounded-full bg-pink-500 px-1 text-caption2 font-bold text-white shadow-[0_0_10px_rgba(236,72,153,0.8)]">{badge}</span>}
               </button>
             );
           })}
@@ -199,7 +202,7 @@ export function PartyExperience({ ticketCode, onBack }: { ticketCode: string; on
         {notifOpen && <NotificationsPanel key="avisos" ticketCode={ticketCode} onClose={() => setNotifOpen(false)} />}
         {openChat && (
           <Chat key="chat" ticketCode={ticketCode} connectionId={openChat.connectionId} alias={openChat.alias} otherId={openChat.otherId}
-            viewerAlias={profile.alias} canPhoto={canPhoto} onClose={() => setOpenChat(null)} onGift={gift} />
+            viewerAlias={profile.alias} canPhoto={canPhoto} onClose={() => { setOpenChat(null); utils.party.myMatches.invalidate(); }} onGift={gift} />
         )}
       </AnimatePresence>
     </div>

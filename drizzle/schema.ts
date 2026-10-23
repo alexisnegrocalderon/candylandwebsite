@@ -1585,6 +1585,8 @@ export const partyProfiles = mysqlTable("partyProfiles", {
   lookingFor: varchar("lookingFor", { length: 32 }).default("hombre,mujer,pareja").notNull(),
   // «Mi disfraz» (aniversario Halloween): lo ve toda la fiesta, mismas reglas que el alias.
   costume: varchar("costume", { length: 40 }),
+  // Cuántas veces deshizo un ✕ esta noche (MAX_REWINDS_PER_EVENT).
+  rewindsUsed: int("rewindsUsed").default(0).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => ({
   // El patrón de consulta real: "todos los perfiles activos de este evento".
@@ -1648,8 +1650,11 @@ export const partyConnections = mysqlTable("partyConnections", {
   status: mysqlEnum("status", ["pending", "accepted", "declined"]).default("pending").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   respondedAt: timestamp("respondedAt"),
-  // Nació de un match del swipe: no gasta uno de los 15 toques de la noche.
+  // Nació de un match del swipe: no gasta uno de los Caramelos de la noche.
   viaSwipe: int("viaSwipe").default(0).notNull(),
+  // Hasta cuándo leyó el chat cada lado (no leídos y «Visto»).
+  lowReadAt: timestamp("lowReadAt"),
+  highReadAt: timestamp("highReadAt"),
 }, (table) => ({
   pairIdx: uniqueIndex("party_connections_pair_idx").on(table.profileLowId, table.profileHighId),
   // "mis conexiones" se consulta por cada lado del par.

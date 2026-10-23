@@ -5,10 +5,20 @@
 
 // --- Constantes de política ---
 
-/** Tope de toques por persona y por noche (decisión del dueño). Es lo que
- * hace que recibir un toque signifique algo: sin tope, una sola persona
- * mandando 80 convierte la función en spam la primera noche. */
-export const MAX_TOUCHES_PER_EVENT = 15;
+/** Tope de Caramelos (★, el «toque» de antes: la otra persona se entera) por persona y por noche.
+ * Son 3, como un super like: es lo que hace que recibir uno signifique algo. Sin tope, una sola
+ * persona mandando 80 convierte la función en spam la primera noche. */
+export const MAX_TOUCHES_PER_EVENT = 3;
+
+/** Deshacer el último ✕ del swipe: una vez por noche. */
+export const MAX_REWINDS_PER_EVENT = 1;
+
+/** «Visto»: la otra persona abrió el chat después de mi último mensaje. */
+export function isSeenBy(myLastMessageAt: Date | string | null | undefined, otherReadAt: Date | string | null | undefined): boolean {
+  const mine = toTime(myLastMessageAt);
+  const read = toTime(otherReadAt);
+  return mine !== null && read !== null && read >= mine;
+}
 
 /** En línea si dio señales en los últimos 2 minutos. El cliente refresca
  * la mansión cada 10s, así que tolera varias respuestas perdidas antes de

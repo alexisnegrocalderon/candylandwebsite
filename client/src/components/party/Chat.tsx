@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { ArrowUp, ChevronLeft, MapPin, Wine } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { PersonPhoto, tap } from '@/components/party/ui';
-import { MAX_MESSAGE_LENGTH, ZONE_LABELS, type PartyGender, type PartyZone } from '@shared/party';
+import { MAX_MESSAGE_LENGTH, ZONE_LABELS, isSeenBy, type PartyGender, type PartyZone } from '@shared/party';
 
 /** Para romper el hielo cuando todavía no se escriben: tocar uno lo deja en el campo. */
 const ICEBREAKERS = ['¿De qué vienes disfrazad@? 🎃', '¿En qué zona estás? 👀', '¿Te invito algo? 🍹', 'Tu foto me hizo sonreír 😏'];
@@ -33,6 +33,9 @@ export function Chat({ ticketCode, connectionId, alias, otherId, viewerAlias, ca
 
   const messages = chat.data?.messages ?? [];
   const other = chat.data?.other;
+  // «Visto» bajo mi último mensaje, si es lo último del chat y la otra persona lo abrió después.
+  const lastMsg = messages[messages.length - 1];
+  const seen = !!lastMsg?.mine && isSeenBy(lastMsg.createdAt, chat.data?.otherReadAt);
 
   // Pegado abajo con cada mensaje nuevo, como cualquier chat.
   useEffect(() => { end.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages.length]);
@@ -57,7 +60,7 @@ export function Chat({ ticketCode, connectionId, alias, otherId, viewerAlias, ca
           person={{ id: otherId, gender: (other?.gender ?? 'mujer') as PartyGender, avatarId: other?.avatarId ?? 1 }} className="h-10 w-10 shrink-0 rounded-full" />
         <div className="min-w-0 flex-1">
           <p className="truncate text-headline font-bold leading-tight">{alias}</p>
-          {other?.zone && <p className="flex items-center gap-1 text-caption1 text-white/60"><MapPin className="h-3 w-3" /> En {ZONE_LABELS[other.zone as PartyZone]}</p>}
+          {other?.zone && <p className="flex items-center gap-1 truncate text-caption1 text-white/60"><MapPin className="h-3 w-3 shrink-0" /> En {ZONE_LABELS[other.zone as PartyZone]}{other.costume ? ` · ${other.costume}` : ''}</p>}
         </div>
         <button type="button" onClick={() => { tap(); onGift(otherId, alias); }} aria-label={`Invitarle un trago a ${alias}`} className="lg-pill grid h-10 w-10 place-items-center rounded-full"><Wine className="h-[18px] w-[18px] text-amber-300" /></button>
       </header>
@@ -91,6 +94,7 @@ export function Chat({ ticketCode, connectionId, alias, otherId, viewerAlias, ca
             </div>
           );
         })}
+        {seen && <p className="pr-1 text-right text-caption2 font-semibold text-white/60">Visto</p>}
         <div ref={end} />
       </div>
 

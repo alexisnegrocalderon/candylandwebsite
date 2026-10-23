@@ -14,7 +14,7 @@ import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools,
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
 import { isMissionActiveForEvent, missionDepositPrice, personasForAccesoSlug, personasForTicket } from '../shared/mission300';
-import { MAX_TOUCHES_PER_EVENT, MAX_PARTY_PHOTOS, photoSlotFor, isMutualInterest, PRESENCE_WINDOW_MS, SWIPE_DECK_SIZE, canSeePhotos, giftExpiresAt, isGiftExpired, canPayGift, canRespondToGift, orderedPair, type PartyGender, type PartyZone } from '../shared/party';
+import { MAX_TOUCHES_PER_EVENT, MAX_PARTY_PHOTOS, MAX_REWINDS_PER_EVENT, photoSlotFor, isMutualInterest, isSeenBy, parseLookingFor, PRESENCE_WINDOW_MS, SWIPE_DECK_SIZE, canSeePhotos, giftExpiresAt, isGiftExpired, canPayGift, canRespondToGift, orderedPair, type PartyGender, type PartyZone } from '../shared/party';
 import { playcoinsEarnedForPurchase, clampRedeemAmount } from '../shared/playcoins';
 import { isEventToday } from '../shared/eventDay';
 import { chileHourOf, startOfChileDay } from '../shared/chileDate';
@@ -6848,9 +6848,109 @@ export async function listPartyMessages(profileId: number, connectionId: number)
     .where(eq(partyMessages.connectionId, connectionId))
     .orderBy(partyMessages.createdAt);
 
+  // Abrir el chat = leerlo hasta ahora (para los no leídos y el «Visto» del otro lado).
+  const iAmLow = c.profileLowId === profileId;
+  await db.update(partyConnections).set(iAmLow ? { lowReadAt: new Date() } : { highReadAt: new Date() }).where(eq(partyConnections.id, c.id));
+
   return {
-    other: other ? { id: other.id, alias: other.alias, gender: other.gender, avatarId: other.avatarId, zone: other.zone, lastSeenAt: other.lastSeenAt } : null,
+    other: other ? { id: other.id, alias: other.alias, gender: other.gender, avatarId: other.avatarId, zone: other.zone, lastSeenAt: other.lastSeenAt, costume: other.costume ?? null } : null,
     messages: messages.map((m: any) => ({ id: m.id, body: m.body, mine: m.fromProfileId === profileId, createdAt: m.createdAt })),
+    otherReadAt: (iAmLow ? c.highReadAt : c.lowReadAt) ?? null,
+  };
+}
+
+export type PartyMatchRow = {
+  connectionId: number;
+  other: { id: number; alias: string; gender: PartyGender; avatarId: number; zone: PartyZone; lastSeenAt: Date; costume: string | null; hasPhoto: boolean };
+  last: { body: string; mine: boolean; createdAt: Date } | null;
+  unread: number;
+  seen: boolean;
+  since: Date;
+};
+
+/** Mis matches para la pestaña Matches: con quién, su último mensaje, cuántos no leí y si vio lo
+ * último que le mandé. Solo conexiones aceptadas, sin bloqueados ni gente que ya no está activa. */
+export async function listPartyMatches(profileId: number): Promise<PartyMatchRow[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const [connections, hidden] = await Promise.all([getPartyConnectionsFor(db, profileId), getPartyHiddenIds(db, profileId)]);
+  const accepted = connections.filter((c: any) => c.status === 'accepted');
+  if (accepted.length === 0) return [];
+  const otherOf = (c: any) => (c.profileLowId === profileId ? c.profileHighId : c.profileLowId);
+  const otherIds = accepted.map(otherOf).filter((id: number) => !hidden.has(id));
+  if (otherIds.length === 0) return [];
+  const [others, messages, photos] = await Promise.all([
+    db.select().from(partyProfiles).where(inArray(partyProfiles.id, otherIds)),
+    db.select().from(partyMessages).where(inArray(partyMessages.connectionId, accepted.map((c: any) => c.id))).orderBy(partyMessages.createdAt),
+    db.select({ profileId: partyPhotos.profileId }).from(partyPhotos).where(inArray(partyPhotos.profileId, otherIds)),
+  ]);
+  const byId = new Map<number, any>(others.map((o: any) => [o.id, o]));
+  const withPhoto = new Set<number>(photos.map((p: any) => p.profileId));
+  return accepted
+    .map((c: any): PartyMatchRow | null => {
+      const other = byId.get(otherOf(c));
+      if (!other || other.active !== 1 || other.banned) return null;
+      const iAmLow = c.profileLowId === profileId;
+      const myReadAt = iAmLow ? c.lowReadAt : c.highReadAt;
+      const otherReadAt = iAmLow ? c.highReadAt : c.lowReadAt;
+      const mine = messages.filter((m: any) => m.connectionId === c.id);
+      const last = mine[mine.length - 1] ?? null;
+      const myLast = [...mine].reverse().find((m: any) => m.fromProfileId === profileId) ?? null;
+      const unread = mine.filter((m: any) => m.fromProfileId !== profileId && (!myReadAt || new Date(m.createdAt) > new Date(myReadAt))).length;
+      return {
+        connectionId: c.id as number,
+        other: { id: other.id as number, alias: other.alias as string, gender: other.gender as PartyGender, avatarId: other.avatarId as number, zone: other.zone as PartyZone, lastSeenAt: other.lastSeenAt as Date, costume: (other.costume as string | null) ?? null, hasPhoto: withPhoto.has(other.id) },
+        last: last ? { body: last.body as string, mine: last.fromProfileId === profileId, createdAt: last.createdAt as Date } : null,
+        unread,
+        seen: !!myLast && last?.fromProfileId === profileId && isSeenBy(myLast.createdAt, otherReadAt),
+        since: (last?.createdAt ?? c.respondedAt ?? c.createdAt) as Date,
+      };
+    })
+    .filter((m: PartyMatchRow | null): m is PartyMatchRow => m !== null)
+    .sort((a: PartyMatchRow, b: PartyMatchRow) => new Date(b.since).getTime() - new Date(a.since).getTime());
+}
+
+/** «Les gustas a N personas»: ♥ que me dieron y que todavía no veo (no los swipeé ni hay conexión).
+ * Solo el número, nunca quiénes: los ♥ siguen siendo ciegos. */
+export async function countPartyLikesForMe(profileId: number): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const [likes, mine, connections, hidden] = await Promise.all([
+    db.select({ from: partySwipes.fromProfileId }).from(partySwipes).where(and(eq(partySwipes.toProfileId, profileId), eq(partySwipes.liked, 1))),
+    db.select({ to: partySwipes.toProfileId }).from(partySwipes).where(eq(partySwipes.fromProfileId, profileId)),
+    getPartyConnectionsFor(db, profileId),
+    getPartyHiddenIds(db, profileId),
+  ]);
+  const seen = new Set<number>([...mine.map((m: any) => m.to), ...Array.from(hidden)]);
+  for (const c of connections) seen.add(c.profileLowId === profileId ? c.profileHighId : c.profileLowId);
+  return likes.filter((l: any) => !seen.has(l.from)).length;
+}
+
+/** Deshacer el último ✕ (una vez por noche): borra ese swipe y devuelve la tarjeta para ponerla
+ * de nuevo arriba. */
+export async function undoLastPartyNope(viewer: { id: number; eventId: number; swipeEnabled: number; banned: number; rewindsUsed?: number }) {
+  const db = await getDb();
+  if (!db) return { ok: false as const, reason: 'Base de datos no disponible' };
+  if ((viewer.rewindsUsed ?? 0) >= MAX_REWINDS_PER_EVENT) return { ok: false as const, reason: 'Ya usaste tu deshacer de esta noche' };
+  const [last] = await db.select().from(partySwipes).where(eq(partySwipes.fromProfileId, viewer.id))
+    .orderBy(desc(partySwipes.createdAt), desc(partySwipes.id)).limit(1);
+  if (!last || last.liked !== 0) return { ok: false as const, reason: 'No hay nada que deshacer' };
+  // Si el ✕ fue a un Caramelo, ese rechazo también se deshace: vuelve a estar pendiente.
+  const { low, high } = orderedPair(viewer.id, last.toProfileId);
+  const [conn] = await db.select().from(partyConnections).where(and(eq(partyConnections.profileLowId, low), eq(partyConnections.profileHighId, high))).limit(1);
+  const caramelo = !!conn && conn.status === 'declined' && conn.initiatedById === last.toProfileId;
+  if (caramelo) await db.update(partyConnections).set({ status: 'pending', respondedAt: null }).where(eq(partyConnections.id, conn.id));
+  const target = await isSwipeCandidate(db, viewer.id, viewer.eventId, last.toProfileId);
+  // Si ya no está (se fue, la bloquearon), no se gasta el deshacer.
+  if (!target) {
+    if (caramelo) await db.update(partyConnections).set({ status: 'declined', respondedAt: new Date() }).where(eq(partyConnections.id, conn.id));
+    return { ok: false as const, reason: 'Esa persona ya no está disponible' };
+  }
+  await db.delete(partySwipes).where(eq(partySwipes.id, last.id));
+  await db.update(partyProfiles).set({ rewindsUsed: sql`${partyProfiles.rewindsUsed} + 1` }).where(eq(partyProfiles.id, viewer.id));
+  return {
+    ok: true as const,
+    card: { id: target.id as number, alias: target.alias as string, gender: target.gender as PartyGender, zone: target.zone as PartyZone, costume: (target.costume as string | null) ?? null, photoCount: Math.max(1, await countPartyPhotos(target.id)), caramelo },
   };
 }
 
@@ -7180,9 +7280,14 @@ async function isSwipeCandidate(db: any, viewerId: number, eventId: number, targ
   if (viewerId === targetId) return null;
   const [t] = await db.select().from(partyProfiles).where(eq(partyProfiles.id, targetId)).limit(1);
   if (!t || t.eventId !== eventId || t.active !== 1 || t.banned || !t.swipeEnabled) return null;
-  // Busco: el servidor también lo exige (el mazo no es una frontera de confianza).
+  // Busco: el servidor también lo exige (el mazo no es una frontera de confianza). Si la otra
+  // persona ya me mandó un Caramelo, basta con que yo la busque a ella.
   const [me] = await db.select().from(partyProfiles).where(eq(partyProfiles.id, viewerId)).limit(1);
-  if (!me || !isMutualInterest(me, t)) return null;
+  if (!me) return null;
+  const { low, high } = orderedPair(viewerId, targetId);
+  const [conn] = await db.select().from(partyConnections).where(and(eq(partyConnections.profileLowId, low), eq(partyConnections.profileHighId, high))).limit(1);
+  const caramelFromThem = !!conn && conn.status === 'pending' && conn.initiatedById === targetId;
+  if (caramelFromThem ? !parseLookingFor(me.lookingFor).includes(t.gender) : !isMutualInterest(me, t)) return null;
   if (!(await partyProfileHasPhoto(targetId))) return null;
   const hidden = await getPartyHiddenIds(db, viewerId);
   if (hidden.has(targetId)) return null;
@@ -7218,12 +7323,26 @@ export async function getPartySwipeDeck(viewer: { id: number; eventId: number; s
   for (const p of withPhoto as any[]) photoCount.set(p.profileId, (photoCount.get(p.profileId) ?? 0) + 1);
   const me = profiles.find((p: any) => p.id === viewer.id) ?? (await db.select().from(partyProfiles).where(eq(partyProfiles.id, viewer.id)).limit(1))[0];
 
-  return profiles
+  const toCard = (p: any, caramelo: boolean) => ({
+    id: p.id as number, alias: p.alias as string, gender: p.gender as PartyGender, zone: p.zone as PartyZone,
+    costume: (p.costume as string | null) ?? null, photoCount: photoCount.get(p.id) ?? 1, caramelo,
+  });
+  // Quien me mandó un Caramelo (★) va primero, con su marca: ♥ = match al tiro. Basta con que yo
+  // busque a alguien como esa persona (ella ya dijo que yo le intereso).
+  const caramelIds = new Set<number>(connections
+    .filter((c: any) => c.status === 'pending' && c.initiatedById !== viewer.id)
+    .map((c: any) => (c.profileLowId === viewer.id ? c.profileHighId : c.profileLowId)));
+  const caramels = profiles
+    .filter((p: any) => caramelIds.has(p.id) && !hidden.has(p.id) && photoCount.has(p.id) && (!me || parseLookingFor(me.lookingFor).includes(p.gender)))
+    .map((p: any) => toCard(p, true));
+
+  const rest = profiles
     // Busco: solo quienes se buscan los dos.
     .filter((p: any) => !skip.has(p.id) && photoCount.has(p.id) && (!me || isMutualInterest(me, p)))
     .sort((a: any, b: any) => new Date(b.lastSeenAt).getTime() - new Date(a.lastSeenAt).getTime())
-    .slice(0, SWIPE_DECK_SIZE)
-    .map((p: any) => ({ id: p.id, alias: p.alias, gender: p.gender as PartyGender, zone: p.zone as PartyZone, costume: (p.costume as string | null) ?? null, photoCount: photoCount.get(p.id) ?? 1 }));
+    .map((p: any) => toCard(p, false));
+
+  return [...caramels, ...rest].slice(0, SWIPE_DECK_SIZE);
 }
 
 export type PartySwipeResult =
@@ -7249,16 +7368,24 @@ export async function swipePartyProfile(
   await db.insert(partySwipes)
     .values({ eventId: viewer.eventId, fromProfileId: viewer.id, toProfileId: targetProfileId, liked: liked ? 1 : 0 })
     .onDuplicateKeyUpdate({ set: { liked: liked ? 1 : 0 } });
-  if (!liked) return { ok: true, match: false };
-
-  const [back] = await db.select().from(partySwipes).where(and(
-    eq(partySwipes.fromProfileId, targetProfileId), eq(partySwipes.toProfileId, viewer.id), eq(partySwipes.liked, 1),
-  )).limit(1);
-  if (!back) return { ok: true, match: false };
 
   const { low, high } = orderedPair(viewer.id, targetProfileId);
   const findPair = () => db.select().from(partyConnections)
     .where(and(eq(partyConnections.profileLowId, low), eq(partyConnections.profileHighId, high))).limit(1);
+  const [pending] = await findPair();
+  // Me había mandado un Caramelo: ✕ lo rechaza en silencio (como «Ahora no»), ♥ es match al tiro.
+  const caramelFromThem = !!pending && pending.status === 'pending' && pending.initiatedById === targetProfileId;
+  if (!liked) {
+    if (caramelFromThem) await db.update(partyConnections).set({ status: 'declined', respondedAt: new Date() }).where(eq(partyConnections.id, pending.id));
+    return { ok: true, match: false };
+  }
+
+  if (!caramelFromThem) {
+    const [back] = await db.select().from(partySwipes).where(and(
+      eq(partySwipes.fromProfileId, targetProfileId), eq(partySwipes.toProfileId, viewer.id), eq(partySwipes.liked, 1),
+    )).limit(1);
+    if (!back) return { ok: true, match: false };
+  }
 
   let [conn] = await findPair();
   if (!conn) {

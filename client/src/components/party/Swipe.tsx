@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { animate, motion, useMotionValue, useTransform } from 'framer-motion';
 import { toast } from 'sonner';
-import { Camera, Heart, Info, MapPin, Sparkles, Star, Wine, X } from 'lucide-react';
+import { Camera, Heart, Info, MapPin, RotateCcw, Sparkles, Star, Wine, X } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { ProtectedPhoto, preloadPhoto } from '@/components/party/ProtectedPhoto';
 import { Confetti } from '@/components/site/Confetti';
@@ -10,7 +10,7 @@ import { ZONE_LABELS, type PartyGender, type PartyZone } from '@shared/party';
 
 const GENDER_LABELS: Record<PartyGender, string> = { hombre: 'Hombre', mujer: 'Mujer', pareja: 'Pareja' };
 
-export type DeckCard = { id: number; alias: string; gender: PartyGender; zone: PartyZone; costume: string | null; photoCount: number };
+export type DeckCard = { id: number; alias: string; gender: PartyGender; zone: PartyZone; costume: string | null; photoCount: number; caramelo?: boolean };
 type Verdict = 'like' | 'nope' | 'caramelo';
 
 /* Descubrir: el swipe al estilo Tinder, con el vidrio de la App. ♥ a la derecha, ✕ a la izquierda y
@@ -32,6 +32,10 @@ export function DiscoverView({ ticketCode, alias, myProfileId, participating, ca
   const deckQuery = trpc.party.swipeDeck.useQuery({ ticketCode }, { enabled: participating, refetchInterval: 15_000 });
   const swipe = trpc.party.swipe.useMutation();
   const touch = trpc.party.touch.useMutation();
+  const undo = trpc.party.undoSwipe.useMutation();
+  // El último ✕ de esta sesión (lo único que se puede deshacer) y la tarjeta que volvió arriba.
+  const [lastNope, setLastNope] = useState<number | null>(null);
+  const [restored, setRestored] = useState<DeckCard | null>(null);
 
   // Las tarjetas ya resueltas se esconden al instante sin esperar al servidor. `done` no se reinicia
   // al refrescar el mazo: un refresco que llega antes de que el servidor registre el último swipe
@@ -40,8 +44,11 @@ export function DiscoverView({ ticketCode, alias, myProfileId, participating, ca
   // Orden para la tarjeta de arriba cuando se decide con los botones (sale volando igual que al arrastrar).
   const [command, setCommand] = useState<{ v: Verdict; n: number } | null>(null);
 
-  const deck: DeckCard[] = (deckQuery.data?.deck ?? []).filter((c) => !done.has(c.id));
+  const serverDeck: DeckCard[] = (deckQuery.data?.deck ?? []).filter((c) => !done.has(c.id) && c.id !== restored?.id);
+  const deck: DeckCard[] = restored && !done.has(restored.id) ? [restored, ...serverDeck] : serverDeck;
   const top = deck[0];
+  const likesYou = deckQuery.data?.likesYou ?? 0;
+  const rewindsLeft = deckQuery.data?.rewindsLeft ?? 0;
 
   // Las fotos de las dos tarjetas siguientes (y el resto del carrusel de la actual) se piden
   // mientras miras la actual.
@@ -58,6 +65,7 @@ export function DiscoverView({ ticketCode, alias, myProfileId, participating, ca
   const resolve = (card: DeckCard, v: Verdict) => {
     setDone((prev) => new Set(prev).add(card.id));
     setCommand(null);
+    setLastNope(v === 'nope' ? card.id : null);
     const refill = () => { if (deck.length <= 3) utils.party.swipeDeck.invalidate(); };
     if (v === 'caramelo') {
       touch.mutate({ ticketCode, targetProfileId: card.id }, {
@@ -80,6 +88,20 @@ export function DiscoverView({ ticketCode, alias, myProfileId, participating, ca
         refill();
       },
       onError: (e) => toast.error(e.message),
+    });
+  };
+
+  const rewind = () => {
+    if (lastNope === null || undo.isPending) return;
+    tap();
+    undo.mutate({ ticketCode }, {
+      onSuccess: ({ card }) => {
+        setDone((prev) => { const next = new Set(prev); next.delete(card.id); return next; });
+        setRestored(card);
+        setLastNope(null);
+        utils.party.swipeDeck.invalidate();
+      },
+      onError: (e) => { setLastNope(null); toast.error(e.message); },
     });
   };
 
@@ -113,6 +135,12 @@ export function DiscoverView({ ticketCode, alias, myProfileId, participating, ca
 
   return (
     <div className="flex flex-1 flex-col px-3 pb-3">
+      {/* Solo el número, nunca quiénes: los ♥ siguen siendo ciegos. */}
+      {likesYou > 0 && (
+        <p className="mx-auto mb-2 flex w-fit items-center gap-1.5 rounded-full bg-pink-500/15 px-3 py-1.5 text-footnote font-semibold text-pink-200">
+          <Heart className="h-3.5 w-3.5 fill-pink-400 text-pink-400" /> Les gustas a {likesYou === 1 ? '1 persona' : `${likesYou} personas`} · sigue deslizando
+        </p>
+      )}
       <div className="relative mx-auto w-full max-w-md flex-1" style={{ minHeight: 360 }}>
         {/* Las de atrás asoman escaladas, como un mazo. */}
         {deck.slice(1, 3).reverse().map((c, i, arr) => {
@@ -128,7 +156,10 @@ export function DiscoverView({ ticketCode, alias, myProfileId, participating, ca
           onVerdict={(v) => resolve(top, v)} onInfo={() => onInfo(top)} />
       </div>
 
-      <div className="mt-4 flex items-center justify-center gap-4">
+      <div className="mt-4 flex items-center justify-center gap-3">
+        <RoundButton label={rewindsLeft > 0 ? 'Deshacer el último No' : 'Ya usaste tu deshacer de esta noche'} size="sm" onClick={rewind} dim={lastNope === null || rewindsLeft <= 0}>
+          <RotateCcw className="h-5 w-5 text-amber-300" strokeWidth={2.4} />
+        </RoundButton>
         <RoundButton label="No" size="lg" onClick={() => press('nope')}><X className="h-8 w-8 text-white" strokeWidth={2.6} /></RoundButton>
         <RoundButton label={`Caramelo (te quedan ${caramelosLeft})`} onClick={() => press('caramelo')} dim={caramelosLeft <= 0}>
           <Star className="h-6 w-6 fill-sky-300 text-sky-300" />
@@ -141,8 +172,8 @@ export function DiscoverView({ ticketCode, alias, myProfileId, participating, ca
   );
 }
 
-function RoundButton({ label, onClick, children, size = 'md', primary = false, dim = false }: { label: string; onClick: () => void; children: React.ReactNode; size?: 'md' | 'lg'; primary?: boolean; dim?: boolean }) {
-  const dims = size === 'lg' ? 'h-[68px] w-[68px]' : 'h-[52px] w-[52px]';
+function RoundButton({ label, onClick, children, size = 'md', primary = false, dim = false }: { label: string; onClick: () => void; children: React.ReactNode; size?: 'sm' | 'md' | 'lg'; primary?: boolean; dim?: boolean }) {
+  const dims = size === 'lg' ? 'h-[66px] w-[66px]' : size === 'sm' ? 'h-11 w-11' : 'h-[50px] w-[50px]';
   const look = primary
     ? 'bg-gradient-to-br from-pink-500 via-fuchsia-500 to-sky-500 shadow-[0_12px_30px_-6px_rgba(236,72,153,0.75),inset_0_1px_0_rgba(255,255,255,0.45)]'
     : 'lg-pill';
@@ -194,7 +225,7 @@ function SwipeCard({ ticketCode, viewerAlias, card, command, caramelo, onVerdict
   return (
     <motion.div
       ref={el}
-      className="absolute inset-0 cursor-grab touch-none overflow-hidden rounded-[28px] border border-white/15 bg-[#1a0f18] shadow-[0_30px_70px_-25px_rgba(0,0,0,0.9)] active:cursor-grabbing"
+      className={`absolute inset-0 cursor-grab touch-none overflow-hidden rounded-[28px] bg-[#1a0f18] active:cursor-grabbing ${card.caramelo ? 'border-[3px] border-sky-300 shadow-[0_0_40px_-6px_rgba(56,189,248,0.8)]' : 'border border-white/15 shadow-[0_30px_70px_-25px_rgba(0,0,0,0.9)]'}`}
       style={{ x, y, rotate }}
       initial={{ scale: 0.96, opacity: 0.6 }}
       animate={{ scale: 1, opacity: 1 }}
@@ -218,6 +249,11 @@ function SwipeCard({ ticketCode, viewerAlias, card, command, caramelo, onVerdict
     >
       <ProtectedPhoto ticketCode={ticketCode} profileId={card.id} position={photo} viewerAlias={viewerAlias} className="absolute inset-0" />
       <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-black/45 to-transparent" />
+      {card.caramelo && (
+        <p className="pointer-events-none absolute inset-x-0 top-6 mx-auto flex w-fit items-center gap-1.5 rounded-full bg-sky-400 px-3.5 py-1.5 text-footnote font-bold text-[#0b0612] shadow-[0_6px_20px_-4px_rgba(56,189,248,0.9)]">
+          <Star className="h-4 w-4 fill-[#0b0612]" /> Te mandó un Caramelo · dale ♥ y es match
+        </p>
+      )}
       {count > 1 && (
         <div className="pointer-events-none absolute inset-x-3 top-2.5 flex gap-1.5" aria-label={`Foto ${photo + 1} de ${count}`}>
           {Array.from({ length: count }, (_, i) => <span key={i} className={`h-1 flex-1 rounded-full ${i === photo ? 'bg-white' : 'bg-white/35'}`} />)}

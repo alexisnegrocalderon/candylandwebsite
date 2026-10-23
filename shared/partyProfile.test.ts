@@ -51,3 +51,13 @@ describe('Mi disfraz', () => {
     expect(sanitizeCostume('x'.repeat(41)).ok).toBe(false);
   });
 });
+
+describe('«Visto» en el chat', () => {
+  it('se ve si la otra persona abrió el chat después de mi último mensaje', async () => {
+    const { isSeenBy } = await import('./party');
+    expect(isSeenBy('2026-10-31T23:00:00Z', '2026-10-31T23:01:00Z')).toBe(true);
+    expect(isSeenBy('2026-10-31T23:02:00Z', '2026-10-31T23:01:00Z')).toBe(false);
+    expect(isSeenBy('2026-10-31T23:00:00Z', null)).toBe(false);
+    expect(isSeenBy(null, '2026-10-31T23:01:00Z')).toBe(false);
+  });
+});
