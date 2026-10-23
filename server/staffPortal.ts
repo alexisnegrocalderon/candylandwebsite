@@ -10,6 +10,7 @@ import QRCode from 'qrcode';
 import { contentDesigns, events, staffMembers, staffShifts } from '../drizzle/schema';
 import { ENV } from './_core/env';
 import { getDb } from './db';
+import { buildStaffWelcomeEmail, sendEmail } from './email';
 import { honorariosBreakdown } from '../shared/honorarios';
 import { monthKeyFor } from '../shared/ambassadorProgram';
 import {
@@ -69,11 +70,13 @@ export async function getStaffEmails(): Promise<Record<number, string>> {
   return out;
 }
 
-/** Guarda (o borra, con null/vacío) el correo con que esa persona entra a la app. */
-export async function setStaffEmail(staffId: number, email: string | null | undefined): Promise<void> {
+/** Guarda (o borra, con null/vacío) el correo con que esa persona entra a la app.
+ * Devuelve el correo si es nuevo (para mandarle la bienvenida), o null. */
+export async function setStaffEmail(staffId: number, email: string | null | undefined): Promise<string | null> {
   const row = await readRow(null);
   const emails = { ...((row?.data.emails ?? {}) as Record<string, string>) };
   const clean = normEmail(email);
+  const before = emails[String(staffId)] ?? null;
   if (clean) {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean)) throw new Error('Ese correo no es válido.');
     const taken = Object.entries(emails).find(([k, v]) => v === clean && Number(k) !== staffId);
@@ -83,6 +86,18 @@ export async function setStaffEmail(staffId: number, email: string | null | unde
     delete emails[String(staffId)];
   }
   await writeRow(null, { ...(row?.data ?? {}), emails });
+  return clean && clean !== before ? clean : null;
+}
+
+/** Correo de bienvenida a la app del staff (botón a «Mi cuenta»). */
+export async function sendStaffWelcome(staffId: number): Promise<boolean> {
+  const email = (await getStaffEmails())[staffId];
+  const db = await getDb();
+  if (!email || !db) return false;
+  const [staff] = await db.select({ name: staffMembers.name, role: staffMembers.role, active: staffMembers.active }).from(staffMembers).where(eq(staffMembers.id, staffId)).limit(1);
+  if (!staff?.active) return false;
+  const r = await sendEmail({ to: email, subject: '🪩 Tu app de staff de PlayRoom', html: buildStaffWelcomeEmail({ name: staff.name, role: staff.role, email }) });
+  return r.success;
 }
 
 /** La persona del equipo (activa) dueña de ese correo, o null. */

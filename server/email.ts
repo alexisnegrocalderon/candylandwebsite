@@ -751,6 +751,42 @@ export function buildMemberCodeEmail(data: { code: string; name?: string | null 
   return buildTopupCodeEmail({ code: data.code, purpose: 'cuenta', name: data.name });
 }
 
+/** Bienvenida al staff: se manda al guardar su correo en Finanzas → Equipo.
+ * Lleva el botón a «Mi cuenta», donde entra con ese mismo correo (código). */
+export function buildStaffWelcomeEmail(data: { name: string; role?: string | null; email: string }) {
+  const url = `${EMAIL_BASE_URL}/cuenta`;
+  const name = escapeEmailText(data.name.split(/\s+/)[0] || data.name);
+  const steps = [
+    ['🔑', 'Entra con este correo', `Abre el botón y escribe <strong style="color:${INK};">${escapeEmailText(data.email)}</strong>. Te llega un código y listo: sin contraseña.`],
+    ['🎫', 'Tu credencial con QR', 'Muéstrala en la puerta al llegar: así queda anotada tu llegada.'],
+    ['📌', 'Tus turnos y la info', 'Hora de citación, dirección, vestimenta, lo importante de tu rol y a quién llamar.'],
+  ];
+  return emailShell({
+    preheader: 'Ya tienes tu app de staff de PlayRoom.',
+    pageBg: DISCO_BG,
+    hero: emailHero({
+      accent: 'lilac',
+      heroBg: DISCO_HERO_BG,
+      emoji: '🪩✨',
+      title: `¡Bienvenidx al equipo, ${name}!`,
+      subtitle: data.role ? `Tu rol: ${escapeEmailText(data.role)}. Todo lo de tus turnos está en tu app.` : 'Todo lo de tus turnos está en tu app.',
+    }),
+    body: `
+      ${card(steps.map(([emoji, title, text]) => `
+        <div style="padding:10px 0;">
+          <p style="color:${INK};font-size:15px;font-weight:800;margin:0 0 4px;">${emoji} ${title}</p>
+          <p style="color:${MUTED};font-size:14px;line-height:1.6;margin:0;">${text}</p>
+        </div>`).join(''))}
+      <div style="text-align:center;margin-top:24px;">
+        ${pastelButton(url, 'Entrar a mi app de staff', 'lilac')}
+      </div>
+      <p style="color:${FAINT};font-size:12px;line-height:1.6;margin:20px 0 0;text-align:center;">
+        Tip: en el celular, agrégala a la pantalla de inicio para tenerla a mano la noche del evento.
+      </p>
+    `,
+  });
+}
+
 /** Aviso de seguridad: el PIN de la PlayCard se cambió con "Olvidé mi PIN".
  * Si no fue la persona, tiene que poder reaccionar -- por eso dice cómo. */
 export function buildPinChangedEmail(data: { buyerName: string; instagramUrl: string }) {
