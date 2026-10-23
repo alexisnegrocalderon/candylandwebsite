@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { toast } from 'sonner';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Check, ChevronDown, Copy, Download, Link2, Loader2, MessageCircle, Share2, Sparkles, Ticket } from 'lucide-react';
+import { Check, ChevronDown, Copy, Download, Layers, Link2, Loader2, MessageCircle, Share2, Sparkles, Ticket } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { formatChileShortDate } from '@shared/chileDate';
-import { ambassadorDirectMessage, type AmbassadorContentEvent, type AmbassadorItem } from '@shared/ambassadorContent';
+import { ambassadorDirectMessage, itemSection, type AmbassadorContentEvent, type AmbassadorItem, type AmbassadorSection } from '@shared/ambassadorContent';
 import { ScaledSlide } from '@/components/admin/studio/ScaledSlide';
 import { StudioSlideView } from '@/components/admin/studio/StudioSlideView';
 import { captureSlide, downloadBlob, slideFileName, type ExportItem } from '@/components/admin/studio/exportSlides';
@@ -44,8 +44,73 @@ function useCopy(): Copier {
   return { copied, copy };
 }
 
-export function AmbassadorContent({ code, events, items, material }: { code: string; events: AmbassadorContentEvent[]; items: PanelItem[]; material: PanelMaterial | null }) {
+type Filter = 'todo' | AmbassadorSection;
+const FILTERS: { key: Filter; label: string }[] = [
+  { key: 'todo', label: 'Todo' },
+  { key: 'historias', label: 'Historias' },
+  { key: 'posts', label: 'Posts' },
+  { key: 'videos', label: 'Videos' },
+];
+
+const SEEN_KEY = 'embajador.contenido.vistos';
+
+/** Qué piezas son nuevas desde la última vez que entró: las que no estaban en lo ya visto. Se marcan
+ * como vistas unos segundos después de mirar, así la etiqueta «Nuevo» dura mientras las ve. */
+function useNewIds(ids: number[]): Set<number> {
+  const key = ids.join(',');
+  const fresh = useMemo(() => {
+    let seen: number[] | null = null;
+    try { const raw = localStorage.getItem(SEEN_KEY); seen = raw ? (JSON.parse(raw) as number[]) : null; } catch { /* sin almacenamiento */ }
+    // La primera vez nada es «nuevo»: todo lo que hay ya es lo que ve por primera vez.
+    if (!seen) return new Set<number>();
+    const old = new Set(seen);
+    return new Set(ids.filter((id) => !old.has(id)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  useEffect(() => {
+    if (ids.length === 0) return;
+    const t = window.setTimeout(() => {
+      try {
+        const raw = localStorage.getItem(SEEN_KEY);
+        const prev = raw ? (JSON.parse(raw) as number[]) : [];
+        localStorage.setItem(SEEN_KEY, JSON.stringify(Array.from(new Set([...prev, ...ids]))));
+      } catch { /* sin almacenamiento */ }
+    }, 5000);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  return fresh;
+}
+
+/** Entrega archivos: con el menú de compartir del celular (en iPhone ofrece «Guardar imágenes») o,
+ * si no se puede, descargándolos de a uno. */
+async function deliverFiles(files: ExportItem[], onNeedTap: (files: ExportItem[]) => void): Promise<void> {
+  const list = files.map((f) => new File([f.blob], f.name, { type: f.blob.type || 'image/png' }));
+  if (typeof navigator.canShare !== 'function' || !navigator.canShare({ files: list })) {
+    for (const f of files) { downloadBlob(f); await sleep(350); }
+    toast.info('Tu celular no deja compartir directo desde acá: quedó guardado. Súbelo desde tus fotos.');
+    return;
+  }
+  try {
+    await navigator.share({ files: list });
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') return;
+    // Safari pide un toque nuevo si la preparación tardó: los archivos quedan listos.
+    if (e instanceof DOMException && e.name === 'NotAllowedError') { onNeedTap(files); return; }
+    throw e;
+  }
+}
+
+export function AmbassadorContent({ code, events, items, material, generalLink }: { code: string; events: AmbassadorContentEvent[]; items: PanelItem[]; material: PanelMaterial | null; generalLink?: string }) {
   const copier = useCopy();
+  const [filter, setFilter] = useState<Filter>('todo');
+  const newIds = useNewIds(items.map((i) => i.id));
+  const counts = useMemo(() => {
+    const c: Record<Filter, number> = { todo: items.length, historias: 0, posts: 0, videos: 0 };
+    for (const i of items) c[itemSection(i)]++;
+    return c;
+  }, [items]);
+  const view = (list: PanelItem[]) => (filter === 'todo' ? list : list.filter((i) => itemSection(i) === filter));
   // El correo semanal enlaza a /embajador/CODIGO#contenido; la sección aparece
   // recién cuando cargan los datos, así que el navegador no alcanza a bajar solo.
   const hasContent = events.length > 0 || items.length > 0 || !!material;
@@ -66,23 +131,60 @@ export function AmbassadorContent({ code, events, items, material }: { code: str
           Acá aparecen tus imágenes y videos listos, con tu link y tu código. Toca <strong className="text-foreground">Compartir</strong> y elige
           Instagram (historia, feed o mensaje) o WhatsApp. El texto se copia solo: lo pegas al publicar.
         </p>
-        <TwoWays />
-        <LinkStickerGuide />
+        <HowItWorks />
       </div>
 
-      {general.length > 0 && (
+      {items.length > 0 && (
+        <div role="tablist" aria-label="Tipo de contenido" className="mb-4 grid grid-cols-4 gap-1 rounded-full bg-muted/60 p-1">
+          {FILTERS.map(({ key, label }) => (
+            <button key={key} type="button" role="tab" aria-selected={filter === key} onClick={() => setFilter(key)}
+              className={`h-9 rounded-full text-[13px] font-semibold transition-colors ${filter === key ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'}`}>
+              {label}{counts[key] > 0 && <span className="ml-1 text-[11px] opacity-60">{counts[key]}</span>}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {view(general).length > 0 && (
         <div className="bg-card border border-border/50 rounded-2xl p-6 mb-4">
           <h3 className="font-heading text-xl mb-3">Para compartir cuando quieras</h3>
-          <ItemGrid items={general} copier={copier} />
+          <ItemGrid items={view(general)} copier={copier} link={generalLink} newIds={newIds} />
         </div>
       )}
 
       {events.map((event) => (
-        <EventContent key={event.id} event={event} code={code} items={items.filter((i) => i.eventId === event.id)} copier={copier} />
+        <EventContent key={event.id} event={event} code={code} items={view(items.filter((i) => i.eventId === event.id))} hasAny={items.some((i) => i.eventId === event.id)} copier={copier} newIds={newIds} />
       ))}
 
       {material && <WeeklyMaterial material={material} copier={copier} />}
     </section>
+  );
+}
+
+const GUIDE_KEY = 'embajador.guia.vista';
+
+/** El paso a paso (link y código), abierto la primera vez y cerrado después: lo importante es la biblioteca. */
+function HowItWorks() {
+  const [open, setOpen] = useState(() => { try { return !localStorage.getItem(GUIDE_KEY); } catch { return true; } });
+  useEffect(() => {
+    if (!open) return;
+    const t = window.setTimeout(() => { try { localStorage.setItem(GUIDE_KEY, '1'); } catch { /* nada */ } }, 4000);
+    return () => window.clearTimeout(t);
+  }, [open]);
+  return (
+    <div className="mt-3">
+      <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="inline-flex items-center gap-1.5 text-sm font-semibold text-secondary">
+        ¿Cómo uso mi link y mi código? <ChevronDown className={`w-4 h-4 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div key="how" initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.28, ease: [0.32, 0.72, 0, 1] }} className="overflow-hidden">
+            <TwoWays />
+            <LinkStickerGuide />
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
   );
 }
 
@@ -164,7 +266,7 @@ function CopyButton({ id, text, label, copier, icon }: { id: string; text: strin
   );
 }
 
-function EventContent({ event, code, items, copier }: { event: AmbassadorContentEvent; code: string; items: PanelItem[]; copier: Copier }) {
+function EventContent({ event, code, items, hasAny, copier, newIds }: { event: AmbassadorContentEvent; code: string; items: PanelItem[]; hasAny: boolean; copier: Copier; newIds: Set<number> }) {
   const message = ambassadorDirectMessage(event, code);
   const shareMessage = async () => {
     if (typeof navigator.share === 'function') {
@@ -190,16 +292,48 @@ function EventContent({ event, code, items, copier }: { event: AmbassadorContent
       </div>
 
       {items.length > 0
-        ? <ItemGrid items={items} copier={copier} />
-        : <p className="text-sm text-muted-foreground">Las imágenes de este evento están en preparación. Mientras, ya puedes compartir tu link.</p>}
+        ? <ItemGrid items={items} copier={copier} link={event.referralUrl} newIds={newIds} />
+        : <p className="text-sm text-muted-foreground">{hasAny ? 'No hay piezas de este tipo para este evento.' : 'Las imágenes de este evento están en preparación. Mientras, ya puedes compartir tu link.'}</p>}
     </div>
   );
 }
 
-function ItemGrid({ items, copier }: { items: PanelItem[]; copier: Copier }) {
+function ItemGrid({ items, copier, link, newIds }: { items: PanelItem[]; copier: Copier; link?: string; newIds: Set<number> }) {
+  const handles = useRef(new Map<number, ItemHandle | null>());
+  const [busy, setBusy] = useState(false);
+  const [ready, setReady] = useState<ExportItem[] | null>(null);
+
+  // «Guardar todo»: prepara cada pieza y las entrega juntas (en iPhone, «Guardar imágenes» las manda a Fotos).
+  const saveAll = async () => {
+    if (ready) { await deliverFiles(ready, setReady).then(() => setReady(null)).catch(() => {}); return; }
+    setBusy(true);
+    try {
+      const files: ExportItem[] = [];
+      for (const item of items) {
+        const handle = handles.current.get(item.id);
+        if (handle) files.push(...await handle.files());
+      }
+      await deliverFiles(files, setReady);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'No se pudo preparar todo.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-      {items.map((item) => <ItemCard key={item.id} item={item} copier={copier} />)}
+    <div>
+      {items.length > 1 && (
+        <Button size="sm" variant="outline" className="mb-4 w-full rounded-full sm:w-auto" onClick={saveAll} disabled={busy}>
+          {busy ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
+          {busy ? 'Preparando todo…' : ready ? 'Listo: toca para guardar todo' : `Guardar todo (${items.length})`}
+        </Button>
+      )}
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+        {items.map((item) => (
+          <ItemCard key={item.id} ref={(h) => { handles.current.set(item.id, h); }} item={item} copier={copier} link={link} isNew={newIds.has(item.id)} />
+        ))}
+      </div>
     </div>
   );
 }
@@ -227,100 +361,97 @@ function fileNameFor(item: PanelItem, blob: Blob): string {
   return slideFileName(item.label, 0, 1).replace(/\.png$/, `.${ext}`);
 }
 
+export type ItemHandle = { files: () => Promise<ExportItem[]> };
+
 /** Una pieza, foto o video con sus botones. El archivo se prepara al tocar
- * (en el celular no conviene generar todo de una). Safari pide un toque
- * nuevo para abrir el menú de compartir si la preparación tardó: entonces el
- * archivo queda listo y el botón pide tocar otra vez. */
-function ItemCard({ item, copier }: { item: PanelItem; copier: Copier }) {
+ * (en el celular no conviene generar todo de una). Una pieza de varias láminas
+ * (carrusel) se comparte o se guarda completa. Safari pide un toque nuevo para
+ * abrir el menú de compartir si la preparación tardó: entonces el archivo queda
+ * listo y el botón pide tocar otra vez. */
+const ItemCard = forwardRef<ItemHandle, { item: PanelItem; copier: Copier; link?: string; isNew?: boolean }>(function ItemCard({ item, copier, link, isNew }, handle) {
   const [busy, setBusy] = useState<null | 'share' | 'save'>(null);
-  const [ready, setReady] = useState<ExportItem | null>(null);
-  const [rendering, setRendering] = useState(false);
+  const [ready, setReady] = useState<ExportItem[] | null>(null);
+  // Qué lámina se está dibujando fuera de la pantalla para capturarla (null = ninguna).
+  const [capture, setCapture] = useState<number | null>(null);
   const node = useRef<HTMLDivElement | null>(null);
   const waiter = useRef<((el: HTMLDivElement) => void) | null>(null);
-  const cache = useRef<ExportItem | null>(null);
+  const cache = useRef<ExportItem[] | null>(null);
   const box = useRef<HTMLDivElement | null>(null);
+  const slides = item.kind === 'pieza' && item.design ? item.design.slides : [];
 
-  const prepare = async (): Promise<ExportItem> => {
+  const prepare = async (): Promise<ExportItem[]> => {
     if (cache.current) return cache.current;
-    let blob: Blob;
-    if (item.kind === 'pieza') {
-      // Se dibuja a tamaño real fuera de la pantalla solo mientras se captura.
-      const el = await new Promise<HTMLDivElement>((resolve) => {
-        if (node.current) { resolve(node.current); return; }
-        waiter.current = resolve;
-        setRendering(true);
-      });
-      await sleep(150);
-      blob = await captureSlide(el);
-      setRendering(false);
+    let files: ExportItem[];
+    if (item.kind === 'pieza' && item.design) {
+      files = [];
+      // Cada lámina se dibuja a tamaño real fuera de la pantalla solo mientras se captura.
+      for (let i = 0; i < slides.length; i++) {
+        const el = await new Promise<HTMLDivElement>((resolve) => { waiter.current = resolve; setCapture(i); });
+        await sleep(150);
+        files.push({ name: slideFileName(item.label, i, slides.length), blob: await captureSlide(el) });
+      }
+      setCapture(null);
     } else {
       const res = await fetch(item.mediaUrl);
       if (!res.ok) throw new Error('No se pudo bajar el archivo. Revisa tu conexión.');
-      blob = await res.blob();
+      const blob = await res.blob();
+      files = [{ name: fileNameFor(item, blob), blob }];
     }
-    cache.current = { name: fileNameFor(item, blob), blob };
-    return cache.current;
+    cache.current = files;
+    return files;
   };
-
-  const shareFile = async (file: ExportItem) => {
-    const files = [new File([file.blob], file.name, { type: file.blob.type || 'image/png' })];
-    if (typeof navigator.canShare !== 'function' || !navigator.canShare({ files })) {
-      downloadBlob(file);
-      toast.info('Tu celular no deja compartir directo desde acá: quedó guardado. Súbelo desde tus fotos.');
-      return;
-    }
-    try {
-      await navigator.share({ files });
-      setReady(null);
-    } catch (e) {
-      if (e instanceof DOMException && e.name === 'AbortError') { setReady(null); return; }
-      if (e instanceof DOMException && e.name === 'NotAllowedError') { setReady(file); return; }
-      throw e;
-    }
-  };
+  useImperativeHandle(handle, () => ({ files: prepare }));
 
   const share = async () => {
-    // Instagram no recibe el texto al compartir: se deja copiado para pegarlo.
+    // Instagram no recibe el texto al compartir: se deja copiado para pegarlo. Una historia con link no
+    // lleva texto: se copia el link, para pegarlo en el sticker «Enlace».
     if (item.caption) {
       await copier.copy(`caption-${item.id}`, item.caption, true);
       toast.success('Texto copiado: pégalo al publicar.');
+    } else if (item.via === 'link' && link) {
+      await copier.copy(`link-${item.id}`, link, true);
+      toast.success('Tu link quedó copiado: pégalo en el sticker «Enlace» de tu historia.');
     }
-    if (ready) { await shareFile(ready); return; }
     setBusy('share');
     try {
-      await shareFile(await prepare());
+      await deliverFiles(ready ?? await prepare(), setReady);
+      if (ready) setReady(null);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'No se pudo preparar el archivo.');
     } finally {
       setBusy(null);
-      setRendering(false);
+      setCapture(null);
     }
   };
 
   const save = async () => {
     setBusy('save');
     try {
-      downloadBlob(await prepare());
+      for (const file of await prepare()) { downloadBlob(file); if (slides.length > 1) await sleep(350); }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'No se pudo guardar.');
     } finally {
       setBusy(null);
-      setRendering(false);
+      setCapture(null);
     }
   };
 
-  const slide = item.design?.slides[0];
+  const slide = slides[0];
   const ratio = item.mediaFormat === 'post' ? 'aspect-[3/4]' : 'aspect-[9/16]';
   const width = useBoxWidth(box);
   return (
     <div ref={box} className="space-y-2 min-w-0">
-      {item.kind === 'pieza' && item.design && slide ? (
-        width > 0 && <ScaledSlide design={item.design} slide={slide} index={0} width={width} />
-      ) : item.kind === 'video' ? (
-        <video src={`${item.mediaUrl}#t=0.5`} controls playsInline muted preload="metadata" className={`w-full ${ratio} object-cover rounded-lg bg-black`} />
-      ) : (
-        <img src={item.mediaUrl} alt={item.label} loading="lazy" className={`w-full ${ratio} object-cover rounded-lg`} />
-      )}
+      <div className="relative">
+        {item.kind === 'pieza' && item.design && slide ? (
+          width > 0 && <ScaledSlide design={item.design} slide={slide} index={0} width={width} />
+        ) : item.kind === 'video' ? (
+          <video src={`${item.mediaUrl}#t=0.5`} controls playsInline muted preload="metadata" className={`w-full ${ratio} object-cover rounded-lg bg-black`} />
+        ) : (
+          <img src={item.mediaUrl} alt={item.label} loading="lazy" className={`w-full ${ratio} object-cover rounded-lg`} />
+        )}
+        {isNew && <span className="absolute left-2 top-2 rounded-full bg-pink-500 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white shadow">Nuevo</span>}
+        {slides.length > 1 && <span className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-full bg-black/65 px-2 py-0.5 text-[10px] font-semibold text-white"><Layers className="w-3 h-3" /> {slides.length} láminas</span>}
+      </div>
       <p className="text-sm font-semibold leading-tight flex items-center gap-1.5">
         {item.via === 'link' ? <Link2 className="w-3.5 h-3.5 text-secondary shrink-0" /> : <Ticket className="w-3.5 h-3.5 text-primary shrink-0" />}
         {item.label}
@@ -331,32 +462,38 @@ function ItemCard({ item, copier }: { item: PanelItem; copier: Copier }) {
         {busy === 'share' ? 'Preparando…' : ready ? 'Listo: toca para compartir' : 'Compartir'}
       </Button>
       <Button size="sm" variant="outline" className="w-full rounded-full" onClick={save} disabled={busy != null}>
-        {busy === 'save' ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />} Guardar
+        {busy === 'save' ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />} {slides.length > 1 ? 'Guardar todas' : 'Guardar'}
       </Button>
+      {item.via === 'link' && link && (
+        <Button size="sm" variant="outline" className="w-full rounded-full" onClick={() => copier.copy(`link-${item.id}`, link)}>
+          {copier.copied === `link-${item.id}` ? <Check className="w-4 h-4 mr-2" /> : <Link2 className="w-4 h-4 mr-2" />} Copiar mi link
+        </Button>
+      )}
       {item.caption && (
         <Button size="sm" variant="outline" className="w-full rounded-full" onClick={() => copier.copy(`caption-${item.id}`, item.caption)}>
           {copier.copied === `caption-${item.id}` ? <Check className="w-4 h-4 mr-2" /> : <Copy className="w-4 h-4 mr-2" />} Copiar texto
         </Button>
       )}
-      {rendering && item.design && slide && (
+      {capture != null && item.design && slides[capture] && (
         <div aria-hidden style={{ position: 'fixed', left: -20000, top: 0, pointerEvents: 'none' }}>
           <StudioSlideView
+            key={capture}
             ref={(el) => {
               node.current = el;
               if (el && waiter.current) { waiter.current(el); waiter.current = null; }
             }}
             theme={item.design.theme}
             format={item.design.format}
-            slide={slide}
-            index={0}
-            total={1}
+            slide={slides[capture]}
+            index={capture}
+            total={slides.length}
             showBrand={item.design.showBrand}
           />
         </div>
       )}
     </div>
   );
-}
+});
 
 function WeeklyMaterial({ material, copier }: { material: PanelMaterial; copier: Copier }) {
   const texts = [

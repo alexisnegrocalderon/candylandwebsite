@@ -276,3 +276,38 @@ export function ambassadorDirectMessage(event: AmbassadorContentEvent, code: str
     code ? `(Si te lo pide, mi código es ${code})` : '',
   ].filter(Boolean).join('\n');
 }
+
+/* --- Lo que se hace en el Estudio, hacia los embajadores ------------------ */
+
+/** Dónde se ve una pieza en la biblioteca del embajador: historias, posts o videos. */
+export type AmbassadorSection = 'historias' | 'posts' | 'videos';
+
+export function itemSection(item: Pick<AmbassadorItem, 'kind' | 'mediaFormat'>): AmbassadorSection {
+  if (item.kind === 'video') return 'videos';
+  return item.mediaFormat === 'post' ? 'posts' : 'historias';
+}
+
+/** La clave con la que un diseño del Estudio queda en la lista de embajadores: una sola vez por diseño. */
+export function studioAutoKey(designId: number): string {
+  return `estudio-${designId}`;
+}
+
+/** Un diseño de plantilla del Estudio (carrusel, post o historia) como pieza para embajadores, en
+ * borrador. Lleva todas sus láminas: cada embajador comparte o guarda el juego completo. */
+export function designToAmbassadorItem(design: StudioDesign, designId: number): AmbassadorItem | null {
+  return normalizeAmbassadorItem({
+    kind: 'pieza',
+    status: 'borrador',
+    eventId: design.eventId,
+    label: design.title,
+    hint: design.slides.length > 1
+      ? `Son ${design.slides.length} láminas: compártelas juntas o guárdalas todas.`
+      : 'Compártela en tu historia y ponle el sticker «Enlace» con tu link.',
+    via: 'link',
+    caption: design.caption,
+    design,
+    mediaFormat: design.format === 'post' ? 'post' : 'historia',
+    autoKey: studioAutoKey(designId),
+    sortOrder: 30,
+  });
+}

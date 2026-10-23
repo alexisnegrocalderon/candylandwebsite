@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { upload } from '@vercel/blob/client';
-import { ArrowLeft, Copy, Download, Image as ImageIcon, Loader2, Paperclip, Pencil, RotateCcw, Send, Share2, Sparkles, X } from 'lucide-react';
+import { ArrowLeft, Copy, Download, Image as ImageIcon, Loader2, Paperclip, Pencil, RotateCcw, Send, Share2, Sparkles, Users, X } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,6 +11,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useDemoProps } from '@/lib/demoMode';
 import { STUDIO_SIZES, type StudioFormat } from '@shared/contentStudio';
+import { uploadedItem } from '@shared/ambassadorContent';
 import { AI_MODEL_LABEL, AI_MODELS, emptyAiDesign, formatUsd, type AiDesign, type AiModel } from '@shared/studioAi';
 import { SlideFrame } from './SlideFrame';
 import { SlideEditor } from './SlideEditor';
@@ -104,7 +105,8 @@ export function AiDesigner({ designId: initialId, format: initialFormat, eventId
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
   const [selected, setSelected] = useState(0);
-  const [exporting, setExporting] = useState<null | 'zip' | 'png' | 'share'>(null);
+  const [exporting, setExporting] = useState<null | 'zip' | 'png' | 'share' | 'embajadores'>(null);
+  const saveAmbassadorItem = trpc.ambassadorContent.save.useMutation();
   const [editing, setEditing] = useState(false);
   // Las imágenes ya generadas del diseño actual: un segundo toque en «Compartir»
   // (Safari lo pide si tardó) o en «Descargar» sale al instante, sin repetir el trabajo.
@@ -225,6 +227,32 @@ export function AiDesigner({ designId: initialId, format: initialFormat, eventId
       cache.items.set(i, { name: slideFileName(design.title, i, design.slides.length), blob: await renderAiSlide(design, design.slides[i]) });
     }
     return indices.map((i) => cache.items.get(i)!);
+  };
+  /** Las láminas se dibujan aquí, se suben y quedan en «Por aprobar» de embajadores (una imagen por lámina). */
+  const sendToAmbassadors = async () => {
+    setExporting('embajadores');
+    try {
+      const all = design.slides.map((_, i) => i);
+      const items = await itemsFor(all);
+      for (let i = 0; i < items.length; i++) {
+        const file = new File([items[i].blob], items[i].name, { type: items[i].blob.type || 'image/png' });
+        const up = await upload(`embajadores/${Date.now()}-${items[i].name.replace(/[^a-zA-Z0-9._-]/g, '-')}`, file, { access: 'public', handleUploadUrl: '/api/admin/blob/upload' });
+        const item = uploadedItem({
+          mediaUrl: up.url,
+          eventId: design.eventId,
+          mediaFormat: design.format === 'historia' ? 'historia' : 'post',
+          label: items.length > 1 ? `${design.title} ${i + 1}/${items.length}` : design.title,
+          caption: design.caption,
+        });
+        if (item) await saveAmbassadorItem.mutateAsync({ item: item as unknown as Record<string, unknown> });
+      }
+      utils.ambassadorContent.list.invalidate();
+      toast.success(`${items.length === 1 ? 'Quedó' : `Quedaron ${items.length}`} en «Contenido para embajadores», por aprobar.`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'No se pudo enviar a embajadores.');
+    } finally {
+      setExporting(null);
+    }
   };
   const runExport = async (kind: 'zip' | 'png' | 'share') => {
     setExporting(kind);
@@ -424,6 +452,9 @@ export function AiDesigner({ designId: initialId, format: initialFormat, eventId
                 </Button>
                 <Button size="sm" variant="outline" onClick={() => runExport('share')} disabled={!ready || busy || exporting != null}>
                   {exporting === 'share' ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Share2 className="w-4 h-4 mr-2" />} Compartir / guardar en el celular
+                </Button>
+                <Button size="sm" variant="outline" onClick={sendToAmbassadors} disabled={!ready || busy || exporting != null}>
+                  {exporting === 'embajadores' ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Users className="w-4 h-4 mr-2" />} Enviar a embajadores
                 </Button>
                 <Button size="sm" variant="outline" onClick={() => setEditing(true)} disabled={!current?.html || !designId || busy || exporting != null} {...demoProps}>
                   <Pencil className="w-4 h-4 mr-2" /> Editar esta lámina
