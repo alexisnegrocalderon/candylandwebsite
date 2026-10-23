@@ -113,7 +113,7 @@ function useCountdown(date: string | Date) {
   return `Faltan ${hours} h ${mins % 60} min`;
 }
 
-type MeEvent = { eventId: number; eventTitle: string; eventSlug: string; eventDate: string | Date; venue: string | null; doorsOpen?: string | Date | null; eventEnd?: string | Date | null; tickets: { ticketCode: string; holderName: string | null; status: string; qrImageUrl: string | null; category?: string; kind?: TicketKind; kindLabel?: string }[] };
+type MeEvent = { eventId: number; eventTitle: string; eventSlug: string; eventDate: string | Date; venue: string | null; doorsOpen?: string | Date | null; eventEnd?: string | Date | null; tickets: { ticketCode: string; holderName: string | null; status: string; qrImageUrl: string | null; category?: string; kind?: TicketKind; kindLabel?: string; companions?: { nombre: string; rut: string }[] }[] };
 
 type Movement = { type: 'money' | 'points'; label: string; delta: number; createdAt: string | Date };
 
@@ -133,7 +133,7 @@ function QrViewer({ ev, t, holder, onClose }: { ev: MeEvent; t: MeEvent['tickets
     if (!t.qrImageUrl || saving) return;
     setSaving(true);
     try {
-      const r = await saveTicketImage({ qrImageUrl: t.qrImageUrl, ticketCode: t.ticketCode, holderName: t.holderName || holder, eventTitle: ev.eventTitle, eventDateText: fmtDateTime(ev.eventDate), venue: ev.venue });
+      const r = await saveTicketImage({ qrImageUrl: t.qrImageUrl, ticketCode: t.ticketCode, holderName: t.holderName || holder, eventTitle: ev.eventTitle, eventDateText: fmtDateTime(ev.eventDate), venue: ev.venue, companions: t.companions });
       if (r === 'downloaded') toast.success('Listo: la imagen de tu entrada quedó descargada.');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'No se pudo guardar la imagen');
@@ -142,7 +142,7 @@ function QrViewer({ ev, t, holder, onClose }: { ev: MeEvent; t: MeEvent['tickets
     }
   };
   return (
-    <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }} transition={{ duration: 0.22 }} className="fixed inset-0 z-[90] flex flex-col items-center justify-center gap-5 bg-white px-6 pb-[max(24px,env(safe-area-inset-bottom))] pt-[max(24px,env(safe-area-inset-top))] text-[#0d0712]" role="dialog" aria-label="Código QR de tu entrada">
+    <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }} transition={{ duration: 0.22 }} className="fixed inset-0 z-[90] flex flex-col items-center gap-5 overflow-y-auto bg-white px-6 pb-[max(24px,env(safe-area-inset-bottom))] pt-[max(24px,env(safe-area-inset-top))] text-[#0d0712] [&>*:first-child]:shrink-0" role="dialog" aria-label="Código QR de tu entrada">
       <button type="button" onClick={onClose} aria-label="Cerrar" className="absolute right-4 top-[max(16px,env(safe-area-inset-top))] grid h-11 w-11 place-items-center rounded-full bg-black/5"><X className="h-5 w-5" /></button>
       {t.kind && (
         <p className={`rounded-full px-4 py-1.5 text-center text-[15px] font-bold ${t.kind === 'estacionamiento' ? 'bg-sky-100 text-sky-900' : t.kind === 'acceso' ? 'bg-pink-100 text-pink-900' : 'bg-violet-100 text-violet-900'}`}>
@@ -151,11 +151,19 @@ function QrViewer({ ev, t, holder, onClose }: { ev: MeEvent; t: MeEvent['tickets
       )}
       <p className="text-center font-heading text-lg font-extrabold leading-tight">{ev.eventTitle}</p>
       {t.kind && <p className="-mt-3 text-center text-[13px] text-black/55">{TICKET_KIND_META[t.kind].where}</p>}
-      {t.qrImageUrl && <img src={t.qrImageUrl} alt="Código QR de tu entrada" className="aspect-square w-[min(86vw,58vh)] [image-rendering:pixelated]" />}
+      {t.qrImageUrl && <img src={t.qrImageUrl} alt="Código QR de tu entrada" className={`aspect-square [image-rendering:pixelated] ${t.companions && t.companions.length > 0 ? 'w-[min(80vw,40vh)]' : 'w-[min(86vw,58vh)]'}`} />}
       <div className="text-center">
         <p className="font-heading text-xl font-bold">{t.holderName || holder}</p>
         <p className="font-mono text-sm text-black/50">{t.ticketCode}</p>
       </div>
+      {t.companions && t.companions.length > 0 && (
+        <div className="w-full max-w-sm rounded-2xl bg-black/[0.04] px-4 py-3 text-center">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-black/45">{t.companions.length > 1 ? 'Acompañantes' : 'Acompañante'}</p>
+          {t.companions.map((c) => (
+            <p key={c.rut} className="mt-1 text-[15px] font-semibold leading-tight">{c.nombre} <span className="font-mono text-[13px] font-normal text-black/55">· {c.rut}</span></p>
+          ))}
+        </div>
+      )}
       <p className="text-center text-xs text-black/50">Sube el brillo de la pantalla. Muestra tu carnet en la entrada.</p>
       <button type="button" onClick={() => { void save(); }} disabled={saving} className="inline-flex h-12 items-center justify-center gap-2 rounded-full bg-[#0d0712] px-6 text-sm font-bold text-white interactive disabled:opacity-60">
         {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} Guardar en Fotos
@@ -358,6 +366,15 @@ function EntradaPass({ ev, t, holder }: { ev: MeEvent; t: MeEvent['tickets'][num
             {used ? '✓ Ya entraste' : countdown}
           </span>
         </div>
+        {/* Quienes vienen con el titular: nombre y documento, para no perder esos datos. */}
+        {(t.kind ?? 'acceso') === 'acceso' && t.companions && t.companions.length > 0 && (
+          <div className="relative mt-3 [@media(max-height:700px)]:mt-2">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/45">{t.companions.length > 1 ? 'Acompañantes' : 'Acompañante'}</p>
+            {t.companions.map((c) => (
+              <p key={c.rut} className="mt-0.5 flex items-baseline justify-between gap-3 text-[14px] font-semibold text-white"><span className="min-w-0 truncate">{c.nombre}</span><span className="shrink-0 font-mono text-[12.5px] font-normal text-white/60">{c.rut}</span></p>
+            ))}
+          </div>
+        )}
         {/* Perforado de entrada. */}
         <div aria-hidden className="relative -mx-5 my-3 flex items-center [@media(max-height:700px)]:hidden">
           <span className="-ml-2 h-4 w-4 rounded-full bg-[#0b0612]" />
@@ -405,7 +422,8 @@ function WalletStack({ ev, t, holder, prepaidBalance, playcoins, movements, hold
   const backNode = shown === 'entrada' ? playcard : pass;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col justify-center gap-3 [@media(max-height:700px)]:gap-2">
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain">
+    <div className="my-auto flex flex-col gap-3 [@media(max-height:700px)]:gap-2">
       <div className="relative" style={{ paddingTop: hasPass ? STACK_PEEK : 0 }}>
         {hasPass && (
           <motion.button
@@ -456,6 +474,7 @@ function WalletStack({ ev, t, holder, prepaidBalance, playcoins, movements, hold
         </div>
       )}
       {qrViewer}
+    </div>
     </div>
   );
 }
@@ -725,7 +744,7 @@ function TicketsPager({ events, holder }: { events: MeEvent[]; holder: string })
                 <span className="w-6 shrink-0 text-center text-lg">{TICKET_KIND_META[t.kind ?? 'acceso'].emoji}</span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[15px] font-semibold leading-tight">{(t.kind ?? 'acceso') === 'acceso' ? (t.holderName || `Entrada ${offset + i + 1}`) : (t.kindLabel ?? TICKET_KIND_META[t.kind!].label)}</span>
-                  <span className="block truncate text-[11.5px] text-white/50">{t.kindLabel ?? 'Acceso'}</span>
+                  <span className="block truncate text-[11.5px] text-white/50">{t.kindLabel ?? 'Acceso'}{t.companions && t.companions.length > 0 ? ` · con ${t.companions.map((c) => c.nombre.split(' ')[0]).join(', ')}` : ''}</span>
                 </span>
                 <span className={`shrink-0 text-xs font-medium ${t.status === 'used' ? 'text-white/50' : 'text-emerald-300'}`}>{t.status === 'used' ? 'Usada' : 'Ver QR'}</span>
                 {t.status === 'valid' && <QrCode className="h-4 w-4 shrink-0 text-white/50" />}
