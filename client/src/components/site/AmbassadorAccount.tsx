@@ -31,8 +31,8 @@ function CopyChip({ text, label, mono = false }: { text: string; label: string; 
       className="flex w-full min-w-0 items-center justify-between gap-2 rounded-2xl bg-white/[0.08] px-4 py-3 text-left interactive"
     >
       <span className="min-w-0">
-        <span className="block text-[11px] text-white/55">{done ? '¡Copiado!' : label}</span>
-        <span className={`block truncate text-sm font-semibold ${mono ? 'font-mono' : ''}`}>{text}</span>
+        <span className="block text-caption2 text-white/55">{done ? '¡Copiado!' : label}</span>
+        <span className={`block truncate text-subhead font-semibold ${mono ? 'font-mono' : ''}`}>{text}</span>
       </span>
       {done ? <Check className="h-4 w-4 shrink-0 text-emerald-300" /> : <Copy className="h-4 w-4 shrink-0 text-white/60" />}
     </button>
@@ -47,25 +47,25 @@ export function AmbassadorSummary({ panel, onDetails }: { panel: AmbassadorPanel
       <div className="flex items-center gap-2">
         <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-gradient-to-br from-pink-500 to-sky-500"><Crown className="h-4 w-4 text-white" /></span>
         <div className="min-w-0 flex-1">
-          <p className="text-[15px] font-bold leading-tight">Eres embajador{panel.name ? `: ${panel.name}` : ''}</p>
-          {stats && <p className="truncate text-xs text-white/55">{stats.eventTitle}</p>}
+          <p className="text-subhead font-bold leading-tight">Eres embajador{panel.name ? `: ${panel.name}` : ''}</p>
+          {stats && <p className="truncate text-caption1 text-white/55">{stats.eventTitle}</p>}
         </div>
       </div>
       {stats && (
         <div className="grid grid-cols-3 gap-2 text-center">
-          <div className="rounded-2xl bg-white/[0.06] px-2 py-2.5"><p className="text-lg font-bold leading-none">{stats.eventSales}</p><p className="mt-1 text-[10.5px] text-white/55">ventas</p></div>
-          <div className="rounded-2xl bg-white/[0.06] px-2 py-2.5"><p className="text-lg font-bold leading-none text-pink-300">{stats.currentPercent}%</p><p className="mt-1 text-[10.5px] text-white/55">comisión</p></div>
-          <div className="rounded-2xl bg-white/[0.06] px-2 py-2.5"><p className="text-lg font-bold leading-none">${(panel.eventStats?.commission ?? stats.eventCommission ?? 0).toLocaleString('es-CL')}</p><p className="mt-1 text-[10.5px] text-white/55">ganado</p></div>
+          <div className="rounded-2xl bg-white/[0.06] px-2 py-2.5"><p className="text-title3 font-bold leading-none">{stats.eventSales}</p><p className="mt-1 text-caption2 text-white/55">ventas</p></div>
+          <div className="rounded-2xl bg-white/[0.06] px-2 py-2.5"><p className="text-title3 font-bold leading-none text-pink-300">{stats.currentPercent}%</p><p className="mt-1 text-caption2 text-white/55">comisión</p></div>
+          <div className="rounded-2xl bg-white/[0.06] px-2 py-2.5"><p className="text-title3 font-bold leading-none">${(panel.eventStats?.commission ?? stats.eventCommission ?? 0).toLocaleString('es-CL')}</p><p className="mt-1 text-caption2 text-white/55">ganado</p></div>
         </div>
       )}
       {stats?.nextTarget && (
-        <p className="text-xs text-white/60">Te faltan <strong className="text-white">{stats.nextTarget.salesNeeded}</strong> venta{stats.nextTarget.salesNeeded === 1 ? '' : 's'} para subir al <strong className="text-pink-300">{stats.nextTarget.nextPercent}%</strong>.</p>
+        <p className="text-caption1 text-white/60">Te faltan <strong className="text-white">{stats.nextTarget.salesNeeded}</strong> venta{stats.nextTarget.salesNeeded === 1 ? '' : 's'} para subir al <strong className="text-pink-300">{stats.nextTarget.nextPercent}%</strong>.</p>
       )}
       <div className="grid gap-2">
         {panel.referralUrl && <CopyChip text={panel.referralUrl} label="Tu link (para el sticker «Enlace» o WhatsApp)" />}
         <CopyChip text={panel.code} label="Tu código" mono />
       </div>
-      <button type="button" onClick={onDetails} className="flex w-full items-center justify-center gap-1.5 py-1 text-xs font-semibold text-pink-300 interactive">
+      <button type="button" onClick={onDetails} className="flex w-full items-center justify-center gap-1.5 py-1 text-caption1 font-semibold text-pink-300 interactive">
         <Link2 className="h-3.5 w-3.5" /> Ver todas mis ventas y beneficios <ArrowRight className="h-3.5 w-3.5" />
       </button>
     </div>
@@ -109,10 +109,10 @@ export function AppScreen({ open, title, onClose, children }: { open: boolean; t
         >
           <div className="account-backdrop" />
           <header className="relative z-10 flex shrink-0 items-center gap-2 px-3 pb-2 pt-[max(12px,env(safe-area-inset-top))]">
-            <button type="button" onClick={onClose} className="inline-flex h-10 items-center gap-0.5 rounded-full pl-1 pr-3 text-[15px] font-semibold text-pink-300 interactive" aria-label="Volver">
+            <button type="button" onClick={onClose} className="inline-flex h-10 items-center gap-0.5 rounded-full pl-1 pr-3 text-subhead font-semibold text-pink-300 interactive" aria-label="Volver">
               <ChevronLeft className="h-6 w-6" /> Volver
             </button>
-            <h2 className="min-w-0 flex-1 truncate text-center text-[17px] font-bold pr-16">{title}</h2>
+            <h2 className="min-w-0 flex-1 truncate text-center text-body font-bold pr-16">{title}</h2>
           </header>
           <div className="relative z-10 min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-[calc(env(safe-area-inset-bottom)+24px)]">
             <div className="mx-auto max-w-lg pt-2">{children}</div>

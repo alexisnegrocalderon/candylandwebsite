@@ -1,5 +1,5 @@
 /* Avisos push a clientes del sitio (server/customerPush.ts). El worker es
- * /sw-site.js con scope '/' -- sin caché ni `fetch`, solo recibe avisos.
+ * /sw-site.js con scope '/': recibe avisos y además guarda la App para abrir sin señal (ver ese archivo).
  *
  * En iPhone/iPad Safari entrega push SOLO a una web agregada a la pantalla de
  * inicio (iOS 16.4+): ahí el aviso del sitio enseña a instalarla primero. En

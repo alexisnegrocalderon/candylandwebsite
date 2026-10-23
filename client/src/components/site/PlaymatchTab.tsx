@@ -98,8 +98,8 @@ export function PlaymatchTab({ events, buyHref }: { events: PmEvent[]; buyHref?:
 
   const links = (
     <div className="grid grid-cols-2 gap-2">
-      <button type="button" onClick={() => { tapHaptic(); setScreen('guia'); }} className="account-glass flex h-12 items-center justify-center gap-2 rounded-2xl text-[13px] font-semibold interactive"><BookOpen className="h-4 w-4 text-pink-300" /> Cómo funciona</button>
-      <button type="button" onClick={() => { tapHaptic(); setScreen('normas'); }} className="account-glass flex h-12 items-center justify-center gap-2 rounded-2xl text-[13px] font-semibold interactive"><ShieldCheck className="h-4 w-4 text-sky-300" /> Normas</button>
+      <button type="button" onClick={() => { tapHaptic(); setScreen('guia'); }} className="account-glass flex h-12 items-center justify-center gap-2 rounded-2xl text-footnote font-semibold interactive"><BookOpen className="h-4 w-4 text-pink-300" /> Cómo funciona</button>
+      <button type="button" onClick={() => { tapHaptic(); setScreen('normas'); }} className="account-glass flex h-12 items-center justify-center gap-2 rounded-2xl text-footnote font-semibold interactive"><ShieldCheck className="h-4 w-4 text-sky-300" /> Normas</button>
     </div>
   );
 
@@ -110,7 +110,7 @@ export function PlaymatchTab({ events, buyHref }: { events: PmEvent[]; buyHref?:
         <Hero title="La fiesta en tu celular" body="Con tu entrada puedes inscribirte en Playmatch desde ya: mira quién está, haz match y chatea durante la fiesta." />
         <Steps />
         {buyHref && (
-          <Link href={buyHref} onClick={tapHaptic} className="flex h-13 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-pink-500 via-fuchsia-500 to-sky-500 py-3.5 text-[15px] font-bold text-white interactive">
+          <Link href={buyHref} onClick={tapHaptic} className="flex h-13 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-pink-500 via-fuchsia-500 to-sky-500 py-3.5 text-subhead font-bold text-white interactive">
             Comprar mi entrada <ArrowRight className="h-4 w-4" />
           </Link>
         )}
@@ -151,8 +151,8 @@ export function PlaymatchTab({ events, buyHref }: { events: PmEvent[]; buyHref?:
       <div className="account-glass flex items-center gap-3 rounded-[26px] px-4 py-3.5">
         <PartyAvatar gender={profile.gender as PartyGender} avatarId={profile.avatarId} className="h-14 w-14 shrink-0 rounded-full" />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-[17px] font-bold leading-tight">{profile.alias}</p>
-          <p className="mt-0.5 inline-flex items-center gap-1 text-[12.5px] font-semibold text-emerald-300"><Check className="h-3.5 w-3.5" /> {inside ? 'Estás en la fiesta' : 'Inscripción lista'}</p>
+          <p className="truncate text-body font-bold leading-tight">{profile.alias}</p>
+          <p className="mt-0.5 inline-flex items-center gap-1 text-footnote font-semibold text-emerald-300"><Check className="h-3.5 w-3.5" /> {inside ? 'Estás en la fiesta' : 'Inscripción lista'}</p>
         </div>
         <button type="button" onClick={() => { tapHaptic(); setScreen('editar'); }} aria-label="Editar perfil" className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white/10 interactive"><Pencil className="h-4 w-4" /></button>
       </div>
@@ -162,16 +162,16 @@ export function PlaymatchTab({ events, buyHref }: { events: PmEvent[]; buyHref?:
           <span className="flex items-center gap-3 rounded-[25px] bg-[#0d0712] px-4 py-4">
             <span className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-gradient-to-br from-pink-500 to-sky-500 text-2xl">🍬</span>
             <span className="min-w-0 flex-1">
-              <span className="block text-[17px] font-bold leading-tight">Entrar a Playmatch</span>
-              <span className="block truncate text-[12.5px] text-white/60">Mira quién está, haz match y chatea</span>
+              <span className="block text-body font-bold leading-tight">Entrar a Playmatch</span>
+              <span className="block truncate text-footnote text-white/60">Mira quién está, haz match y chatea</span>
             </span>
             <ArrowRight className="h-5 w-5 shrink-0 text-pink-300" />
           </span>
         </button>
       ) : (
         <div className="account-glass rounded-[26px] px-4 py-4">
-          <p className="text-[15px] font-bold">{openNight ? '🚪 Muestra tu QR en la puerta' : '⏳ Se activa en la fiesta'}</p>
-          <p className="mt-1 text-[13px] leading-snug text-white/65">
+          <p className="text-subhead font-bold">{openNight ? '🚪 Muestra tu QR en la puerta' : '⏳ Se activa en la fiesta'}</p>
+          <p className="mt-1 text-footnote leading-snug text-white/65">
             {openNight
               ? 'Apenas te escaneen, tu perfil aparece en la fiesta y te llega el aviso. Esta pantalla se actualiza sola.'
               : `${pick.ev.eventTitle} · ${opensLabel(pick.ev)}. Cuando escaneen tu entrada en la puerta, entras al tiro.`}
@@ -190,8 +190,8 @@ function Hero({ title, body }: { title: string; body: string }) {
     <div className={`rounded-[26px] p-[1.5px] ${NEON_RING}`}>
       <div className="rounded-[25px] bg-[#0d0712] px-5 py-6 text-center">
         <p className="text-4xl" aria-hidden>🍬</p>
-        <p className="mt-2 text-[20px] font-bold tracking-tight">{title}</p>
-        <p className="mx-auto mt-1.5 max-w-xs text-[13.5px] leading-snug text-white/65">{body}</p>
+        <p className="mt-2 text-title3 font-bold tracking-tight">{title}</p>
+        <p className="mx-auto mt-1.5 max-w-xs text-footnote leading-snug text-white/65">{body}</p>
       </div>
     </div>
   );
@@ -202,8 +202,8 @@ function Steps({ active = -1, bare }: { active?: number; bare?: boolean }) {
   const list = (
     <ol className="space-y-2">
       {STEPS.map((s, i) => (
-        <li key={s} className="flex items-center gap-3 text-[13.5px]">
-          <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-full text-[12px] font-bold ${i < active ? 'bg-emerald-400/20 text-emerald-300' : i === active ? 'bg-pink-500 text-white' : 'bg-white/10 text-white/60'}`}>
+        <li key={s} className="flex items-center gap-3 text-footnote">
+          <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-full text-caption1 font-bold ${i < active ? 'bg-emerald-400/20 text-emerald-300' : i === active ? 'bg-pink-500 text-white' : 'bg-white/10 text-white/60'}`}>
             {i < active ? <Check className="h-3.5 w-3.5" /> : i + 1}
           </span>
           <span className={i <= active ? 'text-white' : 'text-white/65'}>{s}</span>
@@ -240,8 +240,8 @@ function Guide({ onDone }: { onDone: () => void }) {
               className="absolute inset-0 flex flex-col items-center justify-center px-7 text-center"
             >
               <span className="grid h-20 w-20 place-items-center rounded-full bg-gradient-to-br from-pink-500/30 to-sky-500/30 text-5xl" aria-hidden>{g.emoji}</span>
-              <p className="mt-5 text-[22px] font-bold tracking-tight">{g.title}</p>
-              <p className="mt-2 text-[14px] leading-snug text-white/70">{g.body}</p>
+              <p className="mt-5 text-title2 font-bold tracking-tight">{g.title}</p>
+              <p className="mt-2 text-subhead leading-snug text-white/70">{g.body}</p>
             </motion.div>
           </AnimatePresence>
         </div>
@@ -249,10 +249,10 @@ function Guide({ onDone }: { onDone: () => void }) {
       <div className="flex justify-center gap-1.5" aria-hidden>
         {GUIDE.map((_, n) => <span key={n} className={`h-1.5 rounded-full transition-all duration-300 ${n === i ? 'w-6 bg-white' : 'w-1.5 bg-white/30'}`} />)}
       </div>
-      <button type="button" onClick={() => (last ? (tapHaptic(), onDone()) : go(i + 1))} className="flex h-13 w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-pink-500 via-fuchsia-500 to-sky-500 py-3.5 text-[15px] font-bold text-white interactive">
+      <button type="button" onClick={() => (last ? (tapHaptic(), onDone()) : go(i + 1))} className="flex h-13 w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-pink-500 via-fuchsia-500 to-sky-500 py-3.5 text-subhead font-bold text-white interactive">
         {last ? '¡Vamos!' : 'Siguiente'} <ArrowRight className="h-4 w-4" />
       </button>
-      {!last && <button type="button" onClick={onDone} className="block w-full py-1 text-center text-[13px] font-semibold text-white/55">Saltar</button>}
+      {!last && <button type="button" onClick={onDone} className="block w-full py-1 text-center text-footnote font-semibold text-white/55">Saltar</button>}
     </div>
   );
 }
@@ -260,16 +260,16 @@ function Guide({ onDone }: { onDone: () => void }) {
 function Rules() {
   return (
     <div className="space-y-3 pb-4">
-      <p className="text-[14px] leading-snug text-white/65">Playmatch es para pasarlo bien y conocer gente con respeto. Al inscribirte aceptas estas normas:</p>
+      <p className="text-subhead leading-snug text-white/65">Playmatch es para pasarlo bien y conocer gente con respeto. Al inscribirte aceptas estas normas:</p>
       <ul className="space-y-2">
         {RULES.map((r) => (
           <li key={r.text} className="account-glass flex items-start gap-3 rounded-[20px] px-4 py-3.5">
-            <span className="text-xl leading-none" aria-hidden>{r.emoji}</span>
-            <span className="text-[14px] leading-snug">{r.text}</span>
+            <span className="text-title3 leading-none" aria-hidden>{r.emoji}</span>
+            <span className="text-subhead leading-snug">{r.text}</span>
           </li>
         ))}
       </ul>
-      <p className="text-[12px] leading-snug text-white/45">Playmatch se abre solo cuando escanean tu entrada en la puerta y se cierra cuando termina la fiesta. Si el equipo te saca por no cumplir las normas, no vuelves a entrar esa noche.</p>
+      <p className="text-caption1 leading-snug text-white/45">Playmatch se abre solo cuando escanean tu entrada en la puerta y se cierra cuando termina la fiesta. Si el equipo te saca por no cumplir las normas, no vuelves a entrar esa noche.</p>
     </div>
   );
 }

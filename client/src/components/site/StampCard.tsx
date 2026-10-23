@@ -29,9 +29,9 @@ function StampMark({ slot, index, fresh }: { slot: StampSlot; index: number; fre
     return (
       <div className="flex flex-col items-center gap-1.5">
         <div className={`grid h-[74px] w-[74px] place-items-center rounded-full border-2 border-dashed ${last ? 'border-amber-300/60 bg-amber-300/[0.06]' : 'border-white/20'}`}>
-          {last ? <Gift className="h-6 w-6 text-amber-200/80" /> : <span className="text-lg font-semibold text-white/25">{index + 1}</span>}
+          {last ? <Gift className="h-6 w-6 text-amber-200/80" /> : <span className="text-title3 font-semibold text-white/25">{index + 1}</span>}
         </div>
-        <span className="h-4 text-[11px] text-white/35">{last ? 'Dúo gratis' : ' '}</span>
+        <span className="h-4 text-caption2 text-white/35">{last ? 'Dúo gratis' : ' '}</span>
       </div>
     );
   }
@@ -47,7 +47,7 @@ function StampMark({ slot, index, fresh }: { slot: StampSlot; index: number; fre
         <div className="absolute inset-[5px] rounded-full border-[1.5px] border-dashed border-white/55" />
         <img src="/candyland/logo-isotipo-transparent.png" alt="" className="h-9 w-9 drop-shadow" />
       </motion.div>
-      <span className="h-4 max-w-[86px] truncate text-[11px] font-medium text-white/70">
+      <span className="h-4 max-w-[86px] truncate text-caption2 font-medium text-white/70">
         {gift ? 'Regalo' : fmtShort(slot.visit.date) || slot.visit.title}
       </span>
     </div>
@@ -67,18 +67,18 @@ function RewardCard({ code, eventTitle, buySlug }: { code: string; eventTitle: s
       className="relative overflow-hidden rounded-[26px] bg-gradient-to-br from-amber-200 via-amber-300 to-orange-300 p-5 text-[#2a1606] shadow-[0_18px_40px_-16px_rgba(251,191,36,0.6)]"
     >
       <div className="absolute -right-6 -top-6 h-24 w-24 rounded-full bg-white/30 blur-2xl" />
-      <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.18em] text-[#2a1606]/70"><Sparkles className="h-3.5 w-3.5" /> Premio desbloqueado</p>
-      <p className="mt-1 text-[22px] font-bold leading-tight">Acceso Dúo gratis</p>
-      {eventTitle && <p className="mt-0.5 text-[13px] text-[#2a1606]/70">Completaste tu tarjeta en {eventTitle}.</p>}
+      <p className="flex items-center gap-1.5 text-caption2 font-bold uppercase tracking-[0.18em] text-[#2a1606]/70"><Sparkles className="h-3.5 w-3.5" /> Premio desbloqueado</p>
+      <p className="mt-1 text-title2 font-bold leading-tight">Acceso Dúo gratis</p>
+      {eventTitle && <p className="mt-0.5 text-footnote text-[#2a1606]/70">Completaste tu tarjeta en {eventTitle}.</p>}
       <button type="button" onClick={copy} className="mt-4 flex w-full items-center justify-between rounded-2xl bg-white/45 px-4 py-3 text-left interactive">
         <span>
-          <span className="block text-[11px] text-[#2a1606]/60">{copied ? '¡Copiado!' : 'Tu código (escríbelo al comprar)'}</span>
-          <span className="block font-mono text-[17px] font-bold tracking-wide">{code}</span>
+          <span className="block text-caption2 text-[#2a1606]/60">{copied ? '¡Copiado!' : 'Tu código (escríbelo al comprar)'}</span>
+          <span className="block font-mono text-body font-bold tracking-wide">{code}</span>
         </span>
         {copied ? <Check className="h-5 w-5" /> : <Copy className="h-5 w-5" />}
       </button>
       {buySlug && (
-        <a href={`/checkout/${buySlug}?code=${encodeURIComponent(code)}`} onClick={tap} className="mt-2.5 flex h-12 items-center justify-center gap-2 rounded-full bg-[#2a1606] text-[15px] font-bold text-amber-100 interactive">
+        <a href={`/checkout/${buySlug}?code=${encodeURIComponent(code)}`} onClick={tap} className="mt-2.5 flex h-12 items-center justify-center gap-2 rounded-full bg-[#2a1606] text-subhead font-bold text-amber-100 interactive">
           <TicketIcon className="h-4 w-4" /> Usarlo en mi próxima fiesta
         </a>
       )}
@@ -106,13 +106,13 @@ export function StampCardView({ data, buySlug }: { data: StampData; buySlug: str
       <div className="account-glass rounded-[28px] p-5">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-pink-300">Tarjeta de sellos{data.completedCards > 0 ? ` · ${data.completedCards + 1}ª` : ''}</p>
-            <p className="mt-1 text-[22px] font-bold leading-tight">{headline}</p>
-            <p className="mt-0.5 text-[13px] text-white/60">
+            <p className="text-caption2 font-semibold uppercase tracking-[0.2em] text-pink-300">Tarjeta de sellos{data.completedCards > 0 ? ` · ${data.completedCards + 1}ª` : ''}</p>
+            <p className="mt-1 text-title2 font-bold leading-tight">{headline}</p>
+            <p className="mt-0.5 text-footnote text-white/60">
               {data.remaining === 0 ? 'Tu Acceso Dúo gratis ya está listo.' : 'para tu Acceso Dúo gratis. Cada fiesta a la que entras suma un sello.'}
             </p>
           </div>
-          <span className="num-apple shrink-0 text-[34px] leading-none">{data.filled}<span className="text-white/35">/{STAMPS_PER_CARD}</span></span>
+          <span className="num-apple shrink-0 text-large-title leading-none">{data.filled}<span className="text-white/35">/{STAMPS_PER_CARD}</span></span>
         </div>
         <div className="mt-5 grid grid-cols-3 gap-x-2 gap-y-4">
           {data.slots.map((slot, i) => <StampMark key={i} slot={slot} index={i} fresh={i >= freshFrom && slot.kind !== 'vacio'} />)}
@@ -127,9 +127,9 @@ export function StampCardView({ data, buySlug }: { data: StampData; buySlug: str
 function StampHistory({ history }: { history: StampData['history'] }) {
   return (
     <div className="account-glass rounded-[28px] p-5">
-      <p className="text-[17px] font-bold">Tus fiestas</p>
+      <p className="text-body font-bold">Tus fiestas</p>
       {history.length === 0 ? (
-        <p className="mt-1 text-[13px] text-white/55">Cuando te escaneen en la puerta, tu fiesta aparece acá con su sello.</p>
+        <p className="mt-1 text-footnote text-white/55">Cuando te escaneen en la puerta, tu fiesta aparece acá con su sello.</p>
       ) : (
         <ol className="mt-3">
           {history.map((h, i) => (
@@ -137,8 +137,8 @@ function StampHistory({ history }: { history: StampData['history'] }) {
               {i < history.length - 1 && <span className="absolute left-[11px] top-6 h-[calc(100%-12px)] w-px bg-white/15" />}
               <span className="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full bg-gradient-to-br from-pink-500 to-sky-500"><Check className="h-3.5 w-3.5 text-white" /></span>
               <span className="min-w-0">
-                <span className="block truncate text-[15px] font-semibold">{h.title}</span>
-                <span className="block text-[12px] text-white/50">{fmtLong(h.date)} · sello ganado</span>
+                <span className="block truncate text-subhead font-semibold">{h.title}</span>
+                <span className="block text-caption1 text-white/50">{fmtLong(h.date)} · sello ganado</span>
               </span>
             </li>
           ))}
@@ -155,6 +155,6 @@ export function StampsTab({ buySlug }: { buySlug: string | null }) {
     <div className="account-glass h-[340px] animate-pulse rounded-[28px]" />
   ), []);
   if (isLoading) return skeleton;
-  if (!data) return <p className="account-glass rounded-[28px] p-5 text-sm text-white/60">No pudimos cargar tu tarjeta. Intenta de nuevo en un rato.</p>;
+  if (!data) return <p className="account-glass rounded-[28px] p-5 text-subhead text-white/60">No pudimos cargar tu tarjeta. Intenta de nuevo en un rato.</p>;
   return <StampCardView data={data} buySlug={buySlug} />;
 }

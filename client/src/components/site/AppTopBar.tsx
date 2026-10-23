@@ -15,7 +15,7 @@ export function AppTopBar() {
   };
   return (
     <header className="account-font fixed inset-x-0 top-0 z-[70] flex items-center justify-between gap-2 border-b border-white/10 bg-[#0b0612]/80 px-3 pb-2 pt-[max(10px,env(safe-area-inset-top))] text-white backdrop-blur-xl">
-      <button type="button" onClick={back} aria-label="Volver" className="inline-flex h-10 items-center gap-0.5 rounded-full pl-1 pr-3 text-[15px] font-semibold text-pink-300 interactive">
+      <button type="button" onClick={back} aria-label="Volver" className="inline-flex h-10 items-center gap-0.5 rounded-full pl-1 pr-3 text-subhead font-semibold text-pink-300 interactive">
         <ChevronLeft className="h-6 w-6" /> Volver
       </button>
       <img src="/candyland/logo-isotipo-transparent.png" alt="" className="h-8 w-8" />

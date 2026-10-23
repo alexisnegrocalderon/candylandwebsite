@@ -2,7 +2,7 @@ import { Component, Fragment, useEffect, useRef, useState, type ReactNode } from
 import { createPortal } from 'react-dom';
 import { AnimatePresence, MotionConfig, motion, useDragControls } from 'framer-motion';
 import { toast } from 'sonner';
-import { Calendar, Check, Copy, Crown, Gift, LogOut, Sparkles, Ticket as TicketIcon, ArrowRight, Download, Loader2, X, QrCode, CreditCard, Home, Wallet, Plus, RefreshCw, Bell, ChevronLeft, ChevronRight, Heart, User } from 'lucide-react';
+import { Calendar, Check, Copy, Crown, Gift, LogOut, Sparkles, Ticket as TicketIcon, ArrowRight, Download, Loader2, X, QrCode, CreditCard, Home, Wallet, Plus, RefreshCw, Bell, ChevronLeft, ChevronRight, Heart, User, WifiOff } from 'lucide-react';
 import { Link } from 'wouter';
 import { trpc } from '@/lib/trpc';
 import type { inferRouterOutputs } from '@trpc/server';
@@ -27,7 +27,9 @@ import { useCustomerPush } from '@/lib/customerPush';
 import { avisosNotice } from '@/lib/pushPromptView';
 import { useIsMobile } from '@/hooks/useMobile';
 import { MemberLogin, type LoginDone } from '@/components/site/MemberLogin';
-import { fmtDate, fmtDateTime } from '@/lib/member';
+import { fmtDate, fmtDateTime, useMemberSession } from '@/lib/member';
+import { clearAccountSnapshot, loadAccountSnapshot, saveAccountSnapshot, warmOfflineApp } from '@/lib/offlineAccount';
+import { AccountSkeleton } from '@/components/site/AccountSkeleton';
 import { firstName } from '@shared/pushText';
 
 /* /cuenta (y /mis-puntos): «Mi cuenta» opcional. Entrar con un código al
@@ -43,7 +45,7 @@ const NEON_RING = 'bg-gradient-to-br from-pink-500/70 via-fuchsia-400/40 to-sky-
 function Section({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
   return (
     <section className="space-y-3">
-      <h2 className="flex items-center gap-2 font-heading text-lg font-bold text-white"><span className="text-pink-400">{icon}</span> {title}</h2>
+      <h2 className="flex items-center gap-2 font-heading text-title3 font-bold text-white"><span className="text-pink-400">{icon}</span> {title}</h2>
       {children}
     </section>
   );
@@ -59,19 +61,19 @@ function CouponCard({ c }: { c: { id: number; kind: string; title: string; code:
     <div className={`rounded-2xl border p-4 ${live ? 'border-pink-400/40 bg-gradient-to-br from-pink-500/15 to-sky-400/10' : 'border-white/10 bg-white/[0.03] opacity-60'}`}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[11px] uppercase tracking-wider text-white/50">{KIND_LABEL[c.kind] ?? 'Cupón'}</p>
+          <p className="text-caption2 uppercase tracking-wider text-white/50">{KIND_LABEL[c.kind] ?? 'Cupón'}</p>
           <p className="font-heading font-bold leading-snug text-white">{c.title}</p>
-          <p className="mt-0.5 text-xs text-white/55">
+          <p className="mt-0.5 text-caption1 text-white/55">
             {c.status === 'usado' ? 'Ya lo usaste' : c.status === 'vencido' ? 'Venció' : c.validUntil ? `Vale hasta el ${fmtDate(c.validUntil)}` : ''}
           </p>
         </div>
         {live && (
-          <button type="button" onClick={copy} className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-pink-400/50 px-3 py-1.5 font-mono text-sm font-bold tracking-wider text-white interactive" aria-label={`Copiar el código ${c.code}`}>
+          <button type="button" onClick={copy} className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-pink-400/50 px-3 py-1.5 font-mono text-subhead font-bold tracking-wider text-white interactive" aria-label={`Copiar el código ${c.code}`}>
             {c.code} {copied ? <Check className="h-3.5 w-3.5 text-pink-400" /> : <Copy className="h-3.5 w-3.5" />}
           </button>
         )}
       </div>
-      {live && <p className="mt-2 text-xs text-white/55">Pégalo en el campo de código al comprar tu entrada. Es personal: úsalo con el correo de tu cuenta.</p>}
+      {live && <p className="mt-2 text-caption1 text-white/55">Pégalo en el campo de código al comprar tu entrada. Es personal: úsalo con el correo de tu cuenta.</p>}
     </div>
   );
 }
@@ -145,27 +147,27 @@ function QrViewer({ ev, t, holder, onClose }: { ev: MeEvent; t: MeEvent['tickets
     <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }} transition={{ duration: 0.22 }} className="fixed inset-0 z-[90] flex flex-col items-center gap-5 overflow-y-auto bg-white px-6 pb-[max(24px,env(safe-area-inset-bottom))] pt-[max(24px,env(safe-area-inset-top))] text-[#0d0712] [&>*:first-child]:shrink-0" role="dialog" aria-label="Código QR de tu entrada">
       <button type="button" onClick={onClose} aria-label="Cerrar" className="absolute right-4 top-[max(16px,env(safe-area-inset-top))] grid h-11 w-11 place-items-center rounded-full bg-black/5"><X className="h-5 w-5" /></button>
       {t.kind && (
-        <p className={`rounded-full px-4 py-1.5 text-center text-[15px] font-bold ${t.kind === 'estacionamiento' ? 'bg-sky-100 text-sky-900' : t.kind === 'acceso' ? 'bg-pink-100 text-pink-900' : 'bg-violet-100 text-violet-900'}`}>
+        <p className={`rounded-full px-4 py-1.5 text-center text-subhead font-bold ${t.kind === 'estacionamiento' ? 'bg-sky-100 text-sky-900' : t.kind === 'acceso' ? 'bg-pink-100 text-pink-900' : 'bg-violet-100 text-violet-900'}`}>
           {TICKET_KIND_META[t.kind].emoji} {t.kindLabel ?? TICKET_KIND_META[t.kind].label}
         </p>
       )}
-      <p className="text-center font-heading text-lg font-extrabold leading-tight">{ev.eventTitle}</p>
-      {t.kind && <p className="-mt-3 text-center text-[13px] text-black/55">{TICKET_KIND_META[t.kind].where}</p>}
+      <p className="text-center font-heading text-title3 font-extrabold leading-tight">{ev.eventTitle}</p>
+      {t.kind && <p className="-mt-3 text-center text-footnote text-black/55">{TICKET_KIND_META[t.kind].where}</p>}
       {t.qrImageUrl && <img src={t.qrImageUrl} alt="Código QR de tu entrada" className={`aspect-square [image-rendering:pixelated] ${t.companions && t.companions.length > 0 ? 'w-[min(80vw,40vh)]' : 'w-[min(86vw,58vh)]'}`} />}
       <div className="text-center">
-        <p className="font-heading text-xl font-bold">{t.holderName || holder}</p>
-        <p className="font-mono text-sm text-black/50">{t.ticketCode}</p>
+        <p className="font-heading text-title3 font-bold">{t.holderName || holder}</p>
+        <p className="font-mono text-subhead text-black/50">{t.ticketCode}</p>
       </div>
       {t.companions && t.companions.length > 0 && (
         <div className="w-full max-w-sm rounded-2xl bg-black/[0.04] px-4 py-3 text-center">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-black/45">{t.companions.length > 1 ? 'Acompañantes' : 'Acompañante'}</p>
+          <p className="text-caption2 font-semibold uppercase tracking-[0.18em] text-black/45">{t.companions.length > 1 ? 'Acompañantes' : 'Acompañante'}</p>
           {t.companions.map((c) => (
-            <p key={c.rut} className="mt-1 text-[15px] font-semibold leading-tight">{c.nombre} <span className="font-mono text-[13px] font-normal text-black/55">· {c.rut}</span></p>
+            <p key={c.rut} className="mt-1 text-subhead font-semibold leading-tight">{c.nombre} <span className="font-mono text-footnote font-normal text-black/55">· {c.rut}</span></p>
           ))}
         </div>
       )}
-      <p className="text-center text-xs text-black/50">Sube el brillo de la pantalla. Muestra tu carnet en la entrada.</p>
-      <button type="button" onClick={() => { void save(); }} disabled={saving} className="inline-flex h-12 items-center justify-center gap-2 rounded-full bg-[#0d0712] px-6 text-sm font-bold text-white interactive disabled:opacity-60">
+      <p className="text-center text-caption1 text-black/50">Sube el brillo de la pantalla. Muestra tu carnet en la entrada.</p>
+      <button type="button" onClick={() => { void save(); }} disabled={saving} className="inline-flex h-12 items-center justify-center gap-2 rounded-full bg-[#0d0712] px-6 text-subhead font-bold text-white interactive disabled:opacity-60">
         {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} Guardar en Fotos
       </button>
     </motion.div>
@@ -224,7 +226,7 @@ function TicketWallet({ ev, holder, prepaidBalance, playcoins, movements, compac
   const step = (d: number) => { if (!ev) return; tapHaptic(); setI((v) => (v + d + ev.tickets.length) % ev.tickets.length); };
   const labels = ev ? holderLabels(ev.tickets) : [];
   const holderPills = ev && ev.tickets.length > 1 && (many ? (
-    <div className="flex h-9 items-center gap-1 px-1 text-sm font-semibold">
+    <div className="flex h-9 items-center gap-1 px-1 text-subhead font-semibold">
       <button type="button" onClick={() => step(-1)} aria-label="Entrada anterior" className="grid h-8 w-8 place-items-center rounded-full text-white/70"><ChevronLeft className="h-4 w-4" /></button>
       <span className="max-w-[120px] truncate px-1">{labels[i]} <span className="text-white/45">· {i + 1}/{ev.tickets.length}</span></span>
       <button type="button" onClick={() => step(1)} aria-label="Entrada siguiente" className="grid h-8 w-8 place-items-center rounded-full text-white/70"><ChevronRight className="h-4 w-4" /></button>
@@ -232,7 +234,7 @@ function TicketWallet({ ev, holder, prepaidBalance, playcoins, movements, compac
   ) : ev.tickets.map((x, n) => (
     <Fragment key={x.ticketCode}>
     {n > 0 && (x.kind ?? 'acceso') !== 'acceso' && (ev.tickets[n - 1].kind ?? 'acceso') === 'acceso' && <span aria-hidden className="mx-0.5 h-5 w-px shrink-0 bg-white/20" />}
-    <button type="button" onClick={() => { tapHaptic(); setI(n); }} className={`h-9 max-w-[124px] truncate rounded-full px-4 text-sm font-semibold interactive ${n === i ? 'lg-pill text-white' : 'text-white/60'} ${x.status === 'used' ? 'line-through decoration-white/40' : ''}`}>
+    <button type="button" onClick={() => { tapHaptic(); setI(n); }} className={`h-9 max-w-[124px] truncate rounded-full px-4 text-subhead font-semibold interactive ${n === i ? 'lg-pill text-white' : 'text-white/60'} ${x.status === 'used' ? 'line-through decoration-white/40' : ''}`}>
       {labels[n]}
     </button>
     </Fragment>
@@ -266,7 +268,7 @@ function TicketWallet({ ev, holder, prepaidBalance, playcoins, movements, compac
         {ev && ev.tickets.length > 1 && (
           <div className={`flex flex-wrap justify-center gap-2 ${compact ? 'mt-2' : 'mt-4'}`}>
             {ev.tickets.map((x, n) => (
-              <button key={x.ticketCode} type="button" onClick={() => setI(n)} className={`rounded-full border px-3.5 py-1.5 text-sm font-semibold interactive ${n === i ? 'border-pink-400 bg-pink-500/20 text-white' : 'border-white/15 text-white/70'}`}>
+              <button key={x.ticketCode} type="button" onClick={() => setI(n)} className={`rounded-full border px-3.5 py-1.5 text-subhead font-semibold interactive ${n === i ? 'border-pink-400 bg-pink-500/20 text-white' : 'border-white/15 text-white/70'}`}>
                 {x.status === 'used' ? '✅ ' : '🎟️ '}{x.holderName ? x.holderName.split(' ')[0] : `Entrada ${n + 1}`}
               </button>
             ))}
@@ -275,10 +277,10 @@ function TicketWallet({ ev, holder, prepaidBalance, playcoins, movements, compac
       </div>
       {usable && t && (
         <div className="grid grid-cols-2 gap-2">
-          <button type="button" onClick={() => setShowQr(true)} className="inline-flex h-12 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-pink-500 via-fuchsia-500 to-sky-500 text-sm font-bold text-white shadow-[0_0_20px_rgba(236,72,153,0.4)] interactive">
+          <button type="button" onClick={() => setShowQr(true)} className="inline-flex h-12 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-pink-500 via-fuchsia-500 to-sky-500 text-subhead font-bold text-white shadow-[0_0_20px_rgba(236,72,153,0.4)] interactive">
             <QrCode className="h-4 w-4" /> Mostrar QR
           </button>
-          <Link href={`/verificar/${t.ticketCode}`} className="account-glass inline-flex h-12 items-center justify-center gap-1.5 rounded-full text-sm font-semibold text-white interactive">
+          <Link href={`/verificar/${t.ticketCode}`} className="account-glass inline-flex h-12 items-center justify-center gap-1.5 rounded-full text-subhead font-semibold text-white interactive">
             Ver mi entrada <ArrowRight className="h-4 w-4" />
           </Link>
         </div>
@@ -286,18 +288,18 @@ function TicketWallet({ ev, holder, prepaidBalance, playcoins, movements, compac
       {(onTopup || onPayCaja) && (
         <div className="grid grid-cols-2 gap-2">
           {onPayCaja && (
-            <button type="button" onClick={onPayCaja} className="account-glass inline-flex h-11 items-center justify-center gap-2 rounded-full text-sm font-semibold text-white interactive">
+            <button type="button" onClick={onPayCaja} className="account-glass inline-flex h-11 items-center justify-center gap-2 rounded-full text-subhead font-semibold text-white interactive">
               <Wallet className="h-4 w-4 text-pink-300" /> Pagar en caja
             </button>
           )}
           {onTopup && (
-            <button type="button" onClick={onTopup} className={`account-glass inline-flex h-11 items-center justify-center gap-2 rounded-full text-sm font-semibold text-white interactive ${onPayCaja ? '' : 'col-span-2'}`}>
+            <button type="button" onClick={onTopup} className={`account-glass inline-flex h-11 items-center justify-center gap-2 rounded-full text-subhead font-semibold text-white interactive ${onPayCaja ? '' : 'col-span-2'}`}>
               <Plus className="h-4 w-4 text-pink-300" /> Recargar saldo
             </button>
           )}
         </div>
       )}
-      {usable && !compact && <p className="text-center text-xs text-white/50">Toca tu PlayCard para ver el QR en grande y guardarlo en Fotos: así entras aunque no tengas señal.</p>}
+      {usable && !compact && <p className="text-center text-caption1 text-white/50">Toca tu PlayCard para ver el QR en grande y guardarlo en Fotos: así entras aunque no tengas señal.</p>}
       {/* Portal: por encima de la barra de abajo y del resto de la pantalla. */}
       {createPortal(<AnimatePresence>{showQr && ev && t && <QrViewer ev={ev} t={t} holder={holder} onClose={() => setShowQr(false)} />}</AnimatePresence>, document.body)}
     </div>
@@ -337,8 +339,8 @@ function EntradaPass({ ev, t, holder }: { ev: MeEvent; t: MeEvent['tickets'][num
   const hora = d.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hour12: false });
   const field = (label: string, value: string, cls = '') => (
     <div className={`min-w-0 ${cls}`}>
-      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/45">{label}</p>
-      <p className="mt-0.5 truncate text-[15px] font-semibold text-white">{value}</p>
+      <p className="text-caption2 font-semibold uppercase tracking-[0.16em] text-white/45">{label}</p>
+      <p className="mt-0.5 truncate text-subhead font-semibold text-white">{value}</p>
     </div>
   );
   return (
@@ -350,11 +352,11 @@ function EntradaPass({ ev, t, holder }: { ev: MeEvent; t: MeEvent['tickets'][num
         <div className="relative flex h-[34px] items-center justify-between gap-2">
           <span className="flex min-w-0 items-center gap-2">
             <img src="/candyland/logo-isotipo-transparent.png" alt="" className="h-6 w-6 shrink-0" />
-            <span className="text-[12px] font-bold uppercase tracking-[0.2em] text-white/80">Entrada</span>
+            <span className="text-caption1 font-bold uppercase tracking-[0.2em] text-white/80">Entrada</span>
           </span>
-          <span className="truncate rounded-full bg-amber-200/90 px-2.5 py-1 text-[10.5px] font-bold uppercase tracking-wider text-[#2a1a05]">{meta.emoji} {t.kindLabel ?? meta.label}</span>
+          <span className="truncate rounded-full bg-amber-200/90 px-2.5 py-1 text-caption2 font-bold uppercase tracking-wider text-[#2a1a05]">{meta.emoji} {t.kindLabel ?? meta.label}</span>
         </div>
-        <p className="relative mt-3 line-clamp-2 text-[26px] font-bold leading-[1.08] tracking-tight [@media(max-height:700px)]:mt-1.5 [@media(max-height:700px)]:line-clamp-1 [@media(max-height:700px)]:text-[20px]">{ev.eventTitle}</p>
+        <p className="relative mt-3 line-clamp-2 text-title1 font-bold leading-[1.08] tracking-tight [@media(max-height:700px)]:mt-1.5 [@media(max-height:700px)]:line-clamp-1 [@media(max-height:700px)]:text-title3">{ev.eventTitle}</p>
         <div className="relative mt-3.5 grid grid-cols-[auto_auto_1fr] gap-x-5 [@media(max-height:700px)]:mt-2.5">
           {field('Fecha', fecha)}
           {field('Hora', hora)}
@@ -362,16 +364,16 @@ function EntradaPass({ ev, t, holder }: { ev: MeEvent; t: MeEvent['tickets'][num
         </div>
         <div className="relative mt-3 flex items-end justify-between gap-3 [@media(max-height:700px)]:mt-2">
           {field('Titular', t.holderName || holder, 'flex-1')}
-          <span className={`shrink-0 rounded-full px-3 py-1 text-[12px] font-bold ${used ? 'bg-emerald-400/15 text-emerald-300' : 'bg-gradient-to-r from-pink-500 to-sky-400 text-white shadow-[0_0_16px_rgba(236,72,153,0.45)]'}`}>
+          <span className={`shrink-0 rounded-full px-3 py-1 text-caption1 font-bold ${used ? 'bg-emerald-400/15 text-emerald-300' : 'bg-gradient-to-r from-pink-500 to-sky-400 text-white shadow-[0_0_16px_rgba(236,72,153,0.45)]'}`}>
             {used ? '✓ Ya entraste' : countdown}
           </span>
         </div>
         {/* Quienes vienen con el titular: nombre y documento, para no perder esos datos. */}
         {(t.kind ?? 'acceso') === 'acceso' && t.companions && t.companions.length > 0 && (
           <div className="relative mt-3 [@media(max-height:700px)]:mt-2">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/45">{t.companions.length > 1 ? 'Acompañantes' : 'Acompañante'}</p>
+            <p className="text-caption2 font-semibold uppercase tracking-[0.16em] text-white/45">{t.companions.length > 1 ? 'Acompañantes' : 'Acompañante'}</p>
             {t.companions.map((c) => (
-              <p key={c.rut} className="mt-0.5 flex items-baseline justify-between gap-3 text-[14px] font-semibold text-white"><span className="min-w-0 truncate">{c.nombre}</span><span className="shrink-0 font-mono text-[12.5px] font-normal text-white/60">{c.rut}</span></p>
+              <p key={c.rut} className="mt-0.5 flex items-baseline justify-between gap-3 text-subhead font-semibold text-white"><span className="min-w-0 truncate">{c.nombre}</span><span className="shrink-0 font-mono text-footnote font-normal text-white/60">{c.rut}</span></p>
             ))}
           </div>
         )}
@@ -381,7 +383,7 @@ function EntradaPass({ ev, t, holder }: { ev: MeEvent; t: MeEvent['tickets'][num
           <span className="h-px flex-1 border-t border-dashed border-white/20" />
           <span className="-mr-2 h-4 w-4 rounded-full bg-[#0b0612]" />
         </div>
-        <div className="relative flex items-center justify-between gap-3 text-[12px] [@media(max-height:700px)]:hidden">
+        <div className="relative flex items-center justify-between gap-3 text-caption1 [@media(max-height:700px)]:hidden">
           <span className="shrink-0 whitespace-nowrap font-mono tracking-wider text-white/55">{maskCode(t.ticketCode)}</span>
           <span className="truncate text-white/55">{meta.where}</span>
         </div>
@@ -455,22 +457,22 @@ function WalletStack({ ev, t, holder, prepaidBalance, playcoins, movements, hold
         <div className="flex justify-center"><div className="flex min-w-0 items-center gap-1 rounded-full bg-white/[0.06] p-1">{holderPills}</div></div>
       )}
       {hasPass && (
-        <p className="-mt-1 text-center text-[11.5px] text-white/40 [@media(max-height:700px)]:hidden">{shown === 'entrada' ? 'Toca la tarjeta de atrás para ver tu PlayCard' : 'Toca la tarjeta de atrás para volver a tu entrada'}</p>
+        <p className="-mt-1 text-center text-caption1 text-white/40 [@media(max-height:700px)]:hidden">{shown === 'entrada' ? 'Toca la tarjeta de atrás para ver tu PlayCard' : 'Toca la tarjeta de atrás para volver a tu entrada'}</p>
       )}
       {playmatch && (
         playmatch.href
-          ? <Link href={playmatch.href} className="flex h-14 shrink-0 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-pink-500 via-fuchsia-500 to-sky-500 text-[16px] font-bold text-white shadow-[0_10px_28px_-8px_rgba(236,72,153,0.7)] interactive"><Heart className="h-5 w-5" /> Entrar a Playmatch</Link>
-          : <button type="button" {...playmatchTap} className="flex h-14 shrink-0 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-pink-500 via-fuchsia-500 to-sky-500 text-[16px] font-bold text-white shadow-[0_10px_28px_-8px_rgba(236,72,153,0.7)] interactive"><Heart className="h-5 w-5" /> Entrar a Playmatch</button>
+          ? <Link href={playmatch.href} className="flex h-14 shrink-0 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-pink-500 via-fuchsia-500 to-sky-500 text-headline font-bold text-white shadow-[0_10px_28px_-8px_rgba(236,72,153,0.7)] interactive"><Heart className="h-5 w-5" /> Entrar a Playmatch</Link>
+          : <button type="button" {...playmatchTap} className="flex h-14 shrink-0 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-pink-500 via-fuchsia-500 to-sky-500 text-headline font-bold text-white shadow-[0_10px_28px_-8px_rgba(236,72,153,0.7)] interactive"><Heart className="h-5 w-5" /> Entrar a Playmatch</button>
       )}
       {usable && (
-        <button type="button" {...qrTap} className={`flex h-14 shrink-0 items-center justify-center gap-2 rounded-full text-[16px] font-bold text-white interactive [@media(max-height:700px)]:h-12 ${playmatch ? 'lg-pill' : 'bg-gradient-to-r from-pink-500 via-fuchsia-500 to-sky-500 shadow-[0_10px_28px_-8px_rgba(236,72,153,0.7),inset_0_1px_0_rgba(255,255,255,0.4)]'}`}>
+        <button type="button" {...qrTap} className={`flex h-14 shrink-0 items-center justify-center gap-2 rounded-full text-headline font-bold text-white interactive [@media(max-height:700px)]:h-12 ${playmatch ? 'lg-pill' : 'bg-gradient-to-r from-pink-500 via-fuchsia-500 to-sky-500 shadow-[0_10px_28px_-8px_rgba(236,72,153,0.7),inset_0_1px_0_rgba(255,255,255,0.4)]'}`}>
           <QrCode className="h-5 w-5" /> Mostrar QR
         </button>
       )}
       {(onPayCaja || onTopup) && (
         <div className={`grid shrink-0 gap-2 [@media(max-height:700px)]:hidden ${onPayCaja && onTopup ? 'grid-cols-2' : 'grid-cols-1'}`}>
-          {onPayCaja && <button type="button" onClick={() => { tapHaptic(); onPayCaja(); }} className="lg-pill flex h-11 items-center justify-center gap-2 rounded-full text-[14px] font-semibold text-white interactive"><Wallet className="h-4 w-4 text-pink-300" /> Pagar</button>}
-          {onTopup && <button type="button" onClick={() => { tapHaptic(); onTopup(); }} className="lg-pill flex h-11 items-center justify-center gap-2 rounded-full text-[14px] font-semibold text-white interactive"><Plus className="h-4 w-4 text-pink-300" /> Recargar</button>}
+          {onPayCaja && <button type="button" onClick={() => { tapHaptic(); onPayCaja(); }} className="lg-pill flex h-11 items-center justify-center gap-2 rounded-full text-subhead font-semibold text-white interactive"><Wallet className="h-4 w-4 text-pink-300" /> Pagar</button>}
+          {onTopup && <button type="button" onClick={() => { tapHaptic(); onTopup(); }} className="lg-pill flex h-11 items-center justify-center gap-2 rounded-full text-subhead font-semibold text-white interactive"><Plus className="h-4 w-4 text-pink-300" /> Recargar</button>}
         </div>
       )}
       {qrViewer}
@@ -488,11 +490,11 @@ function EventStrip({ ev, hero = false }: { ev: MeEvent; hero?: boolean }) {
       <div className={`min-h-[96px] flex-1 rounded-[28px] p-[1.5px] [@media(min-height:900px)]:max-h-[300px] max-h-[240px] [@media(max-height:700px)]:min-h-0 [@media(max-height:700px)]:flex-none ${NEON_RING}`}>
         <div className="flex h-full flex-col justify-center gap-2 rounded-[27px] bg-[#0d0712]/55 px-5 py-4 backdrop-blur-xl [@media(max-height:700px)]:flex-row [@media(max-height:700px)]:items-center [@media(max-height:700px)]:justify-between [@media(max-height:700px)]:gap-3 [@media(max-height:700px)]:py-3">
           <div className="min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-pink-300">Tu próximo evento</p>
-            <p className="mt-1 font-heading text-[26px] font-extrabold leading-tight text-white [@media(max-height:700px)]:truncate [@media(max-height:700px)]:text-base">{ev.eventTitle}</p>
-            <p className="mt-1.5 flex items-center gap-1.5 text-sm text-white/65 [@media(max-height:700px)]:hidden"><Calendar className="h-4 w-4 shrink-0" /> {fmtDateTime(ev.eventDate)}{ev.venue ? ` · ${ev.venue}` : ''}</p>
+            <p className="text-caption2 font-semibold uppercase tracking-[0.2em] text-pink-300">Tu próximo evento</p>
+            <p className="mt-1 font-heading text-title1 font-extrabold leading-tight text-white [@media(max-height:700px)]:truncate [@media(max-height:700px)]:text-callout">{ev.eventTitle}</p>
+            <p className="mt-1.5 flex items-center gap-1.5 text-subhead text-white/65 [@media(max-height:700px)]:hidden"><Calendar className="h-4 w-4 shrink-0" /> {fmtDateTime(ev.eventDate)}{ev.venue ? ` · ${ev.venue}` : ''}</p>
           </div>
-          <span className="w-fit shrink-0 rounded-full bg-gradient-to-r from-pink-500 to-sky-400 px-4 py-1.5 text-sm font-bold text-white shadow-[0_0_18px_rgba(236,72,153,0.5)] [@media(max-height:700px)]:px-3 [@media(max-height:700px)]:py-1 [@media(max-height:700px)]:text-[11px]">{countdown}</span>
+          <span className="w-fit shrink-0 rounded-full bg-gradient-to-r from-pink-500 to-sky-400 px-4 py-1.5 text-subhead font-bold text-white shadow-[0_0_18px_rgba(236,72,153,0.5)] [@media(max-height:700px)]:px-3 [@media(max-height:700px)]:py-1 [@media(max-height:700px)]:text-caption2">{countdown}</span>
         </div>
       </div>
     );
@@ -501,11 +503,11 @@ function EventStrip({ ev, hero = false }: { ev: MeEvent; hero?: boolean }) {
     <div className={`rounded-3xl p-[1.5px] ${NEON_RING}`}>
       <div className="flex items-center justify-between gap-3 rounded-[23px] bg-[#0d0712]/55 px-4 py-3 backdrop-blur-xl">
         <div className="min-w-0">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-pink-300">Tu próximo evento</p>
-          <p className="truncate font-heading text-base font-extrabold text-white">{ev.eventTitle}</p>
-          <p className="flex items-center gap-1.5 truncate text-xs text-white/60 [@media(max-height:700px)]:hidden"><Calendar className="h-3.5 w-3.5 shrink-0" /> {fmtDateTime(ev.eventDate)}{ev.venue ? ` · ${ev.venue}` : ''}</p>
+          <p className="text-caption2 font-semibold uppercase tracking-[0.18em] text-pink-300">Tu próximo evento</p>
+          <p className="truncate font-heading text-callout font-extrabold text-white">{ev.eventTitle}</p>
+          <p className="flex items-center gap-1.5 truncate text-caption1 text-white/60 [@media(max-height:700px)]:hidden"><Calendar className="h-3.5 w-3.5 shrink-0" /> {fmtDateTime(ev.eventDate)}{ev.venue ? ` · ${ev.venue}` : ''}</p>
         </div>
-        <span className="shrink-0 rounded-full bg-gradient-to-r from-pink-500 to-sky-400 px-3 py-1 text-[11px] font-bold text-white shadow-[0_0_14px_rgba(236,72,153,0.5)]">{countdown}</span>
+        <span className="shrink-0 rounded-full bg-gradient-to-r from-pink-500 to-sky-400 px-3 py-1 text-caption2 font-bold text-white shadow-[0_0_14px_rgba(236,72,153,0.5)]">{countdown}</span>
       </div>
     </div>
   );
@@ -540,10 +542,10 @@ function BuyNextCard({ me }: { me: Me }) {
   if (!me.nextEvent) {
     return (
       <Link href="/eventos" onClick={tapHaptic} className="account-glass block rounded-[28px] p-5 interactive">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-pink-300">Tu próxima fiesta</p>
-        <p className="mt-1 text-xl font-bold text-white">Se anuncia muy pronto</p>
-        <p className="mt-0.5 text-sm text-white/60">Activa los avisos y te contamos apenas abra la preventa.</p>
-        <p className="mt-3 text-sm font-semibold text-pink-300">Ver eventos →</p>
+        <p className="text-caption2 font-semibold uppercase tracking-[0.18em] text-pink-300">Tu próxima fiesta</p>
+        <p className="mt-1 text-title3 font-bold text-white">Se anuncia muy pronto</p>
+        <p className="mt-0.5 text-subhead text-white/60">Activa los avisos y te contamos apenas abra la preventa.</p>
+        <p className="mt-3 text-subhead font-semibold text-pink-300">Ver eventos →</p>
       </Link>
     );
   }
@@ -553,14 +555,14 @@ function BuyNextCard({ me }: { me: Me }) {
     return (
       <div className={`shrink-0 rounded-[28px] p-[1.5px] ${NEON_RING}`}>
         <div className="rounded-[27px] bg-[#0d0712] p-5">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-pink-300">Tu entrada de siempre</p>
-          <p className="mt-1 text-xl font-bold leading-tight text-white">{OPTION_EMOJI[last.option ?? ''] ?? '🎟️'} {last.accesoName ?? 'Tu acceso'}{last.qty > 1 ? ` × ${last.qty}` : ''}</p>
-          <p className="mt-0.5 truncate text-sm text-white/60">{me.nextEvent.title} · {fmtDateTime(me.nextEvent.eventDate)}</p>
-          {withWho.length > 0 && <p className="mt-0.5 truncate text-sm text-white/60">Con {withWho.join(', ')}</p>}
-          <Link href={href} onClick={tapHaptic} className="mt-4 flex h-12 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-pink-500 via-fuchsia-500 to-sky-500 text-[15px] font-bold text-white interactive">
+          <p className="text-caption2 font-semibold uppercase tracking-[0.18em] text-pink-300">Tu entrada de siempre</p>
+          <p className="mt-1 text-title3 font-bold leading-tight text-white">{OPTION_EMOJI[last.option ?? ''] ?? '🎟️'} {last.accesoName ?? 'Tu acceso'}{last.qty > 1 ? ` × ${last.qty}` : ''}</p>
+          <p className="mt-0.5 truncate text-subhead text-white/60">{me.nextEvent.title} · {fmtDateTime(me.nextEvent.eventDate)}</p>
+          {withWho.length > 0 && <p className="mt-0.5 truncate text-subhead text-white/60">Con {withWho.join(', ')}</p>}
+          <Link href={href} onClick={tapHaptic} className="mt-4 flex h-12 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-pink-500 via-fuchsia-500 to-sky-500 text-subhead font-bold text-white interactive">
             Comprar en 1 toque <ArrowRight className="h-4 w-4" />
           </Link>
-          <Link href={`/checkout/${me.nextEvent.slug}`} className="mt-2 block text-center text-[13px] font-semibold text-white/55 interactive">Elegir otra entrada</Link>
+          <Link href={`/checkout/${me.nextEvent.slug}`} className="mt-2 block text-center text-footnote font-semibold text-white/55 interactive">Elegir otra entrada</Link>
         </div>
       </div>
     );
@@ -568,10 +570,10 @@ function BuyNextCard({ me }: { me: Me }) {
   return (
     <Link href={`/checkout/${me.nextEvent.slug}`} className={`block rounded-[28px] p-[1.5px] ${NEON_RING} interactive`}>
       <div className="rounded-[27px] bg-[#0d0712] p-5">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-pink-300">Próximo evento</p>
-        <p className="mt-1 font-heading text-xl font-extrabold text-white">{me.nextEvent.title}</p>
-        <p className="mt-0.5 text-sm text-white/60">{fmtDateTime(me.nextEvent.eventDate)}</p>
-        <p className="mt-3 text-sm font-semibold text-pink-300">Comprar mi entrada →</p>
+        <p className="text-caption2 font-semibold uppercase tracking-[0.18em] text-pink-300">Próximo evento</p>
+        <p className="mt-1 font-heading text-title3 font-extrabold text-white">{me.nextEvent.title}</p>
+        <p className="mt-0.5 text-subhead text-white/60">{fmtDateTime(me.nextEvent.eventDate)}</p>
+        <p className="mt-3 text-subhead font-semibold text-pink-300">Comprar mi entrada →</p>
       </div>
     </Link>
   );
@@ -582,8 +584,8 @@ function EarlyCard({ me }: { me: Me }) {
   return (
     <Link href={`/checkout/${me.nextEvent.slug}`} className="block rounded-2xl border border-pink-400/40 bg-gradient-to-br from-pink-500/15 to-sky-400/10 p-4 interactive">
       <p className="flex items-center gap-2 font-heading font-bold text-white"><Crown className="h-4 w-4 text-pink-400" /> Preventa para socios abierta</p>
-      <p className="mt-0.5 text-sm text-white/65">{me.nextEvent.title}: compra antes que nadie hasta el {fmtDateTime(me.nextEvent.memberEarlyUntil)}.</p>
-      <p className="mt-2 text-sm font-semibold text-pink-300">Comprar mi entrada →</p>
+      <p className="mt-0.5 text-subhead text-white/65">{me.nextEvent.title}: compra antes que nadie hasta el {fmtDateTime(me.nextEvent.memberEarlyUntil)}.</p>
+      <p className="mt-2 text-subhead font-semibold text-pink-300">Comprar mi entrada →</p>
     </Link>
   );
 }
@@ -595,7 +597,7 @@ function PlaycoinsCard({ me }: { me: Me }) {
   const pct = Math.min(100, Math.round((me.playcoins / PLAYCOINS_MIN_REDEEM_BALANCE) * 100));
   return (
     <div className={`${GLASS} p-4`}>
-      <div className="flex items-baseline justify-between text-sm">
+      <div className="flex items-baseline justify-between text-subhead">
         <span className="font-semibold text-white/80">Tus Playcoins</span>
         <span className="text-white/50">meta {PLAYCOINS_MIN_REDEEM_BALANCE.toLocaleString('es-CL')}</span>
       </div>
@@ -603,7 +605,7 @@ function PlaycoinsCard({ me }: { me: Me }) {
       <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-white/10" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
         <div className="h-full rounded-full bg-gradient-to-r from-pink-500 via-fuchsia-400 to-sky-400 shadow-[0_0_12px_rgba(236,72,153,0.6)] transition-[width] duration-700" style={{ width: `${Math.max(pct, 3)}%` }} />
       </div>
-      <p className="mt-2 text-sm text-white/65">
+      <p className="mt-2 text-subhead text-white/65">
         {eligible
           ? '✅ Ya puedes canjearlos en caja el día del evento: dile a la cajera tu correo y cuántos quieres usar.'
           : `Vas en ${pct}%: te faltan ${missing.toLocaleString('es-CL')} Playcoins para poder canjear. Cada compra y cada amigo que traigas suman.`}
@@ -616,11 +618,11 @@ function Movements({ me }: { me: Me }) {
   return (
     <div className={`${GLASS} p-4`}>
       <p className="font-heading font-bold text-white">Últimos movimientos</p>
-      {me.movements.length === 0 ? <p className="mt-2 text-sm text-white/55">Todavía no hay movimientos.</p> : (
-        <ul className="mt-2 divide-y divide-white/10 text-sm">
+      {me.movements.length === 0 ? <p className="mt-2 text-subhead text-white/55">Todavía no hay movimientos.</p> : (
+        <ul className="mt-2 divide-y divide-white/10 text-subhead">
           {me.movements.map((m, i) => (
             <li key={i} className="flex items-center justify-between gap-3 py-2">
-              <span className="min-w-0 truncate text-white/75">{m.label}<span className="block text-[11px] text-white/40">{fmtDate(m.createdAt)}</span></span>
+              <span className="min-w-0 truncate text-white/75">{m.label}<span className="block text-caption2 text-white/40">{fmtDate(m.createdAt)}</span></span>
               <span className={`shrink-0 font-semibold ${m.type === 'money' ? (m.delta >= 0 ? 'text-emerald-300' : 'text-rose-300') : 'text-violet-300'}`}>
                 {m.delta >= 0 ? '+' : '−'}{m.type === 'money' ? `$${Math.abs(m.delta).toLocaleString('es-CL')}` : `${Math.abs(m.delta).toLocaleString('es-CL')} pc`}
               </span>
@@ -634,16 +636,16 @@ function Movements({ me }: { me: Me }) {
 
 function TicketsList({ events, from = 0 }: { events: MeEvent[]; from?: number }) {
   const list = events.slice(from);
-  if (list.length === 0) return <p className="account-glass rounded-2xl p-4 text-sm text-white/55">No tienes entradas para próximos eventos. <Link href="/eventos" className="text-pink-300 underline">Ver eventos</Link></p>;
+  if (list.length === 0) return <p className="account-glass rounded-2xl p-4 text-subhead text-white/55">No tienes entradas para próximos eventos. <Link href="/eventos" className="text-pink-300 underline">Ver eventos</Link></p>;
   return (
     <>
       {list.map((ev) => (
         <div key={ev.eventId} className={`${GLASS} p-4`}>
           <p className="font-heading font-bold text-white">{ev.eventTitle}</p>
-          <p className="mt-0.5 flex items-center gap-1.5 text-xs text-white/55"><Calendar className="h-3.5 w-3.5" /> {fmtDateTime(ev.eventDate)}{ev.venue ? ` · ${ev.venue}` : ''}</p>
+          <p className="mt-0.5 flex items-center gap-1.5 text-caption1 text-white/55"><Calendar className="h-3.5 w-3.5" /> {fmtDateTime(ev.eventDate)}{ev.venue ? ` · ${ev.venue}` : ''}</p>
           <div className="mt-3 flex flex-wrap gap-2">
             {ev.tickets.map((t, i) => (
-              <Link key={t.ticketCode} href={`/verificar/${t.ticketCode}`} className="rounded-full border border-pink-400/40 px-3.5 py-1.5 text-sm font-semibold text-white interactive">
+              <Link key={t.ticketCode} href={`/verificar/${t.ticketCode}`} className="rounded-full border border-pink-400/40 px-3.5 py-1.5 text-subhead font-semibold text-white interactive">
                 {t.status === 'used' ? '✅ ' : '🎟️ '}{t.holderName ? t.holderName.split(' ')[0] : `Entrada ${i + 1}`}
               </Link>
             ))}
@@ -659,11 +661,11 @@ function CouponsList({ me }: { me: Me }) {
   return (
     <>
       {me.coupons.length === 0 ? (
-        <p className="account-glass rounded-2xl p-4 text-sm text-white/55">
+        <p className="account-glass rounded-2xl p-4 text-subhead text-white/55">
           Todavía no tienes cupones.{perkList(me).length ? ' Te vamos regalando según lo que desbloqueas.' : ''}
         </p>
       ) : me.coupons.map((c) => <CouponCard key={c.id} c={c} />)}
-      {active.length === 0 && me.coupons.length > 0 && <p className="text-xs text-white/50">No tienes cupones disponibles ahora.</p>}
+      {active.length === 0 && me.coupons.length > 0 && <p className="text-caption1 text-white/50">No tienes cupones disponibles ahora.</p>}
     </>
   );
 }
@@ -671,8 +673,8 @@ function CouponsList({ me }: { me: Me }) {
 function PerksCard({ me }: { me: Me }) {
   return (
     <section className={`${GLASS} p-4`}>
-      <h2 className="flex items-center gap-2 font-heading text-lg font-bold text-white"><Sparkles className="h-4 w-4 text-pink-400" /> Lo que tienes como miembro</h2>
-      <ul className="mt-2 space-y-1.5 text-sm text-white/65">
+      <h2 className="flex items-center gap-2 font-heading text-title3 font-bold text-white"><Sparkles className="h-4 w-4 text-pink-400" /> Lo que tienes como miembro</h2>
+      <ul className="mt-2 space-y-1.5 text-subhead text-white/65">
         <li>• Tus entradas y su QR siempre a un toque</li>
         <li>• Tus Playcoins y saldo para canjear en caja</li>
         <li>• Aviso del recordatorio del evento, preventas y novedades</li>
@@ -683,10 +685,25 @@ function PerksCard({ me }: { me: Me }) {
   );
 }
 
+/** Sin red: la cuenta se muestra con lo último guardado en el teléfono, y se dice de cuándo es. */
+function OfflinePill({ savedAt }: { savedAt: number | null }) {
+  if (savedAt == null) return null;
+  const when = new Date(savedAt);
+  const sameDay = when.toDateString() === new Date().toDateString();
+  const label = sameDay
+    ? `de las ${when.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hour12: false })}`
+    : `del ${when.toLocaleDateString('es-CL', { day: 'numeric', month: 'short' }).replace(/\./g, '')}`;
+  return (
+    <p role="status" className="lg-pill mx-auto flex w-fit shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-footnote font-semibold text-white/85">
+      <WifiOff className="h-3.5 w-3.5 text-amber-300" /> Sin conexión · datos {label}
+    </p>
+  );
+}
+
 function WelcomeBanner({ welcome }: { welcome: LoginDone | null }) {
   if (!welcome || welcome.granted.length === 0) return null;
   return (
-    <div className="rounded-2xl border border-pink-400/40 bg-pink-500/10 p-4 text-sm" role="status">
+    <div className="rounded-2xl border border-pink-400/40 bg-pink-500/10 p-4 text-subhead" role="status">
       <p className="flex items-center gap-2 font-heading font-bold text-white"><Gift className="h-4 w-4 text-pink-400" /> ¡Te regalamos {welcome.granted.length === 1 ? 'un cupón' : `${welcome.granted.length} cupones`}!</p>
       <p className="mt-1 text-white/65">{welcome.granted.map((g) => `${g.percent}% por ${g.days} días`).join(' · ')}. Los tienes en Cupones.</p>
     </div>
@@ -701,10 +718,10 @@ class TabBoundary extends Component<{ children: ReactNode; onBack: () => void },
   render() {
     if (!this.state.error) return this.props.children;
     return (
-      <div className="account-glass space-y-3 rounded-2xl p-4 text-sm">
+      <div className="account-glass space-y-3 rounded-2xl p-4 text-subhead">
         <p className="font-heading font-bold text-white">No pudimos mostrar esta sección</p>
         <p className="text-white/65">Tu cuenta y tus entradas están a salvo.</p>
-        <pre className="max-h-32 overflow-auto whitespace-break-spaces text-[11px] text-white/45">{`${this.state.error.name}: ${this.state.error.message}`}</pre>
+        <pre className="max-h-32 overflow-auto whitespace-break-spaces text-caption2 text-white/45">{`${this.state.error.name}: ${this.state.error.message}`}</pre>
         <button type="button" onClick={() => { this.setState({ error: null }); this.props.onBack(); }} className="h-11 w-full rounded-full bg-white/10 font-semibold text-white">Volver a la PlayCard</button>
       </div>
     );
@@ -723,9 +740,9 @@ function TicketsPager({ events, holder }: { events: MeEvent[]; holder: string })
     return (
       <div className="account-glass m-auto flex w-full flex-col items-center gap-3 rounded-[28px] p-8 text-center">
         <TicketIcon className="h-10 w-10 text-pink-300" />
-        <p className="font-heading text-lg font-bold">Aún no tienes entradas</p>
-        <p className="text-sm text-white/60">Cuando compres, aparecen acá con su QR.</p>
-        <Link href="/eventos" className="mt-1 inline-flex h-11 items-center rounded-full bg-gradient-to-r from-pink-500 to-sky-500 px-6 text-sm font-bold">Ver eventos</Link>
+        <p className="font-heading text-title3 font-bold">Aún no tienes entradas</p>
+        <p className="text-subhead text-white/60">Cuando compres, aparecen acá con su QR.</p>
+        <Link href="/eventos" className="mt-1 inline-flex h-11 items-center rounded-full bg-gradient-to-r from-pink-500 to-sky-500 px-6 text-subhead font-bold">Ver eventos</Link>
       </div>
     );
   }
@@ -734,19 +751,19 @@ function TicketsPager({ events, holder }: { events: MeEvent[]; holder: string })
       {pages.map(({ ev, tickets, offset }) => (
         <div key={`${ev.eventId}-${offset}`} className="account-glass m-auto flex w-full flex-col gap-4 rounded-[28px] p-5">
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-pink-300">Tu entrada</p>
-            <p className="mt-1 font-heading text-2xl font-extrabold leading-tight">{ev.eventTitle}</p>
-            <p className="mt-1 flex items-center gap-1.5 text-sm text-white/60"><Calendar className="h-4 w-4 shrink-0" /> {fmtDateTime(ev.eventDate)}{ev.venue ? ` · ${ev.venue}` : ''}</p>
+            <p className="text-caption2 font-semibold uppercase tracking-[0.18em] text-pink-300">Tu entrada</p>
+            <p className="mt-1 font-heading text-title2 font-extrabold leading-tight">{ev.eventTitle}</p>
+            <p className="mt-1 flex items-center gap-1.5 text-subhead text-white/60"><Calendar className="h-4 w-4 shrink-0" /> {fmtDateTime(ev.eventDate)}{ev.venue ? ` · ${ev.venue}` : ''}</p>
           </div>
           <div className="space-y-2">
             {tickets.map((t, i) => (
               <button key={t.ticketCode} type="button" disabled={t.status !== 'valid' || !t.qrImageUrl} onClick={() => { tapHaptic(); setOpen({ ev, t }); }} className="lg-pill flex h-14 w-full items-center gap-3 rounded-2xl px-4 text-left interactive disabled:opacity-70">
-                <span className="w-6 shrink-0 text-center text-lg">{TICKET_KIND_META[t.kind ?? 'acceso'].emoji}</span>
+                <span className="w-6 shrink-0 text-center text-title3">{TICKET_KIND_META[t.kind ?? 'acceso'].emoji}</span>
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[15px] font-semibold leading-tight">{(t.kind ?? 'acceso') === 'acceso' ? (t.holderName || `Entrada ${offset + i + 1}`) : (t.kindLabel ?? TICKET_KIND_META[t.kind!].label)}</span>
-                  <span className="block truncate text-[11.5px] text-white/50">{t.kindLabel ?? 'Acceso'}{t.companions && t.companions.length > 0 ? ` · con ${t.companions.map((c) => c.nombre.split(' ')[0]).join(', ')}` : ''}</span>
+                  <span className="block truncate text-subhead font-semibold leading-tight">{(t.kind ?? 'acceso') === 'acceso' ? (t.holderName || `Entrada ${offset + i + 1}`) : (t.kindLabel ?? TICKET_KIND_META[t.kind!].label)}</span>
+                  <span className="block truncate text-caption1 text-white/50">{t.kindLabel ?? 'Acceso'}{t.companions && t.companions.length > 0 ? ` · con ${t.companions.map((c) => c.nombre.split(' ')[0]).join(', ')}` : ''}</span>
                 </span>
-                <span className={`shrink-0 text-xs font-medium ${t.status === 'used' ? 'text-white/50' : 'text-emerald-300'}`}>{t.status === 'used' ? 'Usada' : 'Ver QR'}</span>
+                <span className={`shrink-0 text-caption1 font-medium ${t.status === 'used' ? 'text-white/50' : 'text-emerald-300'}`}>{t.status === 'used' ? 'Usada' : 'Ver QR'}</span>
                 {t.status === 'valid' && <QrCode className="h-4 w-4 shrink-0 text-white/50" />}
               </button>
             ))}
@@ -765,8 +782,8 @@ function CouponsPager({ me }: { me: Me }) {
     return (
       <div className="account-glass m-auto flex w-full flex-col items-center gap-3 rounded-[28px] p-8 text-center">
         <Gift className="h-10 w-10 text-pink-300" />
-        <p className="font-heading text-lg font-bold">Todavía no tienes cupones</p>
-        <p className="text-sm text-white/60">{perkList(me).length ? 'Te vamos regalando según lo que desbloqueas.' : 'Cuando haya uno para ti, aparece acá.'}</p>
+        <p className="font-heading text-title3 font-bold">Todavía no tienes cupones</p>
+        <p className="text-subhead text-white/60">{perkList(me).length ? 'Te vamos regalando según lo que desbloqueas.' : 'Cuando haya uno para ti, aparece acá.'}</p>
       </div>
     );
   }
@@ -779,15 +796,15 @@ function CouponsPager({ me }: { me: Me }) {
         const live = c.status === 'disponible';
         return (
           <div key={c.id} className={`account-glass m-auto flex w-full flex-col items-center gap-4 rounded-[28px] p-6 text-center ${live ? '' : 'opacity-60'}`}>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-pink-300">{KIND_LABEL[c.kind] ?? 'Cupón'}</p>
-            <p className="font-heading text-2xl font-extrabold leading-tight">{c.title}</p>
-            <p className="text-sm text-white/60">{c.status === 'usado' ? 'Ya lo usaste' : c.status === 'vencido' ? 'Venció' : c.validUntil ? `Vale hasta el ${fmtDate(c.validUntil)}` : ''}</p>
+            <p className="text-caption2 font-semibold uppercase tracking-[0.18em] text-pink-300">{KIND_LABEL[c.kind] ?? 'Cupón'}</p>
+            <p className="font-heading text-title2 font-extrabold leading-tight">{c.title}</p>
+            <p className="text-subhead text-white/60">{c.status === 'usado' ? 'Ya lo usaste' : c.status === 'vencido' ? 'Venció' : c.validUntil ? `Vale hasta el ${fmtDate(c.validUntil)}` : ''}</p>
             {live && (
               <>
-                <button type="button" onClick={() => { void copy(c.id, c.code); }} className="lg-pill flex h-14 w-full items-center justify-center gap-2 rounded-2xl font-mono text-xl font-bold tracking-[0.2em] interactive" aria-label={`Copiar el código ${c.code}`}>
+                <button type="button" onClick={() => { void copy(c.id, c.code); }} className="lg-pill flex h-14 w-full items-center justify-center gap-2 rounded-2xl font-mono text-title3 font-bold tracking-[0.2em] interactive" aria-label={`Copiar el código ${c.code}`}>
                   {c.code} {copied === c.id ? <Check className="h-5 w-5 text-pink-300" /> : <Copy className="h-5 w-5 text-white/60" />}
                 </button>
-                <p className="text-xs text-white/50">Pégalo en el campo de código al comprar. Es personal: úsalo con el correo de tu cuenta.</p>
+                <p className="text-caption1 text-white/50">Pégalo en el campo de código al comprar. Es personal: úsalo con el correo de tu cuenta.</p>
               </>
             )}
           </div>
@@ -804,13 +821,13 @@ function MovementsPreview({ me, onAll }: { me: Me; onAll: () => void }) {
     <div className={`${GLASS} p-4`}>
       <div className="flex items-center justify-between">
         <p className="font-semibold text-white/80">Últimos movimientos</p>
-        {me.movements.length > 3 && <button type="button" onClick={onAll} className="text-xs font-semibold text-pink-300">Ver todos</button>}
+        {me.movements.length > 3 && <button type="button" onClick={onAll} className="text-caption1 font-semibold text-pink-300">Ver todos</button>}
       </div>
-      {last.length === 0 ? <p className="mt-2 text-sm text-white/55">Todavía no hay movimientos.</p> : (
-        <ul className="mt-1 divide-y divide-white/10 text-sm">
+      {last.length === 0 ? <p className="mt-2 text-subhead text-white/55">Todavía no hay movimientos.</p> : (
+        <ul className="mt-1 divide-y divide-white/10 text-subhead">
           {last.map((m, i) => (
             <li key={i} className="flex items-center justify-between gap-3 py-2">
-              <span className="min-w-0 truncate text-white/75">{m.label}<span className="block text-[11px] text-white/40">{fmtDate(m.createdAt)}</span></span>
+              <span className="min-w-0 truncate text-white/75">{m.label}<span className="block text-caption2 text-white/40">{fmtDate(m.createdAt)}</span></span>
               <span className={`shrink-0 font-semibold ${m.type === 'money' ? (m.delta >= 0 ? 'text-emerald-300' : 'text-rose-300') : 'text-violet-300'}`}>
                 {m.delta >= 0 ? '+' : '−'}{m.type === 'money' ? `$${Math.abs(m.delta).toLocaleString('es-CL')}` : `${Math.abs(m.delta).toLocaleString('es-CL')} pc`}
               </span>
@@ -852,7 +869,7 @@ function resolveTab(raw: string | null | undefined): { tab: Tab; prize?: Prize; 
 const TAB_KEY = 'cuenta.tab';
 const PRIZE_KEY = 'cuenta.premios';
 
-function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | null; onLogout: () => void }) {
+function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: LoginDone | null; onLogout: () => void; offlineAt: number | null }) {
   // Al volver de otra pantalla (comprar, un evento…) se abre en la misma pestaña donde estaba.
   const initial = (() => {
     // Un aviso puede abrir una pestaña (?tab=playmatch, al escanear la entrada).
@@ -933,9 +950,10 @@ function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | nu
           Nada se desplaza en vertical; lo que no cabe se reparte en páginas (Pager). */}
       <header className="relative z-10 flex shrink-0 items-center gap-3 px-4 pb-2 pt-[max(12px,env(safe-area-inset-top))] [@media(max-height:700px)]:pb-1">
         <Link href="/" aria-label="Ir al sitio" className="shrink-0"><img src="/candyland/logo-isotipo-transparent.png" alt="" className="h-9 w-9 [@media(max-height:700px)]:h-8 [@media(max-height:700px)]:w-8" /></Link>
-        <h1 className="min-w-0 flex-1 truncate text-[26px] font-bold leading-tight tracking-tight [@media(max-height:700px)]:text-[22px]">{title}</h1>
-        {tab === 'card' && level && <span className="shrink-0 rounded-full bg-emerald-400/15 px-2.5 py-1 text-[11px] font-medium text-emerald-300">{level.label}</span>}
+        <h1 className="min-w-0 flex-1 truncate text-title1 font-bold leading-tight tracking-tight [@media(max-height:700px)]:text-title2">{title}</h1>
+        {tab === 'card' && level && <span className="shrink-0 rounded-full bg-emerald-400/15 px-2.5 py-1 text-caption2 font-medium text-emerald-300">{level.label}</span>}
       </header>
+      <div className="relative z-10 px-4 empty:hidden"><OfflinePill savedAt={offlineAt} /></div>
 
       <main className="relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden px-4 pb-[calc(env(safe-area-inset-bottom)+92px)] [@media(max-height:700px)]:pb-[calc(env(safe-area-inset-bottom)+84px)]" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
         <TabBoundary key={tab} onBack={() => go('card')}>
@@ -956,9 +974,9 @@ function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | nu
             <div role="tablist" aria-label="Premios" className="account-glass grid shrink-0 grid-cols-3 gap-1 rounded-full p-1">
               {PRIZES.map(({ key, label }) => (
                 <button key={key} type="button" role="tab" aria-selected={prize === key} onClick={() => setPrize(key)}
-                  className={`relative h-9 rounded-full text-[13.5px] font-semibold transition-all duration-300 ${prize === key ? 'bg-white/[0.18] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.3)]' : 'text-white/60'}`}>
+                  className={`relative h-9 rounded-full text-footnote font-semibold transition-all duration-300 ${prize === key ? 'bg-white/[0.18] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.3)]' : 'text-white/60'}`}>
                   {label}
-                  {key === 'cupones' && activeCoupons > 0 && <span className="ml-1.5 inline-grid h-[18px] min-w-[18px] place-items-center rounded-full bg-white px-1 align-middle text-[10px] font-bold text-[#0d0712]">{activeCoupons}</span>}
+                  {key === 'cupones' && activeCoupons > 0 && <span className="ml-1.5 inline-grid h-[18px] min-w-[18px] place-items-center rounded-full bg-white px-1 align-middle text-caption2 font-bold text-[#0d0712]">{activeCoupons}</span>}
                 </button>
               ))}
             </div>
@@ -967,7 +985,7 @@ function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | nu
             )}
             {prize === 'puntos' && (<>
               <PlaycoinsCard me={me} />
-              {pay.accountTopup && <button type="button" onClick={() => setTopupOpen(true)} className="inline-flex h-12 w-full shrink-0 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-pink-500 via-fuchsia-500 to-sky-500 text-sm font-bold text-white"><Plus className="h-4 w-4" /> Recargar saldo (hoy {`$${me.prepaidBalance.toLocaleString('es-CL')}`})</button>}
+              {pay.accountTopup && <button type="button" onClick={() => setTopupOpen(true)} className="inline-flex h-12 w-full shrink-0 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-pink-500 via-fuchsia-500 to-sky-500 text-subhead font-bold text-white"><Plus className="h-4 w-4" /> Recargar saldo (hoy {`$${me.prepaidBalance.toLocaleString('es-CL')}`})</button>}
               <MovementsPreview me={me} onAll={() => setSheet('movimientos')} />
             </>)}
             {prize === 'cupones' && <CouponsPager me={me} />}
@@ -975,12 +993,12 @@ function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | nu
           {tab === 'perfil' && (
             <div className="-mx-1 min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-1 pb-4">
               <div className="account-glass flex items-center gap-3.5 rounded-[26px] px-4 py-4">
-                <span className="grid h-14 w-14 shrink-0 place-items-center rounded-full bg-gradient-to-br from-pink-500 to-sky-500 text-[22px] font-bold">{(firstName(me.fullName) || me.email).charAt(0).toUpperCase()}</span>
+                <span className="grid h-14 w-14 shrink-0 place-items-center rounded-full bg-gradient-to-br from-pink-500 to-sky-500 text-title2 font-bold">{(firstName(me.fullName) || me.email).charAt(0).toUpperCase()}</span>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-[18px] font-bold leading-tight">{me.fullName || 'Mi cuenta'}</p>
-                  <p className="truncate text-[13px] text-white/60">{me.email}</p>
+                  <p className="truncate text-title3 font-bold leading-tight">{me.fullName || 'Mi cuenta'}</p>
+                  <p className="truncate text-footnote text-white/60">{me.email}</p>
                 </div>
-                {level && <span className="shrink-0 rounded-full bg-emerald-400/15 px-2.5 py-1 text-[11px] font-medium text-emerald-300">{level.label}</span>}
+                {level && <span className="shrink-0 rounded-full bg-emerald-400/15 px-2.5 py-1 text-caption2 font-medium text-emerald-300">{level.label}</span>}
               </div>
               {/* Solo para quien entra con el correo de un embajador. */}
               {ambassador && (
@@ -988,8 +1006,8 @@ function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | nu
                   <span className="flex items-center gap-3 rounded-[23px] bg-[#0d0712] px-4 py-3.5">
                     <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-amber-300/15 text-amber-300"><Crown className="h-5 w-5" /></span>
                     <span className="min-w-0 flex-1">
-                      <span className="block text-[16px] font-bold leading-tight">Embajador</span>
-                      <span className="block truncate text-[12.5px] text-white/60">Tu contenido para compartir y tus ventas</span>
+                      <span className="block text-callout font-bold leading-tight">Embajador</span>
+                      <span className="block truncate text-footnote text-white/60">Tu contenido para compartir y tus ventas</span>
                     </span>
                     <ArrowRight className="h-5 w-5 shrink-0 text-amber-300" />
                   </span>
@@ -1003,15 +1021,15 @@ function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | nu
                   <button key={key} type="button" onClick={() => { tapHaptic(); onClick(); }} className="relative flex w-full items-center gap-3 px-4 py-3.5 text-left interactive">
                     <Icon className="h-5 w-5 shrink-0 text-pink-300" />
                     <span className="min-w-0 flex-1">
-                      <span className="block text-[15px] font-semibold leading-tight">{label}</span>
-                      <span className="block truncate text-[12.5px] text-white/55">{sub}</span>
+                      <span className="block text-subhead font-semibold leading-tight">{label}</span>
+                      <span className="block truncate text-footnote text-white/55">{sub}</span>
                     </span>
                     {dot && <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-pink-500 shadow-[0_0_8px_rgba(236,72,153,0.9)]" />}
                     <ChevronRight className="h-4 w-4 shrink-0 text-white/35" />
                   </button>
                 ))}
               </div>
-              <button type="button" onClick={() => { tapHaptic(); onLogout(); }} className="flex h-12 w-full items-center justify-center gap-2 rounded-full text-sm font-semibold text-rose-300/90"><LogOut className="h-4 w-4" /> Cerrar sesión</button>
+              <button type="button" onClick={() => { tapHaptic(); onLogout(); }} className="flex h-12 w-full items-center justify-center gap-2 rounded-full text-subhead font-semibold text-rose-300/90"><LogOut className="h-4 w-4" /> Cerrar sesión</button>
             </div>
           )}
         </motion.div>
@@ -1031,11 +1049,11 @@ function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | nu
               const dot = key === 'perfil' && pushPending;
               return (
                 <button key={key} type="button" onClick={() => go(key)} aria-current={tab === key ? 'page' : undefined}
-                  className={`relative flex flex-col items-center justify-center gap-0.5 rounded-full py-2 text-[10.5px] font-medium transition-all duration-300 ${tab === key ? 'bg-white/[0.16] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.3)]' : 'text-white/60'}`}>
+                  className={`relative flex flex-col items-center justify-center gap-0.5 rounded-full py-2 text-caption2 font-medium transition-all duration-300 ${tab === key ? 'bg-white/[0.16] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.3)]' : 'text-white/60'}`}>
                   <Icon className="h-[22px] w-[22px]" />
                   {label}
                   {(live || dot) && <span className="absolute right-3 top-1.5 h-2.5 w-2.5 rounded-full bg-pink-500 shadow-[0_0_8px_rgba(236,72,153,0.9)]" />}
-                  {badge > 0 && <span className="absolute right-1 top-0.5 grid h-5 min-w-5 place-items-center rounded-full bg-white px-1 text-[10px] font-bold text-[#0d0712]">{badge}</span>}
+                  {badge > 0 && <span className="absolute right-1 top-0.5 grid h-5 min-w-5 place-items-center rounded-full bg-white px-1 text-caption2 font-bold text-[#0d0712]">{badge}</span>}
                 </button>
               );
             })}
@@ -1061,7 +1079,7 @@ function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | nu
               {/* Solo la manija arrastra la hoja: el resto se desliza normal. */}
               <div onPointerDown={(e) => sheetDrag.start(e)} className="-mx-4 mb-2 flex h-8 cursor-grab touch-none items-center justify-center"><div className="h-1.5 w-10 rounded-full bg-white/25" /></div>
               <div className="mb-4 [@media(max-height:700px)]:mb-2">
-                <p className="font-heading text-lg font-bold">¿Qué quieres hacer?</p>
+                <p className="font-heading text-title3 font-bold">¿Qué quieres hacer?</p>
               </div>
               <div className="space-y-3">
                 <EarlyCard me={me} />
@@ -1069,8 +1087,8 @@ function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | nu
                   <Link href={buyHref} className="flex min-h-[60px] items-center gap-3 rounded-[22px] bg-gradient-to-r from-pink-500/90 via-fuchsia-500/90 to-sky-500/90 px-4 py-2.5 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.35)]">
                     <TicketIcon className="h-5 w-5 shrink-0" />
                     <span className="min-w-0 flex-1">
-                      <span className="block text-[15px] font-bold leading-tight">{lastBuy ? 'Comprar en 1 toque' : 'Comprar entrada'}</span>
-                      <span className="block truncate text-xs text-white/85">{lastBuy ? `Tu entrada de siempre · ${me.nextEvent.title}` : me.nextEvent.title}</span>
+                      <span className="block text-subhead font-bold leading-tight">{lastBuy ? 'Comprar en 1 toque' : 'Comprar entrada'}</span>
+                      <span className="block truncate text-caption1 text-white/85">{lastBuy ? `Tu entrada de siempre · ${me.nextEvent.title}` : me.nextEvent.title}</span>
                     </span>
                     <ArrowRight className="h-4 w-4 shrink-0" />
                   </Link>
@@ -1085,7 +1103,7 @@ function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | nu
                     { key: 'eventos', label: 'Eventos', icon: Calendar, href: '/eventos' },
                     { key: 'sitio', label: 'Ir al sitio', icon: Home, href: '/' },
                   ] as { key: string; label: string; icon: typeof Bell; onClick?: () => void; href?: string }[]).map(({ key, label, icon: Icon, onClick, href }) => {
-                    const cls = 'account-glass relative flex h-[84px] flex-col items-center justify-center gap-1.5 rounded-[22px] text-[12.5px] font-semibold text-white interactive [@media(max-height:700px)]:h-[66px] [@media(max-height:700px)]:gap-1';
+                    const cls = 'account-glass relative flex h-[84px] flex-col items-center justify-center gap-1.5 rounded-[22px] text-footnote font-semibold text-white interactive [@media(max-height:700px)]:h-[66px] [@media(max-height:700px)]:gap-1';
                     const inner = (<><Icon className="h-5 w-5 text-pink-300" />{label}</>);
                     return href ? <Link key={key} href={href} onClick={tapHaptic} className={cls}>{inner}</Link> : <button key={key} type="button" onClick={() => { tapHaptic(); onClick?.(); }} className={cls}>{inner}</button>;
                   })}
@@ -1100,14 +1118,14 @@ function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | nu
       <BottomSheet open={sheet === 'avisos'} onClose={() => setSheet(null)} title="Avisos">
         {/* `alwaysShow`: la persona abrió «Avisos» a propósito, así que el aviso no se esconde aunque lo haya cerrado antes. */}
         <PushPrompt source="puntos" tone="dark" alwaysShow />
-        {avisosNotice(push.state) === 'enabled' && <p className="account-glass rounded-2xl p-4 text-sm text-white/75">✓ Avisos activados: te avisamos del recordatorio del evento, preventas y novedades.</p>}
-        {avisosNotice(push.state) === 'denied' && <p className="account-glass rounded-2xl p-4 text-sm text-white/65">Bloqueaste los avisos de este sitio. Si los quieres, actívalos en los ajustes del teléfono o del navegador.</p>}
+        {avisosNotice(push.state) === 'enabled' && <p className="account-glass rounded-2xl p-4 text-subhead text-white/75">✓ Avisos activados: te avisamos del recordatorio del evento, preventas y novedades.</p>}
+        {avisosNotice(push.state) === 'denied' && <p className="account-glass rounded-2xl p-4 text-subhead text-white/65">Bloqueaste los avisos de este sitio. Si los quieres, actívalos en los ajustes del teléfono o del navegador.</p>}
         {avisosNotice(push.state) === 'unsupported' && (
-          <p className="account-glass rounded-2xl p-4 text-sm text-white/65">
+          <p className="account-glass rounded-2xl p-4 text-subhead text-white/65">
             Este navegador no permite recibir avisos. Abre Playroom en Chrome (en Android) o en Safari y agrégalo a tu inicio, y vuelve a entrar acá para activarlos.
           </p>
         )}
-        {avisosNotice(push.state) === 'loading' && <p className="account-glass rounded-2xl p-4 text-sm text-white/65">Revisando tus avisos…</p>}
+        {avisosNotice(push.state) === 'loading' && <p className="account-glass rounded-2xl p-4 text-subhead text-white/65">Revisando tus avisos…</p>}
       </BottomSheet>
       <BottomSheet open={sheet === 'tarjetas'} onClose={() => setSheet(null)} title="Mis tarjetas"><SavedCardsSection /></BottomSheet>
       {ambassador && <AppScreen open={sheet === 'embajador'} title="Embajador" onClose={() => setSheet(null)}><AmbassadorAccount panel={ambassador} /></AppScreen>}
@@ -1123,7 +1141,10 @@ function AccountApp({ me, welcome, onLogout }: { me: Me; welcome: LoginDone | nu
 export default function Cuenta() {
   useSeo({ title: 'Mi cuenta — Mansion Playroom', description: 'Tus Playcoins, saldo, entradas y cupones en Mansion Playroom.', path: '/cuenta', noindex: true });
   const utils = trpc.useUtils();
-  const { data: me, isLoading } = trpc.member.me.useQuery(undefined, { retry: false });
+  // Lo último guardado en este teléfono: la app abre al instante con eso y sin señal se queda con eso.
+  const [snapshot, setSnapshot] = useState(() => loadAccountSnapshot<Me>());
+  const { data, isLoading, isError, refetch, isFetching } = trpc.member.me.useQuery(undefined, { retry: false });
+  const session = useMemberSession();
   const logout = trpc.member.logout.useMutation({ onSuccess: () => utils.member.invalidate() });
   const [welcome, setWelcome] = useState<LoginDone | null>(null);
   const isMobile = useIsMobile();
@@ -1131,34 +1152,72 @@ export default function Cuenta() {
   useDarkChrome();
   const shell = 'account-font account-tokens relative min-h-dvh bg-[#0b0612] text-white';
 
-  if (isLoading) return <div className={`${shell} pt-28`}><div className="account-backdrop" /></div>;
+  useEffect(() => {
+    if (data) { saveAccountSnapshot(data); setSnapshot({ me: data, savedAt: Date.now() }); }
+    // `null` = el servidor dice que no hay sesión: no se deja la cuenta guardada en el teléfono.
+    else if (data === null) { clearAccountSnapshot(); setSnapshot(null); }
+  }, [data]);
+  const signedIn = !!data;
+  useEffect(() => { if (signedIn) warmOfflineApp(); }, [signedIn]);
 
-  if (!me) {
+  const onLogout = () => {
+    clearAccountSnapshot();
+    setSnapshot(null);
+    logout.mutate();
+  };
+  // undefined = todavía cargando o sin red: se usa lo guardado.
+  const me = data === undefined ? snapshot?.me ?? null : data;
+  const offlineAt = data === undefined && isError && snapshot ? snapshot.savedAt : null;
+
+  const login = (
+    <div className={`${shell} pt-28 pb-16`}>
+      <div className="account-backdrop" />
+      <div className="container relative z-10 max-w-md">
+        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
+          <div className="text-center">
+            <h1 className="text-large-title font-bold tracking-tight text-white">Mi cuenta</h1>
+            <p className="mt-2 text-subhead text-white/65">Tu entrada, tus Playcoins y tu saldo a un toque. Entras con un código que te mandamos al correo de tu compra (o tu correo de embajador): sin contraseñas.</p>
+          </div>
+          <div className={`${GLASS} p-5`}>
+            <MemberLogin tone="dark" onDone={setWelcome} />
+          </div>
+          <p className="text-center text-caption1 text-white/55">Es opcional: para comprar tu entrada no necesitas cuenta. ¿Aún no compras? Cuando lo hagas, ya podrás entrar con ese correo.</p>
+        </motion.div>
+      </div>
+    </div>
+  );
+
+  if (!me && isLoading) {
+    // Si ya se sabe que no hay sesión, el formulario sale al tiro; si no, la forma de la app mientras carga.
+    if (session.data && !session.data.loggedIn) return login;
+    return isMobile ? <AccountSkeleton /> : <div className={`${shell} pt-28`}><div className="account-backdrop" /></div>;
+  }
+
+  // Sin red y sin nada guardado: no se muestra el formulario de entrar (no serviría), se ofrece reintentar.
+  if (!me && isError) {
     return (
-      <div className={`${shell} pt-28 pb-16`}>
+      <div className={`${shell} flex items-center justify-center px-6`}>
         <div className="account-backdrop" />
-        <div className="container relative z-10 max-w-md">
-          <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-            <div className="text-center">
-              <h1 className="font-heading text-3xl font-extrabold text-white">Mi cuenta</h1>
-              <p className="mt-2 text-sm text-white/65">Tu entrada, tus Playcoins y tu saldo a un toque. Entras con un código que te mandamos al correo de tu compra (o tu correo de embajador): sin contraseñas.</p>
-            </div>
-            <div className={`${GLASS} p-5`}>
-              <MemberLogin tone="dark" onDone={setWelcome} />
-            </div>
-            <p className="text-center text-xs text-white/50">Es opcional: para comprar tu entrada no necesitas cuenta. ¿Aún no compras? Cuando lo hagas, ya podrás entrar con ese correo.</p>
-          </motion.div>
+        <div className={`${GLASS} relative z-10 flex w-full max-w-sm flex-col items-center gap-3 p-8 text-center`}>
+          <WifiOff className="h-10 w-10 text-pink-300" />
+          <p className="text-title3 font-bold">Sin conexión</p>
+          <p className="text-subhead text-white/65">No pudimos cargar tu cuenta. Revisa tu señal o el wifi y vuelve a intentar.</p>
+          <button type="button" onClick={() => { void refetch(); }} disabled={isFetching} className="mt-1 inline-flex h-12 items-center gap-2 rounded-full bg-gradient-to-r from-pink-500 to-sky-500 px-6 text-subhead font-bold text-white interactive disabled:opacity-60">
+            {isFetching ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} Reintentar
+          </button>
         </div>
       </div>
     );
   }
 
-  if (isMobile) return <AccountApp me={me} welcome={welcome} onLogout={() => logout.mutate()} />;
+  if (!me) return login;
 
-  return <DesktopAccount me={me} welcome={welcome} onLogout={() => logout.mutate()} shell={shell} />;
+  if (isMobile) return <AccountApp me={me} welcome={welcome} onLogout={onLogout} offlineAt={offlineAt} />;
+
+  return <DesktopAccount me={me} welcome={welcome} onLogout={onLogout} shell={shell} offlineAt={offlineAt} />;
 }
 
-function DesktopAccount({ me, welcome, onLogout, shell }: { me: Me; welcome: LoginDone | null; onLogout: () => void; shell: string }) {
+function DesktopAccount({ me, welcome, onLogout, shell, offlineAt }: { me: Me; welcome: LoginDone | null; onLogout: () => void; shell: string; offlineAt: number | null }) {
   const { href: buyHref } = useBuyHref(me.nextEvent?.slug);
   const ambassador = useAmbassadorPanel();
   const level = CUSTOMER_LEVEL_META[me.level as keyof typeof CUSTOMER_LEVEL_META];
@@ -1174,20 +1233,21 @@ function DesktopAccount({ me, welcome, onLogout, shell }: { me: Me; welcome: Log
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <h1 className="font-heading text-3xl font-extrabold leading-tight text-white">Hola{firstName(me.fullName) ? `, ${firstName(me.fullName)}` : ''} 👋</h1>
-              <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-white/55">
+              <h1 className="font-heading text-title1 font-extrabold leading-tight text-white">Hola{firstName(me.fullName) ? `, ${firstName(me.fullName)}` : ''} 👋</h1>
+              <p className="mt-1 flex flex-wrap items-center gap-2 text-subhead text-white/55">
                 <span className="truncate">{me.email}</span>
-                {level && <span className="rounded-full bg-emerald-400/15 px-2.5 py-0.5 text-xs font-medium text-emerald-300">{level.label}</span>}
+                {level && <span className="rounded-full bg-emerald-400/15 px-2.5 py-0.5 text-caption1 font-medium text-emerald-300">{level.label}</span>}
               </p>
             </div>
-            <button type="button" onClick={onLogout} className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-white/15 px-3 py-1.5 text-xs text-white/60 interactive"><LogOut className="h-3.5 w-3.5" /> Salir</button>
+            <button type="button" onClick={onLogout} className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-white/15 px-3 py-1.5 text-caption1 text-white/60 interactive"><LogOut className="h-3.5 w-3.5" /> Salir</button>
           </div>
 
+          <OfflinePill savedAt={offlineAt} />
           <WelcomeBanner welcome={welcome} />
           <TicketWallet ev={upcoming[0] ?? null} holder={me.fullName || me.email} prepaidBalance={me.prepaidBalance} playcoins={me.playcoins} movements={me.movements}
             onTopup={pay.accountTopup ? () => setTopupOpen(true) : undefined} onPayCaja={pay.cajaPay ? () => setPayOpen(true) : undefined} />
           <section className="space-y-3">
-            <h2 className="font-heading text-xl font-bold text-white">Playmatch 🍬</h2>
+            <h2 className="font-heading text-title3 font-bold text-white">Playmatch 🍬</h2>
             <PlaymatchTab events={upcoming} buyHref={buyHref} />
           </section>
           <BuyNextCard me={me} />

@@ -2,6 +2,34 @@
 @import "tw-animate-css";
 @import "./theme.css";
 
+/* Escala de letras de la App de PlayRoom: la de iOS (Human Interface Guidelines, tamaño de texto
+ * por defecto), para que todas las pantallas hablen el mismo idioma en vez de 15 tamaños sueltos.
+ * Nada baja de 11 px (caption2). Uso: `text-title1`, `text-subhead`, `text-caption2`… */
+@theme {
+  --text-large-title: 34px;
+  --text-large-title--line-height: 41px;
+  --text-title1: 28px;
+  --text-title1--line-height: 34px;
+  --text-title2: 22px;
+  --text-title2--line-height: 28px;
+  --text-title3: 20px;
+  --text-title3--line-height: 25px;
+  --text-headline: 17px;
+  --text-headline--line-height: 22px;
+  --text-body: 17px;
+  --text-body--line-height: 22px;
+  --text-callout: 16px;
+  --text-callout--line-height: 21px;
+  --text-subhead: 15px;
+  --text-subhead--line-height: 20px;
+  --text-footnote: 13px;
+  --text-footnote--line-height: 18px;
+  --text-caption1: 12px;
+  --text-caption1--line-height: 16px;
+  --text-caption2: 11px;
+  --text-caption2--line-height: 13px;
+}
+
 /* Rutas/componentes de operación interna (admin, caja, puerta, fiesta):
  * nunca los ve un visitante público, así que no hace falta que su CSS viaje
  * en el bundle de entrada -- tienen su propia hoja, client/src/admin.css,
@@ -694,4 +722,18 @@ html {
   -webkit-backdrop-filter: var(--lg-bf);
   backdrop-filter: var(--lg-bf);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), 0 -20px 60px -20px rgba(0, 0, 0, 0.8);
+}
+/* Esqueleto de carga de la app: un brillo suave que cruza, como en las apps de Apple. */
+.lg-skeleton { position: relative; overflow: hidden; }
+.lg-skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.07), transparent);
+  animation: lg-skeleton 1.6s ease-in-out infinite;
+}
+@keyframes lg-skeleton { to { transform: translateX(100%); } }
+@media (prefers-reduced-motion: reduce) {
+  .lg-skeleton::after { animation: none; }
 }

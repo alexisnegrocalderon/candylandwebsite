@@ -13,6 +13,8 @@ import { AppTopBar } from "./components/site/AppTopBar";
 import { InstallAppPrompt } from "./components/site/InstallAppPrompt";
 import { isInstalledApp } from "./lib/appInstall";
 import { useMemberSession } from "./lib/member";
+import { hasAccountSnapshot } from "./lib/offlineAccount";
+import { AccountSkeleton } from "./components/site/AccountSkeleton";
 import { isFinePointer, resetScrollPosition } from "./lib/smoothScroll";
 
 // Lazy load pages -- Home incluida: antes se importaba eager y arrastraba
@@ -94,7 +96,11 @@ function PageLoader({ path }: { path: string }) {
   // mientras baja el chunk: un círculo encima sería un segundo loader.
   if (hasDarkSplash()) return null;
   // «Mi cuenta» y la entrada son oscuras: cargar en pastel daba un destello blanco al navegar.
-  if (isDarkRoute(path)) return <div className="fixed inset-0" style={{ background: DARK_CHROME_BG }} />;
+  if (isDarkRoute(path)) {
+    // La app con sesión guardada: la forma de «Mi cuenta» mientras baja la página, no una pantalla negra.
+    if (/^\/(cuenta|mis-puntos)/.test(path) && window.innerWidth < 768 && hasAccountSnapshot()) return <AccountSkeleton />;
+    return <div className="fixed inset-0" style={{ background: DARK_CHROME_BG }} />;
+  }
   return (
     <div className="min-h-screen flex items-center justify-center">
       <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
@@ -108,9 +114,11 @@ function PageLoader({ path }: { path: string }) {
  * navegador común el sitio sigue siendo el sitio. */
 function useMemberAppMode(location: string, hideChrome: boolean) {
   const installed = useState(isInstalledApp)[0];
-  const { data: session, isLoading } = useMemberSession();
+  const { data: session, isLoading, isError } = useMemberSession();
   const [, navigate] = useLocation();
-  const loggedIn = installed && !!session?.loggedIn;
+  // Sin red (en la puerta) no se puede preguntar por la sesión: si este teléfono tiene la cuenta
+  // guardada, igual se abre «Mi cuenta» con lo guardado (ver lib/offlineAccount.ts).
+  const loggedIn = installed && (!!session?.loggedIn || (isError && hasAccountSnapshot()));
   // Solo la primera pantalla: si abre en la portada y tiene sesión, se va a su cuenta.
   const [firstLoad, setFirstLoad] = useState(() => installed && location === '/');
   useEffect(() => {
@@ -298,7 +306,7 @@ function App() {
           {/* La notificación de bienvenida abre esta ventana (`/?bienvenida=1`) desde cualquier pantalla. */}
           <WelcomeGate />
           {!hideChrome && <InstallAppPrompt />}
-          {holdForAccount ? <div className="fixed inset-0 bg-[#0b0612]" /> : memberApp ? (
+          {holdForAccount ? (hasAccountSnapshot() ? <AccountSkeleton /> : <div className="fixed inset-0 bg-[#0b0612]" />) : memberApp ? (
             <AnimatePresence mode="popLayout" initial={false}>
               <motion.div key={location} initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} transition={{ type: 'spring', damping: 30, stiffness: 300 }}>
                 <Router />
