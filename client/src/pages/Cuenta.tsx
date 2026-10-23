@@ -676,7 +676,7 @@ const TABS: { key: Tab; label: string; icon: typeof CreditCard }[] = [
 ];
 const PRIZES: { key: Prize; label: string }[] = [
   { key: 'sellos', label: 'Sellos' },
-  { key: 'puntos', label: 'Puntos' },
+  { key: 'puntos', label: 'Playcoins' },
   { key: 'cupones', label: 'Cupones' },
 ];
 
