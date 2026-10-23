@@ -194,7 +194,7 @@ export function PartyExperience({ ticketCode, onBack }: { ticketCode: string; on
         {inboxOpen && <GiftInbox key="tragos" ticketCode={ticketCode} onClose={() => setInboxOpen(false)} />}
         {photoOpen && (
           <MyPhotoPanel key="foto" ticketCode={ticketCode} profileId={profile.id} alias={profile.alias} gender={profile.gender as PartyGender} zone={profile.zone as PartyZone}
-            hasPhoto={profile.hasPhoto} swipeEnabled={profile.swipeEnabled} onChanged={() => session.refetch()} onClose={() => setPhotoOpen(false)} />
+            costume={profile.costume} photoCount={profile.photoCount} swipeEnabled={profile.swipeEnabled} onChanged={() => { session.refetch(); utils.party.swipeDeck.invalidate(); }} onClose={() => setPhotoOpen(false)} />
         )}
         {notifOpen && <NotificationsPanel key="avisos" ticketCode={ticketCode} onClose={() => setNotifOpen(false)} />}
         {openChat && (

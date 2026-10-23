@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { animate, motion, useMotionValue, useTransform } from 'framer-motion';
 import { toast } from 'sonner';
-import { Camera, Heart, Info, MapPin, Star, Wine, X } from 'lucide-react';
+import { Camera, Heart, Info, MapPin, Sparkles, Star, Wine, X } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { ProtectedPhoto, preloadPhoto } from '@/components/party/ProtectedPhoto';
 import { Confetti } from '@/components/site/Confetti';
@@ -10,7 +10,7 @@ import { ZONE_LABELS, type PartyGender, type PartyZone } from '@shared/party';
 
 const GENDER_LABELS: Record<PartyGender, string> = { hombre: 'Hombre', mujer: 'Mujer', pareja: 'Pareja' };
 
-export type DeckCard = { id: number; alias: string; gender: PartyGender; zone: PartyZone };
+export type DeckCard = { id: number; alias: string; gender: PartyGender; zone: PartyZone; costume: string | null; photoCount: number };
 type Verdict = 'like' | 'nope' | 'caramelo';
 
 /* Descubrir: el swipe al estilo Tinder, con el vidrio de la App. ♥ a la derecha, ✕ a la izquierda y
@@ -43,12 +43,17 @@ export function DiscoverView({ ticketCode, alias, myProfileId, participating, ca
   const deck: DeckCard[] = (deckQuery.data?.deck ?? []).filter((c) => !done.has(c.id));
   const top = deck[0];
 
-  // Las fotos de las dos tarjetas siguientes se piden mientras miras la actual.
+  // Las fotos de las dos tarjetas siguientes (y el resto del carrusel de la actual) se piden
+  // mientras miras la actual.
   const nextIds = deck.slice(1, 3).map((c) => c.id).join(',');
   useEffect(() => {
     if (!nextIds) return;
     nextIds.split(',').forEach((id) => preloadPhoto(ticketCode, Number(id)));
   }, [nextIds, ticketCode]);
+  useEffect(() => {
+    if (!top) return;
+    for (let p = 1; p < top.photoCount; p++) preloadPhoto(ticketCode, top.id, p);
+  }, [top?.id, top?.photoCount, ticketCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const resolve = (card: DeckCard, v: Verdict) => {
     setDone((prev) => new Set(prev).add(card.id));
@@ -164,6 +169,10 @@ function SwipeCard({ ticketCode, viewerAlias, card, command, caramelo, onVerdict
   const nopeOpacity = useTransform(x, [-120, -30], [1, 0]);
   const caraOpacity = useTransform(y, [-130, -40], [1, 0]);
   const gone = useRef(false);
+  // Carrusel: tocar la mitad derecha pasa a la siguiente foto; la izquierda vuelve.
+  const [photo, setPhoto] = useState(0);
+  const count = Math.max(1, card.photoCount);
+  const el = useRef<HTMLDivElement>(null);
 
   const fly = (v: Verdict) => {
     if (gone.current) return;
@@ -184,6 +193,7 @@ function SwipeCard({ ticketCode, viewerAlias, card, command, caramelo, onVerdict
 
   return (
     <motion.div
+      ref={el}
       className="absolute inset-0 cursor-grab touch-none overflow-hidden rounded-[28px] border border-white/15 bg-[#1a0f18] shadow-[0_30px_70px_-25px_rgba(0,0,0,0.9)] active:cursor-grabbing"
       style={{ x, y, rotate }}
       initial={{ scale: 0.96, opacity: 0.6 }}
@@ -191,6 +201,14 @@ function SwipeCard({ ticketCode, viewerAlias, card, command, caramelo, onVerdict
       transition={{ type: 'spring', stiffness: 300, damping: 26 }}
       drag
       dragMomentum={false}
+      onTap={(_, info) => {
+        // El evento de onTap llega sin currentTarget: la posición se mide contra la propia tarjeta.
+        const rect = el.current?.getBoundingClientRect();
+        if (count < 2 || !rect) return;
+        const right = info.point.x - window.scrollX > rect.left + rect.width / 2;
+        tap();
+        setPhoto((p) => Math.min(count - 1, Math.max(0, p + (right ? 1 : -1))));
+      }}
       onDragEnd={(_, info) => {
         if (info.offset.x > 110 || info.velocity.x > 700) fly('like');
         else if (info.offset.x < -110 || info.velocity.x < -700) fly('nope');
@@ -198,13 +216,19 @@ function SwipeCard({ ticketCode, viewerAlias, card, command, caramelo, onVerdict
         else back();
       }}
     >
-      <ProtectedPhoto ticketCode={ticketCode} profileId={card.id} viewerAlias={viewerAlias} className="absolute inset-0" />
+      <ProtectedPhoto ticketCode={ticketCode} profileId={card.id} position={photo} viewerAlias={viewerAlias} className="absolute inset-0" />
       <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-black/45 to-transparent" />
+      {count > 1 && (
+        <div className="pointer-events-none absolute inset-x-3 top-2.5 flex gap-1.5" aria-label={`Foto ${photo + 1} de ${count}`}>
+          {Array.from({ length: count }, (_, i) => <span key={i} className={`h-1 flex-1 rounded-full ${i === photo ? 'bg-white' : 'bg-white/35'}`} />)}
+        </div>
+      )}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent px-5 pb-5 pt-24">
         <p className="flex items-center gap-2 text-title1 font-bold leading-tight tracking-tight">
           <span className="truncate">{card.alias}</span>
           <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.9)]" aria-label="Activa ahora" />
         </p>
+        {card.costume && <p className="mt-0.5 flex items-center gap-1.5 truncate text-headline font-semibold text-amber-200"><Sparkles className="h-4 w-4 shrink-0" /> {card.costume}</p>}
         <div className="mt-2 flex flex-wrap gap-1.5">
           <Chip>{GENDER_LABELS[card.gender]}</Chip>
           <Chip><MapPin className="h-3 w-3" /> En {ZONE_LABELS[card.zone]}</Chip>

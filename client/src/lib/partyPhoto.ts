@@ -1,20 +1,23 @@
-import { PHOTO_MAX_BYTES, PHOTO_SIZE_PX } from '@shared/party';
+import { PHOTO_HEIGHT_PX, PHOTO_MAX_BYTES, PHOTO_WIDTH_PX } from '@shared/party';
 
-/** Toma la foto elegida con la cámara, la recorta cuadrada al centro y la
- * comprime a JPEG en el propio celular. Devuelve base64 sin el prefijo
- * `data:`. Baja la calidad hasta que entre en el tope del servidor. */
+/** Toma la foto elegida (cámara o galería), la recorta vertical 3:4 al centro (como la tarjeta del
+ * swipe) y la comprime a JPEG en el propio celular. Devuelve base64 sin el prefijo `data:`. Baja
+ * la calidad hasta que entre en el tope del servidor. */
 export async function compressSelfie(file: File): Promise<string> {
   const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
-  const side = Math.min(bitmap.width, bitmap.height);
+  const ratio = PHOTO_WIDTH_PX / PHOTO_HEIGHT_PX;
+  // El recorte 3:4 más grande que cabe en la foto, centrado.
+  const cropW = Math.min(bitmap.width, bitmap.height * ratio);
+  const cropH = cropW / ratio;
   const canvas = document.createElement('canvas');
-  canvas.width = PHOTO_SIZE_PX;
-  canvas.height = PHOTO_SIZE_PX;
+  canvas.width = PHOTO_WIDTH_PX;
+  canvas.height = PHOTO_HEIGHT_PX;
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('Tu navegador no puede procesar la foto');
   ctx.drawImage(
     bitmap,
-    (bitmap.width - side) / 2, (bitmap.height - side) / 2, side, side,
-    0, 0, PHOTO_SIZE_PX, PHOTO_SIZE_PX,
+    (bitmap.width - cropW) / 2, (bitmap.height - cropH) / 2, cropW, cropH,
+    0, 0, PHOTO_WIDTH_PX, PHOTO_HEIGHT_PX,
   );
   bitmap.close?.();
 

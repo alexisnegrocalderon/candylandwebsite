@@ -14,7 +14,7 @@ import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools,
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
 import { isMissionActiveForEvent, missionDepositPrice, personasForAccesoSlug, personasForTicket } from '../shared/mission300';
-import { MAX_TOUCHES_PER_EVENT, PRESENCE_WINDOW_MS, SWIPE_DECK_SIZE, canSeePhotos, giftExpiresAt, isGiftExpired, canPayGift, canRespondToGift, orderedPair, type PartyGender, type PartyZone } from '../shared/party';
+import { MAX_TOUCHES_PER_EVENT, MAX_PARTY_PHOTOS, photoSlotFor, isMutualInterest, PRESENCE_WINDOW_MS, SWIPE_DECK_SIZE, canSeePhotos, giftExpiresAt, isGiftExpired, canPayGift, canRespondToGift, orderedPair, type PartyGender, type PartyZone } from '../shared/party';
 import { playcoinsEarnedForPurchase, clampRedeemAmount } from '../shared/playcoins';
 import { isEventToday } from '../shared/eventDay';
 import { chileHourOf, startOfChileDay } from '../shared/chileDate';
@@ -6651,6 +6651,8 @@ export async function createPartyProfile(params: {
   eventId: number; ticketId: number; alias: string; gender: PartyGender; avatarId: number; zone: PartyZone;
   /** 0 = inscrito antes de entrar: invisible hasta que escaneen su entrada. */
   active?: 0 | 1;
+  lookingFor?: string;
+  costume?: string | null;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -6663,6 +6665,8 @@ export async function createPartyProfile(params: {
     avatarId: params.avatarId,
     zone: params.zone,
     active: params.active ?? 1,
+    lookingFor: params.lookingFor ?? 'hombre,mujer,pareja',
+    costume: params.costume ?? null,
     lastSeenAt: new Date(),
     rulesAcceptedAt: new Date(),
   });
@@ -6671,7 +6675,7 @@ export async function createPartyProfile(params: {
   return profile;
 }
 
-export async function updatePartyProfile(profileId: number, data: { zone?: PartyZone; avatarId?: number; active?: number; alias?: string; gender?: PartyGender; lastSeenAt?: Date }) {
+export async function updatePartyProfile(profileId: number, data: { zone?: PartyZone; avatarId?: number; active?: number; alias?: string; gender?: PartyGender; lastSeenAt?: Date; lookingFor?: string; costume?: string | null }) {
   const db = await getDb();
   if (!db) return;
   await db.update(partyProfiles).set(data).where(eq(partyProfiles.id, profileId));
@@ -6731,6 +6735,7 @@ export async function listPartyMansion(profileId: number, eventId: number) {
         gender: p.gender as PartyGender,
         avatarId: p.avatarId,
         zone: p.zone as PartyZone,
+        costume: (p.costume as string | null) ?? null,
         lastSeenAt: p.lastSeenAt,
         connectionId: c?.id ?? null,
         // `declined` se le muestra a quien tocó como si siguiera pendiente:
@@ -7047,20 +7052,56 @@ export async function markPlaymatchTestGuestEntered(ticketCode: string) {
 /* --- Fotos del swipe ------------------------------------------------------ */
 
 /** Guarda (o reemplaza) la foto del perfil y lo suma al swipe. */
-export async function savePartyPhoto(profileId: number, eventId: number, data: Buffer) {
+/** Cuántas fotos tiene un perfil (0 a MAX_PARTY_PHOTOS). */
+export async function countPartyPhotos(profileId: number): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const [row] = await db.select({ n: sql<number>`count(*)` }).from(partyPhotos).where(eq(partyPhotos.profileId, profileId));
+  return Number(row?.n ?? 0);
+}
+
+/** Guarda una foto: reemplaza la de `position` o, sin posición, la agrega al final (máx. 3). Al
+ * tener foto, el perfil entra al swipe. Devuelve la posición donde quedó, o null si ya tiene 3. */
+export async function savePartyPhoto(profileId: number, eventId: number, data: Buffer, position?: number): Promise<number | null> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.delete(partyPhotos).where(eq(partyPhotos.profileId, profileId));
-  await db.insert(partyPhotos).values({ profileId, eventId, data });
+  const slot = photoSlotFor(position, await countPartyPhotos(profileId));
+  if (slot === null) return null;
+  await db.delete(partyPhotos).where(and(eq(partyPhotos.profileId, profileId), eq(partyPhotos.position, slot)));
+  await db.insert(partyPhotos).values({ profileId, eventId, position: slot, data });
   await db.update(partyProfiles).set({ swipeEnabled: 1 }).where(eq(partyProfiles.id, profileId));
+  return slot;
+}
+
+/** Pasa la foto de `position` a principal (intercambia con la 0). El índice único (perfil,
+ * posición) obliga a pasar por una posición temporal. */
+export async function makeMainPartyPhoto(profileId: number, position: number) {
+  const db = await getDb();
+  if (!db || position <= 0) return;
+  const at = (p: number) => and(eq(partyPhotos.profileId, profileId), eq(partyPhotos.position, p));
+  await db.update(partyPhotos).set({ position: -1 }).where(at(position));
+  await db.update(partyPhotos).set({ position }).where(at(0));
+  await db.update(partyPhotos).set({ position: 0 }).where(at(-1));
 }
 
 /** Borra la foto y saca al perfil del swipe, al instante. */
-export async function deletePartyPhoto(profileId: number) {
+/** Borra una foto (y corre las siguientes para no dejar huecos) o, sin posición, todas. Sin
+ * fotos, el perfil sale del swipe al instante. */
+export async function deletePartyPhoto(profileId: number, position?: number) {
   const db = await getDb();
   if (!db) return;
-  await db.delete(partyPhotos).where(eq(partyPhotos.profileId, profileId));
-  await db.update(partyProfiles).set({ swipeEnabled: 0 }).where(eq(partyProfiles.id, profileId));
+  if (position === undefined) {
+    await db.delete(partyPhotos).where(eq(partyPhotos.profileId, profileId));
+  } else {
+    await db.delete(partyPhotos).where(and(eq(partyPhotos.profileId, profileId), eq(partyPhotos.position, position)));
+    // De a una y en orden: así el índice único nunca ve dos fotos en la misma posición.
+    for (let p = position + 1; p < MAX_PARTY_PHOTOS; p++) {
+      await db.update(partyPhotos).set({ position: p - 1 }).where(and(eq(partyPhotos.profileId, profileId), eq(partyPhotos.position, p)));
+    }
+  }
+  if ((await countPartyPhotos(profileId)) === 0) {
+    await db.update(partyProfiles).set({ swipeEnabled: 0 }).where(eq(partyProfiles.id, profileId));
+  }
 }
 
 /** Pausar o reanudar la participación sin perder la foto. */
@@ -7089,12 +7130,13 @@ export async function partyProfileHasPhoto(profileId: number): Promise<boolean> 
 export async function getPartyPhotoForViewer(
   viewer: { id: number; eventId: number; swipeEnabled: number; banned: number },
   targetProfileId: number,
+  position = 0,
 ): Promise<Buffer | null> {
   const db = await getDb();
   if (!db) return null;
 
   const [row] = await db.select({ data: partyPhotos.data, eventId: partyPhotos.eventId })
-    .from(partyPhotos).where(eq(partyPhotos.profileId, targetProfileId)).limit(1);
+    .from(partyPhotos).where(and(eq(partyPhotos.profileId, targetProfileId), eq(partyPhotos.position, position))).limit(1);
   if (!row) return null;
   if (viewer.id === targetProfileId) return row.data;
 
@@ -7138,6 +7180,9 @@ async function isSwipeCandidate(db: any, viewerId: number, eventId: number, targ
   if (viewerId === targetId) return null;
   const [t] = await db.select().from(partyProfiles).where(eq(partyProfiles.id, targetId)).limit(1);
   if (!t || t.eventId !== eventId || t.active !== 1 || t.banned || !t.swipeEnabled) return null;
+  // Busco: el servidor también lo exige (el mazo no es una frontera de confianza).
+  const [me] = await db.select().from(partyProfiles).where(eq(partyProfiles.id, viewerId)).limit(1);
+  if (!me || !isMutualInterest(me, t)) return null;
   if (!(await partyProfileHasPhoto(targetId))) return null;
   const hidden = await getPartyHiddenIds(db, viewerId);
   if (hidden.has(targetId)) return null;
@@ -7169,13 +7214,16 @@ export async function getPartySwipeDeck(viewer: { id: number; eventId: number; s
 
   const skip = new Set<number>([viewer.id, ...Array.from(hidden), ...swiped.map((s: any) => s.toProfileId)]);
   for (const c of connections) skip.add(c.profileLowId === viewer.id ? c.profileHighId : c.profileLowId);
-  const photoIds = new Set<number>(withPhoto.map((p: any) => p.profileId));
+  const photoCount = new Map<number, number>();
+  for (const p of withPhoto as any[]) photoCount.set(p.profileId, (photoCount.get(p.profileId) ?? 0) + 1);
+  const me = profiles.find((p: any) => p.id === viewer.id) ?? (await db.select().from(partyProfiles).where(eq(partyProfiles.id, viewer.id)).limit(1))[0];
 
   return profiles
-    .filter((p: any) => !skip.has(p.id) && photoIds.has(p.id))
+    // Busco: solo quienes se buscan los dos.
+    .filter((p: any) => !skip.has(p.id) && photoCount.has(p.id) && (!me || isMutualInterest(me, p)))
     .sort((a: any, b: any) => new Date(b.lastSeenAt).getTime() - new Date(a.lastSeenAt).getTime())
     .slice(0, SWIPE_DECK_SIZE)
-    .map((p: any) => ({ id: p.id, alias: p.alias, gender: p.gender as PartyGender, zone: p.zone as PartyZone }));
+    .map((p: any) => ({ id: p.id, alias: p.alias, gender: p.gender as PartyGender, zone: p.zone as PartyZone, costume: (p.costume as string | null) ?? null, photoCount: photoCount.get(p.id) ?? 1 }));
 }
 
 export type PartySwipeResult =

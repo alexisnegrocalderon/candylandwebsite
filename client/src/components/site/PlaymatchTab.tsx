@@ -7,6 +7,8 @@ import { trpc } from '@/lib/trpc';
 import { AppScreen, useBackClosable } from '@/components/site/AmbassadorAccount';
 import { PartyAvatar } from '@/components/party/Avatar';
 import { CreateProfile } from '@/components/site/PartyProfileForm';
+import { PartyPhotos } from '@/components/site/PartyPhotos';
+import { ProtectedPhoto } from '@/components/party/ProtectedPhoto';
 
 // La fiesta en sí trae su propia hoja de estilos (admin.css): se carga recién al entrar.
 const PartyExperience = lazy(() => import('@/pages/Party').then((m) => ({ default: m.PartyExperience })));
@@ -67,6 +69,7 @@ export function PlaymatchTab({ events, buyHref }: { events: PmEvent[]; buyHref?:
   const now = new Date();
   const pick = pickTicket(events, now);
   const [screen, setScreen] = useState<null | 'guia' | 'normas' | 'editar' | 'fiesta'>(null);
+  const [photosVersion, setPhotosVersion] = useState(0);
   const close = useCallback(() => setScreen(null), []);
   const [guideSeen, setGuideSeen] = useState(() => { try { return !!localStorage.getItem(GUIDE_KEY); } catch { return false; } });
   const markGuide = () => { setGuideSeen(true); try { localStorage.setItem(GUIDE_KEY, '1'); } catch { /* nada */ } };
@@ -88,7 +91,7 @@ export function PlaymatchTab({ events, buyHref }: { events: PmEvent[]; buyHref?:
       <AppScreen open={screen === 'normas'} title="Normas de la casa" onClose={close}><Rules /></AppScreen>
       {pick && profile && (
         <AppScreen open={screen === 'editar'} title="Tu perfil" onClose={close}>
-          <CreateProfile embedded mode="edit" ticketCode={pick.t.ticketCode} initial={{ alias: profile.alias, gender: profile.gender as PartyGender, avatarId: profile.avatarId }}
+          <CreateProfile embedded mode="edit" ticketCode={pick.t.ticketCode} initial={{ alias: profile.alias, gender: profile.gender as PartyGender, avatarId: profile.avatarId, lookingFor: profile.lookingFor as PartyGender[], costume: profile.costume }}
             onCreated={() => { session.refetch(); close(); }} />
         </AppScreen>
       )}
@@ -149,12 +152,25 @@ export function PlaymatchTab({ events, buyHref }: { events: PmEvent[]; buyHref?:
   return (
     <div className="space-y-3">
       <div className="account-glass flex items-center gap-3 rounded-[26px] px-4 py-3.5">
-        <PartyAvatar gender={profile.gender as PartyGender} avatarId={profile.avatarId} className="h-14 w-14 shrink-0 rounded-full" />
+        {profile.photoCount > 0
+          ? <ProtectedPhoto key={photosVersion} ticketCode={pick.t.ticketCode} profileId={profile.id} viewerAlias={profile.alias} className="h-14 w-14 shrink-0 rounded-full" quiet />
+          : <PartyAvatar gender={profile.gender as PartyGender} avatarId={profile.avatarId} className="h-14 w-14 shrink-0 rounded-full" />}
         <div className="min-w-0 flex-1">
           <p className="truncate text-body font-bold leading-tight">{profile.alias}</p>
+          {profile.costume && <p className="truncate text-footnote font-semibold text-amber-200">✨ {profile.costume}</p>}
           <p className="mt-0.5 inline-flex items-center gap-1 text-footnote font-semibold text-emerald-300"><Check className="h-3.5 w-3.5" /> {inside ? 'Estás en la fiesta' : 'Inscripción lista'}</p>
         </div>
         <button type="button" onClick={() => { tapHaptic(); setScreen('editar'); }} aria-label="Editar perfil" className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white/10 interactive"><Pencil className="h-4 w-4" /></button>
+      </div>
+
+      {/* Las fotos del swipe se pueden dejar listas desde ya (las del disfraz): nadie las ve hasta que escanean la entrada. */}
+      <div className="account-glass rounded-[26px] px-4 py-4">
+        <p className="text-subhead font-bold">Tus fotos para el swipe</p>
+        <p className="mb-3 mt-0.5 text-footnote leading-snug text-white/65">
+          {profile.photoCount > 0 ? 'Listas. Puedes cambiarlas hasta que termine la fiesta.' : 'Sube hasta 3 (tu disfraz, por ejemplo). Nadie las ve hasta que entras a la fiesta, y se borran al terminar.'}
+        </p>
+        <PartyPhotos ticketCode={pick.t.ticketCode} profileId={profile.id} alias={profile.alias} photoCount={profile.photoCount}
+          onChanged={() => { setPhotosVersion((v) => v + 1); session.refetch(); }} />
       </div>
 
       {inside ? (

@@ -22,7 +22,7 @@ import { sellParkingAtDoor } from "./caja/parkingPaid";
 import { MAX_TEST_GUESTS, MIN_TEST_GUESTS } from "../shared/playmatchTest";
 import { UNDO_EXPENSE_WINDOW_MS } from "../shared/expenses";
 import { canUseCaja } from "../shared/cajaRoles";
-import { AVATARS_PER_GENDER, PARTY_GENDERS, PARTY_ZONES, canPreRegister, partyEntryDenial, sanitizeAlias, sanitizeGiftMessage, sanitizeMessage, isPartyWindowOpen, validatePhotoBytes } from "../shared/party";
+import { AVATARS_PER_GENDER, DEFAULT_LOOKING_FOR, MAX_PARTY_PHOTOS, PARTY_GENDERS, PARTY_ZONES, parseLookingFor, sanitizeCostume, serializeLookingFor, canPreRegister, partyEntryDenial, sanitizeAlias, sanitizeGiftMessage, sanitizeMessage, isPartyWindowOpen, validatePhotoBytes } from "../shared/party";
 import * as ambassadorProgram from "./ambassadorProgram";
 import { monthKeyFor } from "../shared/ambassadorProgram";
 import { checkAndAdvanceTandaIfNeeded } from "./tandaAutoAdvance";
@@ -76,6 +76,13 @@ async function requirePartyProfile(ticketCode: string) {
     await db.updatePartyProfile(actor.profile.id, { active: 1, lastSeenAt: new Date() });
     return { ...actor, profile: { ...actor.profile, active: 1 } };
   }
+  return { ...actor, profile: actor.profile };
+}
+
+/** Para manejar las propias fotos: con el perfil creado, adentro o antes de la fiesta. */
+async function requirePartyPhotoOwner(ticketCode: string) {
+  const actor = await requirePartyRegistrant(ticketCode);
+  if (!actor.profile) throw new TRPCError({ code: 'FORBIDDEN', message: 'Todavía no creaste tu perfil' });
   return { ...actor, profile: actor.profile };
 }
 
@@ -2149,7 +2156,13 @@ export const appRouter = router({
           eventEnd: actor.event.eventEnd,
         },
         profile: actor.profile
-          ? { id: actor.profile.id, alias: actor.profile.alias, gender: actor.profile.gender, avatarId: actor.profile.avatarId, zone: actor.profile.zone, swipeEnabled: !!actor.profile.swipeEnabled, hasPhoto: await db.partyProfileHasPhoto(actor.profile.id) }
+          ? await (async (p) => {
+            const photoCount = await db.countPartyPhotos(p.id);
+            return {
+              id: p.id, alias: p.alias, gender: p.gender, avatarId: p.avatarId, zone: p.zone, swipeEnabled: !!p.swipeEnabled,
+              hasPhoto: photoCount > 0, photoCount, lookingFor: parseLookingFor(p.lookingFor), costume: p.costume ?? null,
+            };
+          })(actor.profile)
           : null,
       };
     }),
@@ -2160,15 +2173,19 @@ export const appRouter = router({
       gender: z.enum(PARTY_GENDERS),
       avatarId: z.number().int().min(1).max(AVATARS_PER_GENDER),
       zone: z.enum(PARTY_ZONES),
+      lookingFor: z.array(z.enum(PARTY_GENDERS)).min(1).max(3).optional(),
+      costume: z.string().max(80).optional(),
       acceptedRules: z.literal(true, { message: 'Para entrar tienes que aceptar las reglas de la casa' }),
     })).mutation(async ({ input }) => {
       const actor = await requirePartyRegistrant(input.ticketCode);
       if (actor.profile) return { id: actor.profile.id };
 
-      // El alias lo ve toda la fiesta: se valida en el servidor, no solo en
+      // El alias y el disfraz los ve toda la fiesta: se validan en el servidor, no solo en
       // el formulario.
       const check = sanitizeAlias(input.alias);
       if (!check.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: check.reason });
+      const costume = sanitizeCostume(input.costume);
+      if (!costume.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: costume.reason });
 
       const profile = await db.createPartyProfile({
         eventId: actor.event.id,
@@ -2178,22 +2195,32 @@ export const appRouter = router({
         avatarId: input.avatarId,
         zone: input.zone,
         active: actor.inside ? 1 : 0,
+        lookingFor: serializeLookingFor(input.lookingFor ?? DEFAULT_LOOKING_FOR),
+        costume: costume.costume,
       });
       return { id: profile!.id };
     }),
 
-    // Cambiar alias, género o avatar: antes de la fiesta (inscripción anticipada) o adentro.
+    // Cambiar alias, género, avatar, a quién busca o el disfraz: antes de la fiesta (inscripción anticipada) o adentro.
     updateProfile: publicProcedure.input(z.object({
       ticketCode: z.string(),
       alias: z.string(),
       gender: z.enum(PARTY_GENDERS),
       avatarId: z.number().int().min(1).max(AVATARS_PER_GENDER),
+      lookingFor: z.array(z.enum(PARTY_GENDERS)).min(1).max(3).optional(),
+      costume: z.string().max(80).optional(),
     })).mutation(async ({ input }) => {
       const actor = await requirePartyRegistrant(input.ticketCode);
       if (!actor.profile) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Todavía no creaste tu perfil' });
       const check = sanitizeAlias(input.alias);
       if (!check.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: check.reason });
-      await db.updatePartyProfile(actor.profile.id, { alias: check.alias, gender: input.gender, avatarId: input.avatarId });
+      const costume = sanitizeCostume(input.costume);
+      if (!costume.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: costume.reason });
+      await db.updatePartyProfile(actor.profile.id, {
+        alias: check.alias, gender: input.gender, avatarId: input.avatarId,
+        ...(input.lookingFor ? { lookingFor: serializeLookingFor(input.lookingFor) } : {}),
+        ...(input.costume !== undefined ? { costume: costume.costume } : {}),
+      });
       return { ok: true as const };
     }),
 
@@ -2256,21 +2283,31 @@ export const appRouter = router({
       }),
 
     // --- Foto del swipe (la imagen se sirve por /api/party/photo, no por tRPC) ---
+    // Hasta 3 fotos. Se pueden subir desde la inscripción anticipada (con la entrada comprada):
+    // nadie más las ve hasta que escanean la entrada (ver /api/party/photo).
     uploadPhoto: publicProcedure.input(z.object({
       ticketCode: z.string(),
       // JPEG en base64: ~200KB como mucho, validado de nuevo acá.
       photoBase64: z.string().max(400_000),
+      position: z.number().int().min(0).max(MAX_PARTY_PHOTOS - 1).optional(),
     })).mutation(async ({ input }) => {
-      const actor = await requirePartyProfile(input.ticketCode);
+      const actor = await requirePartyPhotoOwner(input.ticketCode);
       const bytes = Buffer.from(input.photoBase64, 'base64');
       const check = validatePhotoBytes(bytes);
       if (!check.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: check.reason });
-      await db.savePartyPhoto(actor.profile.id, actor.event.id, bytes);
+      const position = await db.savePartyPhoto(actor.profile.id, actor.event.id, bytes, input.position);
+      if (position === null) throw new TRPCError({ code: 'BAD_REQUEST', message: `Puedes tener hasta ${MAX_PARTY_PHOTOS} fotos` });
+      return { ok: true, position };
+    }),
+    // Sin `position` borra todas (salir del swipe de una).
+    deletePhoto: publicProcedure.input(z.object({ ticketCode: z.string(), position: z.number().int().min(0).max(MAX_PARTY_PHOTOS - 1).optional() })).mutation(async ({ input }) => {
+      const actor = await requirePartyPhotoOwner(input.ticketCode);
+      await db.deletePartyPhoto(actor.profile.id, input.position);
       return { ok: true };
     }),
-    deletePhoto: publicProcedure.input(z.object({ ticketCode: z.string() })).mutation(async ({ input }) => {
-      const actor = await requirePartyProfile(input.ticketCode);
-      await db.deletePartyPhoto(actor.profile.id);
+    makeMainPhoto: publicProcedure.input(z.object({ ticketCode: z.string(), position: z.number().int().min(1).max(MAX_PARTY_PHOTOS - 1) })).mutation(async ({ input }) => {
+      const actor = await requirePartyPhotoOwner(input.ticketCode);
+      await db.makeMainPartyPhoto(actor.profile.id, input.position);
       return { ok: true };
     }),
     setSwipeEnabled: publicProcedure.input(z.object({ ticketCode: z.string(), enabled: z.boolean() })).mutation(async ({ input }) => {

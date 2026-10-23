@@ -1580,6 +1580,11 @@ export const partyProfiles = mysqlTable("partyProfiles", {
   // Participa del swipe: exige tener foto (ver partyPhotos). Se apaga solo al
   // borrar la foto o al expulsar al perfil.
   swipeEnabled: int("swipeEnabled").default(0).notNull(),
+  // A quién quiere conocer («hombre,mujer,pareja»): el swipe solo junta a quienes se buscan
+  // los dos (isMutualInterest en shared/party.ts).
+  lookingFor: varchar("lookingFor", { length: 32 }).default("hombre,mujer,pareja").notNull(),
+  // «Mi disfraz» (aniversario Halloween): lo ve toda la fiesta, mismas reglas que el alias.
+  costume: varchar("costume", { length: 40 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => ({
   // El patrón de consulta real: "todos los perfiles activos de este evento".
@@ -1596,16 +1601,19 @@ const mediumblob = customType<{ data: Buffer }>({
   dataType() { return "mediumblob"; },
 });
 
-// Una foto por perfil, tomada con la cámara dentro de la fiesta. Se borra al
-// cerrar la ventana del evento, al borrarla la persona o al expulsarla.
+// Hasta 3 fotos por perfil (MAX_PARTY_PHOTOS): `position` 0 es la principal. Se pueden subir
+// desde que compra la entrada (cámara o galería), pero nadie más las ve hasta que escanean su
+// entrada. Se borran al cerrar la ventana del evento, al borrarlas la persona o al expulsarla.
 export const partyPhotos = mysqlTable("partyPhotos", {
   id: int("id").autoincrement().primaryKey(),
-  profileId: int("profileId").notNull().unique(),
+  profileId: int("profileId").notNull(),
   eventId: int("eventId").notNull(),
+  position: int("position").default(0).notNull(),
   data: mediumblob("data").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => ({
   eventIdx: index("party_photos_event_idx").on(table.eventId),
+  profilePositionIdx: uniqueIndex("party_photos_profile_position_idx").on(table.profileId, table.position),
 }));
 
 export type PartyPhoto = typeof partyPhotos.$inferSelect;

@@ -280,7 +280,18 @@ export function sanitizeGiftMessage(raw: string): { ok: true; body: string } | {
 // frontera de confianza.
 
 export const PHOTO_MAX_BYTES = 200 * 1024;
-export const PHOTO_SIZE_PX = 480;
+/** Fotos 3:4 (vertical), como la tarjeta del swipe. */
+export const PHOTO_WIDTH_PX = 480;
+export const PHOTO_HEIGHT_PX = 640;
+/** Hasta 3 fotos por perfil (carrusel de la tarjeta). La primera es la principal. */
+export const MAX_PARTY_PHOTOS = 3;
+
+/** Dónde va una foto nueva: reemplaza la de esa posición, o se agrega al final (nunca deja huecos). */
+export function photoSlotFor(requested: number | undefined, count: number): number | null {
+  if (requested === undefined) return count < MAX_PARTY_PHOTOS ? count : null;
+  if (!Number.isInteger(requested) || requested < 0 || requested >= MAX_PARTY_PHOTOS) return null;
+  return Math.min(requested, count);
+}
 
 /** Solo JPEG: es lo que `canvas.toBlob('image/jpeg')` entrega en todos los
  * navegadores (WebP falla en Safari viejo). Se revisa la firma real del
@@ -312,3 +323,45 @@ export const SWIPE_REPORT_REASONS = [
   'Foto inapropiada',
   'Me hizo sentir incómodo/a',
 ] as const;
+
+// --- Busco (filtro mutuo del swipe) ----------------------------------------
+//
+// Cada perfil dice a quién quiere conocer. En el swipe solo aparece alguien si
+// los dos se buscan: yo busco su género y la otra persona busca el mío (como en
+// las apps de citas). Se guarda como texto «hombre,mujer,pareja».
+
+export const DEFAULT_LOOKING_FOR: PartyGender[] = [...PARTY_GENDERS];
+
+export function parseLookingFor(raw: string | null | undefined): PartyGender[] {
+  const list = (raw ?? '').split(',').map((x) => x.trim()).filter((x): x is PartyGender => (PARTY_GENDERS as readonly string[]).includes(x));
+  return list.length > 0 ? Array.from(new Set(list)) : [...DEFAULT_LOOKING_FOR];
+}
+
+export function serializeLookingFor(list: readonly PartyGender[]): string {
+  const clean = PARTY_GENDERS.filter((g) => list.includes(g));
+  return (clean.length > 0 ? clean : DEFAULT_LOOKING_FOR).join(',');
+}
+
+export function isMutualInterest(
+  viewer: { gender: PartyGender | string; lookingFor: string | null | undefined },
+  target: { gender: PartyGender | string; lookingFor: string | null | undefined },
+): boolean {
+  return parseLookingFor(viewer.lookingFor).includes(target.gender as PartyGender)
+    && parseLookingFor(target.lookingFor).includes(viewer.gender as PartyGender);
+}
+
+// --- Mi disfraz -------------------------------------------------------------
+
+export const MAX_COSTUME_LENGTH = 40;
+
+/** El disfraz lo ve toda la fiesta: mismas reglas que el alias (sin arrobas, links ni teléfonos).
+ * Vacío = sin disfraz (`null`). */
+export function sanitizeCostume(raw: string | null | undefined): { ok: true; costume: string | null } | { ok: false; reason: string } {
+  const costume = (raw ?? '').replace(/\s+/g, ' ').trim();
+  if (!costume) return { ok: true, costume: null };
+  if (costume.length > MAX_COSTUME_LENGTH) return { ok: false, reason: `Máximo ${MAX_COSTUME_LENGTH} caracteres` };
+  for (const { re, reason } of ALIAS_FORBIDDEN) {
+    if (re.test(costume)) return { ok: false, reason: reason.replace('en el alias', 'en el disfraz') };
+  }
+  return { ok: true, costume };
+}

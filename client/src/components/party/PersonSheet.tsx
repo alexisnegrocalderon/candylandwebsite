@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { Ban, Flag, MapPin, MessageCircle, Star, Wine } from 'lucide-react';
+import { Ban, Flag, MapPin, MessageCircle, Sparkles, Star, Wine } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { Chip, PersonPhoto, PmSheet, PM_CTA, tap } from '@/components/party/ui';
 import { SWIPE_REPORT_REASONS, ZONE_LABELS, type PartyGender, type PartyZone } from '@shared/party';
@@ -13,6 +13,7 @@ export type SheetPerson = {
   gender: PartyGender;
   avatarId: number;
   zone: PartyZone;
+  costume?: string | null;
   connectionId: number | null;
   connectionStatus: string | null;
   pendingForMe: boolean;
@@ -70,6 +71,7 @@ export function PersonSheet({ ticketCode, viewerAlias, canPhoto, person, caramel
         <PersonPhoto ticketCode={ticketCode} viewerAlias={viewerAlias} canPhoto={canPhoto} person={person} className="absolute inset-0 h-full w-full" quiet={false} />
         <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent px-4 pb-4 pt-16">
           <p className="truncate text-title1 font-bold tracking-tight">{person.alias}</p>
+          {person.costume && <p className="flex items-center gap-1.5 truncate text-headline font-semibold text-amber-200"><Sparkles className="h-4 w-4 shrink-0" /> {person.costume}</p>}
           <div className="mt-1.5 flex flex-wrap gap-1.5">
             <Chip>{GENDER_LABELS[person.gender]}</Chip>
             <Chip><MapPin className="h-3 w-3" /> En {ZONE_LABELS[person.zone]}</Chip>

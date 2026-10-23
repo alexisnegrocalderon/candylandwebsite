@@ -1,53 +1,35 @@
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { toast } from 'sonner';
-import { Camera, EyeOff, Eye, MapPin, Trash2 } from 'lucide-react';
+import { Camera, EyeOff, Eye, MapPin, Sparkles } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
-import { compressSelfie } from '@/lib/partyPhoto';
 import { ProtectedPhoto } from '@/components/party/ProtectedPhoto';
-import { Chip, PmSheet, PM_CTA, tap } from '@/components/party/ui';
+import { Chip, PmSheet } from '@/components/party/ui';
+import { PartyPhotos } from '@/components/site/PartyPhotos';
 import { ZONE_LABELS, type PartyGender, type PartyZone } from '@shared/party';
 
 const GENDER_LABELS: Record<PartyGender, string> = { hombre: 'Hombre', mujer: 'Mujer', pareja: 'Pareja' };
 
-/* «Mi Playmatch»: tu foto como la ven los demás (la misma tarjeta del swipe). La foto es opcional
- * y solo sirve para el swipe; se toma con la cámara en el momento. Sacarla = salir del swipe al
- * instante. */
-export function MyPhotoPanel({ ticketCode, profileId, alias, gender, zone, hasPhoto, swipeEnabled, onChanged, onClose }: {
+/* «Mi Playmatch»: tu tarjeta como la ven los demás (la misma del swipe) y tus fotos (hasta 3). Las
+ * fotos son opcionales y solo sirven para el swipe. Borrarlas todas = salir del swipe al instante. */
+export function MyPhotoPanel({ ticketCode, profileId, alias, gender, zone, costume, photoCount, swipeEnabled, onChanged, onClose }: {
   ticketCode: string;
   profileId: number;
   alias: string;
   gender: PartyGender;
   zone: PartyZone;
-  hasPhoto: boolean;
+  costume: string | null;
+  photoCount: number;
   swipeEnabled: boolean;
   onChanged: () => void;
   onClose: () => void;
 }) {
-  const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [version, setVersion] = useState(0);
+  const hasPhoto = photoCount > 0;
 
-  const upload = trpc.party.uploadPhoto.useMutation();
-  const remove = trpc.party.deletePhoto.useMutation();
   const toggle = trpc.party.setSwipeEnabled.useMutation();
 
   const done = () => { setVersion((v) => v + 1); onChanged(); };
-
-  const onFile = async (file: File | undefined) => {
-    if (!file) return;
-    setBusy(true);
-    try {
-      const photoBase64 = await compressSelfie(file);
-      await upload.mutateAsync({ ticketCode, photoBase64 });
-      toast.success('Foto lista');
-      done();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'No se pudo subir la foto');
-    } finally {
-      setBusy(false);
-      if (inputRef.current) inputRef.current.value = '';
-    }
-  };
 
   const run = async (fn: () => Promise<unknown>, okMsg: string) => {
     setBusy(true);
@@ -61,41 +43,30 @@ export function MyPhotoPanel({ ticketCode, profileId, alias, gender, zone, hasPh
       <p className="mb-2 text-center text-footnote font-semibold uppercase tracking-wide text-white/60">Así te ven</p>
       <div className="relative mx-auto mb-4 aspect-[3/4] w-full max-w-[260px] overflow-hidden rounded-[26px] border border-white/15 bg-white/[0.05]">
         {hasPhoto ? (
-          <ProtectedPhoto key={version} ticketCode={ticketCode} profileId={profileId} viewerAlias={alias} className="absolute inset-0 h-full w-full" />
+          <ProtectedPhoto key={`${version}-${photoCount}`} ticketCode={ticketCode} profileId={profileId} viewerAlias={alias} className="absolute inset-0 h-full w-full" />
         ) : (
           <div className="absolute inset-0 grid place-items-center"><Camera className="h-12 w-12 text-white/45" strokeWidth={1.5} /></div>
         )}
         <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent px-4 pb-4 pt-14">
           <p className="truncate text-title2 font-bold">{alias}</p>
+          {costume && <p className="flex items-center gap-1 truncate text-subhead font-semibold text-amber-200"><Sparkles className="h-3.5 w-3.5 shrink-0" /> {costume}</p>}
           <div className="mt-1.5 flex flex-wrap gap-1.5"><Chip>{GENDER_LABELS[gender]}</Chip><Chip><MapPin className="h-3 w-3" /> En {ZONE_LABELS[zone]}</Chip></div>
         </div>
         {hasPhoto && !swipeEnabled && (
           <div className="absolute inset-0 grid place-items-center bg-black/55 backdrop-blur-sm"><p className="flex items-center gap-1.5 text-subhead font-semibold"><EyeOff className="h-4 w-4" /> En pausa: nadie te ve</p></div>
         )}
       </div>
-      <p className="mb-4 text-center text-footnote text-white/65">
-        Opcional. Solo la ve gente que también puso la suya, solo durante esta fiesta, y se borra al terminar.
+      <p className="mb-2 text-footnote font-semibold uppercase tracking-wide text-white/60">Tus fotos</p>
+      <PartyPhotos ticketCode={ticketCode} profileId={profileId} alias={alias} photoCount={photoCount} onChanged={done} />
+      <p className="mb-4 mt-3 text-footnote text-white/65">
+        Hasta 3, de la cámara o de tu galería. Solo las ve gente que también puso la suya, solo durante esta fiesta, y se borran al terminar.
       </p>
-
-      <input ref={inputRef} type="file" accept="image/*" capture="user" className="hidden" onChange={(e) => onFile(e.target.files?.[0])} />
-      <div className="space-y-2.5">
-        <button type="button" disabled={busy} onClick={() => { tap(); inputRef.current?.click(); }}
-          className={`flex h-14 w-full items-center justify-center gap-2 rounded-full text-headline ${PM_CTA} disabled:opacity-50`}>
-          <Camera className="h-5 w-5" /> {busy ? 'Un momento…' : hasPhoto ? 'Tomar otra foto' : 'Tomar mi foto'}
+      {hasPhoto && (
+        <button type="button" disabled={busy} onClick={() => run(() => toggle.mutateAsync({ ticketCode, enabled: !swipeEnabled }), swipeEnabled ? 'En pausa' : 'Visible otra vez')}
+          className="lg-pill flex h-12 w-full items-center justify-center gap-1.5 rounded-full text-subhead font-semibold disabled:opacity-50">
+          {swipeEnabled ? <><EyeOff className="h-4 w-4" /> Pausar (que no me vean)</> : <><Eye className="h-4 w-4" /> Volver a mostrarme</>}
         </button>
-        {hasPhoto && (
-          <div className="grid grid-cols-2 gap-2.5">
-            <button type="button" disabled={busy} onClick={() => run(() => toggle.mutateAsync({ ticketCode, enabled: !swipeEnabled }), swipeEnabled ? 'En pausa' : 'Visible otra vez')}
-              className="lg-pill flex h-12 items-center justify-center gap-1.5 rounded-full text-subhead font-semibold disabled:opacity-50">
-              {swipeEnabled ? <><EyeOff className="h-4 w-4" /> Pausar</> : <><Eye className="h-4 w-4" /> Mostrarme</>}
-            </button>
-            <button type="button" disabled={busy} onClick={() => run(() => remove.mutateAsync({ ticketCode }), 'Foto borrada')}
-              className="flex h-12 items-center justify-center gap-1.5 rounded-full bg-rose-500/10 text-subhead font-semibold text-rose-300 disabled:opacity-50">
-              <Trash2 className="h-4 w-4" /> Borrar
-            </button>
-          </div>
-        )}
-      </div>
+      )}
     </PmSheet>
   );
 }

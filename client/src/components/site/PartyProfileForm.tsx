@@ -3,8 +3,8 @@ import { toast } from 'sonner';
 import { trpc } from '@/lib/trpc';
 import { PartyAvatar } from '@/components/party/Avatar';
 import {
-  AVATARS_PER_GENDER, MAX_ALIAS_LENGTH, PARTY_GENDERS, PARTY_ZONES,
-  ZONE_LABELS, sanitizeAlias, type PartyGender, type PartyZone,
+  AVATARS_PER_GENDER, DEFAULT_LOOKING_FOR, MAX_ALIAS_LENGTH, MAX_COSTUME_LENGTH, PARTY_GENDERS, PARTY_ZONES,
+  ZONE_LABELS, sanitizeAlias, sanitizeCostume, type PartyGender, type PartyZone,
 } from '@shared/party';
 
 /* El formulario del perfil de Playmatch. Vive acá (y no en pages/Party.tsx)
@@ -15,6 +15,8 @@ import {
 const LABEL = 'mb-2 block text-footnote font-semibold uppercase tracking-wide text-white/60';
 const SELECTED = 'border-pink-400/70 bg-pink-500/20 text-white';
 const IDLE = 'border-white/15 bg-white/[0.04] text-white/70';
+
+const LOOKING_LABELS: Record<PartyGender, string> = { hombre: 'Hombres', mujer: 'Mujeres', pareja: 'Parejas' };
 
 export const GENDER_LABELS: Record<PartyGender, string> = {
   hombre: 'Hombre',
@@ -29,13 +31,16 @@ export function CreateProfile({ ticketCode, onCreated, mode = 'inside', initial,
   ticketCode: string;
   onCreated: () => void;
   mode?: 'inside' | 'pre' | 'edit';
-  initial?: { alias: string; gender: PartyGender; avatarId: number };
+  initial?: { alias: string; gender: PartyGender; avatarId: number; lookingFor?: PartyGender[]; costume?: string | null };
   embedded?: boolean;
 }) {
   const [alias, setAlias] = useState(initial?.alias ?? '');
   const [gender, setGender] = useState<PartyGender>(initial?.gender ?? 'mujer');
   const [avatarId, setAvatarId] = useState(initial?.avatarId ?? 1);
   const [zone, setZone] = useState<PartyZone>('living');
+  const [lookingFor, setLookingFor] = useState<PartyGender[]>(initial?.lookingFor ?? [...DEFAULT_LOOKING_FOR]);
+  const [costume, setCostume] = useState(initial?.costume ?? '');
+  const toggleLooking = (g: PartyGender) => setLookingFor((list) => (list.includes(g) ? (list.length > 1 ? list.filter((x) => x !== g) : list) : [...list, g]));
   const [rules, setRules] = useState(mode === 'edit');
 
   const create = trpc.party.createProfile.useMutation({
@@ -50,10 +55,13 @@ export function CreateProfile({ ticketCode, onCreated, mode = 'inside', initial,
 
   const check = sanitizeAlias(alias);
   const aliasError = alias.length > 0 && !check.ok ? check.reason : null;
+  const costumeCheck = sanitizeCostume(costume);
+  const costumeError = !costumeCheck.ok ? costumeCheck.reason : null;
   const submit = () => {
-    if (!check.ok || !rules) return;
-    if (mode === 'edit') update.mutate({ ticketCode, alias: check.alias, gender, avatarId });
-    else create.mutate({ ticketCode, alias: check.alias, gender, avatarId, zone, acceptedRules: true });
+    if (!check.ok || !costumeCheck.ok || !rules) return;
+    const extra = { lookingFor, costume: costumeCheck.costume ?? '' };
+    if (mode === 'edit') update.mutate({ ticketCode, alias: check.alias, gender, avatarId, ...extra });
+    else create.mutate({ ticketCode, alias: check.alias, gender, avatarId, zone, acceptedRules: true, ...extra });
   };
 
   const copy = {
@@ -93,6 +101,29 @@ export function CreateProfile({ ticketCode, onCreated, mode = 'inside', initial,
             </button>
           ))}
         </div>
+
+        <p className={LABEL}>Quiero conocer</p>
+        <div className="mb-1.5 grid grid-cols-3 gap-2">
+          {PARTY_GENDERS.map((g) => (
+            <button key={g} type="button" aria-pressed={lookingFor.includes(g)} onClick={() => toggleLooking(g)}
+              className={`h-11 rounded-full border text-subhead font-semibold transition-colors ${lookingFor.includes(g) ? SELECTED : IDLE}`}>
+              {LOOKING_LABELS[g]}
+            </button>
+          ))}
+        </div>
+        <p className="mb-6 text-caption1 text-white/60">En el swipe solo te aparece quien tú buscas y que también busca a alguien como tú.</p>
+
+        <label className={LABEL}>Mi disfraz <span className="normal-case tracking-normal text-white/60">· opcional</span></label>
+        <input
+          value={costume}
+          onChange={(e) => setCostume(e.target.value)}
+          maxLength={MAX_COSTUME_LENGTH}
+          placeholder="Ej: Vampira, Joker, Los Cazafantasmas"
+          className="h-13 w-full rounded-2xl border border-white/15 bg-white/[0.06] px-4 text-body text-white placeholder:text-white/45 focus:border-pink-400/60 focus:outline-none"
+        />
+        <p className={`mb-6 mt-1.5 text-caption1 ${costumeError ? 'text-rose-300' : 'text-white/60'}`}>
+          {costumeError ?? 'Sale grande en tu tarjeta: ayuda a que te encuentren en la fiesta.'}
+        </p>
 
         <p className={LABEL}>Tu avatar <span className="normal-case tracking-normal text-white/60">· si no pones foto</span></p>
         <div className="grid grid-cols-4 gap-3 mb-6">
@@ -142,7 +173,7 @@ export function CreateProfile({ ticketCode, onCreated, mode = 'inside', initial,
         )}
 
         <button
-          disabled={!check.ok || !rules || pending}
+          disabled={!check.ok || !costumeCheck.ok || !rules || pending}
           onClick={submit}
           className="h-14 w-full rounded-full bg-gradient-to-r from-pink-500 via-fuchsia-500 to-sky-500 text-headline font-bold text-white shadow-[0_10px_28px_-8px_rgba(236,72,153,0.7),inset_0_1px_0_rgba(255,255,255,0.4)] transition-opacity disabled:opacity-40"
         >

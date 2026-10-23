@@ -8,6 +8,7 @@ export type MansionPerson = {
   gender: PartyGender;
   avatarId: number;
   zone: PartyZone;
+  costume?: string | null;
   lastSeenAt: string | Date;
   connectionId: number | null;
   connectionStatus: string | null;
