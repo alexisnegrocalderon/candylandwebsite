@@ -317,7 +317,7 @@ const PARTNER_CHECKS: { key: 'sigoPlayroom' | 'aceptaValores' | 'aceptaPermanenc
  * (/electronica, ver shared/partnerCampaign.ts) -- mismos accesos y mismo
  * flujo, pero con el precio por persona de la campaña, sin códigos, sin
  * Soltero, y con el paso obligatorio de valores + derecho de permanencia. */
-function CheckoutInner({ partnerSlug }: { partnerSlug?: string } = {}) {
+function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string; appMode?: boolean } = {}) {
   const [, params] = useRoute('/checkout/:eventSlug');
   const isPartner = !!partnerSlug;
   const { data: partner, isLoading: partnerLoading } = trpc.partner.get.useQuery(
@@ -1086,7 +1086,10 @@ function CheckoutInner({ partnerSlug }: { partnerSlug?: string } = {}) {
             </div>
           )}
           {ordenPago && (
+            // Desde la app: el formulario de Mercado Pago con los colores de vidrio oscuro de la app, no el recuadro blanco.
+            <div className={appMode ? 'account-glass rounded-[26px] p-4' : undefined}>
             <PaymentBrick
+              tone={appMode ? 'dark' : 'light'}
               orderNumber={ordenPago.orderNumber}
               amount={ordenPago.total}
               onResult={(status) => {
@@ -1107,6 +1110,7 @@ function CheckoutInner({ partnerSlug }: { partnerSlug?: string } = {}) {
               }}
               onError={setPagoErrorMsg}
             />
+            </div>
           )}
           <p className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground mt-5">
             <ShieldCheck className="w-3.5 h-3.5" /> Pago procesado de forma segura por Mercado Pago
@@ -1734,7 +1738,7 @@ export default function Checkout(props: { partnerSlug?: string } = {}) {
   return (
     <div className="account-font account-tokens checkout-app relative min-h-dvh bg-[#0b0612] text-white">
       <div className="account-backdrop" />
-      <CheckoutInner {...props} />
+      <CheckoutInner {...props} appMode />
     </div>
   );
 }
