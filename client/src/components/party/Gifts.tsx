@@ -119,6 +119,7 @@ export function GiftInbox({ ticketCode, onClose }: { ticketCode: string; onClose
           orderNumber={paying.orderNumber}
           amount={paying.total}
           containerId="mp-gift-brick"
+          tone="dark"
           onResult={(status) => {
             if (status === 'approved') {
               toast.success('¡Pagado! Ya le llegó el código 🍹');
