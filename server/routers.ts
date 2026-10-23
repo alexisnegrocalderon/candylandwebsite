@@ -22,7 +22,7 @@ import { sellParkingAtDoor } from "./caja/parkingPaid";
 import { MAX_TEST_GUESTS, MIN_TEST_GUESTS } from "../shared/playmatchTest";
 import { UNDO_EXPENSE_WINDOW_MS } from "../shared/expenses";
 import { canUseCaja } from "../shared/cajaRoles";
-import { AVATARS_PER_GENDER, PARTY_GENDERS, PARTY_ZONES, partyEntryDenial, sanitizeAlias, sanitizeGiftMessage, sanitizeMessage, isPartyWindowOpen, validatePhotoBytes } from "../shared/party";
+import { AVATARS_PER_GENDER, PARTY_GENDERS, PARTY_ZONES, canPreRegister, partyEntryDenial, sanitizeAlias, sanitizeGiftMessage, sanitizeMessage, isPartyWindowOpen, validatePhotoBytes } from "../shared/party";
 import * as ambassadorProgram from "./ambassadorProgram";
 import { monthKeyFor } from "../shared/ambassadorProgram";
 import { checkAndAdvanceTandaIfNeeded } from "./tandaAutoAdvance";
@@ -71,7 +71,25 @@ async function requirePartyProfile(ticketCode: string) {
   const actor = await requirePartyActor(ticketCode);
   if (!actor.profile) throw new TRPCError({ code: 'FORBIDDEN', message: 'Todavía no creaste tu perfil' });
   if (actor.profile.banned) throw new TRPCError({ code: 'FORBIDDEN', message: 'El equipo del local te sacó de Playmatch por esta noche' });
+  // Se inscribió antes de llegar: al pasar por la puerta su perfil aparece en la fiesta.
+  if (!actor.profile.active) {
+    await db.updatePartyProfile(actor.profile.id, { active: 1, lastSeenAt: new Date() });
+    return { ...actor, profile: { ...actor.profile, active: 1 } };
+  }
   return { ...actor, profile: actor.profile };
+}
+
+/** Para inscribirse (o editar el perfil): adentro de la fiesta, o antes, con la entrada comprada
+ * (`canPreRegister`). Devuelve también si ya puede entrar. */
+async function requirePartyRegistrant(ticketCode: string) {
+  const actor = await db.getPartyActor(ticketCode);
+  const now = new Date();
+  const inside = !partyEntryDenial(actor?.ticket, actor?.event, now);
+  if (!actor || (!inside && !canPreRegister(actor.ticket, actor.event, now))) {
+    throw new TRPCError({ code: 'FORBIDDEN', message: actor ? 'Esta fiesta ya terminó' : 'No encontramos tu entrada' });
+  }
+  if (actor.profile?.banned) throw new TRPCError({ code: 'FORBIDDEN', message: 'El equipo del local te sacó de Playmatch por esta noche' });
+  return { ...actor, inside };
 }
 import { createCajaSale } from "./caja/sale";
 import { friendlySyncErrorMessage } from "./caja/ops";
@@ -147,6 +165,7 @@ import { getWinbackOverview, draftWinbackEmail, createWinbackCampaign } from "./
 import { WINBACK_SEGMENT_KEYS } from "../shared/winback";
 import { generateContentPlan } from "./contentPlanner";
 import { getStampCard, refreshStampsForTicket } from "./stampCard";
+import { activatePlaymatchForTicket } from "./partyActivation";
 import { deleteAmbassadorItem, ensureAmbassadorDrafts, getUpcomingContentEvents, listAmbassadorItems, saveAmbassadorItem, setAmbassadorItemStatus } from "./ambassadorContent";
 import { listContentDesigns, getContentDesign, saveContentDesign, deleteContentDesign, getContentVideo, saveContentVideo, listVideoStyles, saveVideoStyle, deleteVideoStyle } from "./contentStudio";
 import { renderMissingConfig, requestVideoRender } from "./studioRender";
@@ -1883,7 +1902,11 @@ export const appRouter = router({
         clientAt: new Date(input.clientAt),
       });
       // Sello de la fiesta en la app: si completa la tarjeta, el Dúo gratis queda listo y llega el aviso.
-      if (res.result === 'applied') void refreshStampsForTicket(input.ticketCode);
+      if (res.result === 'applied') {
+        void refreshStampsForTicket(input.ticketCode);
+        // Si se inscribió antes en Playmatch, su perfil se activa y le llega el aviso.
+        void activatePlaymatchForTicket(input.ticketCode);
+      }
       return res;
     }),
 
@@ -2109,11 +2132,14 @@ export const appRouter = router({
     }),
     getSession: publicProcedure.input(z.object({ ticketCode: z.string() })).query(async ({ input }) => {
       const actor = await db.getPartyActor(input.ticketCode);
-      if (!actor) return { denial: 'sin_ticket' as const, event: null, profile: null };
+      if (!actor) return { denial: 'sin_ticket' as const, preRegister: false, event: null, profile: null };
 
-      const denial = partyEntryDenial(actor.ticket, actor.event, new Date());
+      const now = new Date();
+      const denial = partyEntryDenial(actor.ticket, actor.event, now);
       return {
         denial,
+        // Antes de entrar: puede dejar listo su perfil y se activa al escanear la entrada.
+        preRegister: !!denial && canPreRegister(actor.ticket, actor.event, now),
         event: {
           id: actor.event.id,
           title: actor.event.title,
@@ -2135,7 +2161,7 @@ export const appRouter = router({
       zone: z.enum(PARTY_ZONES),
       acceptedRules: z.literal(true, { message: 'Para entrar tienes que aceptar las reglas de la casa' }),
     })).mutation(async ({ input }) => {
-      const actor = await requirePartyActor(input.ticketCode);
+      const actor = await requirePartyRegistrant(input.ticketCode);
       if (actor.profile) return { id: actor.profile.id };
 
       // El alias lo ve toda la fiesta: se valida en el servidor, no solo en
@@ -2150,8 +2176,24 @@ export const appRouter = router({
         gender: input.gender,
         avatarId: input.avatarId,
         zone: input.zone,
+        active: actor.inside ? 1 : 0,
       });
       return { id: profile!.id };
+    }),
+
+    // Cambiar alias, género o avatar: antes de la fiesta (inscripción anticipada) o adentro.
+    updateProfile: publicProcedure.input(z.object({
+      ticketCode: z.string(),
+      alias: z.string(),
+      gender: z.enum(PARTY_GENDERS),
+      avatarId: z.number().int().min(1).max(AVATARS_PER_GENDER),
+    })).mutation(async ({ input }) => {
+      const actor = await requirePartyRegistrant(input.ticketCode);
+      if (!actor.profile) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Todavía no creaste tu perfil' });
+      const check = sanitizeAlias(input.alias);
+      if (!check.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: check.reason });
+      await db.updatePartyProfile(actor.profile.id, { alias: check.alias, gender: input.gender, avatarId: input.avatarId });
+      return { ok: true as const };
     }),
 
     listMansion: publicProcedure.input(z.object({ ticketCode: z.string() })).query(async ({ input }) => {

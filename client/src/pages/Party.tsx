@@ -13,17 +13,12 @@ import { DrinkPicker, GiftInbox } from '@/components/party/Gifts';
 import { MyPhotoPanel } from '@/components/party/MyPhotoPanel';
 import { SwipeView } from '@/components/party/Swipe';
 import {
-  AVATARS_PER_GENDER, MAX_ALIAS_LENGTH, MAX_MESSAGE_LENGTH, PARTY_GENDERS, PARTY_ZONES,
-  ZONE_LABELS, sanitizeAlias, type PartyGender, type PartyZone,
+  MAX_MESSAGE_LENGTH, ZONE_LABELS, type PartyGender, type PartyZone,
 } from '@shared/party';
 import { rememberTicketCode } from '@/lib/lastTicketCode';
+import { CreateProfile, GENDER_LABELS } from '@/components/site/PartyProfileForm';
 import { useInstallableApp } from '@/hooks/useInstallableApp';
 
-const GENDER_LABELS: Record<PartyGender, string> = {
-  hombre: 'Hombre',
-  mujer: 'Mujer',
-  pareja: 'Pareja',
-};
 
 /** "Caramelo" — la capa social de la fiesta, en el celular de cada invitado.
  * Solo entra quien tuvo su QR escaneado en la puerta, y solo mientras dura
@@ -32,19 +27,23 @@ const GENDER_LABELS: Record<PartyGender, string> = {
 export default function Party() {
   const [, params] = useRoute('/fiesta/:ticketCode');
   const ticketCode = params?.ticketCode ?? '';
-
-  // Requisito para que las notificaciones push funcionen en iOS (ver
-  // NotificationsPanel más abajo): solo registra el service worker, sin
-  // tocar el manifest -- ese ya viene correcto desde el HTML estático
-  // generado en el build (scripts/generate-pwa-html.mjs), igual que /admin.
-  useInstallableApp('/fiesta/sw.js', '/fiesta/');
-
   useSeo({
     title: 'Playmatch — Mansion Playroom',
     description: 'Conecta con la gente que está en la fiesta contigo, en Playmatch.',
     path: `/fiesta/${ticketCode}`,
     noindex: true,
   });
+  return <PartyExperience ticketCode={ticketCode} />;
+}
+
+/** Playmatch completo. En la página /fiesta ocupa la pantalla; dentro de la app de «Mi cuenta» se
+ * abre como una pantalla más (`onBack` = volver a la app, sin salir a la web). */
+export function PartyExperience({ ticketCode, onBack }: { ticketCode: string; onBack?: () => void }) {
+  // Requisito para que las notificaciones push funcionen en iOS (ver
+  // NotificationsPanel más abajo): solo registra el service worker, sin
+  // tocar el manifest -- ese ya viene correcto desde el HTML estático
+  // generado en el build (scripts/generate-pwa-html.mjs), igual que /admin.
+  useInstallableApp('/fiesta/sw.js', '/fiesta/');
 
   const session = trpc.party.getSession.useQuery({ ticketCode }, { enabled: !!ticketCode, retry: false });
 
@@ -69,7 +68,7 @@ export default function Party() {
   }
 
   const denial = session.data?.denial;
-  if (denial) return <ClosedDoor denial={denial} eventTitle={session.data?.event?.title} doorsOpen={session.data?.event?.doorsOpen} />;
+  if (denial) return <ClosedDoor denial={denial} eventTitle={session.data?.event?.title} doorsOpen={session.data?.event?.doorsOpen} onBack={onBack} />;
 
   if (!session.data?.profile) {
     return <CreateProfile ticketCode={ticketCode} onCreated={() => session.refetch()} />;
@@ -96,6 +95,7 @@ export default function Party() {
         onOpenInbox={() => setInboxOpen(true)}
         onOpenNotifications={() => setNotifOpen(true)}
         onOpenPhoto={() => setPhotoOpen(true)}
+        onBack={onBack}
         selected={selected}
         onCloseCard={() => setSelected(null)}
       />
@@ -153,7 +153,7 @@ export default function Party() {
 
 /* --- Puerta cerrada ------------------------------------------------------ */
 
-function ClosedDoor({ denial, eventTitle, doorsOpen }: { denial: string; eventTitle?: string | null; doorsOpen?: string | Date | null }) {
+function ClosedDoor({ denial, eventTitle, doorsOpen, onBack }: { denial: string; eventTitle?: string | null; doorsOpen?: string | Date | null; onBack?: () => void }) {
   const horaApertura = doorsOpen
     ? new Date(doorsOpen).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })
     : null;
@@ -186,9 +186,15 @@ function ClosedDoor({ denial, eventTitle, doorsOpen }: { denial: string; eventTi
         <h1 className="font-heading font-extrabold text-2xl tracking-tight mb-2">{copy.title}</h1>
         <p className="text-white/50 text-sm mb-8">{copy.body}</p>
         {eventTitle && <p className="text-xs text-white/30 mb-6">{eventTitle}</p>}
-        <Link href="/" className="inline-flex h-12 items-center px-8 rounded-full border border-white/15 text-sm font-semibold">
-          Volver al inicio
-        </Link>
+        {onBack ? (
+          <button type="button" onClick={onBack} className="inline-flex h-12 items-center px-8 rounded-full border border-white/15 text-sm font-semibold">
+            Volver
+          </button>
+        ) : (
+          <Link href="/" className="inline-flex h-12 items-center px-8 rounded-full border border-white/15 text-sm font-semibold">
+            Volver al inicio
+          </Link>
+        )}
       </div>
     </div>
   );
@@ -196,120 +202,9 @@ function ClosedDoor({ denial, eventTitle, doorsOpen }: { denial: string; eventTi
 
 /* --- Crear perfil -------------------------------------------------------- */
 
-function CreateProfile({ ticketCode, onCreated }: { ticketCode: string; onCreated: () => void }) {
-  const [alias, setAlias] = useState('');
-  const [gender, setGender] = useState<PartyGender>('mujer');
-  const [avatarId, setAvatarId] = useState(1);
-  const [zone, setZone] = useState<PartyZone>('living');
-  const [rules, setRules] = useState(false);
-
-  const create = trpc.party.createProfile.useMutation({
-    onSuccess: onCreated,
-    onError: (e) => toast.error(e.message),
-  });
-
-  const check = sanitizeAlias(alias);
-  const aliasError = alias.length > 0 && !check.ok ? check.reason : null;
-
-  return (
-    <div className="min-h-dvh bg-[#120a11] text-white px-5 py-10">
-      <div className="max-w-md mx-auto">
-        <p className="text-4xl text-center mb-3" aria-hidden>🍬</p>
-        <h1 className="font-heading font-extrabold text-3xl tracking-tight text-center mb-2">Estás adentro</h1>
-        <p className="text-white/50 text-sm text-center mb-8">
-          Elige cómo te van a ver esta noche. Sin fotos y sin tu nombre real.
-        </p>
-
-        <label className="block text-xs uppercase tracking-wide text-white/50 mb-2">Tu alias</label>
-        <input
-          value={alias}
-          onChange={(e) => setAlias(e.target.value)}
-          maxLength={MAX_ALIAS_LENGTH}
-          placeholder="Ej: La Reina"
-          className="w-full h-13 px-4 rounded-2xl bg-white/[0.06] border border-white/15 text-white text-base placeholder:text-white/25 focus:border-primary/60 focus:outline-none"
-        />
-        <p className={`text-xs mt-1.5 mb-6 ${aliasError ? 'text-red-400' : 'text-white/30'}`}>
-          {aliasError ?? `${alias.length}/${MAX_ALIAS_LENGTH} · sin redes ni teléfonos`}
-        </p>
-
-        <p className="text-xs uppercase tracking-wide text-white/50 mb-2">Vengo como</p>
-        <div className="grid grid-cols-3 gap-2 mb-6">
-          {PARTY_GENDERS.map((g) => (
-            <button
-              key={g}
-              onClick={() => setGender(g)}
-              className={`h-11 rounded-2xl text-sm font-semibold border transition-colors ${
-                gender === g ? 'bg-primary/20 border-primary/60 text-white' : 'border-white/12 text-white/55'
-              }`}
-            >
-              {GENDER_LABELS[g]}
-            </button>
-          ))}
-        </div>
-
-        <p className="text-xs uppercase tracking-wide text-white/50 mb-2">Tu avatar</p>
-        <div className="grid grid-cols-4 gap-3 mb-6">
-          {Array.from({ length: AVATARS_PER_GENDER }, (_, i) => i + 1).map((id) => (
-            <button
-              key={id}
-              onClick={() => setAvatarId(id)}
-              aria-label={`Avatar ${id}`}
-              className={`rounded-full transition-transform active:scale-95 ${
-                avatarId === id ? 'ring-3 ring-primary scale-105' : 'opacity-55'
-              }`}
-            >
-              <PartyAvatar gender={gender} avatarId={id} className="w-full h-auto rounded-full" />
-            </button>
-          ))}
-        </div>
-
-        <p className="text-xs uppercase tracking-wide text-white/50 mb-2">¿Dónde estás ahora?</p>
-        <div className="grid grid-cols-2 gap-2 mb-8">
-          {PARTY_ZONES.map((z) => (
-            <button
-              key={z}
-              onClick={() => setZone(z)}
-              className={`h-11 rounded-2xl text-sm font-semibold border transition-colors ${
-                zone === z ? 'bg-primary/20 border-primary/60 text-white' : 'border-white/12 text-white/55'
-              }`}
-            >
-              {ZONE_LABELS[z]}
-            </button>
-          ))}
-        </div>
-
-        <label className="flex items-start gap-3 mb-5 text-xs text-white/60 leading-relaxed cursor-pointer">
-          <input
-            type="checkbox"
-            checked={rules}
-            onChange={(e) => setRules(e.target.checked)}
-            className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
-          />
-          <span>
-            Acepto las reglas de la casa: no comparto datos personales (redes, teléfono), no saco capturas ni fotos de
-            otras personas, y lo que pasa en Playmatch se queda en la fiesta.
-          </span>
-        </label>
-
-        <button
-          disabled={!check.ok || !rules || create.isPending}
-          onClick={() => check.ok && rules && create.mutate({ ticketCode, alias: check.alias, gender, avatarId, zone, acceptedRules: true })}
-          className="w-full h-14 rounded-full bg-primary text-white font-bold text-base disabled:opacity-35 transition-opacity"
-        >
-          {create.isPending ? 'Entrando…' : 'Entrar a Playmatch'}
-        </button>
-
-        <p className="text-[11px] text-white/30 text-center mt-4 leading-relaxed">
-          Nadie puede escribirte sin que aceptes primero. Puedes bloquear y denunciar en cualquier momento.
-        </p>
-      </div>
-    </div>
-  );
-}
-
 /* --- La mansión ---------------------------------------------------------- */
 
-function MansionView({ ticketCode, myZone, onPick, onZoneChanged, onOpenChat, onGift, onOpenInbox, onOpenNotifications, onOpenPhoto, selected, onCloseCard }: {
+function MansionView({ ticketCode, myZone, onPick, onZoneChanged, onOpenChat, onGift, onOpenInbox, onOpenNotifications, onOpenPhoto, onBack, selected, onCloseCard }: {
   ticketCode: string;
   myZone: PartyZone;
   onPick: (p: MansionPerson) => void;
@@ -319,6 +214,7 @@ function MansionView({ ticketCode, myZone, onPick, onZoneChanged, onOpenChat, on
   onOpenInbox: () => void;
   onOpenNotifications: () => void;
   onOpenPhoto: () => void;
+  onBack?: () => void;
   selected: MansionPerson | null;
   onCloseCard: () => void;
 }) {
@@ -348,7 +244,9 @@ function MansionView({ ticketCode, myZone, onPick, onZoneChanged, onOpenChat, on
       <header className="flex items-center justify-between mb-4">
         <h1 className="flex items-center gap-1 font-heading font-extrabold text-2xl tracking-tight">
           {/* Abierto desde la app (sesión de «Mi cuenta»): vuelta a la app sin salir a la web. */}
-          {memberSession.data?.loggedIn && (
+          {onBack ? (
+            <button type="button" onClick={onBack} aria-label="Volver a la app" className="-ml-1 grid h-9 w-9 place-items-center rounded-full text-white/70"><ArrowLeft className="h-5 w-5" /></button>
+          ) : memberSession.data?.loggedIn && (
             <Link href="/cuenta" aria-label="Volver a mi cuenta" className="-ml-1 grid h-9 w-9 place-items-center rounded-full text-white/70"><ArrowLeft className="h-5 w-5" /></Link>
           )}
           Playmatch 🍬
