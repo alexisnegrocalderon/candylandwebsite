@@ -132,7 +132,7 @@ export function AmbassadorAccount({ panel }: { panel: AmbassadorPanel }) {
   return (
     <div className="account-tokens space-y-4">
       <AmbassadorSummary panel={panel} onDetails={() => setDetails(true)} />
-      <AmbassadorContent code={panel.code} events={panel.contentEvents ?? []} items={panel.contentItems ?? []} material={panel.weeklyMaterial ?? null} />
+      <AmbassadorContent code={panel.code} events={panel.contentEvents ?? []} items={panel.contentItems ?? []} material={panel.weeklyMaterial ?? null} generalLink={panel.referralUrl ?? undefined} />
       <AppScreen open={details} title="Mis ventas y beneficios" onClose={close}>
         <AmbassadorDetails data={panel} />
       </AppScreen>

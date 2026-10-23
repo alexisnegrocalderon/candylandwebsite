@@ -166,7 +166,7 @@ import { WINBACK_SEGMENT_KEYS } from "../shared/winback";
 import { generateContentPlan } from "./contentPlanner";
 import { getStampCard, refreshStampsForTicket } from "./stampCard";
 import { activatePlaymatchForTicket } from "./partyActivation";
-import { deleteAmbassadorItem, ensureAmbassadorDrafts, getUpcomingContentEvents, listAmbassadorItems, saveAmbassadorItem, setAmbassadorItemStatus } from "./ambassadorContent";
+import { autoPackFromDesign, deleteAmbassadorItem, ensureAmbassadorDrafts, getUpcomingContentEvents, listAmbassadorItems, notifyAmbassadorsNewContent, saveAmbassadorItem, sendStudioToAmbassadors, setAmbassadorItemStatus } from "./ambassadorContent";
 import { listContentDesigns, getContentDesign, saveContentDesign, deleteContentDesign, getContentVideo, saveContentVideo, listVideoStyles, saveVideoStyle, deleteVideoStyle } from "./contentStudio";
 import { renderMissingConfig, requestVideoRender } from "./studioRender";
 import { quickPhotoTexts, quickVideoFromIdea } from "./studioAi/quickIdea";
@@ -2919,7 +2919,16 @@ export const appRouter = router({
     setStatus: adminProcedure.input(z.object({
       ids: z.array(z.number().int().positive()).min(1).max(100),
       status: z.enum(['borrador', 'aprobado', 'descartado']),
-    })).mutation(async ({ input }) => ({ changed: await setAmbassadorItemStatus(input.ids, input.status) })),
+    })).mutation(async ({ input }) => {
+      const changed = await setAmbassadorItemStatus(input.ids, input.status);
+      // Contenido nuevo aprobado: aviso a las embajadoras (sin frenar la respuesta).
+      if (input.status === 'aprobado' && changed > 0) void notifyAmbassadorsNewContent(changed).catch((e) => console.error('[embajadores] Aviso de contenido nuevo:', e));
+      return { changed };
+    }),
+    // Diseños del Estudio (plantillas y videos grabados) a «Por aprobar», de a uno o varios.
+    sendDesigns: adminProcedure.input(z.object({
+      ids: z.array(z.number().int().positive()).min(1).max(60),
+    })).mutation(async ({ input }) => sendStudioToAmbassadors(input.ids)),
     delete: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => {
       await deleteAmbassadorItem(input.id);
       return { success: true };
@@ -2946,7 +2955,10 @@ export const appRouter = router({
       }),
     })).mutation(async ({ input }) => {
       try {
-        return { id: await saveContentDesign(input.id, input.design) };
+        const id = await saveContentDesign(input.id, input.design);
+        // Pack del evento automático: con un evento elegido, queda en «Por aprobar» para los embajadores.
+        if (input.design.eventId != null) void autoPackFromDesign(id).catch((e) => console.error('[estudio] Pack para embajadores:', e));
+        return { id };
       } catch (err) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo guardar el diseño.' });
       }

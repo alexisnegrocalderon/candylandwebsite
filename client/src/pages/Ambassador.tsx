@@ -161,7 +161,7 @@ export default function Ambassador() {
             Tip: entra a <Link href="/cuenta" className="text-primary underline">Mi cuenta</Link> con tu correo de embajador y tendrás todo esto a mano, sin escribir tu código.
           </p>
 
-          <AmbassadorContent code={data.code} events={data.contentEvents ?? []} items={data.contentItems ?? []} material={data.weeklyMaterial ?? null} />
+          <AmbassadorContent code={data.code} events={data.contentEvents ?? []} items={data.contentItems ?? []} material={data.weeklyMaterial ?? null} generalLink={data.referralUrl ?? undefined} />
 
           <AmbassadorDetails data={data} />
         </motion.div>
