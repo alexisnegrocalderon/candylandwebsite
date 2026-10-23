@@ -175,6 +175,8 @@ export async function saveSnapshot(snapshot: {
   /** Solo la puerta lo trae: los estacionamientos del evento (normal y VIP,
    * con su precio) y lo del local por auto. */
   parking?: { options: DoorParkingOption[]; venueFeePerCarClp: number };
+  /** Solo la puerta lo trae: el staff del evento con el código de su credencial. */
+  staff?: DoorStaff[];
   serverTime: string;
 }) {
   await cajaDB.transaction('rw', [cajaDB.attendees, cajaDB.codes, cajaDB.catalog, cajaDB.gifts, cajaDB.staffComps, cajaDB.meta, cajaDB.opsQueue], async () => {
@@ -201,6 +203,7 @@ export async function saveSnapshot(snapshot: {
     await cajaDB.meta.put({ key: 'serverTimeOffsetMs', value: new Date(snapshot.serverTime).getTime() - Date.now() });
     await cajaDB.meta.put({ key: 'lastSnapshotAt', value: Date.now() });
     if (snapshot.parking) await cajaDB.meta.put({ key: 'parking', value: snapshot.parking });
+    if (snapshot.staff) await cajaDB.meta.put({ key: 'staff', value: { eventId: snapshot.event.id, list: snapshot.staff } });
 
     // El snapshot llega del servidor SIN lo que esta tablet todavía no
     // sincronizó: sin esto, un código recién canjeado volvía a "válido" (y se
@@ -220,6 +223,17 @@ export async function getLocalParking(): Promise<{ options: DoorParkingOption[];
   const row = await cajaDB.meta.get('parking');
   const value = row?.value as any;
   return value && Array.isArray(value.options) ? value : null;
+}
+
+export interface DoorStaff { code: string; name: string; role: string | null }
+
+/** La persona del staff dueña de esa credencial, del último snapshot de la puerta
+ * (sirve sin señal). `null` si no está o si el snapshot es de otro evento. */
+export async function findLocalStaff(code: string, eventId: number): Promise<DoorStaff | null> {
+  const row = await cajaDB.meta.get('staff');
+  const value = row?.value as { eventId: number; list: DoorStaff[] } | undefined;
+  if (!value || value.eventId !== eventId || !Array.isArray(value.list)) return null;
+  return value.list.find((s) => s.code.toUpperCase() === code.toUpperCase()) ?? null;
 }
 
 export async function getLocalEvent(): Promise<{ id: number; title: string; slug: string } | null> {

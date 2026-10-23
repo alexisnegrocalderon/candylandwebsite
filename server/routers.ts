@@ -174,6 +174,7 @@ import { WINBACK_SEGMENT_KEYS } from "../shared/winback";
 import { generateContentPlan } from "./contentPlanner";
 import { getStampCard, refreshStampsForTicket } from "./stampCard";
 import { activatePlaymatchForTicket } from "./partyActivation";
+import * as staffPortal from "./staffPortal";
 import { autoPackFromDesign, deleteAmbassadorItem, ensureAmbassadorDrafts, getUpcomingContentEvents, listAmbassadorItems, notifyAmbassadorsNewContent, saveAmbassadorItem, sendStudioToAmbassadors, setAmbassadorItemStatus } from "./ambassadorContent";
 import { listContentDesigns, getContentDesign, saveContentDesign, deleteContentDesign, getContentVideo, saveContentVideo, listVideoStyles, saveVideoStyle, deleteVideoStyle } from "./contentStudio";
 import { renderMissingConfig, requestVideoRender } from "./studioRender";
@@ -1891,8 +1892,13 @@ export const appRouter = router({
       if (!snapshot) return snapshot;
       // Precio del estacionamiento y lo del local por auto: la puerta cobra
       // estacionamiento y tiene que mostrar el monto antes de cobrar.
-      return { ...snapshot, parking: await db.getParkingPricing(input.eventId) };
+      // El staff del evento con su credencial: la puerta los reconoce aunque no haya señal.
+      const [parking, staff] = await Promise.all([db.getParkingPricing(input.eventId), staffPortal.staffForDoor(input.eventId).catch(() => [])]);
+      return { ...snapshot, parking, staff };
     }),
+
+    // Credencial del staff escaneada en la puerta: queda anotada su llegada.
+    staffArrival: doorProcedure.input(z.object({ eventId: z.number().int().positive(), code: z.string().max(64) })).mutation(({ input }) => staffPortal.recordStaffArrival(input.eventId, input.code)),
 
     checkin: doorProcedure.input(z.object({
       opId: z.string(),
@@ -4439,6 +4445,11 @@ export const appRouter = router({
       if (!c) return null;
       return { fullName: c.fullName || null, email: c.email, phone: c.phone || null, rut: c.rut || null, docType: (c.rut && !isValidRut(c.rut) ? 'passport' : 'rut') as 'rut' | 'passport' };
     }),
+    // Si el correo de la sesión es de alguien del staff (Finanzas → Equipo): su credencial, turnos e info.
+    staff: publicProcedure.query(async ({ ctx }) => {
+      const email = getMemberEmail(ctx.req);
+      return email ? staffPortal.getStaffPortal(email) : null;
+    }),
     // Recompra en un toque: su última entrada y sus acompañantes (solo los de sus propias compras).
     repurchase: publicProcedure.query(async ({ ctx }) => {
       const email = getMemberEmail(ctx.req);
@@ -4972,7 +4983,11 @@ export const appRouter = router({
       await db.recordAdminAudit({ action: 'finance.setMarginTarget', targetType: 'siteSettings', payload: { percent: input.percent }, ip: clientIp(ctx) });
       return { percent: normalizeAdminAlertsConfig({ financeMarginTargetPercent: input.percent }).financeMarginTargetPercent };
     }),
-    staffList: adminProcedure.query(() => staffSvc.listStaff()),
+    staffList: adminProcedure.query(async () => {
+      const [list, emails] = await Promise.all([staffSvc.listStaff(), staffPortal.getStaffEmails()]);
+      // El correo con que entra a la app del staff (se guarda aparte: server/staffPortal.ts).
+      return list.map((m) => ({ ...m, email: emails[m.id] ?? null }));
+    }),
     staffSave: adminProcedure.input(z.object({
       id: z.number().int().positive().optional(),
       name: z.string().min(1).max(120),
@@ -4982,9 +4997,14 @@ export const appRouter = router({
       rut: z.string().max(20).nullish(),
       notes: z.string().max(2000).nullish(),
       active: z.boolean().optional(),
+      email: z.string().max(200).nullish(),
     })).mutation(async ({ input, ctx }) => {
-      const { id, ...rest } = input;
+      const { id, email, ...rest } = input;
       const r = await staffSvc.saveStaff(rest, id);
+      if (email !== undefined) {
+        try { await staffPortal.setStaffEmail(r.id, email); }
+        catch (e: any) { throw new TRPCError({ code: 'BAD_REQUEST', message: e?.message ?? 'No se pudo guardar el correo' }); }
+      }
       await db.recordAdminAudit({ action: id ? 'finance.staffUpdate' : 'finance.staffCreate', targetType: 'staffMember', targetId: r.id, ip: clientIp(ctx) });
       return r;
     }),
@@ -5013,6 +5033,27 @@ export const appRouter = router({
       const { id, ...rest } = input;
       await staffSvc.updateShift(id, rest);
       await db.recordAdminAudit({ action: 'finance.shiftUpdate', targetType: 'staffShift', targetId: id, payload: rest, ip: clientIp(ctx) });
+      return { success: true };
+    }),
+    // App del staff: lo que ve el equipo de un evento (general, vestimenta, contactos, notas por rol) y la hora de citación.
+    staffInfo: adminProcedure.input(z.object({ eventId: z.number().int().positive() })).query(({ input }) => staffPortal.getEventStaffInfo(input.eventId)),
+    staffInfoSave: adminProcedure.input(z.object({
+      eventId: z.number().int().positive(),
+      general: z.string().max(3000).optional(),
+      dressCode: z.string().max(300).optional(),
+      contacts: z.array(z.object({ label: z.string().max(60), phone: z.string().max(30) })).max(6).optional(),
+      byRole: z.record(z.string().max(80), z.string().max(1500)).optional(),
+    })).mutation(async ({ input, ctx }) => {
+      const { eventId, ...patch } = input;
+      const r = await staffPortal.saveEventStaffInfo(eventId, patch);
+      await db.recordAdminAudit({ action: 'finance.staffInfoSave', targetType: 'event', targetId: eventId, eventId, ip: clientIp(ctx) });
+      return r;
+    }),
+    shiftCallTime: adminProcedure.input(z.object({
+      eventId: z.number().int().positive(), staffId: z.number().int().positive(), time: z.string().max(5).nullable(),
+    })).mutation(async ({ input }) => {
+      try { await staffPortal.setStaffCallTime(input.eventId, input.staffId, input.time || null); }
+      catch (e: any) { throw new TRPCError({ code: 'BAD_REQUEST', message: e?.message ?? 'Hora no válida' }); }
       return { success: true };
     }),
     shiftRemove: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input, ctx }) => {

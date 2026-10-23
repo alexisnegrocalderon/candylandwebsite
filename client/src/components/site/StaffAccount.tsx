@@ -1,0 +1,185 @@
+import { Link } from 'wouter';
+import { ArrowRight, BadgeCheck, Clock, MapPin, MessageCircle, Phone, Shirt, Wrench } from 'lucide-react';
+import { trpc } from '@/lib/trpc';
+import type { inferRouterOutputs } from '@trpc/server';
+import type { AppRouter } from '../../../../server/routers';
+import { formatChileDate, formatChileTime } from '@shared/chileDate';
+import { dialable } from '@shared/staffPortal';
+
+/* La versión de la app para el staff: quien entra a «Mi cuenta» con el correo
+ * que se cargó en Finanzas → Equipo ve su credencial con QR (la puerta la
+ * reconoce y anota su llegada), su próximo turno con la hora de citación, la
+ * info del evento (lo general y lo de su rol), a quién llamar, sus herramientas
+ * y sus turnos con lo que se le paga. */
+
+export type StaffPortal = NonNullable<inferRouterOutputs<AppRouter>['member']['staff']>;
+type Shift = StaffPortal['shifts'][number];
+
+export function useStaffPortal(): StaffPortal | null {
+  const { data } = trpc.member.staff.useQuery(undefined, { retry: false, staleTime: 60_000 });
+  return data ?? null;
+}
+
+const money = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
+const dayLabel = (d: Date | string | null) => (d ? formatChileDate(d, { withWeekday: true }) : 'Fecha por confirmar');
+
+/** El próximo turno (el de la credencial). */
+export function nextShift(staff: StaffPortal): Shift | null {
+  return staff.shifts.find((s) => s.eventId === staff.credential?.eventId) ?? null;
+}
+
+/** Fila corta para la portada de la app: el turno que viene y el acceso a la credencial. */
+export function StaffBanner({ staff, onOpen }: { staff: StaffPortal; onOpen: () => void }) {
+  const next = nextShift(staff);
+  if (!next) return null;
+  return (
+    <button type="button" onClick={onOpen} className="block w-full shrink-0 rounded-[22px] bg-gradient-to-r from-violet-400/70 via-fuchsia-400/50 to-sky-400/60 p-[1.5px] text-left interactive">
+      <span className="flex items-center gap-3 rounded-[21px] bg-[#0d0712] px-3.5 py-2.5">
+        <span className="rounded-full bg-violet-300 px-2 py-0.5 text-caption2 font-extrabold tracking-[0.15em] text-black">STAFF</span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-subhead font-bold leading-tight">{next.title}</span>
+          <span className="block truncate text-footnote text-white/60">{next.callTime ? `Citación ${next.callTime} · ` : ''}Ver mi credencial</span>
+        </span>
+        <ArrowRight className="h-5 w-5 shrink-0 text-violet-300" />
+      </span>
+    </button>
+  );
+}
+
+function Block({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
+  return (
+    <section className="account-glass rounded-[24px] p-4">
+      <h3 className="mb-2 flex items-center gap-2 text-footnote font-semibold uppercase tracking-wider text-white/55">{icon}{title}</h3>
+      {children}
+    </section>
+  );
+}
+
+export function StaffAccount({ staff }: { staff: StaffPortal }) {
+  const next = nextShift(staff);
+  const past = staff.shifts.filter((s) => s !== next);
+  const mapsHref = next?.address || next?.venue ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([next.venue, next.address].filter(Boolean).join(', '))}` : null;
+
+  return (
+    <div className="space-y-3">
+      {/* Credencial: la puerta la escanea y sabe quién es (también sin señal). */}
+      <div className="rounded-[28px] bg-gradient-to-br from-violet-400/80 via-fuchsia-400/50 to-sky-400/70 p-[1.5px]">
+        <div className="rounded-[27px] bg-[#120a1c] px-5 pb-5 pt-4 text-center">
+          <div className="flex items-center justify-between">
+            <span className="rounded-full bg-violet-300 px-3 py-1 text-caption1 font-extrabold tracking-[0.2em] text-black">STAFF</span>
+            <img src="/candyland/logo-isotipo-transparent.png" alt="" className="h-8 w-8" />
+          </div>
+          <p className="mt-3 text-title1 font-bold leading-tight">{staff.name}</p>
+          <p className="text-callout font-semibold text-violet-200">{staff.role || 'Equipo'}</p>
+          {staff.credential && next ? (
+            <>
+              <p className="mt-1 text-footnote text-white/60">{next.title} · {dayLabel(next.eventDate)}</p>
+              <div className="mx-auto mt-4 w-full max-w-[240px] rounded-3xl bg-white p-3">
+                <img src={staff.credential.qrImageUrl ?? ''} alt="QR de tu credencial de staff" className="block aspect-square w-full" />
+              </div>
+              <p className="mt-2 font-mono text-caption2 tracking-wider text-white/40">{staff.credential.code}</p>
+              {next.arrivedAt
+                ? <p className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-emerald-400/15 px-3 py-1 text-footnote font-semibold text-emerald-300"><BadgeCheck className="h-4 w-4" /> Llegaste a las {formatChileTime(next.arrivedAt)}</p>
+                : <p className="mt-3 text-footnote text-white/65">Muéstralo en la puerta al llegar: así queda anotada tu llegada.</p>}
+            </>
+          ) : (
+            <p className="mt-4 text-subhead text-white/65">No tienes turnos próximos. Cuando te asignen a una fiesta, tu credencial aparece acá.</p>
+          )}
+        </div>
+      </div>
+
+      {next && (
+        <Block icon={<Clock className="h-4 w-4" />} title="Tu próximo turno">
+          <div className="flex items-end justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-headline font-bold leading-tight">{next.title}</p>
+              <p className="text-footnote text-white/60">{dayLabel(next.eventDate)}</p>
+            </div>
+            {next.callTime && (
+              <div className="shrink-0 text-right">
+                <p className="text-caption2 uppercase tracking-wider text-white/50">Citación</p>
+                <p className="text-title1 font-bold leading-none tabular-nums text-violet-200">{next.callTime}</p>
+              </div>
+            )}
+          </div>
+          {next.doorsOpen && <p className="mt-2 text-footnote text-white/60">Abren las puertas a las {formatChileTime(next.doorsOpen)}</p>}
+          {mapsHref && (
+            <a href={mapsHref} target="_blank" rel="noreferrer" className="mt-3 flex items-center gap-2 rounded-2xl bg-white/[0.06] px-3 py-2.5 text-subhead interactive">
+              <MapPin className="h-4 w-4 shrink-0 text-pink-300" />
+              <span className="min-w-0 flex-1 truncate">{[next.venue, next.address].filter(Boolean).join(' · ')}</span>
+              <span className="shrink-0 text-footnote font-semibold text-pink-300">Cómo llegar</span>
+            </a>
+          )}
+          {next.dressCode && (
+            <p className="mt-2 flex items-start gap-2 text-subhead text-white/80"><Shirt className="mt-0.5 h-4 w-4 shrink-0 text-pink-300" /> {next.dressCode}</p>
+          )}
+        </Block>
+      )}
+
+      {next && (next.general || next.roleNote) && (
+        <Block icon={<span aria-hidden>📌</span>} title="Info importante">
+          {next.general && <p className="whitespace-pre-line text-subhead leading-relaxed text-white/85">{next.general}</p>}
+          {next.roleNote && (
+            <div className={`${next.general ? 'mt-3' : ''} rounded-2xl border border-violet-300/25 bg-violet-400/10 p-3`}>
+              <p className="text-caption1 font-semibold uppercase tracking-wider text-violet-200">Para {staff.role}</p>
+              <p className="mt-1 whitespace-pre-line text-subhead leading-relaxed text-white/85">{next.roleNote}</p>
+            </div>
+          )}
+        </Block>
+      )}
+
+      {next && (next.contacts?.length ?? 0) > 0 && (
+        <Block icon={<Phone className="h-4 w-4" />} title="Contactos de la noche">
+          <div className="divide-y divide-white/10">
+            {next.contacts!.map((c, i) => (
+              <div key={i} className="flex items-center gap-2 py-2">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-subhead font-semibold">{c.label || c.phone}</p>
+                  {c.label && <p className="truncate text-footnote text-white/55">{c.phone}</p>}
+                </div>
+                {c.phone && <>
+                  <a href={`tel:${dialable(c.phone)}`} aria-label={`Llamar a ${c.label || c.phone}`} className="grid h-10 w-10 place-items-center rounded-full bg-white/10 interactive"><Phone className="h-4 w-4" /></a>
+                  <a href={`https://wa.me/${dialable(c.phone).replace('+', '')}`} target="_blank" rel="noreferrer" aria-label={`WhatsApp a ${c.label || c.phone}`} className="grid h-10 w-10 place-items-center rounded-full bg-emerald-500/20 text-emerald-300 interactive"><MessageCircle className="h-4 w-4" /></a>
+                </>}
+              </div>
+            ))}
+          </div>
+        </Block>
+      )}
+
+      {staff.tools.length > 0 && (
+        <Block icon={<Wrench className="h-4 w-4" />} title="Tus herramientas">
+          <div className="grid grid-cols-2 gap-2">
+            {staff.tools.map((t) => (
+              <Link key={t.key} href={t.href} className="flex h-14 items-center gap-2 rounded-2xl bg-white/[0.07] px-3 text-subhead font-semibold interactive">
+                <span className="text-xl" aria-hidden>{t.emoji}</span> {t.label}
+              </Link>
+            ))}
+          </div>
+          <p className="mt-2 text-caption1 text-white/50">Entras con tu clave de terminal, la misma de siempre.</p>
+        </Block>
+      )}
+
+      {staff.shifts.length > 0 && (
+        <Block icon={<span aria-hidden>🗓️</span>} title="Mis turnos">
+          <div className="divide-y divide-white/10">
+            {(next ? [next, ...past] : past).map((s) => (
+              <div key={s.eventId} className="flex items-center gap-3 py-2.5">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-subhead font-semibold">{s.title}</p>
+                  <p className="truncate text-footnote text-white/55">{dayLabel(s.eventDate)}</p>
+                </div>
+                <div className="shrink-0 text-right">
+                  <p className="text-subhead font-semibold tabular-nums">{money(s.netClp)}</p>
+                  <p className={`text-caption2 font-semibold ${s.upcoming ? 'text-violet-200' : s.paid ? 'text-emerald-300' : 'text-amber-300'}`}>
+                    {s.upcoming ? 'Próximo' : s.paid ? 'Pagado' : 'Por pagar'}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Block>
+      )}
+    </div>
+  );
+}

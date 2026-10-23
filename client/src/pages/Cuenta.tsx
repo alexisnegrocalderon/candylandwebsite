@@ -2,7 +2,7 @@ import { Component, Fragment, useEffect, useRef, useState, type ReactNode } from
 import { createPortal } from 'react-dom';
 import { AnimatePresence, MotionConfig, motion, useDragControls } from 'framer-motion';
 import { toast } from 'sonner';
-import { Calendar, Check, Copy, Crown, Gift, LogOut, Sparkles, Ticket as TicketIcon, ArrowRight, Download, Loader2, X, QrCode, CreditCard, Home, Wallet, Plus, RefreshCw, Bell, ChevronLeft, ChevronRight, Heart, User, WifiOff, ScanFace } from 'lucide-react';
+import { BadgeCheck, Calendar, Check, Copy, Crown, Gift, LogOut, Sparkles, Ticket as TicketIcon, ArrowRight, Download, Loader2, X, QrCode, CreditCard, Home, Wallet, Plus, RefreshCw, Bell, ChevronLeft, ChevronRight, Heart, User, WifiOff, ScanFace } from 'lucide-react';
 import { Link } from 'wouter';
 import { trpc } from '@/lib/trpc';
 import type { inferRouterOutputs } from '@trpc/server';
@@ -20,6 +20,7 @@ import { TiltCard } from '@/components/site/TiltCard';
 import { BottomSheet, PayInCajaViewer, SavedCardsSection, TopupSheet, useMemberPayConfig } from '@/components/site/AccountPayments';
 import { AmbassadorAccount, AppScreen, useAmbassadorPanel } from '@/components/site/AmbassadorAccount';
 import { StampsTab } from '@/components/site/StampCard';
+import { StaffAccount, StaffBanner, useStaffPortal } from '@/components/site/StaffAccount';
 import { PlaymatchTab } from '@/components/site/PlaymatchTab';
 import { canEnterParty } from '@shared/party';
 import { TICKET_KIND_META, type TicketKind } from '@shared/ticketKind';
@@ -896,6 +897,8 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
     try { sessionStorage.setItem(PRIZE_KEY, next); } catch { /* nada */ }
   };
   const ambassador = useAmbassadorPanel();
+  // Solo para quien entra con el correo de alguien del staff (Finanzas → Equipo).
+  const staff = useStaffPortal();
   const tabs = TABS;
   // El aviso de contenido nuevo (`?tab=embajador`) abre directo la pantalla Embajador, una sola vez.
   const openEmb = useRef(initial.open === 'embajador' && new URLSearchParams(window.location.search).get('tab') === 'embajador');
@@ -917,7 +920,7 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
   const touch = useRef<{ x: number; y: number } | null>(null);
   const [dir, setDir] = useState(1);
   // Sub-hojas de «Más» y de «Puntos» (cada tema grande abre la suya, para que ninguna pantalla crezca).
-  const [sheet, setSheet] = useState<null | 'tarjetas' | 'beneficios' | 'avisos' | 'movimientos' | 'entradas' | 'embajador' | 'faceid'>(null);
+  const [sheet, setSheet] = useState<null | 'tarjetas' | 'beneficios' | 'avisos' | 'movimientos' | 'entradas' | 'embajador' | 'staff' | 'faceid'>(null);
   // Face ID: recién entró con el código y este teléfono puede → se le ofrece una vez, después de ver su app.
   const passkeyOk = usePasskeyAvailable();
   const [faceIdOffer, setFaceIdOffer] = useState(false);
@@ -971,6 +974,7 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
           {tab === 'card' && (
             <>
               <WelcomeBanner welcome={welcome} />
+              {staff && <StaffBanner staff={staff} onOpen={() => { tapHaptic(); setSheet('staff'); }} />}
               <TicketWallet compact ev={upcoming[0] ?? null} holder={me.fullName || me.email} prepaidBalance={me.prepaidBalance} playcoins={me.playcoins} movements={me.movements}
                 onTopup={pay.accountTopup ? () => setTopupOpen(true) : undefined} onPayCaja={pay.cajaPay ? () => setPayOpen(true) : undefined} onPlaymatch={() => go('playmatch')} />
               <BuyNextCard me={me} />
@@ -1010,6 +1014,18 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
                 </div>
                 {level && <span className="shrink-0 rounded-full bg-emerald-400/15 px-2.5 py-1 text-caption2 font-medium text-emerald-300">{level.label}</span>}
               </div>
+              {staff && (
+                <button type="button" onClick={() => { tapHaptic(); setSheet('staff'); }} className="block w-full rounded-[24px] bg-gradient-to-r from-violet-400/70 via-fuchsia-400/50 to-sky-400/60 p-[1.5px] text-left interactive">
+                  <span className="flex items-center gap-3 rounded-[23px] bg-[#0d0712] px-4 py-3.5">
+                    <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-violet-300/15 text-violet-300"><BadgeCheck className="h-5 w-5" /></span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-callout font-bold leading-tight">Staff</span>
+                      <span className="block truncate text-footnote text-white/60">Tu credencial, tus turnos y la info del evento</span>
+                    </span>
+                    <ArrowRight className="h-5 w-5 shrink-0 text-violet-300" />
+                  </span>
+                </button>
+              )}
               {/* Solo para quien entra con el correo de un embajador. */}
               {ambassador && (
                 <button type="button" onClick={() => { tapHaptic(); setSheet('embajador'); }} className="block w-full rounded-[24px] bg-gradient-to-r from-amber-300/70 via-pink-400/50 to-fuchsia-400/60 p-[1.5px] text-left interactive">
@@ -1140,6 +1156,7 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
       </BottomSheet>
       <PasskeySheet open={sheet === 'faceid'} offer={faceIdOffer} onClose={() => setSheet(null)} />
       <BottomSheet open={sheet === 'tarjetas'} onClose={() => setSheet(null)} title="Mis tarjetas"><SavedCardsSection /></BottomSheet>
+      {staff && <AppScreen open={sheet === 'staff'} title="Staff" onClose={() => setSheet(null)}><StaffAccount staff={staff} /></AppScreen>}
       {ambassador && <AppScreen open={sheet === 'embajador'} title="Embajador" onClose={() => setSheet(null)}><AmbassadorAccount panel={ambassador} /></AppScreen>}
       <BottomSheet open={sheet === 'beneficios'} onClose={() => setSheet(null)} title="Beneficios"><PerksCard me={me} /></BottomSheet>
       <BottomSheet open={sheet === 'movimientos'} onClose={() => setSheet(null)} title="Movimientos"><Movements me={me} /></BottomSheet>
@@ -1188,7 +1205,7 @@ export default function Cuenta() {
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
           <div className="text-center">
             <h1 className="text-large-title font-bold tracking-tight text-white">Mi cuenta</h1>
-            <p className="mt-2 text-subhead text-white/65">Tu entrada, tus Playcoins y tu saldo a un toque. Entras con un código que te mandamos al correo de tu compra (o tu correo de embajador): sin contraseñas.</p>
+            <p className="mt-2 text-subhead text-white/65">Tu entrada, tus Playcoins y tu saldo a un toque. Entras con un código que te mandamos al correo de tu compra (o tu correo de embajador o de staff): sin contraseñas.</p>
           </div>
           <div className={`${GLASS} p-5`}>
             <MemberLogin tone="dark" onDone={setWelcome} />
