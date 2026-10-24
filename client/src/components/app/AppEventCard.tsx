@@ -1,5 +1,6 @@
 import { Link } from 'wouter';
-import { ArrowRight, CalendarDays, MapPin } from 'lucide-react';
+import { ArrowRight, CalendarDays, CalendarPlus, MapPin, Share } from 'lucide-react';
+import { buildIcs, downloadIcs } from '@/lib/calendar';
 import { eventImage } from '@shared/eventImage';
 
 /* Tarjeta de un evento dentro de la app (inicio y «Eventos»): el flyer a sangre,
@@ -14,6 +15,7 @@ export type AppEvent = {
   imageUrl?: string | null;
   shortDescription?: string | null;
   status?: string | null;
+  eventEnd?: string | Date | null;
 };
 
 export function eventWhen(date: string | Date): string {
@@ -32,7 +34,30 @@ export function splitEvents<T extends { eventDate: string | Date }>(events: T[],
   return { upcoming, past };
 }
 
-export function AppEventCard({ event, big = false, onInfo }: { event: AppEvent; big?: boolean; onInfo?: () => void }) {
+const clp = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
+
+/** Compartir el evento con la hoja del teléfono (WhatsApp, Instagram…); sin ella, copia el link. */
+async function shareEvent(event: AppEvent) {
+  const url = `${window.location.origin}/eventos/${event.slug}`;
+  const text = `${event.title} · ${eventWhen(event.eventDate)}`;
+  try {
+    if (navigator.share) { await navigator.share({ title: event.title, text, url }); return; }
+    await navigator.clipboard?.writeText(`${text} ${url}`);
+  } catch { /* la persona cerró la hoja */ }
+}
+
+function addToCalendar(event: AppEvent) {
+  downloadIcs(`${event.slug}.ics`, buildIcs({
+    uid: `evento-${event.id}`,
+    title: event.title,
+    start: new Date(event.eventDate),
+    end: event.eventEnd ? new Date(event.eventEnd) : null,
+    location: event.venue ?? null,
+    url: `${window.location.origin}/eventos/${event.slug}`,
+  }));
+}
+
+export function AppEventCard({ event, big = false, onInfo, from = null }: { event: AppEvent; big?: boolean; onInfo?: () => void; from?: number | null }) {
   const img = eventImage(event.slug, event.imageUrl);
   const soldOut = event.status === 'soldout';
   return (
@@ -49,6 +74,11 @@ export function AppEventCard({ event, big = false, onInfo }: { event: AppEvent; 
         <h3 className="text-title2 font-bold leading-tight">{event.title}</h3>
         <p className="mt-1.5 flex items-center gap-1.5 text-subhead text-white/75"><CalendarDays className="h-4 w-4 shrink-0" />{eventWhen(event.eventDate)}</p>
         {event.venue && <p className="mt-0.5 flex items-center gap-1.5 text-subhead text-white/65"><MapPin className="h-4 w-4 shrink-0" />{event.venue}</p>}
+        <div className="mt-3 flex items-center gap-2">
+          {from != null && !soldOut && <span className="mr-auto rounded-full bg-white/10 px-3 py-1.5 text-footnote font-semibold tabular-nums">Desde {clp(from)}</span>}
+          <button type="button" onClick={() => addToCalendar(event)} aria-label="Agregar al calendario" className={`lg-pill grid h-9 w-9 place-items-center rounded-full interactive ${from == null || soldOut ? 'ml-auto' : ''}`}><CalendarPlus className="h-[18px] w-[18px]" /></button>
+          <button type="button" onClick={() => { void shareEvent(event); }} aria-label="Compartir" className="lg-pill grid h-9 w-9 place-items-center rounded-full interactive"><Share className="h-[18px] w-[18px]" /></button>
+        </div>
       </div>
       <div className="p-3">
         {soldOut ? (

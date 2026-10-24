@@ -5,6 +5,7 @@ import { trpc } from '@/lib/trpc';
 import { useMemberSession } from '@/lib/member';
 import { useSeo } from '@/hooks/useSeo';
 import { useHalloweenMode } from '@/lib/halloween';
+import { fromPrice } from '@/lib/fromPrice';
 import { AppEventCard, splitEvents, type AppEvent } from '@/components/app/AppEventCard';
 import { InfoSheet, type InfoKind } from '@/components/app/InfoSheets';
 
@@ -30,6 +31,8 @@ export default function AppHome() {
   const { data: events, isLoading } = trpc.events.listPublished.useQuery();
   const { upcoming } = splitEvents((events ?? []) as AppEvent[]);
   const next = upcoming[0];
+  const { data: nextTickets } = trpc.events.getTicketTypes.useQuery({ slug: next?.slug ?? '' }, { enabled: !!next, retry: false });
+  const from = next && nextTickets ? fromPrice(nextTickets as any[], next as any) : null;
   const [sheet, setSheet] = useState<InfoKind | null>(null);
   const halloween = useHalloweenMode();
 
@@ -51,7 +54,7 @@ export default function AppHome() {
           {isLoading ? (
             <div className="account-glass aspect-[4/5] rounded-[28px] lg-skeleton" />
           ) : next ? (
-            <AppEventCard event={next} big onInfo={() => setSheet('fiesta')} />
+            <AppEventCard event={next} big from={from} onInfo={() => setSheet('fiesta')} />
           ) : (
             <div className="account-glass rounded-[28px] p-6 text-center">
               <p className="text-title3 font-bold">Estamos preparando la próxima</p>

@@ -13,6 +13,8 @@ import { AppTopBar } from "./components/site/AppTopBar";
 import { InstallAppPrompt } from "./components/site/InstallAppPrompt";
 import { isAppMode } from "./lib/appMode";
 import { useDarkChrome } from "@/lib/darkChrome";
+import { useEdgeSwipeBack } from "@/lib/edgeSwipeBack";
+import { isInstalledApp } from "./lib/appInstall";
 import { useMemberSession } from "./lib/member";
 import { hasAccountSnapshot } from "./lib/offlineAccount";
 import { AccountSkeleton } from "./components/site/AccountSkeleton";
@@ -29,7 +31,7 @@ import { isFinePointer, resetScrollPosition } from "./lib/smoothScroll";
 // todo el mundo aunque nunca fuera a correr. La mayoría de quien entra al
 // sitio lo hace desde el celular (tráfico de Instagram/WhatsApp), así que
 // era peso muerto para la mayoría de las visitas.
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { hasWelcomeParam } from "@shared/welcome";
 import { DARK_CHROME_BG, isDarkRoute } from "@/lib/darkChrome";
 // La portada "/" pasa por HalloweenHome: renderiza la Home oficial tal cual,
@@ -138,6 +140,19 @@ function useMemberAppMode(location: string, hideChrome: boolean) {
 /** En la app la barra de la hora y el fondo son siempre oscuros (nunca el rosado del sitio). */
 function AppDarkChrome() {
   useDarkChrome();
+  return null;
+}
+
+/** En la app instalada: volver deslizando desde el borde (fuera de «Mi cuenta», que desliza entre
+ * pestañas, y de la compra, que vuelve de a un paso con su propio botón). */
+function AppSwipeBack({ location }: { location: string }) {
+  const [, navigate] = useLocation();
+  const enabled = useState(isInstalledApp)[0] && location !== '/' && !/^\/(cuenta|mis-puntos|checkout)/.test(location);
+  const back = useCallback(() => {
+    if (window.history.length > 1) window.history.back();
+    else navigate('/', { replace: true });
+  }, [navigate]);
+  useEdgeSwipeBack(enabled, back);
   return null;
 }
 
@@ -309,6 +324,7 @@ function App() {
           {/* La portada y la compra de la app traen su propia barra. */}
           {memberApp && !onAccount && location !== '/' && !location.startsWith('/checkout') && <AppTopBar />}
           {memberApp && <AppDarkChrome />}
+          {memberApp && <AppSwipeBack location={location} />}
           {/* top-center a propósito: /gastos y /caja tienen un botón de acción
               fijo abajo de la pantalla, y el toast por defecto (abajo) quedaba
               superpuesto con ese botón -- se veía como texto roto/mezclado. */}
