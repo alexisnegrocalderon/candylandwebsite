@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, BarChart, Bar } from 'recharts';
 import { Banknote, Landmark, Pencil, Download, Sparkles, Activity, AlertTriangle, Lightbulb, Loader2, Plus, Trash2, TrendingUp, Users, Wallet, Receipt, Target } from 'lucide-react';
 import { PnlWarnings } from '@/components/admin/PnlWarnings';
+import { AdminPasswordDialog } from '@/components/admin/AdminPasswordDialog';
 import { trpc } from '@/lib/trpc';
 import { formatChileTime, formatChileShortDate } from '@shared/chileDate';
 import { honorariosBreakdown } from '@shared/honorarios';
@@ -474,8 +475,10 @@ function EventCostsCard({ eventId, eventDate, costs }: { eventId: number; eventD
   const refresh = () => { utils.finance.eventReport.invalidate(); utils.finance.live.invalidate(); utils.cajaReports.eventPnl.invalidate(); };
   const update = trpc.expenses.update.useMutation({ onSuccess: () => { refresh(); toast.success('Gasto actualizado'); }, onError: onErr });
   const del = trpc.expenses.delete.useMutation({ onSuccess: () => { refresh(); toast.success('Gasto borrado'); }, onError: onErr });
+  // Cambiar o borrar un gasto pide la clave de admin en un diálogo (nunca con window.prompt, que la muestra en texto plano).
+  const [pending, setPending] = useState<{ title: string; actionLabel: string; run: (adminPassword: string) => Promise<unknown> } | null>(null);
   if (!costs) return null;
-  const askPassword = () => window.prompt('Por seguridad, ingresa tu clave de admin') || '';
+  const askPassword = (title: string, actionLabel: string, run: (adminPassword: string) => Promise<unknown>) => setPending({ title, actionLabel, run });
   return (
     <Card className="admin-clay border-0">
       <CardHeader>
@@ -522,17 +525,17 @@ function EventCostsCard({ eventId, eventDate, costs }: { eventId: number; eventD
                 </div>
                 <select disabled={isDemo} value={e.documentType} aria-label="Tipo de documento"
                   className={`rounded-full px-3 py-1.5 text-xs font-semibold border-0 ${e.documentType === 'factura' ? 'bg-emerald-500/15 text-emerald-800' : 'bg-amber-500/15 text-amber-800'}`}
-                  onChange={(ev) => { const pw = askPassword(); if (pw) update.mutate({ id: e.id, documentType: ev.target.value as any, adminPassword: pw } as any); }}>
+                  onChange={(ev) => { const documentType = ev.target.value; askPassword(`Cambiar a ${DOC_LABEL[documentType] ?? documentType}`, 'Cambiar', (pw) => update.mutateAsync({ id: e.id, documentType, adminPassword: pw } as any)); }}>
                   {DOC_TYPES.map((d) => <option key={d.v} value={d.v}>{DOC_LABEL[d.v]}</option>)}
                 </select>
                 <strong className="tabular-nums">{money(e.amountTotal)}</strong>
                 {e.receiptUrl && <a href={e.receiptUrl} target="_blank" rel="noopener noreferrer" className="text-xs underline">foto</a>}
                 <button type="button" disabled={isDemo} className="p-2 rounded-full hover:bg-black/5" aria-label={`Editar monto de ${e.description}`}
-                  onClick={() => { const v = window.prompt('Nuevo monto total', String(e.amountTotal)); if (!v) return; const pw = askPassword(); if (pw) update.mutate({ id: e.id, amountTotal: Math.max(1, Math.round(Number(v) || 0)), adminPassword: pw } as any); }}>
+                  onClick={() => { const v = window.prompt('Nuevo monto total', String(e.amountTotal)); if (!v) return; const amountTotal = Math.max(1, Math.round(Number(v) || 0)); askPassword(`Cambiar el monto a ${money(amountTotal)}`, 'Guardar', (pw) => update.mutateAsync({ id: e.id, amountTotal, adminPassword: pw } as any)); }}>
                   <Pencil className="w-4 h-4" />
                 </button>
                 <button type="button" disabled={isDemo} className="p-2 rounded-full hover:bg-black/5" aria-label={`Borrar ${e.description}`}
-                  onClick={() => { if (!window.confirm(`¿Borrar "${e.description}"?`)) return; const pw = askPassword(); if (pw) del.mutate({ id: e.id, adminPassword: pw } as any); }}>
+                  onClick={() => askPassword(`¿Borrar «${e.description}»?`, 'Borrar', (pw) => del.mutateAsync({ id: e.id, adminPassword: pw } as any))}>
                   <Trash2 className="w-4 h-4" />
                 </button>
               </div>
@@ -540,6 +543,11 @@ function EventCostsCard({ eventId, eventDate, costs }: { eventId: number; eventD
           </div>
         )}
       </CardContent>
+      <AdminPasswordDialog
+        open={!!pending} title={pending?.title ?? ''} actionLabel={pending?.actionLabel ?? 'Confirmar'}
+        description="Por seguridad, cambiar o borrar un gasto pide tu clave de admin."
+        onConfirm={(pw) => pending!.run(pw)} onClose={() => setPending(null)}
+      />
     </Card>
   );
 }

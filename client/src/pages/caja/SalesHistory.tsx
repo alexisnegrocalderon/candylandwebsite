@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useDebounced } from '@/hooks/useDebounced';
 import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
 import { ChevronDown, ChevronUp, Search, X } from 'lucide-react';
@@ -31,15 +32,6 @@ const timeOf = (d: Date | string) => new Date(d).toLocaleTimeString('es-CL', { t
 function MethodBadge({ method }: { method: string | null }) {
   const meta = METHOD_META[method as Method];
   return <span className={`text-xs px-2 py-0.5 rounded-full whitespace-nowrap ${meta?.badgeClass ?? 'bg-white/10 text-white/60'}`}>{meta?.label ?? method ?? '—'}</span>;
-}
-
-function useDebounced<T>(value: T, ms: number): T {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const t = setTimeout(() => setDebounced(value), ms);
-    return () => clearTimeout(t);
-  }, [value, ms]);
-  return debounced;
 }
 
 export function SalesHistory({ eventId, registerId, isOnline, compact = false, heightClass }: {

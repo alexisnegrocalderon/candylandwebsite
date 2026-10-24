@@ -10,6 +10,7 @@ import { canOpenAdmin, isPartnerRole, useIsDemo, DEMO_TOOLTIP } from '@/lib/demo
 import { WriteButton, DownloadLink } from '@/components/admin/WriteButton';
 import { CartaManager } from '@/components/admin/carta/CartaManager';
 import { StaffManager, requestNewStaff } from '@/components/admin/staff/StaffManager';
+import { useDebounced } from '@/hooks/useDebounced';
 import { OPERATOR_ROLES, OPERATOR_ROLE_LABELS, type OperatorRole } from '@shared/cajaRoles';
 import { useHideSplashOnMount } from '@/lib/splash';
 import { BlockedManager } from '@/components/admin/blocked/BlockedManager';
@@ -1286,7 +1287,7 @@ function EventCard({ event, onDeleted, expanded, onToggleExpand }: { event: any;
 }
 
 function EventsManager() {
-  const { data: eventsData, refetch } = trpc.events.listAll.useQuery();
+  const { data: eventsData, refetch, isLoading: eventsLoading } = trpc.events.listAll.useQuery();
   const createEvent = trpc.events.create.useMutation({ onSuccess: () => { refetch(); toast.success('Evento creado'); }, onError: onMutationError });
   const deleteEvent = trpc.events.delete.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
 
@@ -1397,6 +1398,8 @@ function EventsManager() {
       )}
 
       <div className="space-y-4">
+        {eventsLoading && <TableSkeleton rows={4} />}
+        {!eventsLoading && events.length === 0 && <p className="text-sm text-muted-foreground">Todavía no hay eventos: crea el primero con «Nuevo Evento».</p>}
         {events.map((event: any) => (
           <EventCard
             key={event.id}
@@ -1412,7 +1415,7 @@ function EventsManager() {
 }
 
 function DiscountsManager() {
-  const { data: discountsData, refetch } = trpc.discounts.listAll.useQuery();
+  const { data: discountsData, refetch, isLoading: discountsLoading } = trpc.discounts.listAll.useQuery();
   const createDiscount = trpc.discounts.create.useMutation({ onSuccess: () => { refetch(); toast.success('Código de descuento creado'); }, onError: onMutationError });
   const updateDiscount = trpc.discounts.update.useMutation({ onSuccess: () => { refetch(); toast.success('Código actualizado'); }, onError: onMutationError });
   const deleteDiscount = trpc.discounts.delete.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
@@ -1589,6 +1592,8 @@ function DiscountsManager() {
       )}
 
       <div className="space-y-3">
+        {discountsLoading && <TableSkeleton rows={3} />}
+        {!discountsLoading && discounts.length === 0 && <p className="text-sm text-muted-foreground">Todavía no hay códigos de descuento.</p>}
         {discounts.map((d: any) => (
           <Card key={d.id}>
             <CardContent className="pt-4 flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center">
@@ -4235,30 +4240,33 @@ function CustomersView() {
   const { data: eventsData } = trpc.events.listAll.useQuery();
   const events = eventsData ?? [];
 
-  const { data: customersData, refetch } = trpc.customers.listAll.useQuery({
-    search: search || undefined,
+  // Buscar mientras se escribe, pero sin pedirle al servidor una vez por tecla.
+  const debouncedSearch = useDebounced(search.trim());
+  const debouncedCity = useDebounced(cityFilter.trim());
+  const { data: customersData, refetch, isLoading: customersLoading, isFetching: customersFetching } = trpc.customers.page.useQuery({
+    page,
+    pageSize: CUSTOMERS_PAGE_SIZE,
+    search: debouncedSearch || undefined,
     accessType: accessType === 'all' ? undefined : accessType,
     tag: tagFilter || undefined,
     eventId: eventFilter === 'all' ? undefined : Number(eventFilter),
     level: levelFilter === 'all' ? undefined : (levelFilter as 'nuevo' | 'recurrente' | 'vip' | 'inactivo' | 'sin_compras'),
     gender: genderFilter === 'all' ? undefined : genderFilter,
     source: sourceFilter === 'all' ? undefined : sourceFilter,
-    city: cityFilter.trim() || undefined,
+    city: debouncedCity || undefined,
     birthdayMonth: birthdayFilter === 'all' ? undefined : Number(birthdayFilter),
     optedOut: contactFilter === 'all' ? undefined : (contactFilter as 'email' | 'any'),
     hasApp: appFilter === 'app' ? true : undefined,
-  });
+  }, { placeholderData: (prev) => prev });
 
-  const customersList = customersData ?? [];
-  const openIdx = openCustomerId != null ? customersList.findIndex((c: any) => c.id === openCustomerId) : -1;
-  // La lista completa filtrada ya viene sin paginar del server (se necesita
-  // entera para armar audiencias de mailing en otra vista) -- acá se pagina
-  // solo en el cliente, para que la tabla no se haga eterna de scrollear.
-  const totalPages = Math.max(1, Math.ceil(customersList.length / CUSTOMERS_PAGE_SIZE));
-  const currentPage = Math.min(page, totalPages - 1);
-  const pageItems = customersList.slice(currentPage * CUSTOMERS_PAGE_SIZE, currentPage * CUSTOMERS_PAGE_SIZE + CUSTOMERS_PAGE_SIZE);
+  // El servidor manda solo la página que se ve (la lista entera sigue en `listAll` para las audiencias de mailing).
+  const pageItems: any[] = customersData?.rows ?? [];
+  const totalCustomers = customersData?.total ?? 0;
+  const totalPages = customersData?.pages ?? 1;
+  const currentPage = customersData?.page ?? 0;
+  const openIdx = openCustomerId != null ? pageItems.findIndex((c: any) => c.id === openCustomerId) : -1;
 
-  useEffect(() => { setPage(0); }, [search, accessType, tagFilter, eventFilter, levelFilter, genderFilter, sourceFilter, birthdayFilter, contactFilter, appFilter, cityFilter]);
+  useEffect(() => { setPage(0); }, [debouncedSearch, accessType, tagFilter, eventFilter, levelFilter, genderFilter, sourceFilter, birthdayFilter, contactFilter, appFilter, debouncedCity]);
 
   const filterParams = () => {
     const params = new URLSearchParams();
@@ -4295,7 +4303,7 @@ function CustomersView() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="font-heading text-2xl">Clientes</h2>
-        <p className="text-sm text-muted-foreground">{customersList.length} cliente{customersList.length !== 1 ? 's' : ''}</p>
+        <p className="text-sm text-muted-foreground">{customersLoading ? 'Cargando…' : `${totalCustomers.toLocaleString('es-CL')} cliente${totalCustomers !== 1 ? 's' : ''}`}{customersFetching && !customersLoading ? ' · actualizando…' : ''}</p>
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
@@ -4469,10 +4477,11 @@ function CustomersView() {
                 })}
               </tbody>
             </table>
-            {customersList.length === 0 && <p className="text-sm text-muted-foreground py-4">Sin clientes todavía -- se registran solos con cada compra web aprobada.</p>}
+            {customersLoading && <TableSkeleton rows={6} />}
+            {!customersLoading && totalCustomers === 0 && <p className="text-sm text-muted-foreground py-4">{debouncedSearch || debouncedCity ? 'Nadie coincide con esa búsqueda.' : 'Sin clientes todavía -- se registran solos con cada compra web aprobada.'}</p>}
           </div>
 
-          {customersList.length > CUSTOMERS_PAGE_SIZE && (
+          {totalPages > 1 && (
             <div className="flex items-center justify-between pt-4">
               <p className="text-xs text-muted-foreground">Página {currentPage + 1} de {totalPages}</p>
               <div className="flex gap-2">
@@ -4491,8 +4500,8 @@ function CustomersView() {
         onClose={() => setOpenCustomerId(null)}
         onChanged={() => refetch()}
         onDeleted={() => setOpenCustomerId(null)}
-        onPrev={openIdx > 0 ? () => setOpenCustomerId(customersList[openIdx - 1].id) : undefined}
-        onNext={openIdx >= 0 && openIdx < customersList.length - 1 ? () => setOpenCustomerId(customersList[openIdx + 1].id) : undefined}
+        onPrev={openIdx > 0 ? () => setOpenCustomerId(pageItems[openIdx - 1].id) : undefined}
+        onNext={openIdx >= 0 && openIdx < pageItems.length - 1 ? () => setOpenCustomerId(pageItems[openIdx + 1].id) : undefined}
       />
     </div>
   );
@@ -4503,16 +4512,21 @@ function CustomersView() {
  * Home.tsx) -- con $0 de pauta y 8 semanas de campaña, esta lista es la
  * principal defensa contra la gente que visita el sitio y se pierde para
  * siempre por no comprar en el momento. */
+const LEADS_STEP = 100;
+
 function LeadsView() {
   const { data, refetch, isLoading } = trpc.leads.listAll.useQuery();
   const deleteLead = trpc.leads.delete.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
   const allLeads = data ?? [];
 
   // Filtro en memoria: son cientos de filas, no miles, y ya se traen todas
-  // de una consulta sin paginar -- no hace falta tocar el servidor.
+  // de una consulta -- buscar no le pide nada al servidor.
   const [search, setSearch] = useState('');
   const [sourceFilter, setSourceFilter] = useState<string>('all');
   const [convertedFilter, setConvertedFilter] = useState<'all' | 'yes' | 'no'>('all');
+  // Se dibujan de a 100: con miles de filas la pantalla se pegaba (el CSV igual lleva todas las filtradas).
+  const [leadsShown, setLeadsShown] = useState(LEADS_STEP);
+  useEffect(() => { setLeadsShown(LEADS_STEP); }, [search, sourceFilter, convertedFilter]);
 
   const availableSources = Array.from(new Set(allLeads.map((l: any) => l.utmSource).filter(Boolean))) as string[];
 
@@ -4580,7 +4594,7 @@ function LeadsView() {
         <p className="text-muted-foreground text-sm">Ningún lead coincide con el filtro.</p>
       ) : (
         <div className="space-y-2">
-          {leads.map((l: any) => (
+          {leads.slice(0, leadsShown).map((l: any) => (
             <Card key={l.id}>
               <CardContent className="pt-4 flex justify-between items-center flex-wrap gap-2">
                 <div>
@@ -4602,6 +4616,11 @@ function LeadsView() {
               </CardContent>
             </Card>
           ))}
+          {leads.length > leadsShown && (
+            <Button variant="outline" className="w-full" onClick={() => setLeadsShown((n) => n + LEADS_STEP)}>
+              Mostrar {Math.min(LEADS_STEP, leads.length - leadsShown)} más ({leads.length - leadsShown} sin mostrar)
+            </Button>
+          )}
         </div>
       )}
     </div>
@@ -5238,7 +5257,7 @@ function MailingSection() {
   const { data: eventsData } = trpc.events.listAll.useQuery();
   const events = eventsData ?? [];
 
-  const { data: customersData } = trpc.customers.listAll.useQuery({
+  const { data: customersData, isLoading: audienceLoading } = trpc.customers.listAll.useQuery({
     forMailing: true,
     search: search || undefined,
     accessType: accessType === 'all' ? undefined : accessType,
@@ -5539,7 +5558,7 @@ function MailingSection() {
                 </label>
               );
             })}
-            {customersList.length === 0 && <p className="text-sm text-muted-foreground px-3 py-4">Nadie matchea estos filtros.</p>}
+            {customersList.length === 0 && <p className="text-sm text-muted-foreground px-3 py-4">{audienceLoading ? 'Cargando la audiencia…' : 'Nadie coincide con estos filtros.'}</p>}
           </div>
         </CardContent>
       </Card>
@@ -5576,7 +5595,7 @@ function ImmediateSendBatches() {
   const batches = batchesData ?? [];
   const [expandedBatchId, setExpandedBatchId] = useState<string | null>(null);
 
-  const { data: detailData } = trpc.mailing.getSendBatchDetail.useQuery(
+  const { data: detailData, isLoading: detailLoading } = trpc.mailing.getSendBatchDetail.useQuery(
     { batchId: expandedBatchId ?? '' },
     { enabled: expandedBatchId !== null, refetchInterval: 5_000 }
   );
@@ -5627,7 +5646,7 @@ function ImmediateSendBatches() {
                       </span>
                     </div>
                   ))}
-                  {detail.length === 0 && <p className="text-xs text-muted-foreground px-3 py-2">Cargando…</p>}
+                  {detail.length === 0 && <p className="text-xs text-muted-foreground px-3 py-2">{detailLoading ? 'Cargando…' : 'Todavía no sale ningún correo de este envío.'}</p>}
                   {detail.length > 0 && detail.length < total && (
                     <p className="text-xs text-muted-foreground px-3 py-2">Mandando el resto…</p>
                   )}
@@ -5662,7 +5681,7 @@ function MailingHistoryView() {
     onError: onMutationError,
   });
 
-  const { data: recipientsData } = trpc.mailing.getCampaignRecipients.useQuery(
+  const { data: recipientsData, isLoading: recipientsLoading } = trpc.mailing.getCampaignRecipients.useQuery(
     { campaignId: expandedId ?? 0 },
     { enabled: expandedId !== null }
   );
@@ -5756,7 +5775,7 @@ function MailingHistoryView() {
                         <span className="text-destructive text-right">{r.reason || 'Error desconocido'}</span>
                       </div>
                     ))}
-                    {failedRecipients.length === 0 && <p className="text-xs text-muted-foreground px-3 py-2">Cargando…</p>}
+                    {failedRecipients.length === 0 && <p className="text-xs text-muted-foreground px-3 py-2">{recipientsLoading ? 'Cargando…' : 'No hay correos fallidos.'}</p>}
                   </div>
                 )}
               </CardContent>
@@ -6179,7 +6198,7 @@ function AmbassadorSummaryTab({ eventId }: { eventId: number }) {
 }
 
 function AmbassadorsListTab({ eventId }: { eventId: number }) {
-  const { data: listData, refetch } = trpc.ambassadors.listAll.useQuery();
+  const { data: listData, refetch, isLoading: ambassadorsLoading } = trpc.ambassadors.listAll.useQuery();
   const { data: rankingData, refetch: refetchRanking } = trpc.ambassadors.getRanking.useQuery({ eventId });
   const ambassadors = listData ?? [];
   const statsById = new Map((rankingData ?? []).map((r: any) => [r.id, r]));
@@ -6334,7 +6353,7 @@ function AmbassadorsListTab({ eventId }: { eventId: number }) {
                 ))}
                 {visibles.length === 0 && (
                   <tr><td colSpan={10} className="py-8 text-center text-muted-foreground">
-                    {ambassadors.length === 0 ? 'Sin embajadores todavía. Crea el primero con el botón de arriba.' : 'Ningún embajador coincide con el filtro.'}
+                    {ambassadorsLoading ? 'Cargando…' : ambassadors.length === 0 ? 'Sin embajadores todavía. Crea el primero con el botón de arriba.' : 'Ningún embajador coincide con el filtro.'}
                   </td></tr>
                 )}
               </tbody>
