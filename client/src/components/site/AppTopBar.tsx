@@ -5,13 +5,13 @@ import { useLocation } from 'wouter';
  * socio): reemplaza el menú del sitio en cualquier página que se abra desde
  * la app, así nunca se nota que se salió a la web. «Volver» regresa a la
  * pantalla anterior (y a la pestaña donde estaba en «Mi cuenta»); si no hay
- * a dónde volver, va a «Mi cuenta». */
+ * a dónde volver (se abrió desde un link), va al inicio de la app. */
 
 export function AppTopBar() {
   const [, navigate] = useLocation();
   const back = () => {
     if (window.history.length > 1) window.history.back();
-    else navigate('/cuenta', { replace: true });
+    else navigate('/', { replace: true });
   };
   return (
     <header className="account-font fixed inset-x-0 top-0 z-[70] flex items-center justify-between gap-2 border-b border-white/10 bg-[#0b0612]/80 px-3 pb-2 pt-[max(10px,env(safe-area-inset-top))] text-white backdrop-blur-xl">

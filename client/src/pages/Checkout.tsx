@@ -3,8 +3,8 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { motion } from 'framer-motion';
-import { useRoute, useSearch, Link } from 'wouter';
-import { ArrowLeft, ArrowRight, Tag, Loader2, Check, ShieldCheck, Minus, Plus, MessageCircle, Lock, Instagram } from 'lucide-react';
+import { useRoute, useSearch, useLocation, Link } from 'wouter';
+import { ArrowLeft, ArrowRight, Tag, Loader2, Check, ShieldCheck, Minus, Plus, MessageCircle, Lock, Instagram, ChevronLeft, X } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { PaymentBrick } from '@/components/PaymentBrick';
 import { Button } from '@/components/ui/button';
@@ -28,7 +28,9 @@ import { ContestBuyerInvite } from '@/components/ContestBuyerInvite';
 import { MemberEarlyGate } from '@/components/site/MemberEarlyGate';
 import { useMemberSession } from '@/lib/member';
 import { isMemberEarlyAccess } from '@shared/memberConfig';
-import { isInstalledApp } from '@/lib/appInstall';
+import { isAppMode } from '@/lib/appMode';
+import { useDarkChrome } from '@/lib/darkChrome';
+import { AccessList, type AccessRow, type Person } from '@/components/checkout/AccessList';
 import { PurchaseCelebration } from '@/components/site/PurchaseCelebration';
 
 /** Mini vista previa de la Tarjeta Playroom, mostrada justo donde se pide el
@@ -102,15 +104,15 @@ type DuoComposicion = 'mixta' | 'dos_mujeres' | 'dos_hombres';
 
 /* Paso único «¿Cómo vienes?»: antes eran dos pantallas (cuántos son y después quiénes). Ahora todas las
  * opciones en una grilla: un toque y sigue. Las que piden código de comunidad van al final. */
-type AccesoOption = { key: string; slug: string; size: GroupSize; composicion?: DuoComposicion; image: string; label: string; sub: string; emoji: string };
+type AccesoOption = { key: string; slug: string; size: GroupSize; composicion?: DuoComposicion; image: string; label: string; sub: string; emoji: string; people: Person[]; appSub: string };
 const ACCESO_OPTIONS: AccesoOption[] = [
-  { key: 'soltera', slug: 'soltera', size: 1, image: '/candyland/checkout/quien-ella.webp', label: 'Vengo sola', sub: 'Soltera', emoji: '🍭' },
-  { key: 'pareja', slug: 'duo', size: 2, composicion: 'mixta', image: '/candyland/checkout/pareja-mixta.webp', label: 'Pareja', sub: 'Mujer y hombre', emoji: '💑' },
-  { key: 'dos-mujeres', slug: 'duo_mujeres', size: 2, composicion: 'dos_mujeres', image: '/candyland/checkout/pareja-dos-mujeres.webp', label: 'Dos mujeres', sub: '2x1', emoji: '👭' },
-  { key: 'trio', slug: 'trio', size: 3, image: '/candyland/checkout/vibe-triada.webp', label: 'Somos tres', sub: 'Grupo mixto', emoji: '🎭' },
-  { key: 'grupo', slug: 'grupo', size: 4, image: '/candyland/checkout/vibe-grupo.webp', label: 'Somos cuatro', sub: 'Grupo mixto', emoji: '🌈' },
-  { key: 'soltero', slug: 'soltero', size: 1, image: '/candyland/checkout/quien-el.webp', label: 'Vengo solo', sub: 'Con código', emoji: '🔑' },
-  { key: 'dos-hombres', slug: 'duo', size: 2, composicion: 'dos_hombres', image: '/candyland/checkout/pareja-dos-hombres.webp', label: 'Dos hombres', sub: 'Con código', emoji: '👬' },
+  { key: 'soltera', slug: 'soltera', size: 1, image: '/candyland/checkout/quien-ella.webp', label: 'Vengo sola', sub: 'Soltera', emoji: '🍭', people: ['f'], appSub: 'Mujer sola' },
+  { key: 'pareja', slug: 'duo', size: 2, composicion: 'mixta', image: '/candyland/checkout/pareja-mixta.webp', label: 'Pareja', sub: 'Mujer y hombre', emoji: '💑', people: ['f', 'm'], appSub: 'Mujer y hombre' },
+  { key: 'dos-mujeres', slug: 'duo_mujeres', size: 2, composicion: 'dos_mujeres', image: '/candyland/checkout/pareja-dos-mujeres.webp', label: 'Dos mujeres', sub: '2x1', emoji: '👭', people: ['f', 'f'], appSub: 'Entran dos, pagan una' },
+  { key: 'trio', slug: 'trio', size: 3, image: '/candyland/checkout/vibe-triada.webp', label: 'Somos tres', sub: 'Grupo mixto', emoji: '🎭', people: ['f', 'x', 'm'], appSub: 'Tres personas, grupo mixto' },
+  { key: 'grupo', slug: 'grupo', size: 4, image: '/candyland/checkout/vibe-grupo.webp', label: 'Somos cuatro', sub: 'Grupo mixto', emoji: '🌈', people: ['f', 'm', 'f', 'm'], appSub: 'Cuatro personas, mixto' },
+  { key: 'soltero', slug: 'soltero', size: 1, image: '/candyland/checkout/quien-el.webp', label: 'Vengo solo', sub: 'Con código', emoji: '🔑', people: ['m'], appSub: 'Hombre solo' },
+  { key: 'dos-hombres', slug: 'duo', size: 2, composicion: 'dos_hombres', image: '/candyland/checkout/pareja-dos-hombres.webp', label: 'Dos hombres', sub: 'Con código', emoji: '👬', people: ['m', 'm'], appSub: 'Pareja de hombres' },
 ];
 
 /* Etiquetas de la pantalla «Tus datos» (todos los campos juntos). */
@@ -591,6 +593,30 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
     return base;
   }, [acceso, requiresCommunityCode]);
 
+  // Subtítulo de la app: «2º Aniversario · viernes 30 de octubre».
+  const appEventLine = useMemo(() => {
+    if (!event) return EVENTO.nombre;
+    const date = event.eventDate ? new Date(event.eventDate).toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'America/Santiago' }) : '';
+    return [event.title, date].filter(Boolean).join(' · ');
+  }, [event]);
+
+  /** Lo que se cobra hoy por cada opción de la lista de la app (mismo cálculo que `acceso` más abajo). */
+  const optionPrice = (op: AccesoOption): Pick<AccessRow, 'price' | 'original' | 'soldOut'> | null => {
+    if (useConfig) {
+      const cfg = CANDYLAND.accesos.find((a) => a.id === op.slug);
+      return cfg ? { price: cfg.precio, original: null, soldOut: false } : null;
+    }
+    const t: any = findLiveTicket(op.slug);
+    if (!t) return null;
+    const general = Number(t.price);
+    const listed = t.originalPrice != null && Number(t.originalPrice) > general ? Number(t.originalPrice) : null;
+    return {
+      price: missionOpen ? missionDepositPrice(op.slug) : general,
+      original: missionOpen ? general : listed,
+      soldOut: t.totalStock - (t.soldCount ?? 0) <= 0,
+    };
+  };
+
   type Paso = { id: string; titulo: string; sub?: string; keys: string[] };
   const pasos: Paso[] = useMemo(() => {
     const p: Paso[] = [];
@@ -598,7 +624,9 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
       p.push({ id: 'intro-comunidad', titulo: '🎧 Bienvenid@, comunidad electrónica', sub: partner?.headline, keys: [] });
     }
     if (!skipVibe) {
-      p.push({ id: 'acceso', titulo: `✨ ¿Cómo vienes a ${EVENTO.nombre}?`, sub: 'Toca tu opción.', keys: [] });
+      p.push(appMode
+        ? { id: 'acceso', titulo: '¿Con quién vienes?', sub: appEventLine, keys: [] }
+        : { id: 'acceso', titulo: `✨ ¿Cómo vienes a ${EVENTO.nombre}?`, sub: 'Toca tu opción.', keys: [] });
     }
     // Todos los datos del comprador en UNA pantalla (antes era una pantalla por dato).
     p.push({ id: 'datos', titulo: 'Tus datos', sub: 'Para enviarte la entrada y validarla en la puerta. Son 100% privados.', keys: CAMPOS_COMPRADOR.map((f) => `buyer__${f.name}`) });
@@ -615,9 +643,11 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
       p.push({ id: 'bienvenida-playroom', titulo: '💜 Bienvenid@ a Playroom', sub: 'Es tu primera vez con nosotros: así cuidamos la fiesta entre todos. Léelo y confirma para continuar.', keys: [] });
     }
     // Pantalla final: extras, código, total y pagar (antes eran tres pantallas + una espera de 5 s).
-    p.push({ id: 'resumen', titulo: '✨ Último paso', sub: 'Agrega lo que quieras, revisa el total y paga.', keys: [] });
+    p.push(appMode
+      ? { id: 'resumen', titulo: 'Revisa y paga', sub: 'Suma extras si quieres y confirma el total.', keys: [] }
+      : { id: 'resumen', titulo: '✨ Último paso', sub: 'Agrega lo que quieras, revisa el total y paga.', keys: [] });
     return p;
-  }, [camposAcceso, skipVibe, groupSize, requiresCommunityCode, useDbExtras, isPartner, partner?.headline]);
+  }, [camposAcceso, skipVibe, groupSize, requiresCommunityCode, useDbExtras, isPartner, partner?.headline, appMode, appEventLine]);
 
   const [paso, setPaso] = useState(0);
   const total_pasos = pasos.length;
@@ -872,6 +902,12 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
     setPaso((p) => Math.max(p - 1, 0));
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
+  // ✕ de la app: vuelve a la pantalla desde donde se abrió la compra (o al inicio de la app).
+  const [, navigate] = useLocation();
+  const salir = () => {
+    if (window.history.length > 1) window.history.back();
+    else navigate('/');
+  };
 
   const onSubmit = async (values: Record<string, any>) => {
     // Con carga de saldo, el PIN se define en esta misma pantalla (antes había una pantalla aparte después de crear la orden).
@@ -997,6 +1033,19 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
 
   // Opciones de la grilla «¿Cómo vienes?»: el link de la comunidad no ofrece las que piden código.
   const accesoOptions = ACCESO_OPTIONS.filter((op) => !isPartner || (partnerAllows(op.slug) && op.key !== 'soltero' && op.key !== 'dos-hombres'));
+  // La misma lista en la app: filas con precio; las que no tienen entrada cargada en este evento no se muestran.
+  const appRows: AccessRow[] = accesoOptions.flatMap((op) => {
+    const pr = optionPrice(op);
+    if (!pr) return [];
+    return [{
+      key: op.key, label: op.label, sub: op.appSub, people: op.people, ...pr,
+      needsCode: op.key === 'soltero' || op.key === 'dos-hombres',
+      active: accesoSlug === op.slug && (op.composicion ? duoComposicion === op.composicion : true),
+    }];
+  });
+  const appRowsFootnote = missionOpen
+    ? 'Hoy pagas el abono de Misión 300. El precio tachado es el valor general.'
+    : serviceFeePercent > 0 ? `El total suma un ${serviceFeePercent}% de cargo por servicio.` : undefined;
   // Acompañantes agrupados por persona (acomp1_nombre + acomp1_rut → Acompañante 1).
   const acompGroups = (() => {
     const map = new Map<number, { key: string; field: CampoForm }[]>();
@@ -1010,8 +1059,8 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
     return Array.from(map.entries()).sort((a, b) => a[0] - b[0]).map(([n, fields]) => ({ n, fields }));
   })();
 
-  if (ordenPago && pagoResultado === 'approved' && memberSession.data?.loggedIn && !isPartner) {
-    return <PurchaseCelebration eventTitle={event?.title ?? EVENTO.nombre} onShown={() => { void utils.member.me.invalidate(); }} />;
+  if (ordenPago && pagoResultado === 'approved' && (memberSession.data?.loggedIn || appMode) && !isPartner) {
+    return <PurchaseCelebration eventTitle={event?.title ?? EVENTO.nombre} needsLogin={!memberSession.data?.loggedIn} onShown={() => { void utils.member.me.invalidate(); }} />;
   }
 
   if (ordenPago && pagoResultado === 'approved') {
@@ -1062,8 +1111,8 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
           <div className="w-16 h-16 rounded-full glass-candy flex items-center justify-center mx-auto mb-5 text-3xl">⏳</div>
           <h1 className="font-heading font-extrabold text-2xl md:text-3xl tracking-tight mb-2">Tu pago está en revisión</h1>
           <p className="text-muted-foreground text-sm mb-8">Algunos medios de pago tardan unos minutos en confirmarse. Te avisamos por email apenas se apruebe.</p>
-          <Link href="/" className="inline-flex h-13 items-center justify-center px-8 rounded-full border border-border text-sm font-semibold hover:border-primary/50 interactive">
-            Volver al inicio
+          <Link href={appMode ? '/cuenta' : '/'} className="inline-flex h-13 items-center justify-center px-8 rounded-full border border-border text-sm font-semibold hover:border-primary/50 interactive">
+            {appMode ? 'Ir a mi cuenta' : 'Volver al inicio'}
           </Link>
         </div>
       </div>
@@ -1072,14 +1121,14 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
 
   if (ordenPago) {
     return (
-      <div className="min-h-dvh pt-20 pb-16">
+      <div className={`min-h-dvh pb-16 ${appMode ? 'pt-[max(16px,env(safe-area-inset-top))]' : 'pt-20'}`}>
         <div className="container max-w-lg">
           <div className="flex items-center justify-between mb-4 pt-4">
             <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Pago seguro</span>
             <span className="font-heading text-xl text-gradient-candy">{formatCLP(ordenPago.total)}</span>
           </div>
           <h1 className="font-heading font-extrabold text-2xl tracking-tight mb-1">Completa el pago</h1>
-          <p className="text-muted-foreground text-sm mb-5">Ingresa los datos de tu tarjeta — el pago se procesa acá mismo, sin salir de la página.</p>
+          <p className="text-muted-foreground text-sm mb-5">Ingresa los datos de tu tarjeta. El pago se procesa acá mismo, sin salir de {appMode ? 'la app' : 'la página'}.</p>
           {pagoErrorMsg && (
             <div className="mb-4 p-3.5 rounded-xl bg-destructive/10 border border-destructive/30 text-sm text-destructive" role="alert">
               {pagoErrorMsg}
@@ -1139,24 +1188,43 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
   const companionChoices = (repurchase.data?.companions ?? []).filter((c) => !usedCompanion(c));
 
   return (
-    <div className="min-h-dvh pt-20 pb-40 flex flex-col">
+    <div className={`min-h-dvh pb-40 flex flex-col ${appMode ? '' : 'pt-20'}`}>
       <div className="container max-w-lg flex-1">
-        {/* Encabezado + progreso */}
-        <div className="flex items-center justify-between mb-2 pt-4">
-          <Link href="/" className="inline-flex items-center gap-1.5 text-muted-foreground hover:text-foreground text-sm interactive" aria-label="Volver al inicio">
-            <ArrowLeft className="w-4 h-4" /> Salir
-          </Link>
-          <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground" aria-live="polite">
-            Paso {paso + 1} de {total_pasos}
-          </span>
-        </div>
-        <div className="h-1.5 rounded-full bg-muted overflow-hidden mb-6" role="progressbar" aria-valuenow={paso + 1} aria-valuemin={1} aria-valuemax={total_pasos}>
-          <motion.div
-            animate={{ width: `${((paso + 1) / total_pasos) * 100}%` }}
-            transition={{ duration: 0.35, ease: [0.23, 1, 0.32, 1] }}
-            className="h-full rounded-full bg-gradient-to-r from-primary via-cherry to-violet-electric"
-          />
-        </div>
+        {/* Encabezado + progreso. En la app: barra de navegación propia (‹ paso anterior, ✕ cerrar). */}
+        {appMode ? (
+          <div className="sticky top-0 z-30 -mx-4 mb-4 px-4 pb-3 pt-[max(10px,env(safe-area-inset-top))] backdrop-blur-xl bg-[#0b0612]/70">
+            <div className="flex h-11 items-center justify-between">
+              <button type="button" onClick={paso > 0 ? volver : salir} aria-label={paso > 0 ? 'Paso anterior' : 'Cerrar'} className="lg-pill grid h-10 w-10 place-items-center rounded-full text-white interactive">
+                {paso > 0 ? <ChevronLeft className="h-5 w-5" /> : <X className="h-5 w-5" />}
+              </button>
+              <span className="text-footnote font-semibold tabular-nums text-white/60" aria-live="polite">Paso {paso + 1} de {total_pasos}</span>
+              {paso > 0 ? (
+                <button type="button" onClick={salir} aria-label="Cerrar" className="lg-pill grid h-10 w-10 place-items-center rounded-full text-white interactive"><X className="h-5 w-5" /></button>
+              ) : <span className="w-10" aria-hidden />}
+            </div>
+            <div className="mt-2 h-1 overflow-hidden rounded-full bg-white/10" role="progressbar" aria-valuenow={paso + 1} aria-valuemin={1} aria-valuemax={total_pasos}>
+              <motion.div animate={{ width: `${((paso + 1) / total_pasos) * 100}%` }} transition={{ duration: 0.35, ease: [0.23, 1, 0.32, 1] }} className="h-full rounded-full bg-gradient-to-r from-pink-500 via-fuchsia-500 to-sky-500" />
+            </div>
+          </div>
+        ) : (
+          <>
+          <div className="flex items-center justify-between mb-2 pt-4">
+            <Link href="/" className="inline-flex items-center gap-1.5 text-muted-foreground hover:text-foreground text-sm interactive" aria-label="Volver al inicio">
+              <ArrowLeft className="w-4 h-4" /> Salir
+            </Link>
+            <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground" aria-live="polite">
+              Paso {paso + 1} de {total_pasos}
+            </span>
+          </div>
+          <div className="h-1.5 rounded-full bg-muted overflow-hidden mb-6" role="progressbar" aria-valuenow={paso + 1} aria-valuemin={1} aria-valuemax={total_pasos}>
+            <motion.div
+              animate={{ width: `${((paso + 1) / total_pasos) * 100}%` }}
+              transition={{ duration: 0.35, ease: [0.23, 1, 0.32, 1] }}
+              className="h-full rounded-full bg-gradient-to-r from-primary via-cherry to-violet-electric"
+            />
+          </div>
+          </>
+        )}
 
         {/* Sello discreto de la comunidad (sin precio: el valor recién se ve
             en el resumen, después de validar los datos). */}
@@ -1184,8 +1252,17 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.22, ease: [0.23, 1, 0.32, 1] }}
           >
-              <h1 className="font-heading font-extrabold text-2xl md:text-3xl tracking-tight mb-1">{pasoActual.titulo}</h1>
-              {pasoActual.sub && <p className="text-muted-foreground text-sm mb-5">{pasoActual.sub}</p>}
+              {appMode ? (
+                <>
+                  <h1 className="text-large-title font-bold leading-tight tracking-tight">{pasoActual.titulo}</h1>
+                  {pasoActual.sub && <p className="mb-6 mt-1 text-subhead text-white/60 first-letter:uppercase">{pasoActual.sub}</p>}
+                </>
+              ) : (
+                <>
+                  <h1 className="font-heading font-extrabold text-2xl md:text-3xl tracking-tight mb-1">{pasoActual.titulo}</h1>
+                  {pasoActual.sub && <p className="text-muted-foreground text-sm mb-5">{pasoActual.sub}</p>}
+                </>
+              )}
 
               {/* Paso: bienvenida a la comunidad (link aliado). Sin precios. */}
               {pasoActual.id === 'intro-comunidad' && partner && (
@@ -1209,7 +1286,23 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
               )}
 
               {/* Paso: ¿Cómo vienes? — todas las opciones en una grilla, un toque y sigue. */}
-              {pasoActual.id === 'acceso' && (
+              {pasoActual.id === 'acceso' && appMode && (
+                liveTicketsData === undefined ? (
+                  <div className="account-glass h-[420px] rounded-[22px] lg-skeleton" aria-label="Cargando" />
+                ) : (
+                  <AccessList
+                    rows={appRows}
+                    footnote={appRowsFootnote}
+                    onSelect={(key) => {
+                      const op = accesoOptions.find((o) => o.key === key);
+                      if (!op) return;
+                      try { navigator.vibrate?.(8); } catch { /* sin vibración */ }
+                      chooseAcceso(op);
+                    }}
+                  />
+                )
+              )}
+              {pasoActual.id === 'acceso' && !appMode && (
                 <>
                   <div className="grid grid-cols-3 gap-2 md:gap-3">
                     {accesoOptions.map((op) => (
@@ -1678,6 +1771,24 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
       {/* Barra de acciones fija (thumb-reach en móvil). padding-bottom suma el
        * safe-area del celular (home indicator/gesture bar) para que el botón
        * nunca quede tapado por la barra del sistema. */}
+      {appMode ? (
+        !isAutoAdvance && (
+          <div className="fixed inset-x-0 bottom-0 z-40 px-4 pt-3" style={{ paddingBottom: 'max(14px, calc(10px + env(safe-area-inset-bottom)))' }}>
+            <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#0b0612] via-[#0b0612]/90 to-transparent" aria-hidden />
+            <div className="relative mx-auto max-w-lg">
+              {pasoActual.id === 'resumen' ? (
+                <button key="pagar" type="submit" form="checkout-form" disabled={isProcessing} className="flex h-14 w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-pink-500 via-fuchsia-500 to-sky-500 text-headline font-semibold text-white shadow-[0_10px_30px_-8px_rgba(236,72,153,0.6),inset_0_1px_0_rgba(255,255,255,0.35)] interactive disabled:opacity-60">
+                  {isProcessing ? <><Loader2 className="h-5 w-5 animate-spin" /> Procesando…</> : <>Pagar {formatCLP(total)}</>}
+                </button>
+              ) : (
+                <button key="continuar" type="button" onClick={continuar} disabled={checkPartnerEligibility.isPending} className="flex h-14 w-full items-center justify-center gap-2 rounded-full bg-white text-headline font-semibold text-[#0b0612] shadow-[0_10px_30px_-10px_rgba(255,255,255,0.35)] interactive disabled:opacity-60">
+                  {checkPartnerEligibility.isPending ? <><Loader2 className="h-4 w-4 animate-spin" /> Validando…</> : 'Continuar'}
+                </button>
+              )}
+            </div>
+          </div>
+        )
+      ) : (
       <div
         className="fixed bottom-0 inset-x-0 z-40 p-3 bg-gradient-to-t from-background via-background/95 to-transparent pt-6"
         style={{ paddingBottom: 'max(0.75rem, calc(0.75rem + env(safe-area-inset-bottom)))' }}
@@ -1716,6 +1827,7 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
           ) : null}
         </div>
       </div>
+      )}
     </div>
   );
 }
@@ -1731,10 +1843,16 @@ export default function Checkout(props: { partnerSlug?: string } = {}) {
     if (isLoading) return <div className="min-h-dvh" />;
     if (!(session?.loggedIn && session.isMember)) return <MemberEarlyGate event={event as any} />;
   }
-  // Desde la app (instalada con sesión, o la recompra en un toque): la compra con la misma cara de
-  // la app, oscura y de vidrio, no la del sitio.
-  const appSheet = !props.partnerSlug && ((isInstalledApp() && !!session?.loggedIn) || new URLSearchParams(search).get('rapida') === '1');
+  // En la app (instalada o en el celular, ver lib/appMode.ts) y en la recompra en un toque: la compra
+  // con la misma cara de la app, oscura y de vidrio, no la del sitio.
+  const appSheet = !props.partnerSlug && (isAppMode() || new URLSearchParams(search).get('rapida') === '1');
   if (!appSheet) return <CheckoutInner {...props} />;
+  return <AppCheckout {...props} />;
+}
+
+function AppCheckout(props: { partnerSlug?: string }) {
+  // La barra de la hora y el rebote del scroll también oscuros (antes asomaba el rosado del sitio).
+  useDarkChrome();
   return (
     <div className="account-font account-tokens checkout-app relative min-h-dvh bg-[#0b0612] text-white">
       <div className="account-backdrop" />

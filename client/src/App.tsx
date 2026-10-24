@@ -11,7 +11,8 @@ import { SoundProvider } from '@/lib/sound/SoundContext';
 import Navbar from "./components/Navbar";
 import { AppTopBar } from "./components/site/AppTopBar";
 import { InstallAppPrompt } from "./components/site/InstallAppPrompt";
-import { isInstalledApp } from "./lib/appInstall";
+import { isAppMode } from "./lib/appMode";
+import { useDarkChrome } from "@/lib/darkChrome";
 import { useMemberSession } from "./lib/member";
 import { hasAccountSnapshot } from "./lib/offlineAccount";
 import { AccountSkeleton } from "./components/site/AccountSkeleton";
@@ -35,6 +36,8 @@ import { DARK_CHROME_BG, isDarkRoute } from "@/lib/darkChrome";
 // y solo le agrega la paleta Halloween si el switch del admin está prendido
 // (o siempre en /halloween, la vista previa).
 const HalloweenHome = lazy(() => import("./pages/HalloweenHome"));
+const AppHome = lazy(() => import("./pages/AppHome"));
+const AppEvents = lazy(() => import("./pages/AppEvents"));
 // La ventana de bienvenida a la comunidad solo se descarga si alguien llega desde la notificación de bienvenida.
 const WelcomeDialog = lazy(() => import("./components/site/WelcomeDialog"));
 const CustomCursor = lazy(() => import("./components/CustomCursor"));
@@ -96,7 +99,7 @@ function PageLoader({ path }: { path: string }) {
   // mientras baja el chunk: un círculo encima sería un segundo loader.
   if (hasDarkSplash()) return null;
   // «Mi cuenta» y la entrada son oscuras: cargar en pastel daba un destello blanco al navegar.
-  if (isDarkRoute(path)) {
+  if (isDarkRoute(path) || isAppMode()) {
     // La app con sesión guardada: la forma de «Mi cuenta» mientras baja la página, no una pantalla negra.
     if (/^\/(cuenta|mis-puntos)/.test(path) && window.innerWidth < 768 && hasAccountSnapshot()) return <AccountSkeleton />;
     return <div className="fixed inset-0" style={{ background: DARK_CHROME_BG }} />;
@@ -108,12 +111,11 @@ function PageLoader({ path }: { path: string }) {
   );
 }
 
-/** «Modo app»: la App de PlayRoom instalada + sesión de «Mi cuenta». Al abrirla
- * va directo a «Mi cuenta» (sin pasar por la portada), y lo demás se ve como
- * pantallas de la app (barra con «Volver», sin el menú del sitio). En el
- * navegador común el sitio sigue siendo el sitio. */
+/** «Modo app» (lib/appMode.ts: la app instalada, o el sitio abierto en un teléfono): sin el menú
+ * ni la portada del sitio; lo demás se ve como pantallas de la app (barra con «Volver»). Con sesión,
+ * al abrir va directo a «Mi cuenta». En el computador el sitio sigue siendo el sitio. */
 function useMemberAppMode(location: string, hideChrome: boolean) {
-  const installed = useState(isInstalledApp)[0];
+  const installed = useState(isAppMode)[0];
   const { data: session, isLoading, isError } = useMemberSession();
   const [, navigate] = useLocation();
   // Sin red (en la puerta) no se puede preguntar por la sesión: si este teléfono tiene la cuenta
@@ -127,10 +129,16 @@ function useMemberAppMode(location: string, hideChrome: boolean) {
     setFirstLoad(false);
   }, [firstLoad, isLoading, loggedIn, navigate]);
   return {
-    memberApp: loggedIn && !hideChrome,
+    memberApp: installed && !hideChrome,
     onAccount: location.startsWith('/cuenta'),
     holdForAccount: firstLoad && (isLoading || loggedIn),
   };
+}
+
+/** En la app la barra de la hora y el fondo son siempre oscuros (nunca el rosado del sitio). */
+function AppDarkChrome() {
+  useDarkChrome();
+  return null;
 }
 
 function Router() {
@@ -165,10 +173,10 @@ function Router() {
         transition={{ duration: 0.25, ease: [0.23, 1, 0.32, 1] }}
       >
         <Switch>
-          <Route path="/">{() => <HalloweenHome />}</Route>
+          <Route path="/">{() => (isAppMode() ? <AppHome /> : <HalloweenHome />)}</Route>
           <Route path="/halloween">{() => <HalloweenHome force />}</Route>
-          <Route path="/eventos" component={Events} />
-          <Route path="/eventos/:slug" component={EventDetail} />
+          <Route path="/eventos" component={isAppMode() ? AppEvents : Events} />
+          <Route path="/eventos/:slug" component={isAppMode() ? AppEvents : EventDetail} />
           <Route path="/checkout/:eventSlug">{() => <Checkout />}</Route>
           {/* Link privado de la comunidad electrónica (B2B Aldo Medel x German
               Courtin): precio especial, ver shared/partnerCampaign.ts. */}
@@ -298,7 +306,9 @@ function App() {
           {/* Modo app (la App de PlayRoom instalada, con sesión de socio): sin el menú
               del sitio; una barra de app con «Volver» en todo lo que se abra desde ahí. */}
           {!hideChrome && !isCoproLanding && !memberApp && <Navbar />}
-          {memberApp && !onAccount && <AppTopBar />}
+          {/* La portada y la compra de la app traen su propia barra. */}
+          {memberApp && !onAccount && location !== '/' && !location.startsWith('/checkout') && <AppTopBar />}
+          {memberApp && <AppDarkChrome />}
           {/* top-center a propósito: /gastos y /caja tienen un botón de acción
               fijo abajo de la pantalla, y el toast por defecto (abajo) quedaba
               superpuesto con ese botón -- se veía como texto roto/mezclado. */}
@@ -308,7 +318,8 @@ function App() {
           {!hideChrome && <InstallAppPrompt />}
           {holdForAccount ? (hasAccountSnapshot() ? <AccountSkeleton /> : <div className="fixed inset-0 bg-[#0b0612]" />) : memberApp ? (
             <AnimatePresence mode="popLayout" initial={false}>
-              <motion.div key={location} initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} transition={{ type: 'spring', damping: 30, stiffness: 300 }}>
+              {/* Los colores de la app (oscuros) también en las páginas de contenido del sitio que se abren desde acá. */}
+              <motion.div key={location} className="account-tokens min-h-dvh bg-[#0b0612]" initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} transition={{ type: 'spring', damping: 30, stiffness: 300 }}>
                 <Router />
               </motion.div>
             </AnimatePresence>
