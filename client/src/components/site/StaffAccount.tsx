@@ -97,6 +97,9 @@ function StaffPinCard({ pin }: { pin: NonNullable<StaffPortal['pin']> }) {
 }
 
 export function StaffAccount({ staff }: { staff: StaffPortal }) {
+  const hasCaja = staff.tools.some((t) => t.key === 'caja');
+  const { data: device } = trpc.caja.deviceStatus.useQuery(undefined, { enabled: hasCaja, retry: false, staleTime: 300_000 });
+  const cajaHere = !!device?.enrolled;
   const next = nextShift(staff);
   const past = staff.shifts.filter((s) => s !== next);
   const mapsHref = next?.address || next?.venue ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([next.venue, next.address].filter(Boolean).join(', '))}` : null;
@@ -193,7 +196,13 @@ export function StaffAccount({ staff }: { staff: StaffPortal }) {
       {staff.tools.length > 0 && (
         <Block icon={<Wrench className="h-4 w-4" />} title="Tus herramientas">
           <div className="grid grid-cols-2 gap-2">
-            {staff.tools.map((t) => (
+            {staff.tools.map((t) => t.key === 'caja' && !cajaHere ? (
+              // La caja solo abre en los equipos enrolados de la barra: en un celular personal no se manda a una pantalla de error.
+              <div key={t.key} className="flex min-h-14 items-center gap-2 rounded-2xl bg-white/[0.04] px-3 py-2 text-subhead font-semibold text-white/70">
+                <span className="text-xl" aria-hidden>{t.emoji}</span>
+                <span className="min-w-0 leading-tight">{t.label}<span className="block text-caption2 font-normal text-white/50">En el equipo de la barra</span></span>
+              </div>
+            ) : (
               <Link key={t.key} href={t.href} className="flex h-14 items-center gap-2 rounded-2xl bg-white/[0.07] px-3 text-subhead font-semibold interactive">
                 <span className="text-xl" aria-hidden>{t.emoji}</span> {t.label}
               </Link>

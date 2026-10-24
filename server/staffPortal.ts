@@ -15,7 +15,8 @@ import { hashPin } from './caja/auth';
 import { setStaffPinHash } from './staff';
 import { cargoDef, cargoTitle, operatorRoleForCargo, pinProblem } from '../shared/staffCargos';
 import { staffSystemsFor } from '../shared/cajaRoles';
-import { buildStaffWelcomeEmail, sendEmail } from './email';
+import { buildStaffShiftEmail, buildStaffWelcomeEmail, sendEmail } from './email';
+import { formatChileDate } from '../shared/chileDate';
 import { pushToEmail } from './customerPush';
 import { honorariosBreakdown } from '../shared/honorarios';
 import { monthKeyFor } from '../shared/ambassadorProgram';
@@ -26,7 +27,6 @@ import {
   parseStaffCode,
   roleKey,
   linkStaffTools,
-  staffToolsForRole,
   type StaffContact,
   type StaffEventInfo,
 } from '../shared/staffPortal';
@@ -116,6 +116,35 @@ export async function sendStaffWelcome(staffId: number): Promise<boolean> {
     html: buildStaffWelcomeEmail({ name: staff.name, role: cargoTitle(staff.cargo, staff.role), email: staff.email, needsPin }),
   });
   return r.success;
+}
+
+/** Aviso (correo y push) de que la asignaron a una noche. Sin correo o archivada: no se manda. Nunca lanza. */
+export async function notifyStaffShift(staffId: number, eventId: number): Promise<boolean> {
+  try {
+    const db = await getDb();
+    if (!db) return false;
+    const [staff] = await db.select({ name: staffMembers.name, role: staffMembers.role, cargo: staffMembers.cargo, email: staffMembers.email, active: staffMembers.active, pinHash: staffMembers.pinHash }).from(staffMembers).where(eq(staffMembers.id, staffId)).limit(1);
+    const [event] = await db.select({ title: events.title, eventDate: events.eventDate }).from(events).where(eq(events.id, eventId)).limit(1);
+    if (!staff?.active || !staff.email || !event) return false;
+    const callTime = (await getEventStaffInfo(eventId)).callTimes[String(staffId)] ?? null;
+    const needsPin = !!operatorRoleForCargo(staff.cargo) && !staff.pinHash;
+    const role = cargoTitle(staff.cargo, staff.role);
+    const dateLabel = event.eventDate ? formatChileDate(event.eventDate, { withWeekday: true }) : 'Fecha por confirmar';
+    void pushToEmail(staff.email, {
+      title: `🪩 Trabajas en ${event.title}`,
+      body: [role, dateLabel, callTime ? `citación ${callTime}` : null].filter(Boolean).join(' · '),
+      url: '/cuenta?staff=1',
+    });
+    const r = await sendEmail({
+      to: staff.email,
+      subject: `🪩 Estás en el staff de ${event.title}`,
+      html: buildStaffShiftEmail({ name: staff.name, role, eventTitle: event.title, eventDateLabel: dateLabel, callTime, needsPin }),
+    });
+    return r.success;
+  } catch (e) {
+    console.warn('[staff] aviso de turno', e);
+    return false;
+  }
 }
 
 /** La persona del equipo (activa) dueña de ese correo, o null. */
@@ -294,7 +323,8 @@ export async function getStaffPortal(email: string, now: Date = new Date()) {
     cargo: cargo ? { key: cargo.key, label: cargo.label, emoji: cargo.emoji } : null,
     // PIN de las pantallas de trabajo: solo para los cargos que usan una.
     pin: cargo?.operatorRole || staff.pinHash ? { set: !!staff.pinHash, setAt: staff.pinSetAt ?? null } : null,
-    tools: linkStaffTools(staffToolsForRole(cargo?.operatorRole ? cargo.key : staff.role), await operatorSystems(staff.id, staff.email ?? email)),
+    // Solo las pantallas donde de verdad tiene acceso esta noche (nada de botones que llevan a un login sin su nombre).
+    tools: linkStaffTools([], await operatorSystems(staff.id, staff.email ?? email)),
     credential: credential ? { ...credential, qrImageUrl } : null,
     shifts,
   };
