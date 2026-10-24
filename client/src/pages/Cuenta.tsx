@@ -2,12 +2,14 @@ import { Component, Fragment, useEffect, useRef, useState, type ReactNode } from
 import { createPortal } from 'react-dom';
 import { AnimatePresence, MotionConfig, motion, useDragControls } from 'framer-motion';
 import { toast } from 'sonner';
-import { BadgeCheck, Calendar, Check, Copy, Crown, Gift, LogOut, Sparkles, Ticket as TicketIcon, ArrowRight, Download, Loader2, X, QrCode, CreditCard, Wallet, Plus, RefreshCw, Bell, ChevronLeft, ChevronRight, Heart, User, WifiOff, ScanFace, CircleHelp } from 'lucide-react';
+import { BadgeCheck, Calendar, Check, Copy, Crown, Gift, LogOut, Sparkles, Ticket as TicketIcon, ArrowRight, Download, Loader2, X, QrCode, CreditCard, Wallet, Plus, RefreshCw, Bell, ChevronLeft, ChevronRight, Heart, User, WifiOff, ScanFace, CircleHelp, Shirt, MessageCircle, FileText } from 'lucide-react';
 import { Link } from 'wouter';
 import { trpc } from '@/lib/trpc';
 import type { inferRouterOutputs } from '@trpc/server';
 import type { AppRouter } from '../../../server/routers';
 import { useSeo } from '@/hooks/useSeo';
+import { CANDYLAND } from '@/config/candyland';
+import { BRAND } from '@shared/eventBrand';
 import { useHalloweenMode } from '@/lib/halloween';
 import { isAppMode } from '@/lib/appMode';
 import { canRedeem, PLAYCOINS_MIN_REDEEM_BALANCE } from '@shared/playcoins';
@@ -875,6 +877,38 @@ function resolveTab(raw: string | null | undefined): { tab: Tab; prize?: Prize; 
 const TAB_KEY = 'cuenta.tab';
 const PRIZE_KEY = 'cuenta.premios';
 
+const BRAND_VALUES = BRAND.valores.join(' · ');
+
+type SettingsRow = { key: string; label: string; sub?: string; icon: typeof Bell; tint: string; dot?: boolean; onClick?: () => void; href?: string; external?: string };
+
+/** Un grupo de filas como en Ajustes del iPhone: ícono en un cuadradito de color, texto y flecha. */
+function SettingsGroup({ title, rows }: { title?: string; rows: SettingsRow[] }) {
+  return (
+    <section>
+      {title && <h2 className="mb-1.5 px-4 text-footnote font-semibold uppercase tracking-wide text-white/50">{title}</h2>}
+      <div className="account-glass divide-y divide-white/[0.08] overflow-hidden rounded-[22px]">
+        {rows.map(({ key, label, sub, icon: Icon, tint, dot, onClick, href, external }) => {
+          const inner = (
+            <>
+              <span aria-hidden className={`grid h-8 w-8 shrink-0 place-items-center rounded-[9px] ${tint} shadow-[inset_0_1px_0_rgba(255,255,255,0.3)]`}><Icon className="h-[18px] w-[18px] text-white" /></span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-body leading-tight">{label}</span>
+                {sub && <span className="mt-0.5 block truncate text-footnote text-white/55">{sub}</span>}
+              </span>
+              {dot && <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-pink-500 shadow-[0_0_8px_rgba(236,72,153,0.9)]" />}
+              <ChevronRight className="h-4 w-4 shrink-0 text-white/35" />
+            </>
+          );
+          const cls = 'relative flex w-full items-center gap-3 px-4 py-3 text-left active:bg-white/10';
+          if (href) return <Link key={key} href={href} onClick={tapHaptic} className={cls}>{inner}</Link>;
+          if (external) return <a key={key} href={external} target="_blank" rel="noopener noreferrer" onClick={tapHaptic} className={cls}>{inner}</a>;
+          return <button key={key} type="button" onClick={() => { tapHaptic(); onClick?.(); }} className={cls}>{inner}</button>;
+        })}
+      </div>
+    </section>
+  );
+}
+
 function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: LoginDone | null; onLogout: () => void; offlineAt: number | null }) {
   const halloween = useHalloweenMode();
   // Al volver de otra pantalla (comprar, un evento…) se abre en la misma pestaña donde estaba.
@@ -1045,24 +1079,26 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
                   </span>
                 </button>
               )}
-              <div className="account-glass divide-y divide-white/10 overflow-hidden rounded-[24px]">
-                {([
-                  ...(passkeyOk ? [{ key: 'faceid', label: `Entrar con ${biometricName()}`, sub: passkeyUsedHere() ? `Activado en ${thisDeviceName()}` : 'Con un toque, sin esperar el código', icon: ScanFace, dot: false, onClick: () => { setFaceIdOffer(false); setSheet('faceid'); } }] : []),
-                  { key: 'avisos', label: 'Avisos', sub: pushPending ? 'Actívalos para no perderte nada' : 'Recordatorios, preventas y novedades', icon: Bell, dot: pushPending, onClick: () => setSheet('avisos') },
-                  ...(pay.savedCards ? [{ key: 'tarjetas', label: 'Mis tarjetas', sub: 'Tus tarjetas guardadas', icon: CreditCard, dot: false, onClick: () => setSheet('tarjetas') }] : []),
-                ] as { key: string; label: string; sub: string; icon: typeof Bell; dot: boolean; onClick: () => void }[]).map(({ key, label, sub, icon: Icon, dot, onClick }) => (
-                  <button key={key} type="button" onClick={() => { tapHaptic(); onClick(); }} className="relative flex w-full items-center gap-3 px-4 py-3.5 text-left interactive">
-                    <Icon className="h-5 w-5 shrink-0 text-pink-300" />
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-subhead font-semibold leading-tight">{label}</span>
-                      <span className="block truncate text-footnote text-white/60">{sub}</span>
-                    </span>
-                    {dot && <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-pink-500 shadow-[0_0_8px_rgba(236,72,153,0.9)]" />}
-                    <ChevronRight className="h-4 w-4 shrink-0 text-white/45" />
-                  </button>
-                ))}
+              <SettingsGroup rows={[
+                ...(passkeyOk ? [{ key: 'faceid', label: `Entrar con ${biometricName()}`, sub: passkeyUsedHere() ? `Activado en ${thisDeviceName()}` : 'Con un toque, sin esperar el código', icon: ScanFace, tint: 'bg-emerald-500', onClick: () => { setFaceIdOffer(false); setSheet('faceid'); } }] : []),
+                { key: 'avisos', label: 'Avisos', sub: pushPending ? 'Actívalos para no perderte nada' : 'Recordatorios, preventas y novedades', icon: Bell, tint: 'bg-rose-500', dot: pushPending, onClick: () => setSheet('avisos') },
+                { key: 'entradas', label: 'Mis entradas', sub: 'Las próximas y las de fiestas pasadas', icon: TicketIcon, tint: 'bg-fuchsia-500', onClick: () => setSheet('entradas') },
+                ...(pay.savedCards ? [{ key: 'tarjetas', label: 'Mis tarjetas', sub: 'Tus tarjetas guardadas', icon: CreditCard, tint: 'bg-sky-500', onClick: () => setSheet('tarjetas') }] : []),
+              ]} />
+              <SettingsGroup title="La fiesta" rows={[
+                { key: 'eventos', label: 'Eventos', icon: Calendar, tint: 'bg-violet-500', href: '/eventos' },
+                { key: 'fiesta', label: 'Pistas, line-up y la mansión', icon: Sparkles, tint: 'bg-pink-500', onClick: () => setInfo('fiesta') },
+                { key: 'dresscode', label: 'Dress code', icon: Shirt, tint: 'bg-orange-500', onClick: () => setInfo('dresscode') },
+              ]} />
+              <SettingsGroup title="Ayuda" rows={[
+                { key: 'faq', label: 'Preguntas frecuentes', icon: CircleHelp, tint: 'bg-sky-500', onClick: () => setInfo('faq') },
+                { key: 'whatsapp', label: 'Escríbenos por WhatsApp', icon: MessageCircle, tint: 'bg-green-500', external: CANDYLAND.redes.whatsapp },
+                { key: 'legal', label: 'Políticas', icon: FileText, tint: 'bg-slate-500', onClick: () => setInfo('legal') },
+              ]} />
+              <div className="account-glass overflow-hidden rounded-[22px]">
+                <button type="button" onClick={() => { tapHaptic(); try { sessionStorage.removeItem(TAB_KEY); sessionStorage.removeItem(PRIZE_KEY); } catch { /* nada */ } onLogout(); }} className="flex h-12 w-full items-center justify-center gap-2 text-body font-semibold text-rose-400 active:bg-white/10"><LogOut className="h-4 w-4" /> Cerrar sesión</button>
               </div>
-              <button type="button" onClick={() => { tapHaptic(); try { sessionStorage.removeItem(TAB_KEY); sessionStorage.removeItem(PRIZE_KEY); } catch { /* nada */ } onLogout(); }} className="flex h-12 w-full items-center justify-center gap-2 rounded-full text-subhead font-semibold text-rose-300/90"><LogOut className="h-4 w-4" /> Cerrar sesión</button>
+              <p className="pb-2 text-center text-caption1 text-white/40">Mansion PlayRoom · {BRAND_VALUES} · +18</p>
             </div>
           )}
         </motion.div>

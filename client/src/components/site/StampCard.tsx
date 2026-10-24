@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
-import { Check, Copy, Gift, Sparkles, Ticket as TicketIcon } from 'lucide-react';
+import { Check, Copy, Gift, RefreshCw, Sparkles, Ticket as TicketIcon } from 'lucide-react';
 import type { inferRouterOutputs } from '@trpc/server';
 import type { AppRouter } from '../../../../server/routers';
 import { trpc } from '@/lib/trpc';
@@ -150,11 +150,20 @@ function StampHistory({ history }: { history: StampData['history'] }) {
 
 /** La pestaña completa: carga sus datos y muestra la tarjeta (o un esqueleto mientras carga). */
 export function StampsTab({ buySlug }: { buySlug: string | null }) {
-  const { data, isLoading } = trpc.member.stamps.useQuery(undefined, { staleTime: 30_000, retry: false });
+  const { data, isLoading, refetch, isFetching } = trpc.member.stamps.useQuery(undefined, { staleTime: 30_000, retry: false });
   const skeleton = useMemo(() => (
     <div className="account-glass h-[340px] animate-pulse rounded-[28px]" />
   ), []);
   if (isLoading) return skeleton;
-  if (!data) return <p className="account-glass rounded-[28px] p-5 text-subhead text-white/60">No pudimos cargar tu tarjeta. Intenta de nuevo en un rato.</p>;
+  if (!data) {
+    return (
+      <div className="account-glass flex flex-col items-center gap-3 rounded-[28px] p-6 text-center">
+        <p className="text-subhead text-white/70">No pudimos cargar tu tarjeta de sellos.</p>
+        <button type="button" onClick={() => { void refetch(); }} disabled={isFetching} className="lg-pill inline-flex h-11 items-center gap-2 rounded-full px-5 text-subhead font-semibold disabled:opacity-60">
+          <RefreshCw className={`h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} /> Reintentar
+        </button>
+      </div>
+    );
+  }
   return <StampCardView data={data} buySlug={buySlug} />;
 }
