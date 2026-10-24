@@ -9,6 +9,8 @@ import { NOT_ADMIN_ERR_MSG } from '@shared/const';
 import { canOpenAdmin, isPartnerRole, useIsDemo, DEMO_TOOLTIP } from '@/lib/demoMode';
 import { WriteButton, DownloadLink } from '@/components/admin/WriteButton';
 import { CartaManager } from '@/components/admin/carta/CartaManager';
+import { StaffManager } from '@/components/admin/staff/StaffManager';
+import { OPERATOR_ROLES, OPERATOR_ROLE_LABELS, type OperatorRole } from '@shared/cajaRoles';
 import { useHideSplashOnMount } from '@/lib/splash';
 import { BlockedManager } from '@/components/admin/blocked/BlockedManager';
 import { MAX_AMBASSADOR_BUYER_DISCOUNT } from '@shared/ambassadorDiscount';
@@ -7446,39 +7448,25 @@ function OperatorsManager({ eventId }: { eventId: number }) {
   const create = trpc.operators.create.useMutation({ onSuccess: () => { refetch(); toast.success('Operador creado'); setForm({ name: '', pin: '', role: 'caja', email: '' }); }, onError: onMutationError });
   const update = trpc.operators.update.useMutation({ onSuccess: () => { refetch(); toast.success('Actualizado'); }, onError: onMutationError });
   const deleteOperator = trpc.operators.delete.useMutation({ onSuccess: () => { refetch(); toast.success('Operador eliminado'); }, onError: onMutationError });
-  const [form, setForm] = useState({ name: '', pin: '', role: 'caja' as 'admin' | 'supervisor' | 'caja' | 'barra' | 'acceso' | 'cocina' | 'guardarropia', email: '' });
+  const [form, setForm] = useState({ name: '', pin: '', role: 'caja' as OperatorRole, email: '' });
+  const openStaff = () => window.dispatchEvent(new CustomEvent(OPEN_SECTION_EVENT, { detail: 'staff' }));
 
   return (
     <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
-      <CardHeader><CardTitle>Operadores</CardTitle></CardHeader>
+      <CardHeader className="space-y-1">
+        <CardTitle>Accesos de este evento</CardTitle>
+        <p className="text-sm text-muted-foreground">
+          Quién puede entrar a caja, puerta, cocina y guardarropía. Cada persona del staff entra con el PIN que creó en su app.
+          {' '}<button type="button" onClick={openStaff} className="font-semibold text-primary underline-offset-2 hover:underline">Agregar o editar staff →</button>
+        </p>
+      </CardHeader>
       <CardContent className="space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
-          <div><Label>Nombre</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="mt-1" /></div>
-          <div><Label>PIN (4-8 dígitos)</Label><Input value={form.pin} onChange={(e) => setForm({ ...form, pin: e.target.value })} className="mt-1" maxLength={8} /></div>
-          <div>
-            <Label>Rol</Label>
-            <Select value={form.role} onValueChange={(v) => setForm({ ...form, role: v as any })}>
-              <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="caja">Caja</SelectItem>
-                <SelectItem value="supervisor">Supervisor</SelectItem>
-                <SelectItem value="admin">Admin</SelectItem>
-                <SelectItem value="barra">Barra</SelectItem>
-                <SelectItem value="acceso">Control acceso</SelectItem>
-                <SelectItem value="cocina">Cocina</SelectItem>
-                <SelectItem value="guardarropia">Guardarropía</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div><Label>Email (opcional)</Label><Input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="mt-1" type="email" placeholder="Para el PDF de cierre" /></div>
-          <WriteButton disabled={!form.name || form.pin.length < 4 || create.isPending} onClick={() => create.mutate({ ...form, eventId, email: form.email || undefined })}>Crear operador</WriteButton>
-        </div>
         <div className="space-y-2">
           {(operators ?? []).map((op: any) => (
             <div key={op.id} className="flex items-center justify-between p-3 rounded-lg bg-muted/30 border border-border/50">
               <div>
-                <p className="font-medium">{op.name}</p>
-                <p className="text-xs text-muted-foreground capitalize">{op.role} · {op.active ? 'activo' : 'inactivo'}</p>
+                <p className="font-medium">{op.name} {op.staffId ? <span className="ml-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">Staff</span> : <span className="ml-1 rounded-full bg-black/5 px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">Suelto</span>}</p>
+                <p className="text-xs text-muted-foreground">{OPERATOR_ROLE_LABELS[op.role] ?? op.role} · {op.active ? 'activo' : 'inactivo'}</p>
               </div>
               <div className="flex items-center gap-2">
                 <OperatorEmailInput operatorId={op.id} email={op.email ?? null} onSave={(email) => update.mutate({ id: op.id, email: email || null })} />
@@ -7492,8 +7480,28 @@ function OperatorsManager({ eventId }: { eventId: number }) {
               </div>
             </div>
           ))}
-          {operators && operators.length === 0 && <p className="text-sm text-muted-foreground">Sin operadores todavía para este evento.</p>}
+          {operators && operators.length === 0 && <p className="text-sm text-muted-foreground">Nadie tiene acceso todavía a este evento.</p>}
         </div>
+        <details className="rounded-lg border border-border/50 p-3">
+          <summary className="cursor-pointer text-sm font-medium">Crear acceso suelto (pruebas o alguien sin ficha)</summary>
+          <div className="pt-3">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
+          <div><Label>Nombre</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="mt-1" /></div>
+          <div><Label>PIN (4-8 dígitos)</Label><Input value={form.pin} onChange={(e) => setForm({ ...form, pin: e.target.value })} className="mt-1" maxLength={8} /></div>
+          <div>
+            <Label>Rol</Label>
+            <Select value={form.role} onValueChange={(v) => setForm({ ...form, role: v as any })}>
+              <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {OPERATOR_ROLES.map((r) => <SelectItem key={r} value={r}>{OPERATOR_ROLE_LABELS[r]}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div><Label>Email (opcional)</Label><Input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="mt-1" type="email" placeholder="Para el PDF de cierre" /></div>
+          <WriteButton disabled={!form.name || form.pin.length < 4 || create.isPending} onClick={() => create.mutate({ ...form, eventId, email: form.email || undefined })}>Crear operador</WriteButton>
+        </div>
+          </div>
+        </details>
       </CardContent>
     </Card>
   );
@@ -11011,6 +11019,7 @@ const ADMIN_SECTIONS = [
 
   { id: 'overview', label: 'Resumen de la noche', hub: 'noche', icon: LayoutDashboard, render: () => <EventOverview /> },
   { id: 'caja', label: 'Caja', hub: 'noche', icon: Store, render: () => <CajaAdminView /> },
+  { id: 'staff', label: 'Staff', hub: 'noche', icon: Users, render: () => <StaffManager /> },
   { id: 'flash-promo', label: 'Promo Flash', hub: 'noche', icon: Zap, render: () => <FlashPromoCard /> },
   { id: 'party-gifts', label: 'Tragos de la Fiesta', hub: 'noche', icon: Martini, render: () => <PartyGiftsView /> },
   { id: 'denuncias', label: 'Denuncias', hub: 'noche', icon: ShieldAlert, render: () => <DenunciasView /> },
@@ -11311,7 +11320,7 @@ function CuentaDemoView() {
             <li>Entra a la App (Mi cuenta) con ese correo: te llega el código.</li>
             <li>En la pestaña Playmatch inscríbete y sube tus fotos.</li>
             <li>Aprieta «Empezar la fiesta»: tu entrada queda escaneada, Playmatch abre y los invitados de prueba te mandan un Caramelo, te dan ♥ y uno ya es match con mensajes. Puedes apretarlo de nuevo para repetir.</li>
-            <li>Para ver la sección «Staff»: en Operadores crea uno del evento activo con este mismo correo.</li>
+            <li>Para ver la sección «Staff»: en Noche → Staff agrega a alguien con este mismo correo y un cargo; ahí crea su PIN.</li>
           </ol>
         </div>
       )}

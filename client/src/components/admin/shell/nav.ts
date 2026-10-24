@@ -50,6 +50,7 @@ export const SECTION_KEYWORDS: Record<string, string> = {
   home: 'inicio resumen kpi pendientes',
   overview: 'evento noche hoy en vivo aforo',
   caja: 'barra tragos turnos cierre',
+  staff: 'equipo personal cargos pin operadores bartender seguridad puerta agregar staff',
   'flash-promo': 'promocion oferta relampago',
   'party-gifts': 'regalos tragos gratis',
   denuncias: 'reportes playmatch seguridad',

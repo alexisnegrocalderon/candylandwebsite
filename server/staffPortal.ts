@@ -1,7 +1,8 @@
-/* La app del staff (shared/staffPortal.ts). Lo que no tiene columna propia
- * se guarda en la tabla del Estudio (`contentDesigns`) con `kind = 'staff'`,
- * igual que el contenido de embajadores, para no tener que migrar la base:
- * - una fila sin evento con el correo de cada persona del equipo;
+/* La app del staff (shared/staffPortal.ts). El correo, el cargo y el PIN
+ * viven en `staffMembers` (ficha única, drizzle/0129). Lo que no tiene columna
+ * propia se guarda en la tabla del Estudio (`contentDesigns`) con
+ * `kind = 'staff'`, igual que el contenido de embajadores:
+ * - una fila sin evento con los correos de antes de la ficha única (solo se lee para migrarlos);
  * - una fila por evento con la información para el staff (general, por rol,
  *   vestimenta, contactos), la hora de citación y la llegada de cada uno. */
 import { createHmac, timingSafeEqual } from 'crypto';
@@ -9,9 +10,13 @@ import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 import QRCode from 'qrcode';
 import { contentDesigns, events, staffMembers, staffShifts } from '../drizzle/schema';
 import { ENV } from './_core/env';
-import { getActiveEventForCaja, getDb, listOperatorsByEmail } from './db';
+import { getActiveEventForCaja, getDb, listOperatorsForStaff } from './db';
+import { hashPin } from './caja/auth';
+import { setStaffPinHash } from './staff';
+import { cargoDef, cargoTitle, operatorRoleForCargo, pinProblem } from '../shared/staffCargos';
 import { staffSystemsFor } from '../shared/cajaRoles';
 import { buildStaffWelcomeEmail, sendEmail } from './email';
+import { pushToEmail } from './customerPush';
 import { honorariosBreakdown } from '../shared/honorarios';
 import { monthKeyFor } from '../shared/ambassadorProgram';
 import {
@@ -61,13 +66,17 @@ async function writeRow(eventId: number | null, data: Record<string, unknown>): 
 
 /* --- Correos del equipo --------------------------------------------------- */
 
-export async function getStaffEmails(): Promise<Record<number, string>> {
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** Los correos del JSON viejo (antes de la columna `staffMembers.email`). Solo para la migración
+ * (server/staff.ts `backfillStaffUnify`) y de respaldo mientras no se haya corrido. */
+export async function getLegacyStaffEmails(): Promise<Record<number, string>> {
   const row = await readRow(null);
   const raw = (row?.data.emails ?? {}) as Record<string, unknown>;
   const out: Record<number, string> = {};
   for (const [k, v] of Object.entries(raw)) {
     const email = normEmail(typeof v === 'string' ? v : '');
-    if (/^\d+$/.test(k) && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) out[Number(k)] = email;
+    if (/^\d+$/.test(k) && EMAIL_RE.test(email)) out[Number(k)] = email;
   }
   return out;
 }
@@ -75,30 +84,37 @@ export async function getStaffEmails(): Promise<Record<number, string>> {
 /** Guarda (o borra, con null/vacío) el correo con que esa persona entra a la app.
  * Devuelve el correo si es nuevo (para mandarle la bienvenida), o null. */
 export async function setStaffEmail(staffId: number, email: string | null | undefined): Promise<string | null> {
-  const row = await readRow(null);
-  const emails = { ...((row?.data.emails ?? {}) as Record<string, string>) };
+  const db = await need();
   const clean = normEmail(email);
-  const before = emails[String(staffId)] ?? null;
+  const [current] = await db.select({ email: staffMembers.email }).from(staffMembers).where(eq(staffMembers.id, staffId)).limit(1);
+  const before = current?.email ?? null;
   if (clean) {
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean)) throw new Error('Ese correo no es válido.');
-    const taken = Object.entries(emails).find(([k, v]) => v === clean && Number(k) !== staffId);
-    if (taken) throw new Error('Ese correo ya es de otra persona del equipo.');
-    emails[String(staffId)] = clean;
-  } else {
-    delete emails[String(staffId)];
+    if (!EMAIL_RE.test(clean)) throw new Error('Ese correo no es válido.');
+    const [taken] = await db.select({ id: staffMembers.id }).from(staffMembers).where(eq(staffMembers.email, clean)).limit(1);
+    if (taken && taken.id !== staffId) throw new Error('Ese correo ya es de otra persona del equipo.');
   }
-  await writeRow(null, { ...(row?.data ?? {}), emails });
+  await db.update(staffMembers).set({ email: clean || null }).where(eq(staffMembers.id, staffId));
   return clean && clean !== before ? clean : null;
 }
 
-/** Correo de bienvenida a la app del staff (botón a «Mi cuenta»). */
+/** Correo de bienvenida a la app del staff (botón a «Mi cuenta», donde crea su PIN). */
 export async function sendStaffWelcome(staffId: number): Promise<boolean> {
-  const email = (await getStaffEmails())[staffId];
   const db = await getDb();
-  if (!email || !db) return false;
-  const [staff] = await db.select({ name: staffMembers.name, role: staffMembers.role, active: staffMembers.active }).from(staffMembers).where(eq(staffMembers.id, staffId)).limit(1);
-  if (!staff?.active) return false;
-  const r = await sendEmail({ to: email, subject: '🪩 Tu app de staff de PlayRoom', html: buildStaffWelcomeEmail({ name: staff.name, role: staff.role, email }) });
+  if (!db) return false;
+  const [staff] = await db.select({ name: staffMembers.name, role: staffMembers.role, cargo: staffMembers.cargo, email: staffMembers.email, active: staffMembers.active, pinHash: staffMembers.pinHash }).from(staffMembers).where(eq(staffMembers.id, staffId)).limit(1);
+  if (!staff?.active || !staff.email) return false;
+  const needsPin = !!operatorRoleForCargo(staff.cargo) && !staff.pinHash;
+  // Si ya tiene la app con avisos, también le llega al celular (nunca lanza).
+  void pushToEmail(staff.email, {
+    title: '🪩 Ya eres parte del staff',
+    body: needsPin ? 'Entra a tu app y crea tu PIN para la noche del evento.' : 'Tu credencial y tus turnos ya están en tu app.',
+    url: '/cuenta?staff=1',
+  });
+  const r = await sendEmail({
+    to: staff.email,
+    subject: '🪩 Tu app de staff de PlayRoom',
+    html: buildStaffWelcomeEmail({ name: staff.name, role: cargoTitle(staff.cargo, staff.role), email: staff.email, needsPin }),
+  });
   return r.success;
 }
 
@@ -106,13 +122,26 @@ export async function sendStaffWelcome(staffId: number): Promise<boolean> {
 export async function findStaffByEmail(email: string) {
   const key = normEmail(email);
   if (!key) return null;
-  const emails = await getStaffEmails();
-  const id = Object.entries(emails).find(([, v]) => v === key)?.[0];
-  if (!id) return null;
   const db = await getDb();
   if (!db) return null;
-  const [staff] = await db.select().from(staffMembers).where(and(eq(staffMembers.id, Number(id)), eq(staffMembers.active, 1))).limit(1);
-  return staff ?? null;
+  const [staff] = await db.select().from(staffMembers).where(and(eq(staffMembers.email, key), eq(staffMembers.active, 1))).limit(1);
+  if (staff) return staff;
+  // Respaldo: el correo todavía está solo en el JSON viejo (no se ha abierto la lista del staff desde la migración).
+  const id = Object.entries(await getLegacyStaffEmails()).find(([, v]) => v === key)?.[0];
+  if (!id) return null;
+  const [legacy] = await db.select().from(staffMembers).where(and(eq(staffMembers.id, Number(id)), eq(staffMembers.active, 1), isNull(staffMembers.email))).limit(1);
+  return legacy ? { ...legacy, email: key } : null;
+}
+
+/** La persona del staff con sesión en la app crea o cambia su PIN de las pantallas de trabajo. */
+export async function setOwnStaffPin(email: string, pin: string) {
+  const staff = await findStaffByEmail(email);
+  if (!staff) throw new Error('Tu correo no está en el equipo.');
+  const problem = pinProblem(pin);
+  if (problem) throw new Error(problem);
+  if (!staff.email || staff.email !== normEmail(email)) await setStaffEmail(staff.id, email);
+  await setStaffPinHash(staff.id, hashPin(pin));
+  return { success: true };
 }
 
 /* --- Información por evento ----------------------------------------------- */
@@ -191,13 +220,13 @@ export async function recordStaffArrival(eventId: number, code: string) {
 
 /* --- Lo que ve la persona en su app --------------------------------------- */
 
-/** Los sistemas en que este correo es operador del evento activo (Admin → Operadores). Sin evento o
- * sin base: ninguno (las herramientas del rol igual se muestran). */
-async function operatorSystems(email: string) {
+/** Los sistemas en que esta persona tiene acceso en el evento activo (Caja → Accesos). Sin evento o
+ * sin base: ninguno (las herramientas del cargo igual se muestran). */
+async function operatorSystems(staffId: number, email: string) {
   try {
     const event = await getActiveEventForCaja();
     if (!event) return [];
-    const ops = await listOperatorsByEmail(event.id, email);
+    const ops = await listOperatorsForStaff(event.id, staffId, email);
     return staffSystemsFor(ops.map((o: any) => ({ id: o.id as number, role: o.role as string })));
   } catch {
     return [];
@@ -245,7 +274,7 @@ export async function getStaffPortal(email: string, now: Date = new Date()) {
         arrivedAt: info.arrivals[String(staff.id)] ?? null,
         general: info.general,
         dressCode: info.dressCode,
-        roleNote: noteForRole(info, staff.role),
+        roleNote: noteForRole(info, cargoTitle(staff.cargo, staff.role)),
         contacts: info.contacts,
       } : {}),
     };
@@ -258,10 +287,14 @@ export async function getStaffPortal(email: string, now: Date = new Date()) {
     : null;
   const qrImageUrl = credential ? await QRCode.toDataURL(credential.code, { type: 'image/png', width: 400, margin: 2, errorCorrectionLevel: 'M', color: { dark: '#000000', light: '#FFFFFF' } }) : null;
 
+  const cargo = cargoDef(staff.cargo);
   return {
     name: staff.name,
-    role: staff.role,
-    tools: linkStaffTools(staffToolsForRole(staff.role), await operatorSystems(email)),
+    role: cargoTitle(staff.cargo, staff.role),
+    cargo: cargo ? { key: cargo.key, label: cargo.label, emoji: cargo.emoji } : null,
+    // PIN de las pantallas de trabajo: solo para los cargos que usan una.
+    pin: cargo?.operatorRole || staff.pinHash ? { set: !!staff.pinHash, setAt: staff.pinSetAt ?? null } : null,
+    tools: linkStaffTools(staffToolsForRole(cargo?.operatorRole ? cargo.key : staff.role), await operatorSystems(staff.id, staff.email ?? email)),
     credential: credential ? { ...credential, qrImageUrl } : null,
     shifts,
   };

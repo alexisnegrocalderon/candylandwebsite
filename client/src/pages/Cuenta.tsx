@@ -935,13 +935,16 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
     try { sessionStorage.setItem(PRIZE_KEY, next); } catch { /* nada */ }
   };
   const ambassador = useAmbassadorPanel();
-  // Solo para quien entra con el correo de alguien del staff (Finanzas → Equipo).
+  // Solo para quien entra con el correo de alguien del staff (Admin → Noche → Staff).
   const staff = useStaffPortal();
   const tabs = TABS;
   // El aviso de contenido nuevo (`?tab=embajador`) abre directo la pantalla Embajador, una sola vez.
   const openEmb = useRef(initial.open === 'embajador' && new URLSearchParams(window.location.search).get('tab') === 'embajador');
   const [more, setMore] = useState(false);
   useEffect(() => { if (openEmb.current && ambassador) { openEmb.current = false; setSheet('embajador'); } }, [ambassador]);
+  // El correo y el aviso de bienvenida al staff (`?staff=1`) abren directo la pantalla Staff, una sola vez.
+  const openStaff = useRef(new URLSearchParams(window.location.search).get('staff') === '1');
+  useEffect(() => { if (openStaff.current && staff) { openStaff.current = false; setSheet('staff'); } }, [staff]);
   const sheetDrag = useDragControls();
   const pay = useMemberPayConfig();
   const [topupOpen, setTopupOpen] = useState(false);

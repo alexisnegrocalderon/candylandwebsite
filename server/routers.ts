@@ -21,7 +21,8 @@ import { checkInTicket } from "./caja/checkin";
 import { sellParkingAtDoor } from "./caja/parkingPaid";
 import { MAX_TEST_GUESTS, MIN_TEST_GUESTS } from "../shared/playmatchTest";
 import { UNDO_EXPENSE_WINDOW_MS } from "../shared/expenses";
-import { canUseCaja } from "../shared/cajaRoles";
+import { canUseCaja, OPERATOR_ROLES } from "../shared/cajaRoles";
+import { STAFF_CARGO_KEYS } from "../shared/staffCargos";
 import { AVATARS_PER_GENDER, DEFAULT_LOOKING_FOR, MAX_PARTY_PHOTOS, MAX_REWINDS_PER_EVENT, PARTY_GENDERS, PARTY_ZONES, parseLookingFor, sanitizeCostume, serializeLookingFor, canPreRegister, partyEntryDenial, sanitizeAlias, sanitizeGiftMessage, sanitizeMessage, isPartyWindowOpen, validatePhotoBytes } from "../shared/party";
 import * as ambassadorProgram from "./ambassadorProgram";
 import { monthKeyFor } from "../shared/ambassadorProgram";
@@ -4470,6 +4471,13 @@ export const appRouter = router({
       const email = getMemberEmail(ctx.req);
       return email ? staffPortal.getStaffPortal(email) : null;
     }),
+    // La persona del staff crea (o cambia) el PIN con que entra a caja, puerta, cocina y guardarropía.
+    staffSetPin: publicProcedure.input(z.object({ pin: z.string().min(4).max(6) })).mutation(async ({ ctx, input }) => {
+      const email = getMemberEmail(ctx.req);
+      if (!email) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Entra a tu cuenta primero.' });
+      try { return await staffPortal.setOwnStaffPin(email, input.pin); }
+      catch (e: any) { throw new TRPCError({ code: 'BAD_REQUEST', message: e?.message ?? 'No se pudo guardar el PIN' }); }
+    }),
     // Recompra en un toque: su última entrada y sus acompañantes (solo los de sus propias compras).
     repurchase: publicProcedure.query(async ({ ctx }) => {
       const email = getMemberEmail(ctx.req);
@@ -5004,14 +5012,15 @@ export const appRouter = router({
       return { percent: normalizeAdminAlertsConfig({ financeMarginTargetPercent: input.percent }).financeMarginTargetPercent };
     }),
     staffList: adminProcedure.query(async () => {
-      const [list, emails] = await Promise.all([staffSvc.listStaff(), staffPortal.getStaffEmails()]);
-      // El correo con que entra a la app del staff (se guarda aparte: server/staffPortal.ts).
-      return list.map((m) => ({ ...m, email: emails[m.id] ?? null }));
+      // Ficha única: completa cargo, correo y enlaces de operadores de antes (idempotente, server/staff.ts).
+      await staffSvc.backfillStaffUnify(await staffPortal.getLegacyStaffEmails()).catch((e) => console.warn('[staff] backfill', e));
+      return staffSvc.listStaff();
     }),
     staffSave: adminProcedure.input(z.object({
       id: z.number().int().positive().optional(),
       name: z.string().min(1).max(120),
       role: z.string().max(80).nullish(),
+      cargo: z.enum(STAFF_CARGO_KEYS).nullish(),
       defaultRateClp: z.number().int().min(0).max(100_000_000).optional(),
       phone: z.string().max(40).nullish(),
       rut: z.string().max(20).nullish(),
@@ -5035,6 +5044,22 @@ export const appRouter = router({
       const sent = await staffPortal.sendStaffWelcome(input.id).catch(() => false);
       if (!sent) throw new TRPCError({ code: 'BAD_REQUEST', message: 'No se pudo mandar: revisa que tenga correo y esté activa.' });
       return { success: true };
+    }),
+    // Olvidó su PIN: se borra (sus accesos dejan de abrir) y le llega el correo para crear uno nuevo en su app.
+    staffResetPin: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
+      await staffSvc.setStaffPinHash(input.id, null);
+      await db.recordAdminAudit({ action: 'finance.staffResetPin', targetType: 'staffMember', targetId: input.id, ip: clientIp(ctx) });
+      const sent = await staffPortal.sendStaffWelcome(input.id).catch(() => false);
+      return { success: true, sent };
+    }),
+    // Operadores creados a mano que no calzaron con nadie del staff (por correo o nombre): se enlazan acá.
+    staffUnlinkedOperators: adminProcedure.input(z.object({ eventIds: z.array(z.number().int().positive()).max(20) })).query(({ input }) => staffSvc.unlinkedOperators(input.eventIds)),
+    staffLinkOperator: adminProcedure.input(z.object({ operatorId: z.number().int().positive(), staffId: z.number().int().positive().nullable() })).mutation(async ({ input, ctx }) => {
+      try {
+        const r = await staffSvc.linkOperator(input.operatorId, input.staffId);
+        await db.recordAdminAudit({ action: 'finance.staffLinkOperator', targetType: 'operator', targetId: input.operatorId, payload: { staffId: input.staffId }, ip: clientIp(ctx) });
+        return r;
+      } catch (e: any) { throw new TRPCError({ code: 'BAD_REQUEST', message: e?.message ?? 'No se pudo enlazar' }); }
     }),
     staffDelete: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
       const r = await staffSvc.deleteStaff(input.id);
@@ -6218,7 +6243,7 @@ export const appRouter = router({
       eventId: z.number(),
       name: z.string().min(1),
       pin: z.string().min(4).max(8),
-      role: z.enum(['admin', 'supervisor', 'caja', 'barra', 'acceso', 'cocina', 'guardarropia']),
+      role: z.enum(OPERATOR_ROLES),
       // Opcional (pedido explícito del usuario): si está cargado, el cierre
       // de turno le manda el PDF de cuadre por correo a esta cajera.
       email: z.string().email().optional(),
@@ -6234,7 +6259,7 @@ export const appRouter = router({
       id: z.number(),
       name: z.string().min(1).optional(),
       pin: z.string().min(4).max(8).optional(),
-      role: z.enum(['admin', 'supervisor', 'caja', 'barra', 'acceso', 'cocina', 'guardarropia']).optional(),
+      role: z.enum(OPERATOR_ROLES).optional(),
       active: z.number().min(0).max(1).optional(),
       email: z.string().email().nullable().optional(),
     })).mutation(async ({ input }) => {

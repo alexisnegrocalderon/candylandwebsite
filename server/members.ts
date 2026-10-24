@@ -64,7 +64,7 @@ async function ensureAmbassadorCustomer(email: string): Promise<CustomerRow | nu
   return findCustomer(email);
 }
 
-/** Lo mismo para el staff: con el correo que se cargó en Finanzas → Equipo entra a su versión de la app. */
+/** Lo mismo para el staff: con el correo de su ficha (Noche → Staff) entra a su versión de la app. */
 async function ensureStaffCustomer(email: string): Promise<CustomerRow | null> {
   const db = await getDb();
   const staff = await findStaffByEmail(email);
