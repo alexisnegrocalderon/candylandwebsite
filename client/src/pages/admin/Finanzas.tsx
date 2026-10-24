@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useTonightEvent } from '@/hooks/useTonightEvent';
 import { toast } from 'sonner';
 import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, BarChart, Bar } from 'recharts';
 import { Banknote, Landmark, Pencil, Download, Sparkles, Activity, AlertTriangle, Lightbulb, Loader2, Plus, Trash2, TrendingUp, Users, Wallet, Receipt, Target } from 'lucide-react';
@@ -1122,10 +1123,7 @@ function MarginGoal() {
 export default function FinanzasView() {
   const [tab, setTab] = useState<'live' | 'evento' | 'mes' | 'pagar' | 'caja' | 'mp'>('live');
   const isDemo = useIsDemo();
-  const { data: events } = trpc.events.listAll.useQuery();
-  const { data: defaultEvent } = trpc.events.getActiveForCaja.useQuery();
-  const [selected, setSelected] = useState<number | null>(null);
-  const eventId = selected ?? defaultEvent?.id ?? events?.[0]?.id ?? null;
+  const { events, eventId, setSelected } = useTonightEvent();
 
   const { data: rep, isLoading, isError, error } = trpc.finance.eventReport.useQuery(
     { eventId: eventId! }, { enabled: !!eventId && !isDemo && tab === 'evento', refetchInterval: 30_000 },
