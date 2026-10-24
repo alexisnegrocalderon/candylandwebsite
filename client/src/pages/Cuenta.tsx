@@ -8,6 +8,8 @@ import { trpc } from '@/lib/trpc';
 import type { inferRouterOutputs } from '@trpc/server';
 import type { AppRouter } from '../../../server/routers';
 import { useSeo } from '@/hooks/useSeo';
+import { useHalloweenMode } from '@/lib/halloween';
+import { isAppMode } from '@/lib/appMode';
 import { canRedeem, PLAYCOINS_MIN_REDEEM_BALANCE } from '@shared/playcoins';
 import { CUSTOMER_LEVEL_META } from '@shared/customerInsights';
 import { isMemberEarlyAccess } from '@shared/memberConfig';
@@ -874,6 +876,7 @@ const TAB_KEY = 'cuenta.tab';
 const PRIZE_KEY = 'cuenta.premios';
 
 function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: LoginDone | null; onLogout: () => void; offlineAt: number | null }) {
+  const halloween = useHalloweenMode();
   // Al volver de otra pantalla (comprar, un evento…) se abre en la misma pestaña donde estaba.
   const initial = (() => {
     // Un aviso puede abrir una pestaña (?tab=playmatch, al escanear la entrada).
@@ -960,7 +963,7 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
 
   return (
     <MotionConfig reducedMotion="user">
-    <div className="account-font account-tokens fixed inset-0 z-[60] flex flex-col bg-[#0b0612] text-white">
+    <div className={`account-font account-tokens fixed inset-0 z-[60] flex flex-col bg-[#0b0612] text-white ${halloween ? 'pm-halloween' : ''}`}>
       <div className="account-backdrop" />
       {/* Una pantalla fija: cabecera compacta arriba, contenido que reparte el alto y la barra flotante abajo.
           Nada se desplaza en vertical; lo que no cabe se reparte en páginas (Pager). */}
@@ -1172,6 +1175,8 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
 }
 
 export default function Cuenta() {
+  const halloween = useHalloweenMode();
+  const { data: openEvents } = trpc.events.listPublished.useQuery(undefined, { enabled: isAppMode() });
   useSeo({ title: 'Mi cuenta — Mansion Playroom', description: 'Tus Playcoins, saldo, entradas y cupones en Mansion Playroom.', path: '/cuenta', noindex: true });
   const utils = trpc.useUtils();
   // Lo último guardado en este teléfono: la app abre al instante con eso y sin señal se queda con eso.
@@ -1183,7 +1188,7 @@ export default function Cuenta() {
   const isMobile = useIsMobile();
   // La pantalla es oscura: barra de estado y fondo oscuros mientras estás acá (sin franja blanca arriba).
   useDarkChrome();
-  const shell = 'account-font account-tokens relative min-h-dvh bg-[#0b0612] text-white';
+  const shell = `account-font account-tokens relative min-h-dvh bg-[#0b0612] text-white ${halloween ? 'pm-halloween' : ''}`;
 
   useEffect(() => {
     if (data) { saveAccountSnapshot(data); setSnapshot({ me: data, savedAt: Date.now() }); }
@@ -1202,19 +1207,38 @@ export default function Cuenta() {
   const me = data === undefined ? snapshot?.me ?? null : data;
   const offlineAt = data === undefined && isError && snapshot ? snapshot.savedAt : null;
 
+  // Para quien no ha entrado: el próximo evento con su botón de comprar (solo en la app).
+  const nextOpen = (openEvents as { id: number; slug: string; title: string; eventDate: string | Date; status?: string | null }[] | undefined)
+    ?.filter((e) => new Date(e.eventDate).getTime() >= Date.now() - 12 * 3_600_000 && e.status !== 'soldout')
+    .sort((x, y) => new Date(x.eventDate).getTime() - new Date(y.eventDate).getTime())[0];
   const login = (
-    <div className={`${shell} pt-28 pb-16`}>
+    <div className={`${shell} pt-[max(20px,env(safe-area-inset-top))] pb-16`}>
       <div className="account-backdrop" />
       <div className="container relative z-10 max-w-md">
-        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
+        <div className="flex h-12 items-center">
+          <Link href="/" className="lg-pill inline-flex h-10 items-center gap-0.5 rounded-full pl-2 pr-4 text-subhead font-semibold text-pink-300 interactive">
+            <ChevronLeft className="h-5 w-5" /> Inicio
+          </Link>
+        </div>
+        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="space-y-6 pt-8">
           <div className="text-center">
             <h1 className="text-large-title font-bold tracking-tight text-white">Mi cuenta</h1>
-            <p className="mt-2 text-subhead text-white/65">Tu entrada, tus Playcoins y tu saldo a un toque. Entras con un código que te mandamos al correo de tu compra (o tu correo de embajador o de staff): sin contraseñas.</p>
+            <p className="mt-2 text-subhead text-white/70">Tu entrada, tus Playcoins y tu saldo a un toque. Entras con un código que te mandamos al correo de tu compra (o tu correo de embajador o de staff): sin contraseñas.</p>
           </div>
           <div className={`${GLASS} p-5`}>
             <MemberLogin tone="dark" onDone={setWelcome} />
           </div>
-          <p className="text-center text-caption1 text-white/60">Es opcional: para comprar tu entrada no necesitas cuenta. ¿Aún no compras? Cuando lo hagas, ya podrás entrar con ese correo.</p>
+          <p className="px-2 text-center text-footnote leading-relaxed text-white/65">Es opcional: para comprar tu entrada no necesitas cuenta. ¿Aún no compras? Cuando lo hagas, ya podrás entrar con ese correo.</p>
+          {nextOpen && (
+            <Link href={`/checkout/${nextOpen.slug}`} className="account-glass flex items-center gap-3 rounded-[22px] px-4 py-3.5 interactive">
+              <span className="lg-pill grid h-11 w-11 shrink-0 place-items-center rounded-[14px]"><TicketIcon className="h-5 w-5 text-pink-300" /></span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-footnote text-white/60">Próxima fiesta</span>
+                <span className="block truncate text-body font-semibold">{nextOpen.title}</span>
+              </span>
+              <span className="shrink-0 rounded-full bg-gradient-to-r from-pink-500 via-fuchsia-500 to-sky-500 px-4 py-2 text-subhead font-semibold text-white">Comprar</span>
+            </Link>
+          )}
         </motion.div>
       </div>
     </div>

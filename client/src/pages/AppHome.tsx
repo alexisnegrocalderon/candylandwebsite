@@ -4,6 +4,7 @@ import { CalendarDays, CircleHelp, CircleUser, FileText, PartyPopper, Shirt } fr
 import { trpc } from '@/lib/trpc';
 import { useMemberSession } from '@/lib/member';
 import { useSeo } from '@/hooks/useSeo';
+import { useHalloweenMode } from '@/lib/halloween';
 import { AppEventCard, splitEvents, type AppEvent } from '@/components/app/AppEventCard';
 import { InfoSheet, type InfoKind } from '@/components/app/InfoSheets';
 
@@ -30,9 +31,10 @@ export default function AppHome() {
   const { upcoming } = splitEvents((events ?? []) as AppEvent[]);
   const next = upcoming[0];
   const [sheet, setSheet] = useState<InfoKind | null>(null);
+  const halloween = useHalloweenMode();
 
   return (
-    <div className="account-font account-tokens relative min-h-dvh bg-[#0b0612] text-white">
+    <div className={`account-font account-tokens relative min-h-dvh bg-[#0b0612] text-white ${halloween ? 'pm-halloween' : ''}`}>
       <div className="account-backdrop" />
       <div className="relative z-10 mx-auto max-w-lg px-4 pb-[max(28px,env(safe-area-inset-bottom))] pt-[max(14px,env(safe-area-inset-top))]">
         <header className="flex h-12 items-center justify-between">
