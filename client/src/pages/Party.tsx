@@ -261,7 +261,7 @@ function ClosedDoor({ denial, eventTitle, doorsOpen, onBack }: { denial: string;
         {onBack ? (
           <button type="button" onClick={onBack} className="lg-pill mt-6 inline-flex h-12 items-center rounded-full px-8 text-subhead font-semibold">Volver</button>
         ) : (
-          <Link href="/" className="lg-pill mt-6 inline-flex h-12 items-center rounded-full px-8 text-subhead font-semibold">Volver al inicio</Link>
+          <Link href="/cuenta" className="lg-pill mt-6 inline-flex h-12 items-center rounded-full px-8 text-subhead font-semibold">Volver a mi cuenta</Link>
         )}
       </div>
     </div>

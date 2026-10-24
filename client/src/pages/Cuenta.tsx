@@ -2,7 +2,7 @@ import { Component, Fragment, useEffect, useRef, useState, type ReactNode } from
 import { createPortal } from 'react-dom';
 import { AnimatePresence, MotionConfig, motion, useDragControls } from 'framer-motion';
 import { toast } from 'sonner';
-import { BadgeCheck, Calendar, Check, Copy, Crown, Gift, LogOut, Sparkles, Ticket as TicketIcon, ArrowRight, Download, Loader2, X, QrCode, CreditCard, Home, Wallet, Plus, RefreshCw, Bell, ChevronLeft, ChevronRight, Heart, User, WifiOff, ScanFace } from 'lucide-react';
+import { BadgeCheck, Calendar, Check, Copy, Crown, Gift, LogOut, Sparkles, Ticket as TicketIcon, ArrowRight, Download, Loader2, X, QrCode, CreditCard, Wallet, Plus, RefreshCw, Bell, ChevronLeft, ChevronRight, Heart, User, WifiOff, ScanFace, CircleHelp } from 'lucide-react';
 import { Link } from 'wouter';
 import { trpc } from '@/lib/trpc';
 import type { inferRouterOutputs } from '@trpc/server';
@@ -32,6 +32,7 @@ import { fmtDate, fmtDateTime, useMemberSession } from '@/lib/member';
 import { clearAccountSnapshot, loadAccountSnapshot, saveAccountSnapshot, warmOfflineApp } from '@/lib/offlineAccount';
 import { AccountSkeleton } from '@/components/site/AccountSkeleton';
 import { PasskeySheet } from '@/components/site/PasskeySheet';
+import { InfoSheet, type InfoKind } from '@/components/app/InfoSheets';
 import { biometricName, passkeyOfferSeen, passkeyUsedHere, thisDeviceName, usePasskeyAvailable } from '@/lib/memberPasskey';
 import { firstName } from '@shared/pushText';
 
@@ -921,6 +922,8 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
   const [dir, setDir] = useState(1);
   // Sub-hojas de «Más» y de «Puntos» (cada tema grande abre la suya, para que ninguna pantalla crezca).
   const [sheet, setSheet] = useState<null | 'tarjetas' | 'beneficios' | 'avisos' | 'movimientos' | 'entradas' | 'embajador' | 'staff' | 'faceid'>(null);
+  // Preguntas frecuentes, dress code, etc. en hojas de la app (antes había que ir al sitio).
+  const [info, setInfo] = useState<InfoKind | null>(null);
   // Face ID: recién entró con el código y este teléfono puede → se le ofrece una vez, después de ver su app.
   const passkeyOk = usePasskeyAvailable();
   const [faceIdOffer, setFaceIdOffer] = useState(false);
@@ -962,7 +965,7 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
       {/* Una pantalla fija: cabecera compacta arriba, contenido que reparte el alto y la barra flotante abajo.
           Nada se desplaza en vertical; lo que no cabe se reparte en páginas (Pager). */}
       <header className="relative z-10 flex shrink-0 items-center gap-3 px-4 pb-2 pt-[max(12px,env(safe-area-inset-top))] [@media(max-height:700px)]:pb-1">
-        <Link href="/" aria-label="Ir al sitio" className="shrink-0"><img src="/candyland/logo-isotipo-transparent.png" alt="" className="h-9 w-9 [@media(max-height:700px)]:h-8 [@media(max-height:700px)]:w-8" /></Link>
+        <img src="/candyland/logo-isotipo-transparent.png" alt="" className="h-9 w-9 shrink-0 [@media(max-height:700px)]:h-8 [@media(max-height:700px)]:w-8" />
         <h1 className="min-w-0 flex-1 truncate text-title1 font-bold leading-tight tracking-tight [@media(max-height:700px)]:text-title2">{title}</h1>
         {tab === 'card' && level && <span className="shrink-0 rounded-full bg-emerald-400/15 px-2.5 py-1 text-caption2 font-medium text-emerald-300">{level.label}</span>}
       </header>
@@ -1128,7 +1131,7 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
                     ...(pay.accountTopup ? [{ key: 'recarga', label: 'Recargar saldo', icon: Plus, onClick: () => { setMore(false); setTopupOpen(true); } }] : []),
                     { key: 'beneficios', label: 'Beneficios', icon: Sparkles, onClick: () => { setMore(false); setSheet('beneficios'); } },
                     { key: 'eventos', label: 'Eventos', icon: Calendar, href: '/eventos' },
-                    { key: 'sitio', label: 'Ir al sitio', icon: Home, href: '/' },
+                    { key: 'ayuda', label: 'Ayuda', icon: CircleHelp, onClick: () => { setMore(false); setInfo('faq'); } },
                   ] as { key: string; label: string; icon: typeof Bell; onClick?: () => void; href?: string }[]).map(({ key, label, icon: Icon, onClick, href }) => {
                     const cls = 'account-glass relative flex h-[84px] flex-col items-center justify-center gap-1.5 rounded-[22px] text-footnote font-semibold text-white interactive [@media(max-height:700px)]:h-[66px] [@media(max-height:700px)]:gap-1';
                     const inner = (<><Icon className="h-5 w-5 text-pink-300" />{label}</>);
@@ -1155,6 +1158,7 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
         {avisosNotice(push.state) === 'loading' && <p className="account-glass rounded-2xl p-4 text-subhead text-white/65">Revisando tus avisos…</p>}
       </BottomSheet>
       <PasskeySheet open={sheet === 'faceid'} offer={faceIdOffer} onClose={() => setSheet(null)} />
+      <InfoSheet kind={info} onClose={() => setInfo(null)} />
       <BottomSheet open={sheet === 'tarjetas'} onClose={() => setSheet(null)} title="Mis tarjetas"><SavedCardsSection /></BottomSheet>
       {staff && <AppScreen open={sheet === 'staff'} title="Staff" onClose={() => setSheet(null)}><StaffAccount staff={staff} /></AppScreen>}
       {ambassador && <AppScreen open={sheet === 'embajador'} title="Embajador" onClose={() => setSheet(null)}><AmbassadorAccount panel={ambassador} /></AppScreen>}

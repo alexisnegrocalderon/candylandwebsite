@@ -14,14 +14,14 @@ function openTab(tab: string) {
   try { sessionStorage.setItem('cuenta.tab', tab); } catch { /* sin almacenamiento */ }
 }
 
-export function PurchaseCelebration({ eventTitle, onShown }: { eventTitle: string; onShown?: () => void }) {
+export function PurchaseCelebration({ eventTitle, onShown, needsLogin = false }: { eventTitle: string; onShown?: () => void; needsLogin?: boolean }) {
   useEffect(() => {
     try { navigator.vibrate?.([18, 60, 18, 60, 40]); } catch { /* sin vibración */ }
     onShown?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   return (
-    <div className="account-font account-tokens relative min-h-dvh overflow-hidden bg-[#0b0612] px-5 pb-16 pt-24 text-white">
+    <div className="account-font account-tokens relative min-h-dvh overflow-hidden bg-[#0b0612] px-5 pb-16 pt-[max(96px,calc(env(safe-area-inset-top)+64px))] text-white">
       <div className="account-backdrop" />
       <Confetti />
       <div className="relative z-10 mx-auto max-w-sm text-center">
@@ -36,7 +36,9 @@ export function PurchaseCelebration({ eventTitle, onShown }: { eventTitle: strin
         <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}>
           <h1 className="mt-6 text-[30px] font-bold leading-tight tracking-tight">¡Tu entrada está lista! 🎉</h1>
           <p className="mx-auto mt-2 max-w-xs text-[15px] leading-snug text-white/70">
-            <b className="text-white">{eventTitle}</b>. Ya está en tu app con su QR, y también te llegó al correo.
+            <b className="text-white">{eventTitle}</b>. {needsLogin
+              ? 'Te llegó al correo. Entra a «Mi cuenta» con ese mismo correo y la tienes acá con su QR.'
+              : 'Ya está en tu app con su QR, y también te llegó al correo.'}
           </p>
         </motion.div>
 
