@@ -19,7 +19,13 @@ export const NOT_ADMIN_ERR_MSG = 'You do not have required permission (10002)';
 // Casilla del admin que recibe notificaciones automáticas (cierre de turno,
 // postulaciones de embajador, resumen de check-ins del cron de las 3am) --
 // antes repetida como literal en 3 archivos distintos.
-export const ADMIN_NOTIFICATION_EMAIL = 'contacto@mansionplayroom.cl';
+// Se puede cambiar sin tocar el código con la variable `ADMIN_NOTIFICATION_EMAIL` (en Vercel). El `typeof`
+// es porque este archivo también lo importa el navegador, donde `process` no existe.
+const DEFAULT_ADMIN_NOTIFICATION_EMAIL = 'contacto@mansionplayroom.cl';
+const notificationEmailFromEnv = (typeof process !== 'undefined' ? process.env?.ADMIN_NOTIFICATION_EMAIL : undefined)?.trim();
+export const ADMIN_NOTIFICATION_EMAIL = notificationEmailFromEnv && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(notificationEmailFromEnv)
+  ? notificationEmailFromEnv.toLowerCase()
+  : DEFAULT_ADMIN_NOTIFICATION_EMAIL;
 
 // One-time nonce cookie that binds an OAuth login to the browser that started
 // it. The `__Host-` prefix forces the cookie host-only (Secure, Path=/, no

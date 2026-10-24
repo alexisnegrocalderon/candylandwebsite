@@ -1069,6 +1069,19 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
                   </span>
                 </button>
               )}
+              {/* Solo para el correo del dueño (ADMIN_EMAILS): acceso al panel; ahí pide el segundo factor. */}
+              {me.isAdmin && (
+                <a href="/admin" onClick={tapHaptic} className="block w-full rounded-[24px] bg-gradient-to-r from-pink-500/80 via-fuchsia-500/60 to-sky-500/70 p-[1.5px] text-left interactive">
+                  <span className="flex items-center gap-3 rounded-[23px] bg-[#0d0712] px-4 py-3.5">
+                    <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-pink-400/15 text-pink-300"><Crown className="h-5 w-5" /></span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-callout font-bold leading-tight">Administrar la fiesta</span>
+                      <span className="block truncate text-footnote text-white/60">Entra al panel: ventas, caja, staff y más</span>
+                    </span>
+                    <ArrowRight className="h-5 w-5 shrink-0 text-pink-300" />
+                  </span>
+                </a>
+              )}
               {/* Solo para quien entra con el correo de un embajador. */}
               {ambassador && (
                 <button type="button" onClick={() => { tapHaptic(); setSheet('embajador'); }} className="block w-full rounded-[24px] bg-gradient-to-r from-amber-300/70 via-pink-400/50 to-fuchsia-400/60 p-[1.5px] text-left interactive">
