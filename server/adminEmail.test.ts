@@ -31,9 +31,11 @@ describe('correos de admin autorizados', () => {
     expect(parseAdminEmails(undefined)).toEqual([]);
   });
 
-  it('sin la variable nadie es admin por correo', () => {
+  it('sin la variable el admin es el correo del negocio; con ella, los de la variable', () => {
+    expect(isAdminEmail('Contacto@MansionPlayroom.cl')).toBe(true);
     expect(isAdminEmail(OWNER)).toBe(false);
     process.env.ADMIN_EMAILS = OWNER;
+    expect(isAdminEmail('contacto@mansionplayroom.cl')).toBe(false);
     expect(isAdminEmail(' DUENO@ejemplo.cl ')).toBe(true);
     expect(isAdminEmail('otro@ejemplo.cl')).toBe(false);
     expect(isAdminEmail(null)).toBe(false);

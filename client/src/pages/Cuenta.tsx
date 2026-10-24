@@ -1007,7 +1007,8 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
       <header className="relative z-10 flex shrink-0 items-center gap-3 px-4 pb-2 pt-[max(12px,env(safe-area-inset-top))] [@media(max-height:700px)]:pb-1">
         <img src="/candyland/logo-isotipo-transparent.png" alt="" className="h-9 w-9 shrink-0 [@media(max-height:700px)]:h-8 [@media(max-height:700px)]:w-8" />
         <h1 className="min-w-0 flex-1 truncate text-title1 font-bold leading-tight tracking-tight [@media(max-height:700px)]:text-title2">{title}</h1>
-        {tab === 'card' && level && <span className="shrink-0 rounded-full bg-emerald-400/15 px-2.5 py-1 text-caption2 font-medium text-emerald-300">{level.label}</span>}
+        {tab === 'card' && me.isAdmin && <span className="shrink-0 rounded-full bg-gradient-to-r from-pink-500 to-fuchsia-500 px-2.5 py-1 text-caption2 font-bold tracking-wide text-white">ADMIN</span>}
+        {tab === 'card' && !me.isAdmin && level && <span className="shrink-0 rounded-full bg-emerald-400/15 px-2.5 py-1 text-caption2 font-medium text-emerald-300">{level.label}</span>}
       </header>
       <div className="relative z-10 px-4 empty:hidden"><OfflinePill savedAt={offlineAt} /></div>
 
@@ -1055,7 +1056,8 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
                   <p className="truncate text-title3 font-bold leading-tight">{me.fullName || 'Mi cuenta'}</p>
                   <p className="truncate text-footnote text-white/60">{me.email}</p>
                 </div>
-                {level && <span className="shrink-0 rounded-full bg-emerald-400/15 px-2.5 py-1 text-caption2 font-medium text-emerald-300">{level.label}</span>}
+                {me.isAdmin && <span className="shrink-0 rounded-full bg-gradient-to-r from-pink-500 to-fuchsia-500 px-2.5 py-1 text-caption2 font-bold tracking-wide text-white">ADMIN</span>}
+                {!me.isAdmin && level && <span className="shrink-0 rounded-full bg-emerald-400/15 px-2.5 py-1 text-caption2 font-medium text-emerald-300">{level.label}</span>}
               </div>
               {staff && (
                 <button type="button" onClick={() => { tapHaptic(); setSheet('staff'); }} className="block w-full rounded-[24px] bg-gradient-to-r from-violet-400/70 via-fuchsia-400/50 to-sky-400/60 p-[1.5px] text-left interactive">
@@ -1181,6 +1183,8 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
                 {/* Mosaicos iguales: cada tema abre su propia hoja, así esta nunca crece. */}
                 <div className="grid grid-cols-3 gap-2.5">
                   {([
+                    // El correo del administrador tiene su acceso al panel acá también (además de la tarjeta de Perfil).
+                    ...(me.isAdmin ? [{ key: 'admin', label: 'Panel admin', icon: Crown, href: '/admin' }] : []),
                     { key: 'entradas', label: 'Mis entradas', icon: TicketIcon, onClick: () => { setMore(false); setSheet('entradas'); } },
                     ...(pay.cajaPay ? [{ key: 'caja', label: 'Pagar en caja', icon: Wallet, onClick: () => { setMore(false); setPayOpen(true); } }] : []),
                     ...(pay.accountTopup ? [{ key: 'recarga', label: 'Recargar saldo', icon: Plus, onClick: () => { setMore(false); setTopupOpen(true); } }] : []),
