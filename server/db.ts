@@ -2999,10 +2999,15 @@ export async function createOperator(input: InsertOperator) {
   return (result as unknown as { insertId: number }).insertId;
 }
 
+/** Las columnas de `operators` que usan el login por PIN y los reportes. Sin `staffId` a propósito: esas
+ * consultas no lo necesitan, y así la caja y la puerta siguen entrando aunque la base todavía no tenga la
+ * columna nueva (migración 0129): un `select()` pelado la pediría y fallaría. */
+const { staffId: _operatorStaffId, ...operatorColumns } = getTableColumns(operators);
+
 export async function getOperatorById(id: number) {
   const db = await getDb();
   if (!db) return undefined;
-  const result = await db.select().from(operators).where(eq(operators.id, id)).limit(1);
+  const result = await db.select(operatorColumns).from(operators).where(eq(operators.id, id)).limit(1);
   return result.length > 0 ? result[0] : undefined;
 }
 
@@ -3083,7 +3088,7 @@ const PIN_LOCKOUT_MS = 5 * 60 * 1000;
 export async function recordFailedPinAttempt(operatorId: number) {
   const db = await getDb();
   if (!db) return;
-  const [operator] = await db.select().from(operators).where(eq(operators.id, operatorId)).limit(1);
+  const [operator] = await db.select(operatorColumns).from(operators).where(eq(operators.id, operatorId)).limit(1);
   if (!operator) return;
   const attempts = operator.failedPinAttempts + 1;
   await db.update(operators).set({
@@ -3674,7 +3679,7 @@ export async function getConflictQueue(eventId: number) {
   if (pending.length === 0) return [];
 
   const operatorIds = Array.from(new Set(pending.map((c: any) => c.operatorId)));
-  const opRows = await db.select().from(operators).where(inArray(operators.id, operatorIds));
+  const opRows = await db.select(operatorColumns).from(operators).where(inArray(operators.id, operatorIds));
   const opById = new Map<number, any>(opRows.map((o: any) => [o.id, o]));
 
   return pending.map((c: any) => ({
@@ -4960,7 +4965,7 @@ export async function getLedger(eventId: number, filters: { operatorId?: number;
 
   const rows = await db.select().from(ops).where(and(...conditions)).orderBy(desc(ops.serverAt)).limit(500);
   const operatorIds = Array.from(new Set(rows.map((r: any) => r.operatorId)));
-  const opRows = operatorIds.length ? await db.select().from(operators).where(inArray(operators.id, operatorIds)) : [];
+  const opRows = operatorIds.length ? await db.select(operatorColumns).from(operators).where(inArray(operators.id, operatorIds)) : [];
   const opById = new Map<number, any>(opRows.map((o: any) => [o.id, o]));
 
   return rows.map((r: any) => ({

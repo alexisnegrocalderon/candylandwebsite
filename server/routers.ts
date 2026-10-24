@@ -23,6 +23,7 @@ import { MAX_TEST_GUESTS, MIN_TEST_GUESTS } from "../shared/playmatchTest";
 import { UNDO_EXPENSE_WINDOW_MS } from "../shared/expenses";
 import { canUseCaja, OPERATOR_ROLES, STAFF_SYSTEMS } from "../shared/cajaRoles";
 import { STAFF_CARGO_KEYS } from "../shared/staffCargos";
+import { applyStaffSchema, staffSchemaStatus } from "./schemaUpdates";
 import { AVATARS_PER_GENDER, DEFAULT_LOOKING_FOR, MAX_PARTY_PHOTOS, MAX_REWINDS_PER_EVENT, PARTY_GENDERS, PARTY_ZONES, parseLookingFor, sanitizeCostume, serializeLookingFor, canPreRegister, partyEntryDenial, sanitizeAlias, sanitizeGiftMessage, sanitizeMessage, isPartyWindowOpen, validatePhotoBytes } from "../shared/party";
 import * as ambassadorProgram from "./ambassadorProgram";
 import { monthKeyFor } from "../shared/ambassadorProgram";
@@ -5044,7 +5045,20 @@ export const appRouter = router({
       await db.recordAdminAudit({ action: 'finance.setMarginTarget', targetType: 'siteSettings', payload: { percent: input.percent }, ip: clientIp(ctx) });
       return { percent: normalizeAdminAlertsConfig({ financeMarginTargetPercent: input.percent }).financeMarginTargetPercent };
     }),
+    // ¿La base ya tiene las columnas del staff unificado? Si no, el panel muestra el botón para actualizarla.
+    staffSchema: adminProcedure.query(() => staffSchemaStatus()),
+    staffSchemaApply: adminPasswordProcedure.mutation(async ({ ctx }) => {
+      try {
+        const r = await applyStaffSchema();
+        await db.recordAdminAudit({ action: 'system.staffSchemaApply', targetType: 'schema', payload: r, ip: clientIp(ctx) });
+        return { ...r, ...(await staffSchemaStatus()) };
+      } catch (e: any) {
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: `No se pudo actualizar la base: ${e?.message ?? 'error desconocido'}` });
+      }
+    }),
     staffList: adminProcedure.query(async () => {
+      // Sin las columnas nuevas todavía no hay nada que listar (el panel avisa y ofrece actualizarla).
+      if (!(await staffSchemaStatus()).ready) return [];
       // Ficha única: completa cargo, correo y enlaces de operadores de antes (idempotente, server/staff.ts).
       await staffSvc.backfillStaffUnify(await staffPortal.getLegacyStaffEmails()).catch((e) => console.warn('[staff] backfill', e));
       return staffSvc.listStaff();
