@@ -37,7 +37,7 @@ export function splitEvents<T extends { eventDate: string | Date }>(events: T[],
 const clp = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
 
 /** Compartir el evento con la hoja del teléfono (WhatsApp, Instagram…); sin ella, copia el link. */
-async function shareEvent(event: AppEvent) {
+export async function shareEvent(event: AppEvent) {
   const url = `${window.location.origin}/eventos/${event.slug}`;
   const text = `${event.title} · ${eventWhen(event.eventDate)}`;
   try {
@@ -46,7 +46,7 @@ async function shareEvent(event: AppEvent) {
   } catch { /* la persona cerró la hoja */ }
 }
 
-function addToCalendar(event: AppEvent) {
+export function addToCalendar(event: AppEvent) {
   downloadIcs(`${event.slug}.ics`, buildIcs({
     uid: `evento-${event.id}`,
     title: event.title,
