@@ -5035,6 +5035,8 @@ export const appRouter = router({
         try { newEmail = await staffPortal.setStaffEmail(r.id, email); }
         catch (e: any) { throw new TRPCError({ code: 'BAD_REQUEST', message: e?.message ?? 'No se pudo guardar el correo' }); }
       }
+      // Cargo, nombre o archivado cambian sus accesos de las noches que vienen.
+      await staffSvc.syncStaffAccess(r.id).catch((e) => console.warn('[staff] sync', e));
       await db.recordAdminAudit({ action: id ? 'finance.staffUpdate' : 'finance.staffCreate', targetType: 'staffMember', targetId: r.id, ip: clientIp(ctx) });
       // Correo nuevo: le llega la bienvenida con el botón a su app (si falla el envío, igual queda guardado).
       const invited = newEmail ? await staffPortal.sendStaffWelcome(r.id).catch(() => false) : false;
@@ -5072,11 +5074,26 @@ export const appRouter = router({
       amountClp: z.number().int().min(0).max(100_000_000), hours: z.number().min(0).max(48).nullish(), note: z.string().max(255).nullish(),
       paymentType: z.enum(['transferencia', 'boleta_honorarios']).optional(), amountMode: z.enum(['liquido', 'bruto']).optional(),
     })).mutation(async ({ input, ctx }) => {
-      try {
-        const r = await staffSvc.addShift(input);
-        await db.recordAdminAudit({ action: 'finance.shiftAdd', targetType: 'staffShift', targetId: r.id, eventId: input.eventId, ip: clientIp(ctx) });
-        return r;
-      } catch (e: any) { throw new TRPCError({ code: 'BAD_REQUEST', message: e?.message ?? 'No se pudo asignar' }); }
+      let r: { id: number };
+      try { r = await staffSvc.addShift(input); }
+      catch (e: any) { throw new TRPCError({ code: 'BAD_REQUEST', message: e?.message ?? 'No se pudo asignar' }); }
+      await db.recordAdminAudit({ action: 'finance.shiftAdd', targetType: 'staffShift', targetId: r.id, eventId: input.eventId, ip: clientIp(ctx) });
+      // Asignada a la noche: se le crea (o enciende) el acceso a su pantalla y le llega el aviso.
+      const access = await staffSvc.syncStaffAccess(input.staffId).catch((e) => { console.warn('[staff] sync', e); return null; });
+      const notified = await staffPortal.notifyStaffShift(input.staffId, input.eventId);
+      return { ...r, access, notified };
+    }),
+    // «Copiar equipo del evento anterior»: mismas personas y montos; a cada una le llega su aviso.
+    shiftsPrevious: adminProcedure.input(z.object({ eventId: z.number().int().positive() })).query(({ input }) => staffSvc.previousEventWithShifts(input.eventId)),
+    shiftsCopy: adminProcedure.input(z.object({ fromEventId: z.number().int().positive(), toEventId: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
+      if (input.fromEventId === input.toEventId) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Elige otro evento' });
+      const { added } = await staffSvc.copyShifts(input.fromEventId, input.toEventId);
+      for (const staffId of added) {
+        await staffSvc.syncStaffAccess(staffId).catch((e) => console.warn('[staff] sync', e));
+        await staffPortal.notifyStaffShift(staffId, input.toEventId);
+      }
+      await db.recordAdminAudit({ action: 'finance.shiftsCopy', targetType: 'event', targetId: input.toEventId, eventId: input.toEventId, payload: { fromEventId: input.fromEventId, added: added.length }, ip: clientIp(ctx) });
+      return { added: added.length };
     }),
     shiftUpdate: adminProcedure.input(z.object({
       id: z.number().int().positive(), amountClp: z.number().int().min(0).max(100_000_000).optional(),

@@ -788,6 +788,39 @@ export function buildStaffWelcomeEmail(data: { name: string; role?: string | nul
   });
 }
 
+/** Aviso al staff: lo asignaron a una noche (con su cargo, la hora de citación si ya está y si le falta el PIN). */
+export function buildStaffShiftEmail(data: { name: string; role: string; eventTitle: string; eventDateLabel: string; callTime?: string | null; needsPin?: boolean }) {
+  const url = `${EMAIL_BASE_URL}/cuenta?staff=1`;
+  const name = escapeEmailText(data.name.split(/\s+/)[0] || data.name);
+  const rows = [
+    ['📅', 'Cuándo', escapeEmailText(data.eventDateLabel)],
+    ['🎯', 'Tu cargo', escapeEmailText(data.role)],
+    ...(data.callTime ? [['⏰', 'Citación', `Llega a las <strong style="color:${INK};">${escapeEmailText(data.callTime)}</strong>.`]] : []),
+    ...(data.needsPin ? [['🔢', 'Crea tu PIN', 'Todavía no tienes PIN: créalo en tu app para poder entrar a tu pantalla esa noche.']] : []),
+  ];
+  return emailShell({
+    preheader: `Estás en el staff de ${data.eventTitle}.`,
+    pageBg: DISCO_BG,
+    hero: emailHero({
+      accent: 'lilac',
+      heroBg: DISCO_HERO_BG,
+      emoji: '🪩',
+      title: `${name}, trabajas en ${escapeEmailText(data.eventTitle)}`,
+      subtitle: 'Tu credencial, la dirección y la info de la noche están en tu app.',
+    }),
+    body: `
+      ${card(rows.map(([emoji, title, text]) => `
+        <div style="padding:10px 0;">
+          <p style="color:${INK};font-size:15px;font-weight:800;margin:0 0 4px;">${emoji} ${title}</p>
+          <p style="color:${MUTED};font-size:14px;line-height:1.6;margin:0;">${text}</p>
+        </div>`).join(''))}
+      <div style="text-align:center;margin-top:24px;">
+        ${pastelButton(url, 'Ver mi turno', 'lilac')}
+      </div>
+    `,
+  });
+}
+
 /** Aviso de seguridad: el PIN de la PlayCard se cambió con "Olvidé mi PIN".
  * Si no fue la persona, tiene que poder reaccionar -- por eso dice cómo. */
 export function buildPinChangedEmail(data: { buyerName: string; instagramUrl: string }) {

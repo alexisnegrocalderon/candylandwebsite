@@ -153,9 +153,20 @@ function StaffPanel({ eventId, report }: { eventId: number; report: any }) {
   const [payMode, setPayMode] = useState<PayMode>('liquido');
 
   const refresh = () => { utils.finance.shiftsList.invalidate(); utils.finance.eventReport.invalidate(); utils.finance.payables.invalidate(); utils.cajaReports.eventPnl.invalidate(); };
-  const addShift = trpc.finance.shiftAdd.useMutation({ onSuccess: () => { refresh(); setStaffId(''); setAmount(''); }, onError: onErr });
+  const addShift = trpc.finance.shiftAdd.useMutation({
+    onSuccess: (r) => {
+      refresh(); utils.operators.listAll.invalidate(); setStaffId(''); setAmount('');
+      toast.success(r.notified ? 'Asignado · le avisamos por correo y en su app' : 'Asignado');
+    },
+    onError: onErr,
+  });
+  const { data: previous } = trpc.finance.shiftsPrevious.useQuery({ eventId });
+  const copyShifts = trpc.finance.shiftsCopy.useMutation({
+    onSuccess: (r) => { refresh(); utils.operators.listAll.invalidate(); toast.success(r.added ? `Copiamos ${r.added} ${r.added === 1 ? 'persona' : 'personas'} · a cada una le llegó su aviso` : 'Ya estaban todos'); },
+    onError: onErr,
+  });
   const updShift = trpc.finance.shiftUpdate.useMutation({ onSuccess: refresh, onError: onErr });
-  const delShift = trpc.finance.shiftRemove.useMutation({ onSuccess: refresh, onError: onErr });
+  const delShift = trpc.finance.shiftRemove.useMutation({ onSuccess: () => { refresh(); utils.operators.listAll.invalidate(); }, onError: onErr });
   const { data: info } = trpc.finance.staffInfo.useQuery({ eventId });
   const setCallTime = trpc.finance.shiftCallTime.useMutation({ onSuccess: () => utils.finance.staffInfo.invalidate({ eventId }), onError: onErr });
 
@@ -193,12 +204,25 @@ function StaffPanel({ eventId, report }: { eventId: number; report: any }) {
 
         <div className="space-y-2">
           {shifts.length === 0 && <EmptyState icon={Users} title="Nadie asignado todavía" description="Agrega al equipo de esta noche y cuánto se le paga." />}
+          {previous && (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-black/5 px-3 py-2">
+              <p className="text-xs text-[var(--admin-muted)]">¿El mismo equipo de <strong className="text-foreground">{previous.title}</strong>? Se copian las personas y lo pactado, y a cada una le llega su aviso.</p>
+              <button type="button" disabled={isDemo || copyShifts.isPending} title={isDemo ? DEMO_TOOLTIP : undefined} className={`${pillBase} ${pillOff}`}
+                onClick={() => copyShifts.mutate({ fromEventId: previous.id, toEventId: eventId })}>
+                {copyShifts.isPending ? 'Copiando…' : 'Copiar equipo del evento anterior'}
+              </button>
+            </div>
+          )}
           {shifts.map((s) => (
             <div key={s.id} className="admin-clay-sm p-3 space-y-2">
               <div className="flex flex-wrap items-center gap-3">
                 <div className="min-w-[8rem] flex-1">
                   <p className="font-medium">{s.name}</p>
-                  <p className="text-xs text-[var(--admin-muted)]">{s.role || 'Sin rol'}</p>
+                  <p className="text-xs text-[var(--admin-muted)]">
+                    {cargoTitle(s.cargo, s.role)}
+                    {s.access === 'on' && <span className="ml-1.5 font-semibold text-emerald-600">· acceso listo</span>}
+                    {s.access === 'pin' && <span className="ml-1.5 font-semibold text-amber-700">· falta que cree su PIN</span>}
+                  </p>
                   {info?.arrivals[String(s.staffId)] && (
                     <p className="text-[11px] font-semibold text-emerald-600">✓ Llegó {formatChileTime(info.arrivals[String(s.staffId)])}</p>
                   )}
@@ -266,7 +290,7 @@ function StaffPanel({ eventId, report }: { eventId: number; report: any }) {
           )}
         </div>
 
-        <StaffInfoEditor eventId={eventId} roles={shifts.map((s) => s.role).filter(Boolean)} />
+        <StaffInfoEditor eventId={eventId} roles={shifts.map((s) => cargoTitle(s.cargo, s.role))} />
 
         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-black/5 pt-3">
           <p className="text-xs text-[var(--admin-muted)]">¿Falta alguien? Las personas, su cargo y su acceso se manejan en Noche → Staff.</p>
