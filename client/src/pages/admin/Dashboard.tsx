@@ -9,7 +9,7 @@ import { NOT_ADMIN_ERR_MSG } from '@shared/const';
 import { canOpenAdmin, isPartnerRole, useIsDemo, DEMO_TOOLTIP } from '@/lib/demoMode';
 import { WriteButton, DownloadLink } from '@/components/admin/WriteButton';
 import { CartaManager } from '@/components/admin/carta/CartaManager';
-import { StaffManager } from '@/components/admin/staff/StaffManager';
+import { StaffManager, requestNewStaff } from '@/components/admin/staff/StaffManager';
 import { OPERATOR_ROLES, OPERATOR_ROLE_LABELS, type OperatorRole } from '@shared/cajaRoles';
 import { useHideSplashOnMount } from '@/lib/splash';
 import { BlockedManager } from '@/components/admin/blocked/BlockedManager';
@@ -91,7 +91,7 @@ import {
 } from '@shared/eventBudget';
 import { monthKeyFor } from '@shared/ambassadorProgram';
 import { formatChileDateTime, formatChileShortDate, formatChileTime } from '@shared/chileDate';
-import { AdminShell } from '@/components/admin/shell/AdminShell';
+import { AdminShell, type AdminQuickAction } from '@/components/admin/shell/AdminShell';
 import { HomeView } from '@/components/admin/HomeView';
 import { CoproResumen, CoproAsistentes, CoproCortesias, CoproGastos, CoproReparto, CoproConfig } from '@/components/admin/coproduction/CoproductionViews';
 import type { ShellSection } from '@/components/admin/shell/nav';
@@ -11014,12 +11014,20 @@ function SplashGone() {
   return null;
 }
 
+/** Atajos de la hoja del «+» en el celular (solo los de secciones visibles). */
+const ADMIN_QUICK_ACTIONS: AdminQuickAction[] = [
+  { key: 'staff', label: 'Agregar staff', icon: UserPlus, section: 'staff', onSelect: requestNewStaff },
+  { key: 'gasto', label: 'Cargar gasto', icon: Receipt, section: 'cargar-gasto' },
+  { key: 'acceso', label: 'Acceso manual', icon: Gift, section: 'manual-access' },
+  { key: 'evento', label: 'Crear evento', icon: Calendar, section: 'events' },
+];
+
 const ADMIN_SECTIONS = [
   { id: 'home', label: 'Inicio', hub: 'inicio', icon: Home, render: () => <HomeSection /> },
 
   { id: 'overview', label: 'Resumen de la noche', hub: 'noche', icon: LayoutDashboard, render: () => <EventOverview /> },
-  { id: 'caja', label: 'Caja', hub: 'noche', icon: Store, render: () => <CajaAdminView /> },
   { id: 'staff', label: 'Staff', hub: 'noche', icon: Users, render: () => <StaffManager /> },
+  { id: 'caja', label: 'Caja', hub: 'noche', icon: Store, render: () => <CajaAdminView /> },
   { id: 'flash-promo', label: 'Promo Flash', hub: 'noche', icon: Zap, render: () => <FlashPromoCard /> },
   { id: 'party-gifts', label: 'Tragos de la Fiesta', hub: 'noche', icon: Martini, render: () => <PartyGiftsView /> },
   { id: 'denuncias', label: 'Denuncias', hub: 'noche', icon: ShieldAlert, render: () => <DenunciasView /> },
@@ -11639,6 +11647,7 @@ export default function AdminDashboard() {
       roleLabel={isPartner ? 'Socio · Playroom × Dalmore' : undefined}
       isDemo={isDemo}
       onLogout={() => logout()}
+      quickActions={ADMIN_QUICK_ACTIONS}
     >
       <AdminNavContext.Provider value={navContext}>
         <motion.div

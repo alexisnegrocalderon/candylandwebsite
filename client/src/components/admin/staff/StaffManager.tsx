@@ -129,11 +129,19 @@ function UnlinkedOperators({ team }: { team: any[] }) {
   );
 }
 
+/* El atajo «Agregar staff» del «+» (celular) abre la sección con el formulario ya abierto. */
+let openNewOnMount = false;
+export function requestNewStaff() { openNewOnMount = true; }
+
 export function StaffManager() {
   const isDemo = useIsDemo();
   const utils = trpc.useUtils();
   const { data: team, isLoading } = trpc.finance.staffList.useQuery();
-  const [editing, setEditing] = useState<number | 'new' | null>(null);
+  const [editing, setEditing] = useState<number | 'new' | null>(() => {
+    if (!openNewOnMount) return null;
+    openNewOnMount = false;
+    return 'new';
+  });
   const [filter, setFilter] = useState<StaffCargo | 'todos'>('todos');
   const [showArchived, setShowArchived] = useState(false);
   const invite = trpc.finance.staffInvite.useMutation({ onSuccess: () => toast.success('Invitación enviada'), onError: onErr });
