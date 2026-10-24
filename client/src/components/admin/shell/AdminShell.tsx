@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ChevronLeft, ChevronRight, ChevronDown, LogOut, MoreHorizontal, Search, Settings as SettingsIcon, Eye } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronDown, LogOut, MoreHorizontal, Plus, Search, Settings as SettingsIcon, Eye, type LucideIcon } from 'lucide-react';
+import { AnimatePresence, motion, useDragControls } from 'framer-motion';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -49,13 +50,23 @@ interface AdminShellProps {
   roleLabel?: string;
   isDemo: boolean;
   onLogout: () => void;
+  /** Atajos de la hoja del «+» (celular): abren una sección, y opcionalmente algo dentro de ella. */
+  quickActions?: AdminQuickAction[];
   children: ReactNode;
+}
+
+export interface AdminQuickAction {
+  key: string;
+  label: string;
+  icon: LucideIcon;
+  section: string;
+  onSelect?: () => void;
 }
 
 /** Chrome del panel: sidebar de vidrio (desktop), pestañas del hub, barra
  * inferior + "Más" (celular) y buscador Ctrl+K. No sabe nada de lo que
  * renderiza cada sección -- solo de ids, hubs y burbujas. */
-export function AdminShell({ sections, activeSection, onOpenSection, badgeCounts, userName, roleLabel: roleLabelProp, isDemo, onLogout, children }: AdminShellProps) {
+export function AdminShell({ sections, activeSection, onOpenSection, badgeCounts, userName, roleLabel: roleLabelProp, isDemo, onLogout, quickActions, children }: AdminShellProps) {
   useDarkGlassDocument();
   // El panel ya está listo: se va el splash de apertura (client/src/lib/splash.ts).
   useEffect(() => { hideSplash(); }, []);
@@ -280,9 +291,11 @@ export function AdminShell({ sections, activeSection, onOpenSection, badgeCounts
       </div>
 
       {/* ── Barra inferior (celular) ── */}
-      <nav className="admin-tabbar fixed inset-x-0 bottom-0 z-40 px-3 pb-[max(env(safe-area-inset-bottom),0.75rem)] md:hidden">
+      {singleHub ? (<>
+      {/* ── Barra inferior (celular) ── */}
+        <nav className="admin-tabbar fixed inset-x-0 bottom-0 z-40 px-3 pb-[max(env(safe-area-inset-bottom),0.75rem)] md:hidden">
         <div className="admin-glass-panel flex items-stretch justify-around px-1 py-1.5">
-          {singleHub && hubSections.slice(0, 5).map((s) => (
+          {hubSections.slice(0, 5).map((s) => (
             <TabBarButton
               key={s.id}
               icon={s.icon}
@@ -292,21 +305,11 @@ export function AdminShell({ sections, activeSection, onOpenSection, badgeCounts
               onClick={() => onOpenSection(s.id)}
             />
           ))}
-          {!singleHub && mobileHubs.map((hub) => (
-            <TabBarButton
-              key={hub.id}
-              icon={hub.icon}
-              label={hub.label === 'Noche en vivo' ? 'Noche' : hub.label}
-              active={hub.id === activeHub}
-              badge={hubBadgeCount(hub.id, sections, badgeCounts)}
-              onClick={() => openHub(hub.id)}
-            />
-          ))}
           <TabBarButton
             icon={MoreHorizontal}
-            label={singleHub ? 'Cuenta' : 'Más'}
-            active={!singleHub && !mobileHubs.some((h) => h.id === activeHub)}
-            badge={singleHub ? 0 : moreBadge}
+            label="Cuenta"
+            active={false}
+            badge={0}
             onClick={() => setMoreOpen(true)}
           />
         </div>
@@ -351,6 +354,25 @@ export function AdminShell({ sections, activeSection, onOpenSection, badgeCounts
           </button>
         </SheetContent>
       </Sheet>
+
+      </>) : (
+        <AppTabBar
+          left={mobileHubs.slice(0, 2)}
+          right={mobileHubs.slice(2, 4)}
+          activeHub={activeHub}
+          badgeFor={(id) => hubBadgeCount(id, sections, badgeCounts)}
+          moreBadge={moreBadge}
+          moreHubs={allHubs.filter((h) => !mobileHubs.slice(0, 4).some((m) => m.id === h.id))}
+          quickActions={(quickActions ?? []).filter((q) => sections.some((s) => s.id === q.section))}
+          open={moreOpen}
+          onOpenChange={setMoreOpen}
+          onOpenHub={openHub}
+          onQuickAction={(q) => { setMoreOpen(false); q.onSelect?.(); onOpenSection(q.section); }}
+          userName={userName}
+          roleLabel={roleLabel}
+          onLogout={onLogout}
+        />
+      )}
 
       <CommandPalette
         open={searchOpen}
@@ -412,5 +434,121 @@ function TabBarButton({ icon: Icon, label, active, badge, onClick }: {
       <span className="truncate">{label}</span>
       {badge > 0 && <span className="admin-badge absolute right-[calc(50%-22px)] top-0">{formatBadge(badge)}</span>}
     </button>
+  );
+}
+
+/** La barra del celular igual a la de la app («Mi cuenta», client/src/pages/Cuenta.tsx): dos píldoras
+ * de vidrio con lo más usado a los lados y el «+» al centro, que abre los atajos y el resto de los hubs. */
+function AppTabBar({ left, right, activeHub, badgeFor, moreBadge, moreHubs, quickActions, open, onOpenChange, onOpenHub, onQuickAction, userName, roleLabel, onLogout }: {
+  left: AdminHub[];
+  right: AdminHub[];
+  activeHub: AdminHubId;
+  badgeFor: (id: AdminHubId) => number;
+  moreBadge: number;
+  moreHubs: AdminHub[];
+  quickActions: AdminQuickAction[];
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onOpenHub: (id: AdminHubId) => void;
+  onQuickAction: (q: AdminQuickAction) => void;
+  userName: string;
+  roleLabel: string;
+  onLogout: () => void;
+}) {
+  const sheetDrag = useDragControls();
+  const moreActive = moreHubs.some((h) => h.id === activeHub);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onOpenChange(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onOpenChange]);
+
+  return (
+    <div className="admin-tabbar md:hidden">
+      <nav className={`fixed bottom-[max(12px,env(safe-area-inset-bottom))] left-1/2 flex w-[calc(100vw-24px)] max-w-md -translate-x-1/2 items-end gap-1 ${open ? 'z-[60]' : 'z-40'}`} aria-label="Secciones del panel">
+        {[left, right].map((group, g) => (
+          <div key={g} className="contents">
+            {/* Hueco del centro: ahí queda el «+», sin tapar ningún botón. */}
+            {g === 1 && <div aria-hidden className="w-[68px] shrink-0" />}
+            <div className={`lg-pill grid min-w-0 flex-1 grid-cols-2 rounded-full p-1.5 transition-all duration-300 ${open ? 'pointer-events-none translate-y-2 opacity-0' : ''}`}>
+              {group.map((hub) => {
+                const active = hub.id === activeHub;
+                const badge = badgeFor(hub.id);
+                return (
+                  <button key={hub.id} type="button" onClick={() => onOpenHub(hub.id)} aria-current={active ? 'page' : undefined}
+                    className={`relative flex flex-col items-center justify-center gap-0.5 rounded-full py-2 text-[11px] font-medium transition-all duration-300 ${active ? 'bg-white/[0.16] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.3)]' : 'text-white/60'}`}>
+                    <hub.icon className="h-[22px] w-[22px]" />
+                    <span className="max-w-full truncate px-1">{hub.label === 'Noche en vivo' ? 'Noche' : hub.label}</span>
+                    {badge > 0 && <span className="absolute right-1 top-0.5 grid h-5 min-w-5 place-items-center rounded-full bg-white px-1 text-[10px] font-bold text-[#0d0712]">{formatBadge(badge)}</span>}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+        <button type="button" onClick={() => onOpenChange(!open)} aria-label={open ? 'Cerrar' : 'Más secciones y atajos'} aria-expanded={open}
+          className="absolute bottom-3 left-1/2 grid h-16 w-16 -translate-x-1/2 place-items-center rounded-full bg-gradient-to-br from-pink-500 via-fuchsia-500 to-sky-500 text-white shadow-[0_10px_30px_-4px_rgba(236,72,153,0.65),inset_0_1px_0_rgba(255,255,255,0.45)] ring-[5px] ring-[#0b0612]/70 transition-transform duration-300 active:scale-95">
+          <Plus className={`h-7 w-7 transition-transform duration-300 ${open ? 'rotate-45' : ''}`} strokeWidth={2.4} />
+          {!open && (moreBadge > 0 || moreActive) && (
+            <span className={`absolute right-0.5 top-0.5 h-3 w-3 rounded-full border-2 border-[#0b0612] ${moreBadge > 0 ? 'bg-amber-300' : 'bg-white'}`} />
+          )}
+        </button>
+      </nav>
+
+      <AnimatePresence>
+        {open && (
+          <>
+            <motion.div className="fixed inset-0 z-50 bg-black/50" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => onOpenChange(false)} />
+            <motion.div
+              role="dialog" aria-modal="true" aria-label="¿Qué quieres hacer?"
+              className="lg-sheet fixed inset-x-0 bottom-0 z-50 max-h-[88dvh] overflow-y-auto overscroll-contain rounded-t-[32px] px-4 pb-[calc(env(safe-area-inset-bottom)+104px)] pt-3 text-white"
+              initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 30, stiffness: 320 }}
+              drag="y" dragControls={sheetDrag} dragListener={false} dragConstraints={{ top: 0, bottom: 0 }} dragElastic={{ top: 0, bottom: 0.6 }} onDragEnd={(_, info) => { if (info.offset.y > 80) onOpenChange(false); }}
+            >
+              {/* Solo la manija arrastra la hoja: el resto se desliza normal. */}
+              <div onPointerDown={(e) => sheetDrag.start(e)} className="-mx-4 mb-2 flex h-8 cursor-grab touch-none items-center justify-center"><div className="h-1.5 w-10 rounded-full bg-white/25" /></div>
+              <div className="mb-4 flex items-center gap-3">
+                <span className="admin-avatar flex h-10 w-10 shrink-0 items-center justify-center rounded-xl font-heading font-bold">{(userName.trim()[0] ?? 'M').toUpperCase()}</span>
+                <div className="min-w-0 flex-1">
+                  <p className="font-heading text-xl font-bold leading-tight">¿Qué quieres hacer?</p>
+                  <p className="truncate text-xs text-white/55">{userName} · {roleLabel}</p>
+                </div>
+              </div>
+              <div className="space-y-3">
+                {quickActions.length > 0 && (
+                  <div className="grid grid-cols-2 gap-2.5">
+                    {quickActions.map((q) => (
+                      <button key={q.key} type="button" onClick={() => onQuickAction(q)}
+                        className="flex min-h-[56px] items-center gap-2.5 rounded-[22px] bg-gradient-to-r from-pink-500/90 via-fuchsia-500/90 to-sky-500/90 px-3.5 py-2.5 text-left text-sm font-bold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.35)] active:scale-[0.98]">
+                        <q.icon className="h-5 w-5 shrink-0" />
+                        <span className="leading-tight">{q.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <div className="grid grid-cols-3 gap-2.5">
+                  {moreHubs.map((hub) => {
+                    const badge = badgeFor(hub.id);
+                    const active = hub.id === activeHub;
+                    return (
+                      <button key={hub.id} type="button" onClick={() => onOpenHub(hub.id)} aria-current={active ? 'page' : undefined}
+                        className={`account-glass relative flex h-[84px] flex-col items-center justify-center gap-1.5 rounded-[22px] px-1 text-center text-[13px] font-semibold text-white active:scale-[0.98] ${active ? 'ring-2 ring-pink-400/70' : ''}`}>
+                        <hub.icon className="h-5 w-5 text-pink-300" />
+                        <span className="leading-tight">{hub.label}</span>
+                        {badge > 0 && <span className="admin-badge absolute right-2 top-2">{formatBadge(badge)}</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+                <button type="button" onClick={onLogout} className="account-glass flex h-12 w-full items-center justify-center gap-2 rounded-[22px] text-sm font-semibold text-rose-400">
+                  <LogOut className="h-4 w-4" /> Cerrar sesión
+                </button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+    </div>
   );
 }
