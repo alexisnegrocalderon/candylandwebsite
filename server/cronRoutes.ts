@@ -36,11 +36,17 @@ const CHECKIN_SUMMARY_EMAIL = ADMIN_NOTIFICATION_EMAIL;
 /** Vercel manda `Authorization: Bearer <CRON_SECRET>` en cada invocación de
  * un cron job cuando esa variable está seteada en el proyecto -- es el
  * mecanismo oficial recomendado para que este endpoint no quede abierto a
- * cualquiera que adivine la URL. Si CRON_SECRET no está configurada (ej. en
- * desarrollo local), se deja pasar igual, pero avisando por consola. */
-function requireCronSecret(req: Request, res: Response): boolean {
+ * cualquiera que adivine la URL. Sin CRON_SECRET: en desarrollo local se deja
+ * pasar (avisando por consola); en producción se rechaza, porque cualquiera
+ * podría disparar mailings, push o sorteos con solo conocer la URL. */
+export function requireCronSecret(req: Request, res: Response): boolean {
   if (!ENV.cronSecret) {
-    console.warn('[Cron] CRON_SECRET no configurada -- el endpoint del cron queda sin autenticar.');
+    if (ENV.isProduction) {
+      console.error('[Cron] CRON_SECRET no configurada en producción -- el cron se rechaza. Agrégala en Vercel → Settings → Environment Variables.');
+      res.status(503).json({ error: "CRON_SECRET no configurada" });
+      return false;
+    }
+    console.warn('[Cron] CRON_SECRET no configurada -- el endpoint del cron queda sin autenticar (solo desarrollo).');
     return true;
   }
   const auth = req.headers.authorization;
@@ -477,32 +483,33 @@ export function registerCronRoutes(app: Express) {
       console.error('[Cron] Error en el concurso de Instagram:', err);
       contest = { error: err instanceof Error ? err.message : 'Error desconocido' };
     }
+    // Cada canal en su propio try: si Instagram falla, WhatsApp y la reactivación igual corren.
+    let instagram: Awaited<ReturnType<typeof runInstagramFollowUps>> | { error: string };
     try {
-      const result = await runInstagramFollowUps();
-      // El recordatorio de WhatsApp comparte este cron (misma frecuencia,
-      // mismo mecanismo) en vez de sumar otra entrada en vercel.json. Un
-      // fallo de un canal no tapa el resultado del otro.
-      let whatsapp: Awaited<ReturnType<typeof runWhatsAppFollowUps>> | { error: string };
-      try {
-        whatsapp = await runWhatsAppFollowUps();
-      } catch (err) {
-        console.error('[Cron] Error mandando los recordatorios de cierre de WhatsApp:', err);
-        whatsapp = { error: err instanceof Error ? err.message : 'Error desconocido' };
-      }
-      // Reactivación automática de los hilos pausados (ver
-      // server/agentAutoResume.ts) -- mismo cron, sin entrada nueva en
-      // vercel.json. Un fallo acá no tapa el resultado de los recordatorios.
-      let autoResume: Awaited<ReturnType<typeof runAgentAutoResume>> | { error: string };
-      try {
-        autoResume = await runAgentAutoResume();
-      } catch (err) {
-        console.error('[Cron] Error reactivando hilos pausados del agente:', err);
-        autoResume = { error: err instanceof Error ? err.message : 'Error desconocido' };
-      }
-      res.json({ success: true, ...result, whatsapp, autoResume, contest, ranking });
+      instagram = await runInstagramFollowUps();
     } catch (err) {
       console.error('[Cron] Error mandando los recordatorios de cierre de Instagram:', err);
-      res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Error desconocido' });
+      instagram = { error: err instanceof Error ? err.message : 'Error desconocido' };
     }
+    // El recordatorio de WhatsApp comparte este cron (misma frecuencia,
+    // mismo mecanismo) en vez de sumar otra entrada en vercel.json.
+    let whatsapp: Awaited<ReturnType<typeof runWhatsAppFollowUps>> | { error: string };
+    try {
+      whatsapp = await runWhatsAppFollowUps();
+    } catch (err) {
+      console.error('[Cron] Error mandando los recordatorios de cierre de WhatsApp:', err);
+      whatsapp = { error: err instanceof Error ? err.message : 'Error desconocido' };
+    }
+    // Reactivación automática de los hilos pausados (ver
+    // server/agentAutoResume.ts) -- mismo cron, sin entrada nueva en vercel.json.
+    let autoResume: Awaited<ReturnType<typeof runAgentAutoResume>> | { error: string };
+    try {
+      autoResume = await runAgentAutoResume();
+    } catch (err) {
+      console.error('[Cron] Error reactivando hilos pausados del agente:', err);
+      autoResume = { error: err instanceof Error ? err.message : 'Error desconocido' };
+    }
+    const failed = 'error' in instagram;
+    res.status(failed ? 500 : 200).json({ success: !failed, ...(failed ? { error: (instagram as { error: string }).error } : instagram), whatsapp, autoResume, contest, ranking });
   });
 }

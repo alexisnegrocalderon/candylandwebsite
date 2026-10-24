@@ -21,7 +21,7 @@ import { checkInTicket } from "./caja/checkin";
 import { sellParkingAtDoor } from "./caja/parkingPaid";
 import { MAX_TEST_GUESTS, MIN_TEST_GUESTS } from "../shared/playmatchTest";
 import { UNDO_EXPENSE_WINDOW_MS } from "../shared/expenses";
-import { canUseCaja, OPERATOR_ROLES } from "../shared/cajaRoles";
+import { canUseCaja, OPERATOR_ROLES, STAFF_SYSTEMS } from "../shared/cajaRoles";
 import { STAFF_CARGO_KEYS } from "../shared/staffCargos";
 import { AVATARS_PER_GENDER, DEFAULT_LOOKING_FOR, MAX_PARTY_PHOTOS, MAX_REWINDS_PER_EVENT, PARTY_GENDERS, PARTY_ZONES, parseLookingFor, sanitizeCostume, serializeLookingFor, canPreRegister, partyEntryDenial, sanitizeAlias, sanitizeGiftMessage, sanitizeMessage, isPartyWindowOpen, validatePhotoBytes } from "../shared/party";
 import * as ambassadorProgram from "./ambassadorProgram";
@@ -509,32 +509,26 @@ async function verifyOperatorPinOrThrow(ctx: any, operatorId: number, pin: strin
   return operator;
 }
 
-/** Igual que la anterior pero solo para quienes trabajan en la puerta. */
-async function verifyDoorPinOrThrow(ctx: any, operatorId: number, pin: string) {
+/** PIN de las pantallas sin dispositivo enrolado (puerta, cocina, guardarropía): el rol tiene que ser
+ * de esa pantalla (shared/cajaRoles.ts STAFF_SYSTEMS) y el operador del evento de esta noche (el mismo
+ * que lista `listOperators`) o del de pruebas -- igual que la caja exige el evento de su dispositivo. */
+async function verifyScreenPinOrThrow(ctx: any, operatorId: number, pin: string, screen: 'puerta' | 'cocina' | 'guardarropia') {
   const operator = await verifyOperatorPinOrThrow(ctx, operatorId, pin);
-  if (operator.role !== 'acceso' && operator.role !== 'supervisor' && operator.role !== 'admin') {
-    throw new TRPCError({ code: 'FORBIDDEN', message: 'Tu usuario no trabaja en la puerta' });
+  const system = STAFF_SYSTEMS.find((x) => x.key === screen)!;
+  if (!(system.roles as readonly string[]).includes(operator.role)) {
+    throw new TRPCError({ code: 'FORBIDDEN', message: `Tu usuario no trabaja en ${system.label.toLowerCase()}` });
+  }
+  const active = await db.getActiveEventForCaja();
+  if (operator.eventId !== active?.id) {
+    const test = await db.getEventBySlug('pruebas-caja');
+    if (operator.eventId !== test?.id) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Tu acceso es de otro evento: pide que te asignen a esta noche' });
   }
   return operator;
 }
 
-/** Igual que las anteriores pero solo para quienes trabajan en cocina. */
-async function verifyKitchenPinOrThrow(ctx: any, operatorId: number, pin: string) {
-  const operator = await verifyOperatorPinOrThrow(ctx, operatorId, pin);
-  if (operator.role !== 'cocina' && operator.role !== 'supervisor' && operator.role !== 'admin') {
-    throw new TRPCError({ code: 'FORBIDDEN', message: 'Tu usuario no trabaja en cocina' });
-  }
-  return operator;
-}
-
-/** Igual que las anteriores pero solo para quienes trabajan en guardarropía. */
-async function verifyGuardarropiaPinOrThrow(ctx: any, operatorId: number, pin: string) {
-  const operator = await verifyOperatorPinOrThrow(ctx, operatorId, pin);
-  if (operator.role !== 'guardarropia' && operator.role !== 'supervisor' && operator.role !== 'admin') {
-    throw new TRPCError({ code: 'FORBIDDEN', message: 'Tu usuario no trabaja en guardarropía' });
-  }
-  return operator;
-}
+const verifyDoorPinOrThrow = (ctx: any, operatorId: number, pin: string) => verifyScreenPinOrThrow(ctx, operatorId, pin, 'puerta');
+const verifyKitchenPinOrThrow = (ctx: any, operatorId: number, pin: string) => verifyScreenPinOrThrow(ctx, operatorId, pin, 'cocina');
+const verifyGuardarropiaPinOrThrow = (ctx: any, operatorId: number, pin: string) => verifyScreenPinOrThrow(ctx, operatorId, pin, 'guardarropia');
 
 
 /** Clave de límite por IP del panel de administración, separada de la del
@@ -833,6 +827,45 @@ function requireMemberEmail(req: Parameters<typeof getMemberEmail>[0]): string {
   const email = getMemberEmail(req);
   if (!email) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Entra a tu cuenta para continuar.' });
   return email;
+}
+
+/** Filtros de la base de clientes (Clientes, audiencias de mailing). */
+const customerFiltersInput = z.object({
+  search: z.string().optional(),
+  accessType: z.string().optional(),
+  tag: z.string().optional(),
+  excludeTags: z.array(z.string()).optional(),
+  eventId: z.number().optional(),
+  // Ya lo usaba internamente Founders Promo (server/foundersPromo.ts) --
+  // se expone acá para poder armar audiencias de mailing manual tipo
+  // "todos menos los que ya compraron este evento".
+  notPurchasedEventId: z.number().optional(),
+  // Audiencia de correos masivos: deja afuera a quien pidió la baja.
+  forMailing: z.boolean().optional(),
+  // Filtros de la ficha de cliente.
+  level: z.enum(['sin_compras', 'nuevo', 'recurrente', 'vip', 'inactivo']).optional(),
+  city: z.string().optional(),
+  gender: z.string().optional(),
+  source: z.string().optional(),
+  birthdayMonth: z.number().int().min(1).max(12).optional(),
+  optedOut: z.enum(['email', 'any']).optional(),
+  // Solo quienes abrieron la app instalada en los últimos 60 días.
+  hasApp: z.boolean().optional(),
+});
+
+async function customerRows(input: z.infer<typeof customerFiltersInput>) {
+  const now = new Date();
+  const { hasApp, ...filters } = input;
+  const [all, withApp] = await Promise.all([db.listCustomers(filters), appDevices.appEmails()]);
+  const rows = hasApp ? all.filter((c: any) => withApp.has(c.email.toLowerCase())) : all;
+  // Nunca sale el hash del PIN de la tarjeta; el nivel va calculado.
+  return rows.map(({ cardPinHash: _hash, ...c }: any) => ({
+    ...c,
+    hasApp: withApp.has(c.email.toLowerCase()),
+    level: computeCustomerLevel({
+      totalOrders: c.totalOrders, totalSpent: Number(c.totalSpent), lastActivityAt: c.lastSeenAt, levelOverride: c.levelOverride, now,
+    }),
+  }));
 }
 
 export const appRouter = router({
@@ -6305,40 +6338,17 @@ export const appRouter = router({
     attendees: adminReadProcedure.input(z.object({ search: z.string().optional() }).optional())
       .query(({ input }) => db.listAttendeeContacts(input?.search)),
     backfillAttendees: adminProcedure.mutation(async () => db.backfillAttendeeContacts()),
-    listAll: adminReadProcedure.input(z.object({
-      search: z.string().optional(),
-      accessType: z.string().optional(),
-      tag: z.string().optional(),
-      excludeTags: z.array(z.string()).optional(),
-      eventId: z.number().optional(),
-      // Ya lo usaba internamente Founders Promo (server/foundersPromo.ts) --
-      // se expone acá para poder armar audiencias de mailing manual tipo
-      // "todos menos los que ya compraron este evento".
-      notPurchasedEventId: z.number().optional(),
-      // Audiencia de correos masivos: deja afuera a quien pidió la baja.
-      forMailing: z.boolean().optional(),
-      // Filtros de la ficha de cliente.
-      level: z.enum(['sin_compras', 'nuevo', 'recurrente', 'vip', 'inactivo']).optional(),
-      city: z.string().optional(),
-      gender: z.string().optional(),
-      source: z.string().optional(),
-      birthdayMonth: z.number().int().min(1).max(12).optional(),
-      optedOut: z.enum(['email', 'any']).optional(),
-      // Solo quienes abrieron la app instalada en los últimos 60 días.
-      hasApp: z.boolean().optional(),
-    }).optional()).query(async ({ input }) => {
-      const now = new Date();
-      const { hasApp, ...filters } = input ?? {};
-      const [all, withApp] = await Promise.all([db.listCustomers(filters), appDevices.appEmails()]);
-      const rows = hasApp ? all.filter((c: any) => withApp.has(c.email.toLowerCase())) : all;
-      // Nunca sale el hash del PIN de la tarjeta; el nivel va calculado.
-      return rows.map(({ cardPinHash: _hash, ...c }: any) => ({
-        ...c,
-        hasApp: withApp.has(c.email.toLowerCase()),
-        level: computeCustomerLevel({
-          totalOrders: c.totalOrders, totalSpent: Number(c.totalSpent), lastActivityAt: c.lastSeenAt, levelOverride: c.levelOverride, now,
-        }),
-      }));
+    listAll: adminReadProcedure.input(customerFiltersInput.optional()).query(({ input }) => customerRows(input ?? {})),
+    // La tabla de Clientes: una página por vez (la lista entera solo para armar audiencias de mailing).
+    page: adminReadProcedure.input(customerFiltersInput.extend({
+      page: z.number().int().min(0).max(100_000).default(0),
+      pageSize: z.number().int().min(10).max(100).default(25),
+    })).query(async ({ input }) => {
+      const { page, pageSize, ...filters } = input;
+      const rows = await customerRows(filters);
+      const pages = Math.max(1, Math.ceil(rows.length / pageSize));
+      const current = Math.min(page, pages - 1);
+      return { rows: rows.slice(current * pageSize, (current + 1) * pageSize), total: rows.length, page: current, pages };
     }),
     // Ficha completa: datos + historial por evento, valor, consumo y próxima acción.
     detail: adminReadProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
