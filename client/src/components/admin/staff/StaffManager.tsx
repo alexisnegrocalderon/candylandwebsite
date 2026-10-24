@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { EmptyState } from '@/components/admin/EmptyState';
+import { useStaffSchema } from '@/components/admin/SchemaUpdateBanner';
 import { TableSkeleton } from '@/components/admin/TableSkeleton';
 import { STAFF_CARGOS, cargoDef, cargoTitle, type StaffCargo } from '@shared/staffCargos';
 import { OPERATOR_ROLE_LABELS } from '@shared/cajaRoles';
@@ -136,6 +137,7 @@ export function requestNewStaff() { openNewOnMount = true; }
 export function StaffManager() {
   const isDemo = useIsDemo();
   const utils = trpc.useUtils();
+  const { ready: schemaReady } = useStaffSchema();
   const { data: team, isLoading } = trpc.finance.staffList.useQuery();
   const [editing, setEditing] = useState<number | 'new' | null>(() => {
     if (!openNewOnMount) return null;
@@ -172,7 +174,7 @@ export function StaffManager() {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle className="flex items-center gap-2"><Users className="h-5 w-5" /> Staff</CardTitle>
           {editing !== 'new' && (
-            <button type="button" disabled={isDemo} title={isDemo ? DEMO_TOOLTIP : undefined} onClick={() => setEditing('new')} className={`${pill} ${pillOn} flex items-center gap-1.5 px-5 py-2`}>
+            <button type="button" disabled={isDemo || !schemaReady} title={isDemo ? DEMO_TOOLTIP : !schemaReady ? 'Primero actualiza la base de datos (aviso de arriba)' : undefined} onClick={() => setEditing('new')} className={`${pill} ${pillOn} flex items-center gap-1.5 px-5 py-2`}>
               <UserPlus className="h-4 w-4" /> Agregar staff
             </button>
           )}

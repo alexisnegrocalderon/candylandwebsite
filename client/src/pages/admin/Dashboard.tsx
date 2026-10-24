@@ -17,6 +17,7 @@ import { deliverAdminDeepLink } from '@/lib/adminDeepLink';
 import { AdminShell, type AdminQuickAction } from '@/components/admin/shell/AdminShell';
 import type { ShellSection } from '@/components/admin/shell/nav';
 import { AdminNavContext, OrdersView, useAdminBadges } from './sections/shared';
+import { SchemaUpdateBanner } from '@/components/admin/SchemaUpdateBanner';
 
 // Cada hub del panel es su propio archivo y se descarga al abrir una de sus secciones.
 const BlockedManager = lazy(() => import('@/components/admin/blocked/BlockedManager').then((m) => ({ default: m.BlockedManager })));
@@ -275,6 +276,7 @@ export default function AdminDashboard() {
       quickActions={ADMIN_QUICK_ACTIONS}
     >
       <AdminNavContext.Provider value={navContext}>
+        <SchemaUpdateBanner />
         <motion.div
           key={activeSection}
           initial={{ opacity: 0, y: 12 }}

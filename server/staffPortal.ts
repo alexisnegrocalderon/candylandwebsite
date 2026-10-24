@@ -153,6 +153,13 @@ export async function findStaffByEmail(email: string) {
   if (!key) return null;
   const db = await getDb();
   if (!db) return null;
+  // Esto corre para cualquiera que entra a «Mi cuenta» o pide un código: si la base todavía no tiene las
+  // columnas del staff (migración 0129), no puede tumbar el login de los clientes.
+  try { return await findStaffRow(db, key); }
+  catch (e) { console.warn('[staff] no se pudo buscar al staff por correo (¿falta la migración 0129?)', e); return null; }
+}
+
+async function findStaffRow(db: NonNullable<Awaited<ReturnType<typeof getDb>>>, key: string) {
   const [staff] = await db.select().from(staffMembers).where(and(eq(staffMembers.email, key), eq(staffMembers.active, 1))).limit(1);
   if (staff) return staff;
   // Respaldo: el correo todavía está solo en el JSON viejo (no se ha abierto la lista del staff desde la migración).
