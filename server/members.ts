@@ -12,6 +12,7 @@ import { sendEmail, buildMemberCodeEmail } from './email';
 import { pushToEmail } from './customerPush';
 import { findAmbassadorByEmail } from './ambassadorProgram';
 import { findStaffByEmail } from './staffPortal';
+import { isAdminEmail } from './adminEmail';
 import { currentMemberCode, normalizeMemberEmail, randomCouponCode } from './memberAuth';
 import { customers, discountCodes, events, memberCoupons, orders, playcoinsLedger, prepaidLedger, tickets, ticketTypes } from '../drizzle/schema';
 import { computeCustomerLevel, daysUntilBirthday } from '../shared/customerInsights';
@@ -86,9 +87,29 @@ async function ensureStaffCustomer(email: string): Promise<CustomerRow | null> {
   return findCustomer(email);
 }
 
-/** Manda el código al correo, solo si es cliente (o embajador, o del staff). Devuelve si se mandó (para los límites; nunca se le dice a quien pide). */
+/** El dueño (correo en `ADMIN_EMAILS`) puede entrar a «Mi cuenta» con su correo aunque nunca haya comprado:
+ * así la app lo reconoce como admin y le muestra el acceso al panel. Se le crea su ficha (etiquetada «admin»). */
+async function ensureAdminCustomer(email: string): Promise<CustomerRow | null> {
+  const db = await getDb();
+  if (!db || !isAdminEmail(email)) return null;
+  try {
+    await db.insert(customers).values({
+      email: normalizeMemberEmail(email),
+      fullName: 'Admin',
+      accessTypes: [],
+      tags: ['admin'],
+      totalOrders: 0,
+      totalSpent: '0',
+    });
+  } catch {
+    // Dos pedidos de código a la vez: la ficha ya la creó el otro.
+  }
+  return findCustomer(email);
+}
+
+/** Manda el código al correo, solo si es cliente (o embajador, del staff o admin). Devuelve si se mandó (para los límites; nunca se le dice a quien pide). */
 export async function sendMemberCode(email: string): Promise<boolean> {
-  const customer = (await findCustomer(email)) ?? (await ensureAmbassadorCustomer(email)) ?? (await ensureStaffCustomer(email));
+  const customer = (await findCustomer(email)) ?? (await ensureAmbassadorCustomer(email)) ?? (await ensureStaffCustomer(email)) ?? (await ensureAdminCustomer(email));
   if (!customer) return false;
   const html = buildMemberCodeEmail({ code: currentMemberCode(customer.email), name: firstName(customer.fullName) || null });
   await sendEmail({ to: customer.email, subject: '🔐 Tu código para entrar a tu cuenta', html });
@@ -190,6 +211,8 @@ export async function completeLogin(email: string, now = new Date()): Promise<{ 
   const granted: GrantedCoupon[] = [];
   if (isNew) {
     await db.update(customers).set({ memberSince: now }).where(eq(customers.id, customer.id));
+    // El dueño entra para administrar: nada de cupones de bienvenida a su cuenta.
+    if (isAdminEmail(customer.email)) return { isNew, granted };
     if (config.welcome.enabled) {
       const g = await grantCoupon({ email: customer.email.toLowerCase(), kind: 'bienvenida', grantKey: `bienvenida:${customer.email.toLowerCase()}`, title: `${money(config.welcome.percent)} de bienvenida`, percent: config.welcome.percent, days: config.welcome.days });
       if (g) granted.push(g);

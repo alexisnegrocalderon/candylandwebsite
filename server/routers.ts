@@ -125,7 +125,7 @@ import { askFinance, buildNightSummary, buildWeeklySummary } from "./financeDire
 import { comparisonPdf as budgetComparisonPdf, singlePdf as budgetSinglePdf, loadSims as loadBudgetSims, slug as budgetSlug } from "./budgetReport";
 import { compareSimulations, formatPercent } from "../shared/budgetInsights";
 import { computeBudgetResult } from "../shared/eventBudget";
-import { sendEmail, buildShiftCloseEmail, buildMailingBlastEmail, buildKitchenVendorEmail, buildSimpleReportEmail, buildOrderEmail, buildMissionTopupEmail, buildPendingReminderEmail, buildGiftEmail, buildTopupCodeEmail, buildPinChangedEmail } from "./email";
+import { sendEmail, buildShiftCloseEmail, buildMailingBlastEmail, buildKitchenVendorEmail, buildSimpleReportEmail, buildOrderEmail, buildMissionTopupEmail, buildPendingReminderEmail, buildGiftEmail, buildTopupCodeEmail, buildPinChangedEmail, buildMemberCodeEmail } from "./email";
 import { currentLoginCode, verifyLoginCode, signTopupSession, verifyTopupSession, normalizeEmail } from "./topupAccess";
 import { identityFromTicketCode, identityFromEmail, getTopupOptions, createTopupOrder, resetCardPin, maskEmail, type TopupIdentity } from "./playcardTopup";
 import { formatChileDate, formatChileTime } from "../shared/chileDate";
@@ -137,7 +137,8 @@ import * as customerPush from "./customerPush";
 import { notifyEventLaunch } from "./customerPush";
 import * as appDevices from "./appDevices";
 import * as members from "./members";
-import { getMemberEmail, setMemberSession, clearMemberSession, verifyMemberCode, normalizeMemberEmail } from "./memberAuth";
+import { getMemberEmail, setMemberSession, clearMemberSession, verifyMemberCode, normalizeMemberEmail, currentMemberCode } from "./memberAuth";
+import { isAdminEmail, adminLoginCodeKey } from "./adminEmail";
 import * as memberPasskeys from "./memberPasskeys";
 import * as demoAccount from "./demoAccount";
 import { normalizeMemberConfig } from "../shared/memberConfig";
@@ -596,6 +597,17 @@ async function requireAdminStepTicket(ticket: string) {
   }
 }
 
+/** Vale del paso 1 para quien entró con su correo (ADMIN_EMAILS). Solo si el segundo factor YA está
+ * configurado: el correo nunca sirve para enrolarlo (eso se hace una vez entrando con la contraseña), y la
+ * válvula ADMIN_2FA_DISABLED tampoco aplica acá. */
+async function adminStepTicketForEmail(): Promise<string> {
+  const totp = await db.getAdminTotp();
+  if (!totp?.confirmedAt) {
+    throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Primero configura el segundo factor entrando una vez con tu contraseña.' });
+  }
+  return signAdminStepTicket();
+}
+
 /** Vale de corta vida para una ceremonia WebAuthn (registro o login de
  * passkey): el "challenge" viaja adentro, firmado, en vez de guardarse en el
  * servidor -- mismo criterio que signAdminStepTicket para el paso 1 de TOTP.
@@ -955,6 +967,55 @@ export const appRouter = router({
       const ticket = await signAdminStepTicket();
       const totp = await db.getAdminTotp();
       return { ticket, needsSetup: !totp?.confirmedAt } as const;
+    }),
+
+    // --- Entrar con el correo del dueño (variable ADMIN_EMAILS) ---
+    // Primera llave alternativa a la contraseña. NO entrega sesión: igual que la contraseña, devuelve el vale
+    // del paso 1 y falta el código de la app autenticadora (o de respaldo). Sin ADMIN_EMAILS no hace nada.
+    adminEmailRequestCode: publicProcedure.input(z.object({ email: z.string().email().max(200) })).mutation(async ({ input, ctx }) => {
+      const email = normalizeMemberEmail(input.email);
+      const ipKey = `admin-email-send-ip:${clientIp(ctx)}`;
+      const emailKey = `admin-email-send:${email}`;
+      if (!(await db.checkIpRateLimit(ipKey)) || !(await db.checkIpRateLimit(emailKey))) {
+        throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Pediste muchos códigos. Espera un rato e intenta de nuevo.' });
+      }
+      await db.recordIpAttempt(ipKey, 10, 60 * 60 * 1000);
+      await db.recordIpAttempt(emailKey, 5, 60 * 60 * 1000);
+      // Siempre responde igual: nadie averigua cuál correo es el del dueño.
+      if (isAdminEmail(email)) {
+        await sendEmail({ to: email, subject: '🔐 Tu código para entrar al panel', html: buildMemberCodeEmail({ code: currentMemberCode(adminLoginCodeKey(email)), name: null }) });
+      }
+      return { ok: true as const };
+    }),
+    adminEmailVerify: publicProcedure.input(z.object({ email: z.string().email().max(200), code: z.string().min(1).max(20) })).mutation(async ({ input, ctx }) => {
+      const email = normalizeMemberEmail(input.email);
+      const emailKey = `admin-email-verify:${email}`;
+      const ipKey = `admin-email-verify-ip:${clientIp(ctx)}`;
+      if (!(await db.checkIpRateLimit(emailKey)) || !(await db.checkIpRateLimit(ipKey))) {
+        throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos. Espera unos minutos y pide un código nuevo.' });
+      }
+      if (!isAdminEmail(email) || !verifyMemberCode(adminLoginCodeKey(email), input.code)) {
+        await db.recordIpAttempt(emailKey, 5, 15 * 60 * 1000);
+        await db.recordIpAttempt(ipKey, 20, 15 * 60 * 1000);
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Código incorrecto o vencido.' });
+      }
+      return { ticket: await adminStepTicketForEmail(), needsSetup: false } as const;
+    }),
+    // ¿La sesión de «Mi cuenta» de este navegador es la del dueño? Muestra «Continuar como…» (correo enmascarado).
+    adminEmailHint: publicProcedure.query(({ ctx }) => {
+      const email = getMemberEmail(ctx.req);
+      return email && isAdminEmail(email) ? { email: members.maskMemberEmail(email) } : null;
+    }),
+    // La app ya sabe quién eres (entraste a «Mi cuenta» con el código): sigue el segundo factor, sin pedir otro código.
+    adminEmailFromMember: publicProcedure.mutation(async ({ ctx }) => {
+      const ipKey = adminIpKey(ctx);
+      if (!(await db.checkIpRateLimit(ipKey))) throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos. Espera unos minutos.' });
+      const email = getMemberEmail(ctx.req);
+      if (!email || !isAdminEmail(email)) {
+        await db.recordIpFailedAttempt(ipKey);
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Esta sesión no es la del administrador.' });
+      }
+      return { ticket: await adminStepTicketForEmail(), needsSetup: false } as const;
     }),
 
     // Genera el secreto y el QR para configurar la app de autenticación.
@@ -4476,7 +4537,10 @@ export const appRouter = router({
     }),
     me: publicProcedure.query(async ({ ctx }) => {
       const email = getMemberEmail(ctx.req);
-      return email ? members.getMemberHome(email) : null;
+      if (!email) return null;
+      const home = await members.getMemberHome(email);
+      // `isAdmin`: el correo es del dueño (ADMIN_EMAILS) → la app muestra el acceso al panel.
+      return home ? { ...home, isAdmin: isAdminEmail(email) } : home;
     }),
     // Tarjeta de sellos de la app: 1 de regalo + 1 por fiesta a la que entró; 6 = un Acceso Dúo gratis.
     stamps: publicProcedure.query(async ({ ctx }) => {

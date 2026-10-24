@@ -7,6 +7,7 @@ import { Fingerprint } from 'lucide-react';
 import { signalUnknownCredential } from '@/lib/passkeySignals';
 import { useHideSplashOnMount } from '@/lib/splash';
 import { useDarkGlassDocument } from '@/components/admin/shell/AdminShell';
+import { AdminBackdropPage } from '@/components/admin/AdminBackdropPage';
 
 /** Login del panel en dos pasos: contraseña y luego el código de la app de
  * autenticación. La contraseña sola ya no entrega sesión.
@@ -102,6 +103,17 @@ export function AdminLoginForm() {
     onError: (e) => setError(e.message),
   });
 
+  // Entrar con el correo del dueño (ADMIN_EMAILS): es solo la primera llave, después sigue el código de la app autenticadora.
+  const [emailMode, setEmailMode] = useState(false);
+  const [email, setEmail] = useState('');
+  const [emailCodeSent, setEmailCodeSent] = useState(false);
+  const [emailCode, setEmailCode] = useState('');
+  const adminHint = trpc.auth.adminEmailHint.useQuery(undefined, { retry: false, staleTime: 60_000 });
+  const toSecondFactor = (r: { ticket: string }) => { setError(''); setIsPartner(false); setTicket(r.ticket); setCode(''); };
+  const emailFromMember = trpc.auth.adminEmailFromMember.useMutation({ onSuccess: toSecondFactor, onError: (e) => setError(e.message) });
+  const emailRequest = trpc.auth.adminEmailRequestCode.useMutation({ onSuccess: () => { setError(''); setEmailCodeSent(true); }, onError: (e) => setError(e.message) });
+  const emailVerify = trpc.auth.adminEmailVerify.useMutation({ onSuccess: toSecondFactor, onError: (e) => { setError(e.message); setEmailCode(''); } });
+
   const confirmHandlers = {
     onSuccess: (r: { backupCodes: string[] }) => { setError(''); setBackupCodes(r.backupCodes); },
     onError: (e: { message: string }) => { setError(e.message); setCode(''); },
@@ -127,7 +139,7 @@ export function AdminLoginForm() {
   // su hash guardado, y ni el sistema puede recuperarlos.
   if (backupCodes) {
     return (
-      <div data-admin-theme="dark-glass" className="admin-backdrop min-h-screen flex items-center justify-center px-4 py-10">
+      <AdminBackdropPage>
         <div className="admin-clay w-full max-w-md text-center p-8">
           <h2 className="font-heading text-2xl mb-2">Guarda estos códigos</h2>
           <p className="text-muted-foreground text-sm mb-5">
@@ -141,14 +153,14 @@ export function AdminLoginForm() {
           </div>
           <Button onClick={entrar} className="interactive w-full h-12">Ya los guardé, entrar</Button>
         </div>
-      </div>
+      </AdminBackdropPage>
     );
   }
 
   // Configuración inicial del segundo factor.
   if (setup) {
     return (
-      <div data-admin-theme="dark-glass" className="admin-backdrop min-h-screen flex items-center justify-center px-4 py-10">
+      <AdminBackdropPage>
         <div className="admin-clay w-full max-w-sm text-center p-8">
           <h2 className="font-heading text-2xl mb-2">Configura tu segundo factor</h2>
           <p className="text-muted-foreground text-sm mb-5">
@@ -180,14 +192,14 @@ export function AdminLoginForm() {
             {confirmTotp.isPending ? 'Verificando…' : 'Confirmar'}
           </Button>
         </div>
-      </div>
+      </AdminBackdropPage>
     );
   }
 
   // Paso 2: el código.
   if (ticket) {
     return (
-      <div data-admin-theme="dark-glass" className="admin-backdrop min-h-screen flex items-center justify-center px-4 py-10">
+      <AdminBackdropPage>
         <div className="admin-clay w-full max-w-xs text-center p-8">
           <h2 className="font-heading text-2xl mb-2">Código de verificación</h2>
           <p className="text-muted-foreground text-sm mb-5">
@@ -215,20 +227,25 @@ export function AdminLoginForm() {
             Volver
           </button>
         </div>
-      </div>
+      </AdminBackdropPage>
     );
   }
 
   // Paso 1: Face ID primero; la contraseña (+ código) queda como alternativa.
   const passwordFlow = !webauthnSupported || showPassword;
   return (
-    <div data-admin-theme="dark-glass" className="admin-backdrop min-h-screen flex items-center justify-center px-4 py-10">
+    <AdminBackdropPage>
       <form
         onSubmit={(e) => { e.preventDefault(); if (password) login.mutate({ password }); }}
         className="admin-clay text-center w-full max-w-xs p-8"
       >
         <img src="/candyland/logo-isotipo-transparent.png" alt="" width={48} height={66} className="mx-auto mb-4 h-16 w-auto" />
         <h2 className="font-heading text-3xl mb-4">Acceso Restringido</h2>
+        {adminHint.data && !emailMode && (
+          <Button type="button" onClick={() => emailFromMember.mutate()} disabled={emailFromMember.isPending} className="interactive mb-4 h-auto min-h-14 w-full whitespace-normal px-4 py-2 text-sm">
+            {emailFromMember.isPending ? 'Entrando…' : <span className="flex flex-col items-center leading-tight"><span>Continuar como</span><span className="font-mono text-xs opacity-90">{adminHint.data.email}</span></span>}
+          </Button>
+        )}
         {webauthnSupported && (
           <>
             <Button
@@ -241,14 +258,42 @@ export function AdminLoginForm() {
               {webauthnPending ? 'Verificando…' : 'Entrar con Face ID'}
             </Button>
             {!passwordFlow && error && <p className="text-sm text-destructive mb-3" role="alert">{error}</p>}
-            {!passwordFlow && (
+            {!passwordFlow && !emailMode && (
               <button type="button" onClick={() => setShowPassword(true)} className="text-xs text-muted-foreground underline">
                 Usar contraseña y código
               </button>
             )}
           </>
         )}
-        {passwordFlow && (
+        {emailMode && (
+          <div className="mb-2 space-y-3 text-left">
+            <p className="text-center text-muted-foreground">{emailCodeSent ? 'Te mandamos un código al correo.' : 'Escribe el correo del administrador.'}</p>
+            {!emailCodeSent ? (
+              <Input type="email" inputMode="email" autoCapitalize="none" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="tu@correo.com" autoFocus className="h-12 text-center"
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); if (email.includes('@')) emailRequest.mutate({ email }); } }} />
+            ) : (
+              <Input value={emailCode} onChange={(e) => setEmailCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="000000" inputMode="numeric" autoComplete="one-time-code" autoFocus className="h-14 text-center font-mono text-2xl tracking-[0.3em]"
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); if (emailCode.length === 6) emailVerify.mutate({ email, code: emailCode }); } }} />
+            )}
+            {error && <p className="text-center text-sm text-destructive" role="alert">{error}</p>}
+            {!emailCodeSent ? (
+              <Button type="button" onClick={() => emailRequest.mutate({ email })} disabled={!email.includes('@') || emailRequest.isPending} className="interactive w-full">
+                {emailRequest.isPending ? 'Enviando…' : 'Enviarme el código'}
+              </Button>
+            ) : (
+              <Button type="button" onClick={() => emailVerify.mutate({ email, code: emailCode })} disabled={emailCode.length !== 6 || emailVerify.isPending} className="interactive w-full">
+                {emailVerify.isPending ? 'Verificando…' : 'Continuar'}
+              </Button>
+            )}
+            <button type="button" onClick={() => { setEmailMode(false); setEmailCodeSent(false); setEmailCode(''); setError(''); }} className="block w-full text-center text-xs text-muted-foreground underline">Volver</button>
+          </div>
+        )}
+        {!emailMode && (
+          <button type="button" onClick={() => { setEmailMode(true); setError(''); }} className="mb-3 block w-full text-center text-xs text-muted-foreground underline">
+            Entrar con mi correo
+          </button>
+        )}
+        {passwordFlow && !emailMode && (
           <>
             {webauthnSupported && (
               <div className="flex items-center gap-3 mb-4 text-xs text-muted-foreground">
@@ -271,6 +316,6 @@ export function AdminLoginForm() {
           </>
         )}
       </form>
-    </div>
+    </AdminBackdropPage>
   );
 }

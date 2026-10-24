@@ -18,6 +18,7 @@ import { AdminShell, type AdminQuickAction } from '@/components/admin/shell/Admi
 import type { ShellSection } from '@/components/admin/shell/nav';
 import { AdminNavContext, OrdersView, useAdminBadges } from './sections/shared';
 import { SchemaUpdateBanner } from '@/components/admin/SchemaUpdateBanner';
+import { AdminBackdropPage } from '@/components/admin/AdminBackdropPage';
 
 // Cada hub del panel es su propio archivo y se descarga al abrir una de sus secciones.
 const BlockedManager = lazy(() => import('@/components/admin/blocked/BlockedManager').then((m) => ({ default: m.BlockedManager })));
@@ -243,13 +244,13 @@ export default function AdminDashboard() {
 
   if (!canOpenAdmin(user?.role)) {
     return (
-      <div data-admin-theme="dark-glass" className="admin-backdrop min-h-screen flex items-center justify-center">
+      <AdminBackdropPage>
         <SplashGone />
         <div className="admin-clay text-center p-8">
           <h2 className="font-heading text-3xl mb-4">Sin Permisos</h2>
           <p className="text-muted-foreground">No tienes permisos de administrador.</p>
         </div>
-      </div>
+      </AdminBackdropPage>
     );
   }
 
