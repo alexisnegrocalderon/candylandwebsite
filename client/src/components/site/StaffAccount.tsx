@@ -1,13 +1,16 @@
+import { useState } from 'react';
 import { Link } from 'wouter';
-import { ArrowRight, BadgeCheck, Clock, MapPin, MessageCircle, Phone, Shirt, Wrench } from 'lucide-react';
+import { toast } from 'sonner';
+import { ArrowRight, BadgeCheck, Clock, KeyRound, MapPin, MessageCircle, Phone, Shirt, Wrench } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
+import { pinProblem } from '@shared/staffCargos';
 import type { inferRouterOutputs } from '@trpc/server';
 import type { AppRouter } from '../../../../server/routers';
 import { formatChileDate, formatChileTime } from '@shared/chileDate';
 import { dialable } from '@shared/staffPortal';
 
 /* La versión de la app para el staff: quien entra a «Mi cuenta» con el correo
- * que se cargó en Finanzas → Equipo ve su credencial con QR (la puerta la
+ * que se cargó en Admin → Noche → Staff ve su credencial con QR (la puerta la
  * reconoce y anota su llegada), su próximo turno con la hora de citación, la
  * info del evento (lo general y lo de su rol), a quién llamar, sus herramientas
  * y sus turnos con lo que se le paga. */
@@ -55,6 +58,44 @@ function Block({ icon, title, children }: { icon: React.ReactNode; title: string
   );
 }
 
+/** El PIN con que entra a su pantalla de trabajo: lo elige la persona, nadie más lo conoce. */
+function StaffPinCard({ pin }: { pin: NonNullable<StaffPortal['pin']> }) {
+  const utils = trpc.useUtils();
+  const [editing, setEditing] = useState(!pin.set);
+  const [value, setValue] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const save = trpc.member.staffSetPin.useMutation({
+    onSuccess: () => { toast.success(pin.set ? 'PIN cambiado' : 'PIN creado: ya puedes entrar a tu pantalla'); setValue(''); setConfirm(''); setEditing(false); utils.member.staff.invalidate(); },
+    onError: (e) => toast.error(e.message || 'No se pudo guardar el PIN'),
+  });
+  const problem = value ? pinProblem(value) : null;
+  const mismatch = confirm.length >= value.length && confirm !== value;
+  const ready = !!value && !problem && confirm === value;
+  const field = 'h-12 w-full rounded-2xl bg-white/[0.08] px-4 text-center font-mono text-title3 tracking-[0.5em] outline-none placeholder:tracking-normal placeholder:text-white/35 focus:bg-white/[0.12]';
+  const digits = (v: string) => v.replace(/\D/g, '').slice(0, 6);
+  return (
+    <Block icon={<KeyRound className="h-4 w-4" />} title="Tu PIN de trabajo">
+      {!editing ? (
+        <div className="flex items-center gap-3">
+          <p className="min-w-0 flex-1 text-subhead text-white/80">PIN creado. Con él entras a tu pantalla la noche del evento.</p>
+          <button type="button" onClick={() => setEditing(true)} className="shrink-0 rounded-full bg-white/10 px-4 py-2 text-footnote font-semibold interactive">Cambiar</button>
+        </div>
+      ) : (
+        <form className="space-y-2" onSubmit={(e) => { e.preventDefault(); if (ready) save.mutate({ pin: value }); }}>
+          <p className="text-subhead text-white/75">{pin.set ? 'Elige tu PIN nuevo.' : 'Crea tu PIN de 4 a 6 números. Lo vas a usar para entrar a tu pantalla (caja, puerta…). No se lo des a nadie.'}</p>
+          <input type="password" inputMode="numeric" autoComplete="new-password" aria-label="PIN nuevo" placeholder="PIN" className={field} value={value} onChange={(e) => setValue(digits(e.target.value))} />
+          <input type="password" inputMode="numeric" autoComplete="new-password" aria-label="Repite el PIN" placeholder="Repítelo" className={field} value={confirm} onChange={(e) => setConfirm(digits(e.target.value))} />
+          {(problem || (value && mismatch)) && <p className="text-footnote text-amber-300">{problem ?? 'Los PIN no coinciden.'}</p>}
+          <div className="flex gap-2">
+            <button type="submit" disabled={!ready || save.isPending} className="h-12 flex-1 rounded-full bg-gradient-to-r from-violet-400 to-fuchsia-400 text-subhead font-bold text-black disabled:opacity-50">{save.isPending ? 'Guardando…' : pin.set ? 'Cambiar PIN' : 'Crear PIN'}</button>
+            {pin.set && <button type="button" onClick={() => { setEditing(false); setValue(''); setConfirm(''); }} className="h-12 rounded-full bg-white/10 px-5 text-subhead font-semibold">Cancelar</button>}
+          </div>
+        </form>
+      )}
+    </Block>
+  );
+}
+
 export function StaffAccount({ staff }: { staff: StaffPortal }) {
   const next = nextShift(staff);
   const past = staff.shifts.filter((s) => s !== next);
@@ -70,7 +111,7 @@ export function StaffAccount({ staff }: { staff: StaffPortal }) {
             <img src="/candyland/logo-isotipo-transparent.png" alt="" className="h-8 w-8" />
           </div>
           <p className="mt-3 text-title1 font-bold leading-tight">{staff.name}</p>
-          <p className="text-callout font-semibold text-violet-200">{staff.role || 'Equipo'}</p>
+          <p className="text-callout font-semibold text-violet-200">{staff.cargo?.emoji ? `${staff.cargo.emoji} ` : ''}{staff.role || 'Equipo'}</p>
           {staff.credential && next ? (
             <>
               <p className="mt-1 text-footnote text-white/60">{next.title} · {dayLabel(next.eventDate)}</p>
@@ -147,6 +188,8 @@ export function StaffAccount({ staff }: { staff: StaffPortal }) {
         </Block>
       )}
 
+      {staff.pin && <StaffPinCard pin={staff.pin} />}
+
       {staff.tools.length > 0 && (
         <Block icon={<Wrench className="h-4 w-4" />} title="Tus herramientas">
           <div className="grid grid-cols-2 gap-2">
@@ -156,7 +199,7 @@ export function StaffAccount({ staff }: { staff: StaffPortal }) {
               </Link>
             ))}
           </div>
-          <p className="mt-2 text-caption1 text-white/50">Entras con tu clave de terminal, la misma de siempre.</p>
+          <p className="mt-2 text-caption1 text-white/50">{staff.pin && !staff.pin.set ? 'Primero crea tu PIN: con él entras.' : 'Entras con tu PIN de trabajo.'}</p>
         </Block>
       )}
 

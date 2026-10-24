@@ -1,3 +1,7 @@
+/** Todos los roles de operador (la columna `operators.role`). */
+export const OPERATOR_ROLES = ['admin', 'supervisor', 'caja', 'barra', 'acceso', 'cocina', 'guardarropia'] as const;
+export type OperatorRole = (typeof OPERATOR_ROLES)[number];
+
 /** Roles de operador que pueden usar la caja (/caja): vender, canjear,
  * marcar entradas y abrir/cerrar turno. Acceso, cocina y guardarropía tienen
  * sus propias pantallas y comparten la misma cookie de sesión, así que el
@@ -9,12 +13,12 @@ export function canUseCaja(role: string | null | undefined): boolean {
 }
 
 /** Nombre legible del rol para mostrarle a la persona (no el valor crudo). */
-export const OPERATOR_ROLE_LABELS: Record<string, string> = {
+export const OPERATOR_ROLE_LABELS: Record<OperatorRole, string> & Record<string, string> = {
   admin: 'Admin',
   supervisor: 'Supervisor',
   caja: 'Caja',
   barra: 'Barra',
-  acceso: 'Acceso',
+  acceso: 'Puerta',
   cocina: 'Cocina',
   guardarropia: 'Guardarropía',
 };

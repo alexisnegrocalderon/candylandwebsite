@@ -999,10 +999,14 @@ export const operators = mysqlTable("operators", {
   // -- el PIN es mucho más débil que una contraseña y la tablet es compartida.
   failedPinAttempts: int("failedPinAttempts").default(0).notNull(),
   lockedUntil: timestamp("lockedUntil"),
+  // La persona del staff (`staffMembers`) de la que sale este acceso: su PIN
+  // y su cargo mandan. Nulo = operador suelto creado a mano.
+  staffId: int("staffId"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (t) => [
   index("operators_event_idx").on(t.eventId),
+  index("operators_staff_idx").on(t.staffId),
 ]);
 
 export type Operator = typeof operators.$inferSelect;
@@ -2653,9 +2657,20 @@ export const staffMembers = mysqlTable("staffMembers", {
   rut: varchar("rut", { length: 20 }),
   active: int("active").default(1).notNull(),
   notes: text("notes"),
+  // Correo con que entra a su app («Mi cuenta»). Antes vivía en el JSON de
+  // `contentDesigns` (kind='staff'); server/staff.ts lo copia acá.
+  email: varchar("email", { length: 320 }),
+  // Qué hace (shared/staffCargos.ts): define a qué pantalla entra. `role`
+  // queda como el título que se muestra (texto libre).
+  cargo: mysqlEnum("cargo", ["caja", "barra", "puerta", "cocina", "guardarropia", "supervisor", "dj", "rrpp", "produccion", "otro"]),
+  // PIN que la persona eligió en su app; se copia a sus `operators`.
+  pinHash: varchar("pinHash", { length: 255 }),
+  pinSetAt: timestamp("pinSetAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (t) => [
+  uniqueIndex("staff_members_email_idx").on(t.email),
+]);
 
 export type StaffMember = typeof staffMembers.$inferSelect;
 

@@ -3007,15 +3007,18 @@ export async function getOperatorById(id: number) {
 }
 
 /** Lista solo lo necesario para la pantalla de "toca tu nombre" del login por PIN (§10.2) — nunca el pinHash. */
-/** Operadores del evento activo cuyo correo es el de esta persona (sección «Staff» de la App). */
-export async function listOperatorsByEmail(eventId: number, email: string) {
+/** Los accesos de una persona del staff en un evento (sección «Staff» de la App): los enlazados a su
+ * ficha, o los sueltos con su correo (operadores creados a mano antes de la ficha única). */
+export async function listOperatorsForStaff(eventId: number, staffId: number, email: string | null) {
   const db = await getDb();
   if (!db) return [];
   const key = (email ?? '').trim().toLowerCase();
-  if (!key) return [];
+  const mine = key
+    ? or(eq(operators.staffId, staffId), and(isNull(operators.staffId), sql`LOWER(TRIM(${operators.email})) = ${key}`))
+    : eq(operators.staffId, staffId);
   return db.select({ id: operators.id, name: operators.name, role: operators.role })
     .from(operators)
-    .where(and(eq(operators.active, 1), eq(operators.eventId, eventId), sql`LOWER(TRIM(${operators.email})) = ${key}`))
+    .where(and(eq(operators.active, 1), eq(operators.eventId, eventId), mine))
     .orderBy(operators.name);
 }
 
@@ -3031,7 +3034,7 @@ export async function listActiveOperatorsPublic(eventId: number) {
 export async function listAllOperators(eventId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select({ id: operators.id, name: operators.name, role: operators.role, active: operators.active, email: operators.email, createdAt: operators.createdAt })
+  return db.select({ id: operators.id, name: operators.name, role: operators.role, active: operators.active, email: operators.email, staffId: operators.staffId, createdAt: operators.createdAt })
     .from(operators)
     .where(eq(operators.eventId, eventId))
     .orderBy(desc(operators.createdAt));

@@ -753,11 +753,12 @@ export function buildMemberCodeEmail(data: { code: string; name?: string | null 
 
 /** Bienvenida al staff: se manda al guardar su correo en Finanzas → Equipo.
  * Lleva el botón a «Mi cuenta», donde entra con ese mismo correo (código). */
-export function buildStaffWelcomeEmail(data: { name: string; role?: string | null; email: string }) {
-  const url = `${EMAIL_BASE_URL}/cuenta`;
+export function buildStaffWelcomeEmail(data: { name: string; role?: string | null; email: string; needsPin?: boolean }) {
+  const url = `${EMAIL_BASE_URL}/cuenta?staff=1`;
   const name = escapeEmailText(data.name.split(/\s+/)[0] || data.name);
   const steps = [
     ['🔑', 'Entra con este correo', `Abre el botón y escribe <strong style="color:${INK};">${escapeEmailText(data.email)}</strong>. Te llega un código y listo: sin contraseña.`],
+    ...(data.needsPin ? [['🔢', 'Crea tu PIN', 'En la sección «Staff» de tu app eliges tu PIN de 4 a 6 números: con él entras a tu pantalla de trabajo la noche del evento. Nadie más lo conoce.']] : []),
     ['🎫', 'Tu credencial con QR', 'Muéstrala en la puerta al llegar: así queda anotada tu llegada.'],
     ['📌', 'Tus turnos y la info', 'Hora de citación, dirección, vestimenta, lo importante de tu rol y a quién llamar.'],
   ];
