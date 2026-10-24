@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { Link } from 'wouter';
 import { ArrowRight, Heart, Stamp, Ticket } from 'lucide-react';
 import { Confetti } from './Confetti';
+import { useHalloweenMode } from '@/lib/halloween';
 
 /* El final de la compra para quien tiene la app («Mi cuenta»): confeti,
  * vibración y la entrada que ya quedó en su app, con el paso siguiente a mano
@@ -15,13 +16,14 @@ function openTab(tab: string) {
 }
 
 export function PurchaseCelebration({ eventTitle, onShown, needsLogin = false }: { eventTitle: string; onShown?: () => void; needsLogin?: boolean }) {
+  const halloween = useHalloweenMode();
   useEffect(() => {
     try { navigator.vibrate?.([18, 60, 18, 60, 40]); } catch { /* sin vibración */ }
     onShown?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   return (
-    <div className="account-font account-tokens relative min-h-dvh overflow-hidden bg-[#0b0612] px-5 pb-16 pt-[max(96px,calc(env(safe-area-inset-top)+64px))] text-white">
+    <div className={`account-font account-tokens relative min-h-dvh overflow-hidden bg-[#0b0612] px-5 pb-16 pt-[max(96px,calc(env(safe-area-inset-top)+64px))] text-white ${halloween ? 'pm-halloween' : ''}`}>
       <div className="account-backdrop" />
       <Confetti />
       <div className="relative z-10 mx-auto max-w-sm text-center">

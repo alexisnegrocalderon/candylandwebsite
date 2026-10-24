@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useRoute } from 'wouter';
 import { trpc } from '@/lib/trpc';
 import { useSeo } from '@/hooks/useSeo';
+import { useHalloweenMode } from '@/lib/halloween';
 import { AppEventCard, eventWhen, splitEvents, type AppEvent } from '@/components/app/AppEventCard';
 import { BottomSheet } from '@/components/site/AccountPayments';
 import { eventImage } from '@shared/eventImage';
@@ -15,6 +16,7 @@ export default function AppEvents() {
   const { data: events, isLoading } = trpc.events.listPublished.useQuery();
   const { upcoming, past } = splitEvents((events ?? []) as AppEvent[]);
   const [detail, setDetail] = useState<AppEvent | null>(null);
+  const halloween = useHalloweenMode();
   // /eventos/<slug> (un link compartido) abre la app con ese evento ya en su hoja.
   const [, params] = useRoute('/eventos/:slug');
   useEffect(() => {
@@ -23,7 +25,7 @@ export default function AppEvents() {
   }, [params?.slug, events]);
 
   return (
-    <div className="account-font account-tokens relative min-h-dvh bg-[#0b0612] text-white">
+    <div className={`account-font account-tokens relative min-h-dvh bg-[#0b0612] text-white ${halloween ? 'pm-halloween' : ''}`}>
       <div className="account-backdrop" />
       <div className="relative z-10 mx-auto max-w-lg px-4 pb-[max(28px,env(safe-area-inset-bottom))] pt-[calc(env(safe-area-inset-top)+72px)]">
         <h1 className="text-large-title font-bold tracking-tight">Eventos</h1>

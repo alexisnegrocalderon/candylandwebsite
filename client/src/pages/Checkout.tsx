@@ -4,7 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { motion } from 'framer-motion';
 import { useRoute, useSearch, useLocation, Link } from 'wouter';
-import { ArrowLeft, ArrowRight, Tag, Loader2, Check, ShieldCheck, Minus, Plus, MessageCircle, Lock, Instagram, ChevronLeft, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Tag, Loader2, Check, ShieldCheck, Minus, Plus, MessageCircle, Lock, Instagram, ChevronLeft, X, Sparkles, Ticket } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { PaymentBrick } from '@/components/PaymentBrick';
 import { Button } from '@/components/ui/button';
@@ -30,7 +30,9 @@ import { useMemberSession } from '@/lib/member';
 import { isMemberEarlyAccess } from '@shared/memberConfig';
 import { isAppMode } from '@/lib/appMode';
 import { useDarkChrome } from '@/lib/darkChrome';
+import { useHalloweenMode } from '@/lib/halloween';
 import { AccessList, type AccessRow, type Person } from '@/components/checkout/AccessList';
+import { DisclosureSummary, ExtraRow } from '@/components/checkout/ExtraRow';
 import { PurchaseCelebration } from '@/components/site/PurchaseCelebration';
 
 /** Mini vista previa de la Tarjeta Playroom, mostrada justo donde se pide el
@@ -1123,12 +1125,29 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
     return (
       <div className={`min-h-dvh pb-16 ${appMode ? 'pt-[max(16px,env(safe-area-inset-top))]' : 'pt-20'}`}>
         <div className="container max-w-lg">
-          <div className="flex items-center justify-between mb-4 pt-4">
-            <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Pago seguro</span>
-            <span className="font-heading text-xl text-gradient-candy">{formatCLP(ordenPago.total)}</span>
-          </div>
-          <h1 className="font-heading font-extrabold text-2xl tracking-tight mb-1">Completa el pago</h1>
-          <p className="text-muted-foreground text-sm mb-5">Ingresa los datos de tu tarjeta. El pago se procesa acá mismo, sin salir de {appMode ? 'la app' : 'la página'}.</p>
+          {appMode ? (
+            <>
+              <div className="flex h-11 items-center justify-between">
+                <span className="flex items-center gap-1.5 text-footnote font-semibold text-white/60"><Lock className="h-3.5 w-3.5" /> Pago seguro</span>
+                <button type="button" onClick={salir} aria-label="Cerrar" className="lg-pill grid h-10 w-10 place-items-center rounded-full text-white interactive"><X className="h-5 w-5" /></button>
+              </div>
+              <h1 className="mt-4 text-large-title font-bold leading-tight tracking-tight">Completa el pago</h1>
+              <p className="mb-5 mt-1 text-subhead text-white/60">Tu tarjeta se procesa acá mismo, sin salir de la app.</p>
+              <div className="account-glass mb-5 flex items-center justify-between rounded-[22px] px-5 py-4">
+                <span className="text-subhead text-white/65">Total a pagar</span>
+                <span className="text-title1 font-bold tabular-nums">{formatCLP(ordenPago.total)}</span>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="flex items-center justify-between mb-4 pt-4">
+                <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Pago seguro</span>
+                <span className="font-heading text-xl text-gradient-candy">{formatCLP(ordenPago.total)}</span>
+              </div>
+              <h1 className="font-heading font-extrabold text-2xl tracking-tight mb-1">Completa el pago</h1>
+              <p className="text-muted-foreground text-sm mb-5">Ingresa los datos de tu tarjeta. El pago se procesa acá mismo, sin salir de la página.</p>
+            </>
+          )}
           {pagoErrorMsg && (
             <div className="mb-4 p-3.5 rounded-xl bg-destructive/10 border border-destructive/30 text-sm text-destructive" role="alert">
               {pagoErrorMsg}
@@ -1463,10 +1482,14 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
 
               {pasoActual.id === 'resumen' && useDbExtras && (
                 <details className="group mb-4 glass-candy rounded-2xl" open={dbExtrasTotal > 0 || isPartner}>
+                  {appMode ? (
+                    <DisclosureSummary icon={<Sparkles className="h-5 w-5" />} title={isPartner ? 'Estacionamiento y extras' : '¿Agregamos algo más?'} hint="Opcional · lo retiras sin pagar de nuevo" badge={dbExtrasTotal > 0 ? formatCLP(dbExtrasTotal) : undefined} />
+                  ) : (
                   <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3.5 text-sm font-semibold">
                     <span>{isPartner ? '🚗 Asegura tu estacionamiento y extras' : '✨ ¿Agregamos algo más?'} <span className="font-normal text-muted-foreground">· opcional</span></span>
                     <span className="text-muted-foreground transition-transform group-open:rotate-180" aria-hidden>▾</span>
                   </summary>
+                  )}
                 <div className="space-y-6 px-4 pb-4">
                   {prepagoGroups.length > 0 && (
                     <div>
@@ -1492,6 +1515,10 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
                                 const set = (d: number) => setDbExtraQty((prev) => ({ ...prev, [t.id]: Math.max(0, Math.min(max, (prev[t.id] || 0) + d)) }));
                                 const hasDiscount = t.originalPrice && Number(t.originalPrice) > Number(t.price);
                                 const savePct = hasDiscount ? Math.round((1 - Number(t.price) / Number(t.originalPrice)) * 100) : 0;
+                                if (appMode) {
+                                  const scarce = (t.totalStock <= 10 || (isPartner && /estacionamiento/i.test(t.name))) ? remaining : null;
+                                  return <ExtraRow key={t.id} emoji={t.emoji} name={t.name} price={Number(t.price)} original={hasDiscount ? Number(t.originalPrice) : null} scarce={scarce} qty={q} max={max} onChange={set} />;
+                                }
                                 return (
                                   <div key={t.id} className={`flex items-center gap-2.5 px-3.5 py-2.5 ${q > 0 ? 'bg-primary/5' : ''}`}>
                                     <span className="text-base w-5 text-center shrink-0" aria-hidden>{t.emoji || '🎫'}</span>
@@ -1622,10 +1649,14 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
               {/* Paso: códigos */}
               {pasoActual.id === 'resumen' && !isPartner && (
                 <details className="group mb-4 glass-candy rounded-2xl" open={!!code.trim() || !!codeResult}>
+                  {appMode ? (
+                    <DisclosureSummary icon={<Ticket className="h-5 w-5" />} title="¿Tienes un código?" hint="Descuento o de quien te invitó" badge={codeResult ? 'Aplicado' : undefined} />
+                  ) : (
                   <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3.5 text-sm font-semibold">
                     <span>🎟️ ¿Tienes un código? <span className="font-normal text-muted-foreground">· descuento o de quien te invitó</span></span>
                     <span className="text-muted-foreground transition-transform group-open:rotate-180" aria-hidden>▾</span>
                   </summary>
+                  )}
                 <div className="space-y-4 px-4 pb-4">
                   <div>
                     <Label htmlFor="promo-code" className="sr-only">Código</Label>
@@ -1853,8 +1884,9 @@ export default function Checkout(props: { partnerSlug?: string } = {}) {
 function AppCheckout(props: { partnerSlug?: string }) {
   // La barra de la hora y el rebote del scroll también oscuros (antes asomaba el rosado del sitio).
   useDarkChrome();
+  const halloween = useHalloweenMode();
   return (
-    <div className="account-font account-tokens checkout-app relative min-h-dvh bg-[#0b0612] text-white">
+    <div className={`account-font account-tokens checkout-app relative min-h-dvh bg-[#0b0612] text-white ${halloween ? 'pm-halloween' : ''}`}>
       <div className="account-backdrop" />
       <CheckoutInner {...props} appMode />
     </div>

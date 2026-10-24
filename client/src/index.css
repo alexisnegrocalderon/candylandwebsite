@@ -705,6 +705,9 @@ html {
   .account-backdrop::before, .account-backdrop::after, .lg-sheen-idle { animation: none; }
   .lg-tilt { transition: none; }
 }
+/* En modo Halloween los botones con degradado pasan a lima: su texto va oscuro (`--pm-on-accent`),
+   no blanco. Cubre todos los botones de la app que usan `from-pink-500` (comprar, pagar, entrar…). */
+.pm-halloween [class*="from-pink-500 "] { color: var(--pm-on-accent, #1a1a1a); }
 /* Playmatch en modo Halloween: la paleta oficial del dueño (Noir Void #1A1A1A, Cyber Lime #C4FF4D,
    Vapor Violet #BA8CFF; ver `.halloween`). Playmatch pinta con los colores de Tailwind (rosa, fucsia,
    celeste), así que acá se redefinen esas variables dentro del contenedor y todo cambia junto: ♥ y
