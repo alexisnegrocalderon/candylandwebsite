@@ -285,7 +285,7 @@ export function AdminShell({ sections, activeSection, onOpenSection, badgeCounts
           )}
         </header>
 
-        <main className="px-3 pb-28 pt-4 md:px-6 md:pb-10">
+        <main className="px-3 pb-[calc(env(safe-area-inset-bottom)+9.5rem)] pt-4 md:px-6 md:pb-10">
           <div className="mx-auto max-w-[1400px]">{children}</div>
         </main>
       </div>
