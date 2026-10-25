@@ -20,6 +20,11 @@ describe('recompra en un toque', () => {
     expect(lastPurchaseFrom([dosHombres])).toBeNull();
   });
 
+  it('un Dúo de dos hombres de un soltero aprobado (sin código) no se recompra como «Pareja»', () => {
+    const aprobado = JSON.stringify({ acceso: 'Dúo', cantidad: 1, grupoTipo: 'duo', duoComposicion: 'dos_hombres', campos: { acceso__acomp1_nombre: 'Pedro', acceso__acomp1_rut: '1-9' } });
+    expect(lastPurchaseFrom([aprobado, trio])?.accesoSlug).toBe('trio');
+  });
+
   it('junta a todos sus acompañantes sin repetir a la misma persona', () => {
     expect(knownCompanions([duo, trio]).map((c) => c.nombre)).toEqual(['Camila Rojas', 'Javi']);
   });
