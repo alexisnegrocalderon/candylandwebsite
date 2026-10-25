@@ -181,6 +181,7 @@ import { getStampCard, refreshStampsForTicket } from "./stampCard";
 import { activatePlaymatchForTicket } from "./partyActivation";
 import * as staffPortal from "./staffPortal";
 import { ensureStaffSalesLink } from "./staffSales";
+import { pageCustomers } from "./customerFilters";
 import { hasSalesLink } from "../shared/staffSales";
 import { autoPackFromDesign, deleteAmbassadorItem, ensureAmbassadorDrafts, getUpcomingContentEvents, listAmbassadorItems, notifyAmbassadorsNewContent, saveAmbassadorItem, sendStudioToAmbassadors, setAmbassadorItemStatus } from "./ambassadorContent";
 import { listContentDesigns, getContentDesign, saveContentDesign, deleteContentDesign, getContentVideo, saveContentVideo, listVideoStyles, saveVideoStyle, deleteVideoStyle } from "./contentStudio";
@@ -869,12 +870,8 @@ const customerFiltersInput = z.object({
   hasApp: z.boolean().optional(),
 });
 
-async function customerRows(input: z.infer<typeof customerFiltersInput>) {
-  const now = new Date();
-  const { hasApp, ...filters } = input;
-  const [all, withApp] = await Promise.all([db.listCustomers(filters), appDevices.appEmails()]);
-  const rows = hasApp ? all.filter((c: any) => withApp.has(c.email.toLowerCase())) : all;
-  // Nunca sale el hash del PIN de la tarjeta; el nivel va calculado.
+/** Nunca sale el hash del PIN de la tarjeta; el nivel va calculado y `hasApp` dice si abrió la app hace poco. */
+function decorateCustomers(rows: any[], withApp: Set<string>, now: Date) {
   return rows.map(({ cardPinHash: _hash, ...c }: any) => ({
     ...c,
     hasApp: withApp.has(c.email.toLowerCase()),
@@ -882,6 +879,14 @@ async function customerRows(input: z.infer<typeof customerFiltersInput>) {
       totalOrders: c.totalOrders, totalSpent: Number(c.totalSpent), lastActivityAt: c.lastSeenAt, levelOverride: c.levelOverride, now,
     }),
   }));
+}
+
+async function customerRows(input: z.infer<typeof customerFiltersInput>) {
+  const now = new Date();
+  const { hasApp, ...filters } = input;
+  const [all, withApp] = await Promise.all([db.listCustomers(filters), appDevices.appEmails()]);
+  const rows = hasApp ? all.filter((c: any) => withApp.has(c.email.toLowerCase())) : all;
+  return decorateCustomers(rows, withApp, now);
 }
 
 export const appRouter = router({
@@ -6505,10 +6510,20 @@ export const appRouter = router({
       pageSize: z.number().int().min(10).max(100).default(25),
     })).query(async ({ input }) => {
       const { page, pageSize, ...filters } = input;
-      const rows = await customerRows(filters);
-      const pages = Math.max(1, Math.ceil(rows.length / pageSize));
-      const current = Math.min(page, pages - 1);
-      return { rows: rows.slice(current * pageSize, (current + 1) * pageSize), total: rows.length, page: current, pages };
+      // Los filtros viajan a la base y solo vuelve la página que se ve. Si esa consulta fallara, se cae a la
+      // lista en memoria de siempre: la tabla nunca queda sin datos por esto.
+      try {
+        const now = new Date();
+        const withApp = await appDevices.appEmails();
+        const result = await pageCustomers(filters, page, pageSize, { now, appEmails: withApp });
+        return { ...result, rows: decorateCustomers(result.rows, withApp, now) };
+      } catch (err) {
+        console.warn('[clientes] filtros en la base fallaron, uso la lista en memoria:', err);
+        const rows = await customerRows(filters);
+        const pages = Math.max(1, Math.ceil(rows.length / pageSize));
+        const current = Math.min(page, pages - 1);
+        return { rows: rows.slice(current * pageSize, (current + 1) * pageSize), total: rows.length, page: current, pages };
+      }
     }),
     // Ficha completa: datos + historial por evento, valor, consumo y próxima acción.
     detail: adminReadProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {

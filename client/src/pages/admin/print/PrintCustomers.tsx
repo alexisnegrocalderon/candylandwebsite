@@ -1,6 +1,7 @@
 import { useSearch } from 'wouter';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { trpc } from '@/lib/trpc';
+import { parseCustomerFilterParams } from '@shared/customerFilterParams';
 import { PrintLayout, PrintAuthGuard, PrintTable } from './PrintLayout';
 
 const COLUMNS = [
@@ -27,11 +28,7 @@ export default function PrintCustomers() {
 function PrintCustomersContent() {
   const search = useSearch();
   const params = new URLSearchParams(search);
-  const filters = {
-    search: params.get('search') || undefined,
-    accessType: params.get('accessType') || undefined,
-    tag: params.get('tag') || undefined,
-  };
+  const filters = parseCustomerFilterParams((k) => params.get(k));
 
   const { data } = trpc.customers.listAll.useQuery(filters);
   const rows = data ?? [];
@@ -60,6 +57,14 @@ function PrintCustomersContent() {
   if (filters.search) filterParts.push(`búsqueda "${filters.search}"`);
   if (filters.accessType) filterParts.push(`tipo de acceso: ${filters.accessType}`);
   if (filters.tag) filterParts.push(`etiqueta: ${filters.tag}`);
+  if (filters.level) filterParts.push(`nivel: ${filters.level.replace('_', ' ')}`);
+  if (filters.city) filterParts.push(`ciudad: ${filters.city}`);
+  if (filters.gender) filterParts.push(`género: ${filters.gender}`);
+  if (filters.source) filterParts.push(`origen: ${filters.source}`);
+  if (filters.birthdayMonth) filterParts.push(`cumpleaños en el mes ${filters.birthdayMonth}`);
+  if (filters.optedOut) filterParts.push(filters.optedOut === 'email' ? 'sin permiso de correo' : 'con alguna baja');
+  if (filters.eventId) filterParts.push('compraron un evento puntual');
+  if (filters.hasApp) filterParts.push('con la app');
 
   return (
     <PrintLayout

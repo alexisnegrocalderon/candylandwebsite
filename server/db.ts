@@ -1354,14 +1354,14 @@ function foldSearch(value: string): string {
 }
 
 /** RUT/pasaporte reducido a letras y números ("12.345.678-k" → "12345678k"). */
-function rutDigits(value: string): string {
+export function rutDigits(value: string): string {
   return value.replace(/[^0-9a-zA-Z]/g, '').toLowerCase();
 }
 
 /** Cuando lo buscado parece un RUT (≥4 caracteres, solo números y K), la
  * búsqueda compara sin puntos ni guion: "12.345.678-9", "12345678-9" y
  * "123456789" son lo mismo. */
-function looksLikeRutSearch(term: string): boolean {
+export function looksLikeRutSearch(term: string): boolean {
   return /^[0-9kK.\-\s]+$/.test(term) && /^[0-9k]{4,}$/i.test(term.replace(/[.\-\s]/g, ''));
 }
 
