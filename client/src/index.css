@@ -765,3 +765,45 @@ html {
 @media (prefers-reduced-motion: reduce) {
   .lg-skeleton::after { animation: none; }
 }
+
+/* ── Tablas del panel en el celular ──────────────────────────────────────────
+ * Cada fila es una tarjeta: la primera celda es el título y las demás llevan el nombre de su columna a la
+ * izquierda y el dato a la derecha. Las celdas las etiqueta client/src/lib/stackTables.ts. En pantallas
+ * grandes nada cambia. `data-no-stack` en una tabla la deja como estaba. */
+@media (max-width: 767px) {
+  table[data-stack] { display: block; width: 100% !important; min-width: 0 !important; }
+  table[data-stack] > thead, table[data-stack] > tfoot { display: none; }
+  table[data-stack] > tbody { display: block; }
+  table[data-stack] > tbody > tr {
+    display: block;
+    margin: 0 0 0.6rem;
+    padding: 0.7rem 0.85rem;
+    border: 1px solid color-mix(in oklab, currentColor 14%, transparent);
+    border-radius: 1rem;
+    background: color-mix(in oklab, currentColor 5%, transparent);
+  }
+  table[data-stack] > tbody > tr > td[data-label] {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 0.9rem;
+    width: auto !important; min-width: 0 !important; max-width: none !important;
+    padding: 0.28rem 0 !important; border: 0 !important;
+    text-align: right; white-space: normal !important; overflow-wrap: anywhere;
+  }
+  table[data-stack] > tbody > tr > td[data-label]::before {
+    content: attr(data-label); flex: none; max-width: 42%;
+    text-align: left; font-size: 0.72rem; font-weight: 500;
+    color: color-mix(in oklab, currentColor 58%, transparent);
+  }
+  /* La primera celda es el título de la tarjeta: sin etiqueta y a lo ancho. */
+  table[data-stack] > tbody > tr > td[data-label]:first-child {
+    display: block; text-align: left; font-weight: 600; font-size: 1rem;
+    padding-bottom: 0.4rem !important; margin-bottom: 0.2rem;
+    border-bottom: 1px solid color-mix(in oklab, currentColor 10%, transparent) !important;
+  }
+  table[data-stack] > tbody > tr > td[data-label]:first-child::before { display: none; }
+  /* Celdas vacías (sin dato) no ocupan una línea con solo la etiqueta. */
+  table[data-stack] > tbody > tr > td[data-label]:empty, table[data-stack] > tbody > tr > td[data-empty]:not(:first-child) { display: none; }
+  /* Fila de aviso («No hay nada todavía», celda combinada): centrada y sin etiqueta. */
+  table[data-stack] > tbody > tr > td:not([data-label]) { display: block; width: auto !important; text-align: center; padding: 0.25rem 0 !important; border: 0 !important; }
+  /* Botones de acción: a la derecha, en una sola línea que puede partirse. */
+  table[data-stack] > tbody > tr > td[data-label] > * { min-width: 0; }
+}

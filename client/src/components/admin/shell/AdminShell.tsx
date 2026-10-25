@@ -7,6 +7,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { ADMIN_HUBS, hubBadgeCount, type AdminHub, type AdminHubId, type ShellSection } from './nav';
 import { CommandPalette } from './CommandPalette';
 import { hideSplash } from '@/lib/splash';
+import { useStackTables } from '@/lib/stackTables';
 
 const COLLAPSED_KEY = 'admin-sidebar-collapsed';
 
@@ -67,6 +68,8 @@ export interface AdminQuickAction {
  * inferior + "Más" (celular) y buscador Ctrl+K. No sabe nada de lo que
  * renderiza cada sección -- solo de ids, hubs y burbujas. */
 export function AdminShell({ sections, activeSection, onOpenSection, badgeCounts, userName, roleLabel: roleLabelProp, isDemo, onLogout, quickActions, children }: AdminShellProps) {
+  const mainRef = useRef<HTMLElement>(null);
+  useStackTables(mainRef);
   useDarkGlassDocument();
   // El panel ya está listo: se va el splash de apertura (client/src/lib/splash.ts).
   useEffect(() => { hideSplash(); }, []);
@@ -285,7 +288,7 @@ export function AdminShell({ sections, activeSection, onOpenSection, badgeCounts
           )}
         </header>
 
-        <main className="px-3 pb-[calc(env(safe-area-inset-bottom)+9.5rem)] pt-4 md:px-6 md:pb-10">
+        <main ref={mainRef} className="px-3 pb-[calc(env(safe-area-inset-bottom)+9.5rem)] pt-4 md:px-6 md:pb-10">
           <div className="mx-auto max-w-[1400px]">{children}</div>
         </main>
       </div>
