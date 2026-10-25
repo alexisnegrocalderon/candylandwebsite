@@ -12,7 +12,8 @@ import { whatsappLinkFor, instagramLinkFor } from '@shared/ambassadorApplication
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ConfirmDeleteButton } from '@/components/admin/ConfirmDeleteButton';
 import { CustomerDrawer } from '@/components/admin/CustomerDrawer';
-import { CUSTOMER_LEVEL_META, GENDER_OPTIONS, SOURCE_OPTIONS, daysBetween, recencyTone } from '@shared/customerInsights';
+import { CUSTOMER_LEVEL_META, GENDER_OPTIONS, SOURCE_OPTIONS, daysBetween, recencyTone, type CustomerLevel } from '@shared/customerInsights';
+import { customerFilterQuery } from '@shared/customerFilterParams';
 import { TableSkeleton } from '@/components/admin/TableSkeleton';
 import { formatChileShortDate } from '@shared/chileDate';
 import { ACCESO_SLUG_OPTIONS, APPLICATION_STATUS_LABEL, AmbassadorApplicationsTab, onMutationError } from './shared';
@@ -115,13 +116,20 @@ export function CustomersView() {
 
   useEffect(() => { setPage(0); }, [debouncedSearch, accessType, tagFilter, eventFilter, levelFilter, genderFilter, sourceFilter, birthdayFilter, contactFilter, appFilter, debouncedCity]);
 
-  const filterParams = () => {
-    const params = new URLSearchParams();
-    if (search) params.set('search', search);
-    if (accessType !== 'all') params.set('accessType', accessType);
-    if (tagFilter) params.set('tag', tagFilter);
-    return params;
-  };
+  // El CSV y la impresión llevan los mismos filtros que la tabla: se exporta lo que se está viendo.
+  const filterParams = () => customerFilterQuery({
+    search: search.trim() || undefined,
+    accessType: accessType === 'all' ? undefined : accessType,
+    tag: tagFilter || undefined,
+    eventId: eventFilter === 'all' ? undefined : Number(eventFilter),
+    level: levelFilter === 'all' ? undefined : (levelFilter as CustomerLevel),
+    gender: genderFilter === 'all' ? undefined : genderFilter,
+    source: sourceFilter === 'all' ? undefined : sourceFilter,
+    city: cityFilter.trim() || undefined,
+    birthdayMonth: birthdayFilter === 'all' ? undefined : Number(birthdayFilter),
+    optedOut: contactFilter === 'all' ? undefined : (contactFilter as 'email' | 'any'),
+    hasApp: appFilter === 'app' ? true : undefined,
+  });
   const exportUrl = () => `/api/admin/customers/export.csv?${filterParams().toString()}`;
   const printUrl = () => `/admin/print/customers?${filterParams().toString()}`;
 

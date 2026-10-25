@@ -1,5 +1,7 @@
 import { formatChileDateTime } from '../shared/chileDate';
 import { formatBirthDate, parseBirthDateInput, GENDER_OPTIONS, SOURCE_OPTIONS } from '../shared/customerInsights';
+import { parseCustomerFilterParams } from '../shared/customerFilterParams';
+import { appEmails } from './appDevices';
 import type { Express, Request, Response } from "express";
 import { sdk } from "./_core/sdk";
 import * as db from "./db";
@@ -127,12 +129,16 @@ export function registerAdminRoutes(app: Express) {
     res.send("﻿" + csv);
   });
 
-  // Export de clientes a CSV, mismos filtros que customers.listAll.
+  // Export de clientes a CSV: lo que se ve en la tabla (mismos filtros que customers.listAll).
   app.get("/api/admin/customers/export.csv", async (req: Request, res: Response) => {
     if (!(await requireAdmin(req, res))) return;
 
-    const { search, accessType, tag } = req.query as Record<string, string | undefined>;
-    const rows = await db.listCustomers({ search, accessType, tag });
+    const { hasApp, ...filters } = parseCustomerFilterParams((k) => (typeof req.query[k] === 'string' ? (req.query[k] as string) : undefined));
+    let rows = await db.listCustomers(filters);
+    if (hasApp) {
+      const withApp = await appEmails();
+      rows = rows.filter((c: any) => withApp.has(String(c.email).toLowerCase()));
+    }
 
     const csv = toCsv(
       rows.map((c: any) => ({
