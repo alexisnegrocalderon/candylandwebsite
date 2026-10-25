@@ -12,6 +12,7 @@ import { formatChileDate } from '@shared/chileDate';
 import { EmptyState } from '@/components/admin/EmptyState';
 import { useIsDemo } from '@/lib/demoMode';
 import { buildHomeAlerts } from '@shared/homeAlerts';
+import { pickCurrentEvent } from '@shared/currentEvent';
 import { AlertsStrip } from '@/components/admin/home/AlertsStrip';
 import { useEvento } from '@/components/admin/home/EventoBlock';
 import { usePlata } from '@/components/admin/home/PlataBlock';
@@ -49,22 +50,17 @@ const QUICK_ACTIONS: { label: string; icon: LucideIcon; section?: string; href?:
 
 export function HomeView({ badgeCounts, onOpen }: { badgeCounts: Record<string, number>; onOpen: (sectionId: string) => void }) {
   const { data: events } = trpc.events.listAll.useQuery();
-  const { data: activeEvent } = trpc.events.getActiveForCaja.useQuery();
 
-  // El "próximo" es el que /caja considera de esta noche; si no hay, el más
-  // cercano a futuro; si tampoco, el último que pasó.
-  const { current, previous } = useMemo(() => {
+  // El «próximo» es el que está pasando o el siguiente que viene (no el más cercano en el tiempo, que tras una
+  // fiesta sigue siendo la que ya pasó); si ya no hay ninguno por venir, el último que pasó.
+  const { current, previous, currentIsPast } = useMemo(() => {
+    const { event: cur, past } = pickCurrentEvent((events ?? []) as any[]);
     const list = [...((events ?? []) as any[])]
       .filter((e) => e.status !== 'draft' && e.status !== 'cancelled')
       .sort((a, b) => new Date(a.eventDate).getTime() - new Date(b.eventDate).getTime());
-    const now = Date.now();
-    const cur = (activeEvent && list.find((e) => e.id === (activeEvent as any).id))
-      ?? list.find((e) => new Date(e.eventDate).getTime() >= now - 12 * 3600_000)
-      ?? list[list.length - 1]
-      ?? null;
     const prev = cur ? [...list].reverse().find((e) => new Date(e.eventDate).getTime() < new Date(cur.eventDate).getTime()) ?? null : null;
-    return { current: cur, previous: prev };
-  }, [events, activeEvent]);
+    return { current: cur as any, previous: prev, currentIsPast: past };
+  }, [events]);
 
   const eventId: number | undefined = current?.id;
   const opts = { enabled: !!eventId, refetchInterval: 60_000 };
@@ -114,7 +110,7 @@ export function HomeView({ badgeCounts, onOpen }: { badgeCounts: Record<string, 
         <div className="pointer-events-none absolute -right-20 -top-24 h-64 w-64 rounded-full bg-[oklch(0.65_0.25_340/0.35)] blur-3xl" aria-hidden="true" />
         <div className="relative flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
           <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Próximo evento</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">{currentIsPast ? 'Último evento' : 'Próximo evento'}</p>
             <h2 className="mt-1 truncate font-heading text-2xl md:text-3xl">{current?.title ?? 'Sin eventos todavía'}</h2>
             {current && (
               <p className="mt-1 flex items-center gap-1.5 text-sm text-muted-foreground">

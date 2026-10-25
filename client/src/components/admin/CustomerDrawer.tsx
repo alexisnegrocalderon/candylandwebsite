@@ -167,7 +167,7 @@ export function CustomerDrawer({ customerId, onClose, onPrev, onNext, onChanged,
         </SheetHeader>
 
         {/* Barra superior */}
-        <div className="flex items-center gap-1 px-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-1 shrink-0">
+        <div className="flex items-center gap-1 px-3 pt-3 pb-1 shrink-0">
           <Button variant="ghost" size="icon" onClick={onPrev} disabled={!onPrev} aria-label="Cliente anterior"><ChevronLeft className="w-5 h-5" /></Button>
           <Button variant="ghost" size="icon" onClick={onNext} disabled={!onNext} aria-label="Cliente siguiente"><ChevronRight className="w-5 h-5" /></Button>
           <div className="flex-1" />
@@ -488,7 +488,7 @@ export function CustomerDrawer({ customerId, onClose, onPrev, onNext, onChanged,
 
         {/* Barra de guardado: visible en cualquier pestaña mientras haya cambios */}
         {dirty && (
-          <div className="shrink-0 border-t bg-background px-5 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] flex items-center gap-3">
+          <div className="shrink-0 border-t bg-background px-5 py-3 flex items-center gap-3">
             <p className="text-sm text-muted-foreground flex-1 min-w-0 truncate">{dirtyKeys.length} cambio{dirtyKeys.length === 1 ? '' : 's'}</p>
             <Button variant="ghost" className="shrink-0" onClick={() => initial && setForm(initial)} disabled={update.isPending}>Descartar</Button>
             <WriteButton className="shrink-0" onClick={save} disabled={update.isPending}>{update.isPending ? 'Guardando…' : 'Guardar'}</WriteButton>
