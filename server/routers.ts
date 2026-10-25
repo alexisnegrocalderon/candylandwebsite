@@ -107,7 +107,7 @@ import { listKitchenTickets, updateKitchenTicket, listKitchenProducts, updateKit
 import { listLockerItems, updateLockerItem } from "./locker";
 import { voidTicketCode } from "./caja/void";
 import { voidCajaSale } from "./caja/voidSale";
-import { deleteCustomerProfile, getCustomerProfile, updateCustomerProfile } from "./customerProfile";
+import { changeCustomerEmail, deleteCustomerProfile, getCustomerProfile, updateCustomerProfile } from "./customerProfile";
 import { computeCustomerLevel } from "../shared/customerInsights";
 import { checkSaleAlerts, alertSaleVoided, alertWrongAdminPassword, alertShiftClosed, listCajaAlerts } from "./caja/alerts";
 import { BRAND } from "../shared/eventBrand";
@@ -6535,6 +6535,7 @@ export const appRouter = router({
     // compras nuevas (lockedFields) y se deja en la bitácora de admin.
     update: adminProcedure.input(z.object({
       id: z.number(),
+      email: z.string().max(320).optional(),
       fullName: z.string().nullable().optional(),
       phone: z.string().nullable().optional(),
       rut: z.string().nullable().optional(),
@@ -6550,13 +6551,21 @@ export const appRouter = router({
       optOutReason: z.string().nullable().optional(),
       notes: z.string().nullable().optional(),
     })).mutation(async ({ input, ctx }) => {
-      const { id, ...edit } = input;
+      const { id, email, ...edit } = input;
       try {
+        // El correo va primero: si no se puede cambiar, no se guarda nada más.
+        let emailChange: Awaited<ReturnType<typeof changeCustomerEmail>> | null = null;
+        if (email !== undefined) {
+          emailChange = await changeCustomerEmail(id, email);
+          if (emailChange.changed) {
+            await db.recordAdminAudit({ action: 'customers.changeEmail', targetType: 'customer', targetId: id, payload: { antes: emailChange.previous, despues: emailChange.email, compras: emailChange.orders }, ip: clientIp(ctx) });
+          }
+        }
         const { changed } = await updateCustomerProfile(id, edit);
         if (Object.keys(changed).length > 0) {
           await db.recordAdminAudit({ action: 'customers.update', targetType: 'customer', targetId: id, payload: changed, ip: clientIp(ctx) });
         }
-        return { success: true, changedFields: Object.keys(changed) } as const;
+        return { success: true, changedFields: [...(emailChange?.changed ? ['email'] : []), ...Object.keys(changed)] } as const;
       } catch (err) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo guardar la ficha.' });
       }

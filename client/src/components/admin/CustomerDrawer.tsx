@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Copy, Lock, MessageCircle, Instagram, Mail, ChevronLeft, ChevronRight, Sparkles, X, BellOff, Trash2 } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
@@ -14,7 +14,7 @@ import { WriteButton } from '@/components/admin/WriteButton';
 import { ConfirmDeleteButton } from '@/components/admin/ConfirmDeleteButton';
 import { formatChileDate, formatChileDateTime } from '@shared/chileDate';
 import {
-  CUSTOMER_LEVEL_META, GENDER_OPTIONS, SOURCE_OPTIONS, customerDeleteBlocker, formatBirthDate, whatsappUrl,
+  CUSTOMER_LEVEL_META, GENDER_OPTIONS, SOURCE_OPTIONS, customerDeleteBlocker, formatBirthDate, normalizeCustomerEmail, whatsappUrl,
 } from '@shared/customerInsights';
 
 /* Ficha de cliente (Admin → Clientes): panel lateral con pestañas. Lo editable
@@ -26,14 +26,14 @@ const NONE = '__none__';
 const money = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
 
 type FormState = {
-  fullName: string; phone: string; rut: string; instagram: string; birthDate: string; gender: string; city: string;
+  email: string; fullName: string; phone: string; rut: string; instagram: string; birthDate: string; gender: string; city: string;
   source: string; ambassadorCode: string; levelOverride: string; emailOptOut: boolean; whatsappOptOut: boolean;
   optOutReason: string; notes: string;
 };
 
 function formFromCustomer(c: any): FormState {
   return {
-    fullName: c.fullName ?? '', phone: c.phone ?? '', rut: c.rut ?? '', instagram: c.instagram ?? '',
+    email: c.email ?? '', fullName: c.fullName ?? '', phone: c.phone ?? '', rut: c.rut ?? '', instagram: c.instagram ?? '',
     birthDate: formatBirthDate(c.birthDate), gender: c.gender ?? '', city: c.city ?? '', source: c.source ?? '',
     ambassadorCode: c.ambassadorCode ?? '', levelOverride: c.levelOverride ?? '', emailOptOut: !!c.emailOptOut,
     whatsappOptOut: !!c.whatsappOptOut, optOutReason: c.optOutReason ?? '', notes: c.notes ?? '',
@@ -54,6 +54,9 @@ export function CustomerDrawer({ customerId, onClose, onPrev, onNext, onChanged,
   onDeleted: () => void;
 }) {
   const open = customerId != null;
+  const dirtyRef = useRef(false);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   const utils = trpc.useUtils();
   const { data, isLoading, isError, error } = trpc.customers.detail.useQuery({ id: customerId ?? 0 }, { enabled: open });
   const [form, setForm] = useState<FormState | null>(null);
@@ -96,6 +99,7 @@ export function CustomerDrawer({ customerId, onClose, onPrev, onNext, onChanged,
     [form, initial],
   );
   const dirty = dirtyKeys.length > 0;
+  dirtyRef.current = dirty;
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) => setForm((f) => (f ? { ...f, [key]: value } : f));
 
   const save = () => {
@@ -106,6 +110,12 @@ export function CustomerDrawer({ customerId, onClose, onPrev, onNext, onChanged,
     for (const k of dirtyKeys) {
       const v = form[k];
       if (typeof v === 'boolean') payload[k] = v;
+      else if (k === 'email') {
+        const { value, error } = normalizeCustomerEmail(v);
+        if (!value) { toast.error(error ?? 'Escribe un correo válido.'); return; }
+        if (!window.confirm(`¿Cambiar el correo de ${data.customer.email} a ${value}?\n\nSus ${data.kpis.totalOrders} compra(s) pasan al correo nuevo, y entra a su app con ese correo.`)) return;
+        payload[k] = value;
+      }
       else payload[k] = v.trim() === '' ? null : v.trim();
     }
     update.mutate(payload as any);
@@ -123,6 +133,31 @@ export function CustomerDrawer({ customerId, onClose, onPrev, onNext, onChanged,
     onClose();
   };
 
+  // El gesto «atrás» del teléfono (en la app instalada no hay botón) cierra la ficha en vez de salirse del panel.
+  const closeRef = useRef(requestClose);
+  closeRef.current = requestClose;
+  useEffect(() => {
+    if (!open) return;
+    window.history.pushState({ ...(window.history.state ?? {}), customerDrawer: true }, '');
+    let handled = false;
+    const onPop = () => {
+      handled = true;
+      // Con cambios sin guardar: si no confirma, se vuelve a poner la entrada y la ficha sigue abierta.
+      if (dirtyRef.current && !window.confirm('Tienes cambios sin guardar. ¿Cerrar igual?')) {
+        window.history.pushState({ ...(window.history.state ?? {}), customerDrawer: true }, '');
+        handled = false;
+        return;
+      }
+      onCloseRef.current();
+    };
+    window.addEventListener('popstate', onPop);
+    return () => {
+      window.removeEventListener('popstate', onPop);
+      // Cerrada con la X: se saca la entrada que se agregó, para que «atrás» no quede doble.
+      if (!handled && window.history.state?.customerDrawer) window.history.back();
+    };
+  }, [open]);
+
   return (
     <Sheet open={open} onOpenChange={(o) => { if (!o) requestClose(); }}>
       <SheetContent className="w-full sm:max-w-3xl p-0 gap-0 bg-background [&>button]:hidden">
@@ -132,11 +167,11 @@ export function CustomerDrawer({ customerId, onClose, onPrev, onNext, onChanged,
         </SheetHeader>
 
         {/* Barra superior */}
-        <div className="flex items-center gap-1 px-3 pt-3 pb-1 shrink-0">
+        <div className="flex items-center gap-1 px-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-1 shrink-0">
           <Button variant="ghost" size="icon" onClick={onPrev} disabled={!onPrev} aria-label="Cliente anterior"><ChevronLeft className="w-5 h-5" /></Button>
           <Button variant="ghost" size="icon" onClick={onNext} disabled={!onNext} aria-label="Cliente siguiente"><ChevronRight className="w-5 h-5" /></Button>
           <div className="flex-1" />
-          <Button variant="ghost" size="icon" onClick={requestClose} aria-label="Cerrar"><X className="w-5 h-5" /></Button>
+          <Button variant="secondary" onClick={requestClose} aria-label="Cerrar la ficha" className="h-10 gap-1.5 rounded-full px-4"><X className="w-4 h-4" /> Cerrar</Button>
         </div>
 
         <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-6">
@@ -215,8 +250,11 @@ export function CustomerDrawer({ customerId, onClose, onPrev, onNext, onChanged,
                     <Field label="Nombre completo" locked={locked.includes('fullName')}>
                       <Input value={form.fullName} onChange={(e) => set('fullName', e.target.value)} />
                     </Field>
-                    <Field label="Email (no se puede cambiar)">
-                      <Input value={c.email} disabled />
+                    <Field label="Email">
+                      <Input value={form.email} onChange={(e) => set('email', e.target.value)} type="email" inputMode="email" autoCapitalize="none" autoCorrect="off" />
+                      {form.email.trim().toLowerCase() !== c.email.toLowerCase() && (
+                        <p className="text-xs text-amber-600 mt-1">Al guardar, {data.kpis.totalOrders === 1 ? 'su compra pasa' : `sus ${data.kpis.totalOrders} compras pasan`} a este correo y entra a su app con él.</p>
+                      )}
                     </Field>
                     <Field label="Teléfono / WhatsApp" locked={locked.includes('phone')}>
                       <Input value={form.phone} onChange={(e) => set('phone', e.target.value)} inputMode="tel" placeholder="+56 9 1234 5678" />
@@ -450,10 +488,10 @@ export function CustomerDrawer({ customerId, onClose, onPrev, onNext, onChanged,
 
         {/* Barra de guardado: visible en cualquier pestaña mientras haya cambios */}
         {dirty && (
-          <div className="shrink-0 border-t bg-background px-5 py-3 flex items-center gap-3">
-            <p className="text-sm text-muted-foreground flex-1">Cambios sin guardar ({dirtyKeys.length})</p>
-            <Button variant="ghost" onClick={() => initial && setForm(initial)} disabled={update.isPending}>Descartar</Button>
-            <WriteButton onClick={save} disabled={update.isPending}>{update.isPending ? 'Guardando…' : 'Guardar ficha'}</WriteButton>
+          <div className="shrink-0 border-t bg-background px-5 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] flex items-center gap-3">
+            <p className="text-sm text-muted-foreground flex-1 min-w-0 truncate">{dirtyKeys.length} cambio{dirtyKeys.length === 1 ? '' : 's'}</p>
+            <Button variant="ghost" className="shrink-0" onClick={() => initial && setForm(initial)} disabled={update.isPending}>Descartar</Button>
+            <WriteButton className="shrink-0" onClick={save} disabled={update.isPending}>{update.isPending ? 'Guardando…' : 'Guardar'}</WriteButton>
           </div>
         )}
       </SheetContent>
