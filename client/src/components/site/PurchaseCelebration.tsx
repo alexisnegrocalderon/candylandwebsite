@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { motion } from 'framer-motion';
 import { Link } from 'wouter';
 import { ArrowRight, Heart, Stamp, Ticket } from 'lucide-react';
@@ -15,7 +15,13 @@ function openTab(tab: string) {
   try { sessionStorage.setItem('cuenta.tab', tab); } catch { /* sin almacenamiento */ }
 }
 
-export function PurchaseCelebration({ eventTitle, onShown, needsLogin = false }: { eventTitle: string; onShown?: () => void; needsLogin?: boolean }) {
+export function PurchaseCelebration({ eventTitle, onShown, needsLogin = false, email = null, children }: {
+  eventTitle: string; onShown?: () => void; needsLogin?: boolean;
+  /** El correo de la compra: se le dice con cuál entrar a «Mi cuenta» para ver su entrada. */
+  email?: string | null;
+  /** Algo más debajo de los botones (por ejemplo, compartir el link de la comunidad). */
+  children?: ReactNode;
+}) {
   const halloween = useHalloweenMode();
   useEffect(() => {
     try { navigator.vibrate?.([18, 60, 18, 60, 40]); } catch { /* sin vibración */ }
@@ -39,7 +45,7 @@ export function PurchaseCelebration({ eventTitle, onShown, needsLogin = false }:
           <h1 className="mt-6 text-[30px] font-bold leading-tight tracking-tight">¡Tu entrada está lista! 🎉</h1>
           <p className="mx-auto mt-2 max-w-xs text-[15px] leading-snug text-white/70">
             <b className="text-white">{eventTitle}</b>. {needsLogin
-              ? 'Te llegó al correo. Entra a «Mi cuenta» con ese mismo correo y la tienes acá con su QR.'
+              ? `Te llegó al correo. Entra a «Mi cuenta» con ${email ? email : 'ese mismo correo'} y la tienes acá con su QR.`
               : 'Ya está en tu app con su QR, y también te llegó al correo.'}
           </p>
         </motion.div>
@@ -57,6 +63,7 @@ export function PurchaseCelebration({ eventTitle, onShown, needsLogin = false }:
           <Link href="/cuenta?tab=playmatch" onClick={() => openTab('playmatch')} className="account-glass flex h-14 items-center justify-center gap-2 rounded-full text-[15px] font-semibold interactive">
             <Heart className="h-5 w-5 text-pink-300" /> Inscribirme en Playmatch
           </Link>
+          {children}
         </motion.div>
       </div>
     </div>

@@ -72,7 +72,7 @@ export function solteroRequestProblem(d: { fullName?: string | null; rut?: strin
 
 /** La regla de los accesos de hombres, igual para la pantalla y el servidor: hace falta un código de
  * comunidad, o que quien compra esté aprobado en su cuenta con el MISMO correo de la compra. La campaña
- * aliada tiene sus propias reglas. null = puede comprar. */
+ * aliada no vende estos accesos (pasan por la compra normal). null = puede comprar. */
 export function solteroGateProblem(d: {
   lines: Line[];
   duoComposicion?: string | null;
@@ -82,7 +82,10 @@ export function solteroGateProblem(d: {
   approvedEmail?: string | null;
   partner?: boolean;
 }): string | null {
-  if (d.partner || !needsSolteroApproval(d.lines, d.duoComposicion)) return null;
+  if (!needsSolteroApproval(d.lines, d.duoComposicion)) return null;
+  // El precio de la campaña aliada es para el resto de los accesos: hombres solos y parejas de hombres
+  // pasan por el filtro de siempre en la compra normal.
+  if (d.partner) return 'Este acceso no va con el precio de la comunidad. Cómpralo en la web normal, con tu código de comunidad o tu aprobación.';
   if (d.communityCode?.trim()) return null;
   if (hasDuoDosHombres(d.lines, d.duoComposicion)) return 'El Dúo de dos hombres necesita un código de comunidad. Pídelo por WhatsApp.';
   if (d.approvedEmail && d.approvedEmail.trim().toLowerCase() === d.buyerEmail.trim().toLowerCase()) return null;

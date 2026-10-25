@@ -51,6 +51,8 @@ export function InstallAppPrompt() {
   const [steps, setSteps] = useState(false);
   const [how] = useState(installHow);
   const quiet = QUIET.some((r) => r.test(location));
+  // En la compra de la comunidad (/electronica) la tarjeta se queda, pero por encima de la barra de «Continuar».
+  const aboveActions = /^\/electronica/.test(location);
   const visible = open && !quiet;
 
   useEffect(() => {
@@ -87,7 +89,7 @@ export function InstallAppPrompt() {
         <motion.div
           role="region"
           aria-label="Instala la App de PlayRoom"
-          className="pointer-events-none fixed inset-x-0 bottom-0 z-[60] px-4 pb-[max(16px,env(safe-area-inset-bottom))]"
+          className={`pointer-events-none fixed inset-x-0 bottom-0 z-[60] px-4 ${aboveActions ? 'pb-[calc(104px+env(safe-area-inset-bottom))]' : 'pb-[max(16px,env(safe-area-inset-bottom))]'}`}
           initial={{ opacity: 0, y: 28 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: 28 }}

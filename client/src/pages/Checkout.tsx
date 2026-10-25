@@ -22,7 +22,7 @@ import { getStoredUtmParams } from '@/lib/utm';
 import { getStoredAmbassadorRef } from '@/lib/ambassadorRef';
 import { ambassadorBuyerDiscount, bestBuyerDiscount } from '@shared/ambassadorDiscount';
 import { BRAND } from '@shared/eventBrand';
-import { PARTNER_EXISTING_CUSTOMER_MESSAGE } from '@shared/partnerCampaign';
+import { PARTNER_EXISTING_CUSTOMER_MESSAGE, PARTNER_REFS } from '@shared/partnerCampaign';
 import './Checkout.walletPreview.css';
 import { ContestBuyerInvite } from '@/components/ContestBuyerInvite';
 import { MemberEarlyGate } from '@/components/site/MemberEarlyGate';
@@ -34,6 +34,7 @@ import { useHalloweenMode } from '@/lib/halloween';
 import { AccessList, type AccessRow, type Person } from '@/components/checkout/AccessList';
 import { DisclosureSummary, ExtraRow } from '@/components/checkout/ExtraRow';
 import { PurchaseCelebration } from '@/components/site/PurchaseCelebration';
+import { PartnerIntro } from '@/components/checkout/PartnerIntro';
 
 /** Mini vista previa de la Tarjeta Playroom, mostrada justo donde se pide el
  * PIN -- para que quede claro que el PIN protege ESTA tarjeta (saldo +
@@ -527,6 +528,9 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
   };
 
   const chooseAcceso = (op: AccesoOption) => {
+    // Hombres solos y parejas de hombres pasan el mismo filtro de siempre (código de comunidad o aprobación):
+    // se compran en la web normal, no con el precio de la comunidad.
+    if (isPartner && SOLTERO_OPTION_KEYS.includes(op.key)) { navigate(`/checkout/${eventSlug}`); return; }
     if (!avisarSiNoHayEntrada(op.slug)) return;
     setGroupSize(op.size);
     setDuoComposicion(op.composicion ?? null);
@@ -617,9 +621,16 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
       const cfg = CANDYLAND.accesos.find((a) => a.id === op.slug);
       return cfg ? { price: cfg.precio, original: null, soldOut: false } : null;
     }
+    // Hombres solos y parejas de hombres: no van con el precio de la comunidad (se compran en la web normal).
+    if (isPartner && SOLTERO_OPTION_KEYS.includes(op.key)) return { price: null, original: null, soldOut: false };
     const t: any = findLiveTicket(op.slug);
     if (!t) return null;
     const general = Number(t.price);
+    // Link de la comunidad: el precio especial (ya validado el correo) con el valor normal tachado.
+    if (isPartner) {
+      const special = partnerPricing?.prices[op.slug];
+      return { price: special ?? null, original: special != null && general > special ? general : null, soldOut: t.totalStock - (t.soldCount ?? 0) <= 0 };
+    }
     const listed = t.originalPrice != null && Number(t.originalPrice) > general ? Number(t.originalPrice) : null;
     return {
       price: missionOpen ? missionDepositPrice(op.slug) : general,
@@ -634,13 +645,15 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
     if (isPartner) {
       p.push({ id: 'intro-comunidad', titulo: '🎧 Bienvenid@, comunidad electrónica', sub: partner?.headline, keys: [] });
     }
-    if (!skipVibe) {
-      p.push(appMode
-        ? { id: 'acceso', titulo: '¿Con quién vienes?', sub: appEventLine, keys: [] }
-        : { id: 'acceso', titulo: `✨ ¿Cómo vienes a ${EVENTO.nombre}?`, sub: 'Toca tu opción.', keys: [] });
-    }
+    const pasoAcceso: Paso | null = skipVibe ? null : appMode
+      ? { id: 'acceso', titulo: '¿Con quién vienes?', sub: isPartner ? 'Tu precio especial de la comunidad' : appEventLine, keys: [] }
+      : { id: 'acceso', titulo: `✨ ¿Cómo vienes a ${EVENTO.nombre}?`, sub: 'Toca tu opción.', keys: [] };
     // Todos los datos del comprador en UNA pantalla (antes era una pantalla por dato).
-    p.push({ id: 'datos', titulo: 'Tus datos', sub: 'Para enviarte la entrada y validarla en la puerta. Son 100% privados.', keys: CAMPOS_COMPRADOR.map((f) => `buyer__${f.name}`) });
+    const pasoDatos: Paso = { id: 'datos', titulo: 'Tus datos', sub: isPartner ? 'Con tu correo y documento revisamos tu acceso de la comunidad. Son 100% privados.' : 'Para enviarte la entrada y validarla en la puerta. Son 100% privados.', keys: CAMPOS_COMPRADOR.map((f) => `buyer__${f.name}`) };
+    // Link de la comunidad: primero los datos (ahí se valida que no sea ya cliente), y recién después los
+    // accesos, con el precio especial a la vista. Nadie ve ese precio sin haber pasado la validación.
+    if (isPartner) { p.push(pasoDatos); if (pasoAcceso) p.push(pasoAcceso); }
+    else { if (pasoAcceso) p.push(pasoAcceso); p.push(pasoDatos); }
     // Todos los acompañantes en UNA pantalla.
     const acompKeys = camposAcceso.filter((f) => f.name !== 'codigo_acceso').map((f) => `acceso__${f.name}`);
     if (acompKeys.length > 0) {
@@ -1030,6 +1043,19 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
     );
   }
 
+  if (partnerBlock && appMode) {
+    return (
+      <div className="flex min-h-dvh flex-col items-center justify-center px-6 pb-16 pt-[max(24px,env(safe-area-inset-top))] text-center">
+        <div className="account-glass grid h-20 w-20 place-items-center rounded-full text-4xl">{partnerBlock.emoji}</div>
+        <h1 className="mt-5 text-title1 font-bold leading-tight">{partnerBlock.titulo}</h1>
+        <p className="mx-auto mt-2 max-w-xs text-subhead leading-snug text-white/65">{partnerBlock.texto}</p>
+        <Link href={`/checkout/${eventSlug}`} className="mt-7 flex h-14 w-full max-w-xs items-center justify-center rounded-full bg-gradient-to-r from-pink-500 via-fuchsia-500 to-sky-500 text-headline font-semibold text-white interactive">
+          Comprar en la web
+        </Link>
+      </div>
+    );
+  }
+
   if (partnerBlock) {
     return (
       <div className="min-h-dvh pt-24 pb-16 flex items-center justify-center">
@@ -1048,7 +1074,7 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
   // Opciones de la grilla «¿Cómo vienes?»: el link de la comunidad no ofrece las que piden código.
   // Aprobado en su cuenta, «Vengo solo» le aparece desbloqueado (sin candado ni «Con código»). Dos hombres, no.
   const accesoOptions = ACCESO_OPTIONS
-    .filter((op) => !isPartner || (partnerAllows(op.slug) && op.key !== 'soltero' && op.key !== 'dos-hombres'))
+    .filter((op) => !isPartner || partnerAllows(op.slug) || SOLTERO_OPTION_KEYS.includes(op.key))
     .map((op) => (solteroApproved && op.key === 'soltero' ? { ...op, sub: 'Aprobado' } : op));
   // La misma lista en la app: filas con precio; las que no tienen entrada cargada en este evento no se muestran.
   const appRows: AccessRow[] = accesoOptions.flatMap((op) => {
@@ -1063,6 +1089,7 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
   });
   const appRowsFootnote = missionOpen
     ? 'Hoy pagas el abono de Misión 300. El precio tachado es el valor general.'
+    : isPartner ? 'Precio por acceso de la comunidad. El valor normal va tachado.'
     : serviceFeePercent > 0 ? `El total suma un ${serviceFeePercent}% de cargo por servicio.` : undefined;
   // Acompañantes agrupados por persona (acomp1_nombre + acomp1_rut → Acompañante 1).
   const acompGroups = (() => {
@@ -1079,6 +1106,20 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
 
   if (ordenPago && pagoResultado === 'approved' && (memberSession.data?.loggedIn || appMode) && !isPartner) {
     return <PurchaseCelebration eventTitle={event?.title ?? EVENTO.nombre} needsLogin={!memberSession.data?.loggedIn} onShown={() => { void utils.member.me.invalidate(); }} />;
+  }
+
+  // Comunidad electrónica, en la app: la misma celebración, con su entrada en «Mi cuenta» (entra con el mismo
+  // correo de la compra) y el link para pasárselo a su gente.
+  if (ordenPago && pagoResultado === 'approved' && appMode && isPartner && partner) {
+    const shareText = `Yo ya voy al ${partner.headline.split('·')[0].trim()} en Playroom 🎧 Compra tu entrada con el acceso de la comunidad: ${window.location.origin}/${partnerSlug}${partnerRef ? `?dj=${encodeURIComponent(partnerRef)}` : ''}`;
+    return (
+      <PurchaseCelebration eventTitle={event?.title ?? EVENTO.nombre} needsLogin={!memberSession.data?.loggedIn} email={watch('buyer__email') || null} onShown={() => { void utils.member.me.invalidate(); }}>
+        <a href={`https://wa.me/?text=${encodeURIComponent(shareText)}`} target="_blank" rel="noopener noreferrer" className="account-glass flex h-14 items-center justify-center gap-2 rounded-full text-[15px] font-semibold interactive">
+          <MessageCircle className="h-5 w-5 text-emerald-300" /> Pasarle el link a mi gente
+        </a>
+        <p className="px-2 text-center text-footnote text-white/50">{partner.emoji} ¿Tu gente de la escena todavía no tiene entrada? Este mismo link les da el acceso de la comunidad.</p>
+      </PurchaseCelebration>
+    );
   }
 
   if (ordenPago && pagoResultado === 'approved') {
@@ -1287,7 +1328,7 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.22, ease: [0.23, 1, 0.32, 1] }}
           >
-              {appMode ? (
+              {appMode && isPartner && pasoActual.id === 'intro-comunidad' ? null : appMode ? (
                 <>
                   <h1 className="text-large-title font-bold leading-tight tracking-tight">{pasoActual.titulo}</h1>
                   {pasoActual.sub && <p className="mb-6 mt-1 text-subhead text-white/60 first-letter:uppercase">{pasoActual.sub}</p>}
@@ -1300,7 +1341,14 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
               )}
 
               {/* Paso: bienvenida a la comunidad (link aliado). Sin precios. */}
-              {pasoActual.id === 'intro-comunidad' && partner && (
+              {pasoActual.id === 'intro-comunidad' && partner && appMode && (
+                <PartnerIntro
+                  emoji={partner.emoji} label={partner.label}
+                  inviter={partnerRef && PARTNER_REFS[partner.slug]?.[partnerRef] ? PARTNER_REFS[partner.slug][partnerRef].split(' · ')[0] : null}
+                  eventTitle={partner.eventName} eventDate={event?.eventDate} edadMinima={CANDYLAND.edadMinima}
+                />
+              )}
+              {pasoActual.id === 'intro-comunidad' && partner && !appMode && (
                 <div className="space-y-4">
                   <div className="glass-candy rounded-2xl p-5 space-y-3">
                     <p className="text-sm leading-relaxed">
@@ -1328,6 +1376,7 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
                   <AccessList
                     rows={appRows}
                     footnote={appRowsFootnote}
+                    codedNote={isPartner ? 'Para hombres solos y parejas de hombres: se compran en la web normal con código de comunidad o aprobación, al precio de siempre.' : undefined}
                     onSelect={(key) => {
                       const op = accesoOptions.find((o) => o.key === key);
                       if (!op) return;
@@ -1352,7 +1401,7 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
                       />
                     ))}
                   </div>
-                  {isPartner && <p className="text-xs text-center text-muted-foreground mt-4">En Playroom no hay acceso para hombres solos ni grupos solo de hombres.</p>}
+                  {isPartner && <p className="text-xs text-center text-muted-foreground mt-4">Hombres solos y parejas de hombres: se compran en la web normal, con código de comunidad o aprobación.</p>}
                 </>
               )}
 
@@ -1896,7 +1945,7 @@ export default function Checkout(props: { partnerSlug?: string } = {}) {
   }
   // En la app (instalada o en el celular, ver lib/appMode.ts) y en la recompra en un toque: la compra
   // con la misma cara de la app, oscura y de vidrio, no la del sitio.
-  const appSheet = !props.partnerSlug && (isAppMode() || new URLSearchParams(search).get('rapida') === '1');
+  const appSheet = isAppMode() || (!props.partnerSlug && new URLSearchParams(search).get('rapida') === '1');
   if (!appSheet) return <CheckoutInner {...props} />;
   return <AppCheckout {...props} />;
 }

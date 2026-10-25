@@ -328,6 +328,11 @@ export function buildOrderEmail(data: {
         <p style="color:${MUTED};font-size:13px;margin:0 0 14px;">Nuestros pilares: ${CONTENT.valores.join(' · ')}</p>
         ${data.partnerWelcome.rules.map(r => `<p style="color:${INK};font-size:14px;line-height:1.6;margin:0 0 8px;">• ${escapeEmailText(r)}</p>`).join('')}
         <p style="color:${ACCENT.pink.text};font-size:13px;font-weight:700;margin:12px 0 0;">Al comprar aceptaste estas reglas y el derecho de permanencia.</p>
+        <div style="margin-top:16px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.08);">
+          <p style="color:${INK};font-size:14px;font-weight:700;margin:0 0 4px;">📲 Ten tu entrada en la app</p>
+          <p style="color:${MUTED};font-size:13px;line-height:1.6;margin:0 0 12px;">Instala la app de PlayRoom y entra a «Mi cuenta» con <b>este mismo correo</b>: tu entrada con su QR queda siempre a mano, y te avisamos lo importante de la noche.</p>
+          ${glassButton(`${EMAIL_BASE_URL}/app?src=email-comunidad`, '📲 Instalar la app')}
+        </div>
       `, { glow: 'pink' })}
       ` : ''}
 

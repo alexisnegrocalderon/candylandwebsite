@@ -1620,7 +1620,7 @@ export async function createOrder(input: {
 
   // Accesos de hombres solos (Soltero, Dúo de dos hombres): código de comunidad o aprobación personal en
   // «Mi cuenta» con el mismo correo de la compra. Antes solo lo pedía la pantalla; esta es la barrera de
-  // verdad. El código se valida más abajo. La campaña aliada tiene sus propias reglas.
+  // verdad. El código se valida más abajo. La campaña aliada no los vende (van por la compra normal).
   {
     const gate = solteroGateProblem({
       lines: accessLines, duoComposicion: parseDuoComposicion(input.attendeeData), communityCode: input.communityCode,

@@ -28,6 +28,14 @@ describe('accesos de hombres solos', () => {
     expect(solteroGateProblem({ ...base, duoComposicion: 'mixta' })).toBeNull();
   });
 
+  it('la campaña aliada no vende accesos de hombres, ni con código ni aprobado', () => {
+    const duo = { accesoSlug: 'duo', category: 'acceso' };
+    expect(solteroGateProblem({ lines: [soltero], buyerEmail: 'a@x.cl', partner: true, communityCode: 'X', approvedEmail: 'a@x.cl' })).toMatch(/web normal/);
+    expect(solteroGateProblem({ lines: [duo], duoComposicion: 'dos_hombres', buyerEmail: 'a@x.cl', partner: true, communityCode: 'X' })).toMatch(/web normal/);
+    // Un Dúo mixto por el link de la comunidad sigue entrando.
+    expect(solteroGateProblem({ lines: [duo], duoComposicion: 'mixta', buyerEmail: 'a@x.cl', partner: true })).toBeNull();
+  });
+
   it('pasa con código, o aprobado con el mismo correo de la compra', () => {
     const base = { lines: [soltero], buyerEmail: 'Ana@X.cl' };
     expect(solteroGateProblem(base)).toMatch(/código de comunidad o estar aprobado/);
@@ -36,8 +44,7 @@ describe('accesos de hombres solos', () => {
     // Aprobado, pero comprando con otro correo (para un amigo sin aprobar): no.
     expect(solteroGateProblem({ ...base, buyerEmail: 'amigo@x.cl', approvedEmail: 'ana@x.cl' })).not.toBeNull();
     expect(solteroGateProblem({ ...base, communityCode: '   ' })).not.toBeNull();
-    // La campaña aliada y los accesos que no son de hombres solos no piden nada.
-    expect(solteroGateProblem({ ...base, partner: true })).toBeNull();
+    // Los accesos que no son de hombres solos no piden nada.
     expect(solteroGateProblem({ lines: [soltera], buyerEmail: 'x@x.cl' })).toBeNull();
   });
 });

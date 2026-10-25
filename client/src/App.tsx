@@ -321,8 +321,8 @@ function App() {
           {/* Modo app (la App de PlayRoom instalada, con sesión de socio): sin el menú
               del sitio; una barra de app con «Volver» en todo lo que se abra desde ahí. */}
           {!hideChrome && !isCoproLanding && !memberApp && <Navbar />}
-          {/* La portada y la compra de la app traen su propia barra. */}
-          {memberApp && !onAccount && location !== '/' && !location.startsWith('/checkout') && <AppTopBar />}
+          {/* La portada y la compra de la app (también la del link de la comunidad) traen su propia barra. */}
+          {memberApp && !onAccount && location !== '/' && !location.startsWith('/checkout') && !location.startsWith('/electronica') && <AppTopBar />}
           {memberApp && <AppDarkChrome />}
           {memberApp && <AppSwipeBack location={location} />}
           {/* top-center a propósito: /gastos y /caja tienen un botón de acción
