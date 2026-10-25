@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Loader2, Mail, ScanFace } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { biometricName, passkeyUsedHere, usePasskeyAvailable, usePasskeyLogin } from '@/lib/memberPasskey';
@@ -24,6 +24,14 @@ export function MemberLogin({ purchase, tone = 'light', onDone }: {
   const [code, setCode] = useState('');
   const [sentTo, setSentTo] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Reenviar: espera 30 s entre pedidos (el código es el mismo durante 10 minutos).
+  const [cooldown, setCooldown] = useState(0);
+  const [resent, setResent] = useState(false);
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const t = setTimeout(() => setCooldown((c) => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [cooldown]);
   const requestCode = trpc.member.requestCode.useMutation();
   const requestForPurchase = trpc.member.requestCodeForPurchase.useMutation();
   const verify = trpc.member.verifyCode.useMutation();
@@ -46,6 +54,7 @@ export function MemberLogin({ purchase, tone = 'light', onDone }: {
         await requestCode.mutateAsync({ email: email.trim() });
         setSentTo(email.trim());
       }
+      setCooldown(30);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No pudimos mandar el código.');
     }
@@ -114,7 +123,13 @@ export function MemberLogin({ purchase, tone = 'light', onDone }: {
         {verify.isPending && <Loader2 className="h-4 w-4 animate-spin" />} Entrar
       </button>
       {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
-      <button type="button" onClick={() => { setSentTo(null); setCode(''); setError(null); }} className={`block mx-auto text-xs underline ${muted}`}>Pedir otro código</button>
+      <p className={`text-xs ${muted}`}>¿No te llega? Revisa <b>Spam</b> o <b>Promociones</b>: llega como «Mansion Playroom» con el asunto «Tu código para entrar a tu cuenta».</p>
+      <div className="flex items-center justify-center gap-4">
+        <button type="button" disabled={cooldown > 0 || sending} onClick={() => { setResent(true); void send(); }} className={`text-xs font-semibold underline disabled:no-underline disabled:opacity-60 ${muted}`}>
+          {sending ? 'Enviando…' : cooldown > 0 ? `Reenviar en ${cooldown} s` : resent ? 'Reenviar otra vez' : 'Reenviar código'}
+        </button>
+        <button type="button" onClick={() => { setSentTo(null); setCode(''); setError(null); }} className={`text-xs underline ${muted}`}>{purchase ? 'Volver' : 'Cambiar correo'}</button>
+      </div>
     </form>
   );
 }

@@ -1279,7 +1279,7 @@ export default function Cuenta() {
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="space-y-6 pt-8">
           <div className="text-center">
             <h1 className="text-large-title font-bold tracking-tight text-white">Mi cuenta</h1>
-            <p className="mt-2 text-subhead text-white/70">Tu entrada, tus Playcoins y tu saldo a un toque. Entras con un código que te mandamos al correo de tu compra (o tu correo de embajador o de staff): sin contraseñas.</p>
+            <p className="mt-2 text-subhead text-white/70">Tu entrada, tus Playcoins y tu saldo a un toque. Entras con tu correo: te mandamos un código y listo, sin contraseñas. Si ya compraste, usa el mismo correo de tu compra para ver tus entradas.</p>
           </div>
           <div className={`${GLASS} p-5`}>
             <MemberLogin tone="dark" onDone={setWelcome} />

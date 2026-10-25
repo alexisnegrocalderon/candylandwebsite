@@ -4484,7 +4484,8 @@ export const appRouter = router({
       // `invite`: el sitio siempre invita a «Mi cuenta» (entradas, Playcoins y avisos); `welcome` solo promete el cupón si está prendido.
       return { welcome: c.welcome.enabled ? c.welcome.percent : 0, invite: true };
     }),
-    // Manda el código al correo (solo si es cliente). SIEMPRE responde lo mismo, para que nadie averigüe quién es cliente.
+    // Manda el código al correo (a cualquiera: quien instala la app sin haber comprado también entra).
+    // Si el envío falla se avisa, para que la persona reintente en vez de esperar un correo que no llega.
     requestCode: publicProcedure.input(z.object({ email: z.string().email().max(200) })).mutation(async ({ input, ctx }) => {
       const email = normalizeMemberEmail(input.email);
       const ipKey = `member-send-ip:${clientIp(ctx)}`;
@@ -4494,7 +4495,9 @@ export const appRouter = router({
       }
       await db.recordIpAttempt(ipKey, 10, 60 * 60 * 1000);
       await db.recordIpAttempt(emailKey, 5, 60 * 60 * 1000);
-      await members.sendMemberCode(email);
+      if (!(await members.sendMemberCode(email))) {
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'No pudimos mandar el correo. Revisa que esté bien escrito e intenta de nuevo en un minuto.' });
+      }
       return { ok: true as const };
     }),
     // Desde una entrada o un pago: el código va al correo de ESA compra (nunca a uno que escriba quien pide) y se devuelve enmascarado.
@@ -4507,7 +4510,9 @@ export const appRouter = router({
       const emailKey = `member-send:${email}`;
       if (!(await db.checkIpRateLimit(emailKey))) throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Pediste muchos códigos. Espera un rato e intenta de nuevo.' });
       await db.recordIpAttempt(emailKey, 5, 60 * 60 * 1000);
-      await members.sendMemberCode(email);
+      if (!(await members.sendMemberCode(email))) {
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'No pudimos mandar el correo. Intenta de nuevo en un minuto.' });
+      }
       return { maskedEmail: members.maskMemberEmail(email) };
     }),
     // Canjea el código por la sesión (cookie de 90 días). Los cupones de bienvenida/nivel/cumpleaños se entregan acá.
@@ -4525,12 +4530,14 @@ export const appRouter = router({
       if (!(await db.checkIpRateLimit(emailKey)) || !(await db.checkIpRateLimit(ipKey))) {
         throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos. Espera unos minutos y pide un código nuevo.' });
       }
-      const customer = await members.findCustomer(email);
-      if (!customer || !verifyMemberCode(email, input.code)) {
+      if (!verifyMemberCode(email, input.code)) {
         await db.recordIpAttempt(emailKey, 5, 15 * 60 * 1000);
         await db.recordIpAttempt(ipKey, 20, 15 * 60 * 1000);
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Código incorrecto o vencido.' });
       }
+      // Primera vez de alguien que nunca compró: su ficha nace acá, con el correo ya comprobado.
+      const customer = (await members.findCustomer(email)) ?? (await members.createSignupCustomer(email));
+      if (!customer) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'No pudimos crear tu cuenta. Intenta de nuevo.' });
       setMemberSession(ctx.req, ctx.res, email);
       const r = await members.completeLogin(email);
       return { ok: true as const, isNew: r.isNew, granted: r.granted.map((g) => ({ title: g.title, percent: g.percent, days: g.days })) };
