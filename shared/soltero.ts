@@ -1,6 +1,7 @@
 /* Quién puede comprar qué (lo puro; server/solteros.ts guarda y decide):
- * - Los accesos de hombres solos («Soltero» y «Dúo» de dos hombres) piden un
- *   código de comunidad o que la persona esté aprobada en su cuenta.
+ * - «Soltero» pide un código de comunidad o que la persona esté aprobada en su cuenta.
+ * - «Dúo» de dos hombres (parejas de hombres) pide SIEMPRE un código de comunidad,
+ *   aunque esté aprobada como soltero.
  * - Quien compra por primera vez deja RUT (o pasaporte), Instagram y teléfono,
  *   que se cruzan con la lista de bloqueados antes de pagar. */
 import { isValidRut } from './rut';
@@ -22,6 +23,12 @@ type Line = { accesoSlug?: string | null; category?: string | null };
 export function needsSolteroApproval(lines: Line[], duoComposicion?: string | null): boolean {
   return lines.some((l) => (l.category === 'acceso' || !l.category)
     && (l.accesoSlug === 'soltero' || (l.accesoSlug === 'duo' && duoComposicion === 'dos_hombres')));
+}
+
+/** ¿Lleva el Dúo de dos hombres? Ese acceso es para parejas de hombres y siempre pide código de comunidad:
+ * la aprobación de soltero no lo desbloquea (no se trae a otro hombre sin autorización). */
+export function hasDuoDosHombres(lines: Line[], duoComposicion?: string | null): boolean {
+  return duoComposicion === 'dos_hombres' && lines.some((l) => (l.category === 'acceso' || !l.category) && l.accesoSlug === 'duo');
 }
 
 /** La composición del Dúo que eligió quien compra (el checkout la manda en attendeeData). */
@@ -63,7 +70,7 @@ export function solteroRequestProblem(d: { fullName?: string | null; rut?: strin
   return documentProblem(d.rut, 'rut') ?? instagramProblem(d.instagram) ?? phoneProblem(d.phone);
 }
 
-/** La regla de los accesos de hombres solos, igual para la pantalla y el servidor: hace falta un código de
+/** La regla de los accesos de hombres, igual para la pantalla y el servidor: hace falta un código de
  * comunidad, o que quien compra esté aprobado en su cuenta con el MISMO correo de la compra. La campaña
  * aliada tiene sus propias reglas. null = puede comprar. */
 export function solteroGateProblem(d: {
@@ -77,6 +84,7 @@ export function solteroGateProblem(d: {
 }): string | null {
   if (d.partner || !needsSolteroApproval(d.lines, d.duoComposicion)) return null;
   if (d.communityCode?.trim()) return null;
+  if (hasDuoDosHombres(d.lines, d.duoComposicion)) return 'El Dúo de dos hombres necesita un código de comunidad. Pídelo por WhatsApp.';
   if (d.approvedEmail && d.approvedEmail.trim().toLowerCase() === d.buyerEmail.trim().toLowerCase()) return null;
   return 'Este acceso necesita tu código de comunidad o estar aprobado. Pide tu aprobación desde tu app, en «Mi cuenta».';
 }

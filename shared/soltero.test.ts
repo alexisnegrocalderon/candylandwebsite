@@ -19,6 +19,15 @@ describe('accesos de hombres solos', () => {
     expect(parseDuoComposicion(null)).toBeNull();
   });
 
+  it('el Dúo de dos hombres siempre pide código: la aprobación de soltero no lo desbloquea', () => {
+    const duo = { accesoSlug: 'duo', category: 'acceso' };
+    const base = { lines: [duo], duoComposicion: 'dos_hombres', buyerEmail: 'ana@x.cl', approvedEmail: 'ana@x.cl' };
+    expect(solteroGateProblem(base)).toMatch(/Dúo de dos hombres necesita un código/);
+    expect(solteroGateProblem({ ...base, communityCode: 'PAREJAS' })).toBeNull();
+    // El Dúo mixto o de dos mujeres no lleva esta regla.
+    expect(solteroGateProblem({ ...base, duoComposicion: 'mixta' })).toBeNull();
+  });
+
   it('pasa con código, o aprobado con el mismo correo de la compra', () => {
     const base = { lines: [soltero], buyerEmail: 'Ana@X.cl' };
     expect(solteroGateProblem(base)).toMatch(/código de comunidad o estar aprobado/);
