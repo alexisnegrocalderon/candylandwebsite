@@ -214,6 +214,12 @@ export function StaffManager() {
                 </p>
                 {m.notes && <p className="text-xs text-[var(--admin-muted)]">{m.notes}</p>}
               </div>
+              {m.sales?.link && m.active && (
+                <button type="button" className={`${pill} ${pillOff} flex items-center gap-1`} title={`Su código es ${m.sales.code}. Las compras con este link quedan a su nombre.`}
+                  onClick={() => { void navigator.clipboard.writeText(m.sales!.link!).then(() => toast.success(`Link de ${m.name} copiado`)).catch(() => toast.error('No se pudo copiar')); }}>
+                  <Link2 className="h-3.5 w-3.5" /> Link de ventas · {m.sales.sales}
+                </button>
+              )}
               {m.email && m.active && (
                 <button type="button" disabled={isDemo || invite.isPending} onClick={() => invite.mutate({ id: m.id })} className={`${pill} ${pillOff} flex items-center gap-1`} title={`Manda otra vez la invitación a ${m.email}`}>
                   <Mail className="h-3.5 w-3.5" /> Reenviar

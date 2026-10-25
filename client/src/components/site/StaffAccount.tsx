@@ -1,13 +1,14 @@
 import { useState } from 'react';
 import { Link } from 'wouter';
 import { toast } from 'sonner';
-import { ArrowRight, BadgeCheck, Clock, KeyRound, MapPin, MessageCircle, Phone, Shirt, Wrench } from 'lucide-react';
+import { ArrowRight, BadgeCheck, Check, Clock, Copy, KeyRound, Link2, MapPin, MessageCircle, Phone, Shirt, Wrench } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { pinProblem } from '@shared/staffCargos';
 import type { inferRouterOutputs } from '@trpc/server';
 import type { AppRouter } from '../../../../server/routers';
 import { formatChileDate, formatChileTime } from '@shared/chileDate';
 import { dialable } from '@shared/staffPortal';
+import { useAmbassadorPanel } from './AmbassadorAccount';
 
 /* La versión de la app para el staff: quien entra a «Mi cuenta» con el correo
  * que se cargó en Admin → Noche → Staff ve su credencial con QR (la puerta la
@@ -46,6 +47,35 @@ export function StaffBanner({ staff, onOpen }: { staff: StaffPortal; onOpen: () 
         <ArrowRight className="h-5 w-5 shrink-0 text-violet-300" />
       </span>
     </button>
+  );
+}
+
+/** DJ y RRPP: su link y su código, con lo que han vendido. Cada compra con el link queda a su nombre. */
+function SalesLinkCard() {
+  const panel = useAmbassadorPanel();
+  const [done, setDone] = useState<string | null>(null);
+  if (!panel?.salesOnly) return null;
+  const copy = (key: string, text: string) => { void navigator.clipboard.writeText(text).then(() => { setDone(key); setTimeout(() => setDone(null), 2000); }).catch(() => {}); };
+  const total = panel.sales?.length ?? 0;
+  const event = panel.stats?.eventSales ?? 0;
+  return (
+    <Block icon={<Link2 className="h-4 w-4" />} title="Tu link de ventas">
+      <p className="text-subhead text-white/80">Compártelo en tus redes o por WhatsApp: cada entrada que se compre con tu link queda a tu nombre.</p>
+      {panel.referralUrl && (
+        <button type="button" onClick={() => copy('link', panel.referralUrl!)} className="mt-3 flex w-full min-w-0 items-center justify-between gap-2 rounded-2xl bg-white/[0.08] px-4 py-3 text-left interactive">
+          <span className="min-w-0"><span className="block text-caption2 text-white/55">{done === 'link' ? '¡Copiado!' : 'Tu link'}</span><span className="block truncate text-subhead font-semibold">{panel.referralUrl}</span></span>
+          {done === 'link' ? <Check className="h-4 w-4 shrink-0 text-emerald-300" /> : <Copy className="h-4 w-4 shrink-0 text-white/60" />}
+        </button>
+      )}
+      <button type="button" onClick={() => copy('code', panel.code)} className="mt-2 flex w-full items-center justify-between gap-2 rounded-2xl bg-white/[0.08] px-4 py-3 text-left interactive">
+        <span><span className="block text-caption2 text-white/55">{done === 'code' ? '¡Copiado!' : 'Tu código (para decirlo en persona)'}</span><span className="block font-mono text-subhead font-semibold">{panel.code}</span></span>
+        {done === 'code' ? <Check className="h-4 w-4 shrink-0 text-emerald-300" /> : <Copy className="h-4 w-4 shrink-0 text-white/60" />}
+      </button>
+      <div className="mt-3 grid grid-cols-2 gap-2 text-center">
+        <div className="rounded-2xl bg-white/[0.06] px-2 py-2.5"><p className="text-title3 font-bold leading-none">{event}</p><p className="mt-1 text-caption2 text-white/55">ventas{panel.stats?.eventTitle ? ` · ${panel.stats.eventTitle}` : ' de esta fiesta'}</p></div>
+        <div className="rounded-2xl bg-white/[0.06] px-2 py-2.5"><p className="text-title3 font-bold leading-none">{total}</p><p className="mt-1 text-caption2 text-white/55">ventas en total</p></div>
+      </div>
+    </Block>
   );
 }
 
@@ -190,6 +220,8 @@ export function StaffAccount({ staff }: { staff: StaffPortal }) {
           </div>
         </Block>
       )}
+
+      <SalesLinkCard />
 
       {staff.pin && <StaffPinCard pin={staff.pin} />}
 
