@@ -7,7 +7,7 @@ import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
-import { Home, X, Upload, Download, Gift, MessageCircle, Instagram, UserPlus, BellOff } from 'lucide-react';
+import { Home, X, Upload, Download, Gift, MessageCircle, Instagram, UserPlus, BellOff, SlidersHorizontal } from 'lucide-react';
 import { whatsappLinkFor, instagramLinkFor } from '@shared/ambassadorApplication';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ConfirmDeleteButton } from '@/components/admin/ConfirmDeleteButton';
@@ -83,6 +83,7 @@ export function CustomersView() {
   const [openCustomerId, setOpenCustomerId] = useState<number | null>(null);
   const [importing, setImporting] = useState(false);
   const [page, setPage] = useState(0);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { data: eventsData } = trpc.events.listAll.useQuery();
@@ -115,6 +116,9 @@ export function CustomersView() {
   const openIdx = openCustomerId != null ? pageItems.findIndex((c: any) => c.id === openCustomerId) : -1;
 
   useEffect(() => { setPage(0); }, [debouncedSearch, accessType, tagFilter, eventFilter, levelFilter, genderFilter, sourceFilter, birthdayFilter, contactFilter, appFilter, debouncedCity]);
+
+  const activeFilters = [tagFilter, cityFilter.trim()].filter(Boolean).length
+    + [accessType, eventFilter, levelFilter, genderFilter, sourceFilter, birthdayFilter, contactFilter, appFilter].filter((v) => v !== 'all').length;
 
   // El CSV y la impresión llevan los mismos filtros que la tabla: se exporta lo que se está viendo.
   const filterParams = () => customerFilterQuery({
@@ -163,6 +167,11 @@ export function CustomersView() {
 
       <div className="flex flex-wrap items-center gap-3">
         <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar por nombre, RUT, email o teléfono…" className="max-w-xs" />
+        {/* En el celular los filtros ocupaban una pantalla entera antes de ver a un solo cliente: quedan tras un botón. */}
+        <Button type="button" variant="outline" className="interactive md:hidden" aria-expanded={filtersOpen} onClick={() => setFiltersOpen((v) => !v)}>
+          <SlidersHorizontal className="w-4 h-4 mr-2" /> Filtros{activeFilters > 0 ? ` (${activeFilters})` : ''}
+        </Button>
+        <div className={filtersOpen ? 'contents' : 'hidden md:contents'}>
         <Select value={accessType} onValueChange={setAccessType}>
           <SelectTrigger className="w-56"><SelectValue placeholder="Tipo de acceso" /></SelectTrigger>
           <SelectContent>
@@ -230,6 +239,7 @@ export function CustomersView() {
             </SelectContent>
           </Select>
           <Input value={cityFilter} onChange={(e) => setCityFilter(e.target.value)} placeholder="Ciudad / comuna…" className="max-w-[11rem]" />
+        </div>
         </div>
 
         <div className="ml-auto flex items-center gap-2">
