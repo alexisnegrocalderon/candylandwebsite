@@ -118,6 +118,6 @@ export async function approveSolteroDirect(email: string, fullName?: string | nu
 }
 
 async function notifyApproved(email: string, name: string | null) {
-  void pushToEmail(email, { title: '✅ Quedaste aprobado', body: 'Ya puedes comprar tu acceso Soltero desde tu app, sin código.', url: '/cuenta' });
-  await sendEmail({ to: email, subject: '✅ Ya puedes comprar tu acceso Soltero', html: buildSolteroApprovedEmail({ name }) }).catch(() => undefined);
+  void pushToEmail(email, { title: '✅ Quedaste aprobado', body: 'Ya puedes comprar Soltero o Dúo de dos hombres desde tu app, sin código.', url: '/cuenta' });
+  await sendEmail({ to: email, subject: '✅ Ya puedes comprar Soltero y Dúo de dos hombres', html: buildSolteroApprovedEmail({ name }) }).catch(() => undefined);
 }

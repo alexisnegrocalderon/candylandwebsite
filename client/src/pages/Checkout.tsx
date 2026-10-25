@@ -117,6 +117,9 @@ const ACCESO_OPTIONS: AccesoOption[] = [
   { key: 'dos-hombres', slug: 'duo', size: 2, composicion: 'dos_hombres', image: '/candyland/checkout/pareja-dos-hombres.webp', label: 'Dos hombres', sub: 'Con código', emoji: '👬', people: ['m', 'm'], appSub: 'Pareja de hombres' },
 ];
 
+/** Las opciones de hombres solos: piden código de comunidad, salvo que quien compra esté aprobado. */
+const SOLTERO_OPTION_KEYS = ['soltero', 'dos-hombres'];
+
 /* Etiquetas de la pantalla «Tus datos» (todos los campos juntos). */
 const DATO_LABEL: Record<string, string> = { nombre: 'Nombre y apellido', email: 'Email (ahí llega tu entrada)', whatsapp: 'WhatsApp', rut: 'Documento', instagram: 'Instagram' };
 
@@ -1042,14 +1045,18 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
   }
 
   // Opciones de la grilla «¿Cómo vienes?»: el link de la comunidad no ofrece las que piden código.
-  const accesoOptions = ACCESO_OPTIONS.filter((op) => !isPartner || (partnerAllows(op.slug) && op.key !== 'soltero' && op.key !== 'dos-hombres'));
+  // Aprobado en su cuenta, Soltero y Dúo de dos hombres le aparecen desbloqueados (sin candado ni «Con código»).
+  const accesoOptions = ACCESO_OPTIONS
+    .filter((op) => !isPartner || (partnerAllows(op.slug) && op.key !== 'soltero' && op.key !== 'dos-hombres'))
+    .map((op) => (solteroApproved && SOLTERO_OPTION_KEYS.includes(op.key) ? { ...op, sub: 'Aprobado' } : op));
   // La misma lista en la app: filas con precio; las que no tienen entrada cargada en este evento no se muestran.
   const appRows: AccessRow[] = accesoOptions.flatMap((op) => {
     const pr = optionPrice(op);
     if (!pr) return [];
     return [{
       key: op.key, label: op.label, sub: op.appSub, people: op.people, ...pr,
-      needsCode: op.key === 'soltero' || op.key === 'dos-hombres',
+      needsCode: SOLTERO_OPTION_KEYS.includes(op.key) && !solteroApproved,
+      ...(solteroApproved && SOLTERO_OPTION_KEYS.includes(op.key) ? { sub: 'Aprobado · sin código' } : {}),
       active: accesoSlug === op.slug && (op.composicion ? duoComposicion === op.composicion : true),
     }];
   });

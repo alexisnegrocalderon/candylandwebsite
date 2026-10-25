@@ -50,6 +50,8 @@ export function lastPurchaseFrom(attendeeDataList: (string | null | undefined)[]
     if (!slug || !campos) continue;
     // Con código de comunidad (Soltero, Dúo dos hombres) se valida cada vez: esa no se recompra directo.
     if (str(campos['acceso__codigo_acceso'])) continue;
+    // Un Dúo de dos hombres comprado sin código (soltero aprobado) tampoco: no es una «Pareja».
+    if (str(data.duoComposicion) === 'dos_hombres') continue;
     const option = OPTION_BY_SLUG[slug] ?? null;
     if (!option) continue;
     return { accesoSlug: slug, accesoName: str(data.acceso) || null, qty: Math.max(1, Number(data.cantidad) || 1), option, companions: companionsFromCampos(campos) };
