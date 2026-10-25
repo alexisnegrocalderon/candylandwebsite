@@ -100,7 +100,7 @@ function Group({ rows, onSelect }: { rows: AccessRow[]; onSelect: (key: string) 
   );
 }
 
-export function AccessList({ rows, onSelect, footnote }: { rows: AccessRow[]; onSelect: (key: string) => void; footnote?: string }) {
+export function AccessList({ rows, onSelect, footnote, codedNote }: { rows: AccessRow[]; onSelect: (key: string) => void; footnote?: string; codedNote?: string }) {
   const open = rows.filter((r) => !r.needsCode);
   const coded = rows.filter((r) => r.needsCode);
   return (
@@ -115,7 +115,7 @@ export function AccessList({ rows, onSelect, footnote }: { rows: AccessRow[]; on
             <Lock className="h-3.5 w-3.5" /> Con código de comunidad
           </h2>
           <Group rows={coded} onSelect={onSelect} />
-          <p className="mt-2 px-4 text-footnote text-white/50">Para quienes ya son parte de PlayRoom. Si no tienes tu código, lo pides por WhatsApp en el paso siguiente.</p>
+          <p className="mt-2 px-4 text-footnote text-white/50">{codedNote ?? 'Para quienes ya son parte de PlayRoom. Si no tienes tu código, lo pides por WhatsApp en el paso siguiente.'}</p>
         </section>
       )}
     </div>
