@@ -3,9 +3,9 @@
  * preventa anticipada).
  *
  * «Socio» = cliente que entró a su cuenta alguna vez (customers.memberSince).
- * Solo pueden entrar correos que ya son clientes (o de un embajador activo):
- * el código nunca se manda a un correo desconocido (y la respuesta es la misma exista o no, para que
- * nadie averigüe quién es cliente). */
+ * Cualquier correo puede entrar (quien instala la app sin haber comprado también): el código se manda
+ * siempre, y la ficha de cliente se crea recién al confirmar el código (createSignupCustomer), así un
+ * correo mal escrito no deja fichas vacías. Los límites por correo e IP están en server/routers.ts. */
 import { and, desc, eq, gte, inArray, isNotNull, or, sql } from 'drizzle-orm';
 import { getDb, getSiteSettings } from './db';
 import { sendEmail, buildMemberCodeEmail } from './email';
@@ -107,13 +107,35 @@ async function ensureAdminCustomer(email: string): Promise<CustomerRow | null> {
   return findCustomer(email);
 }
 
-/** Manda el código al correo, solo si es cliente (o embajador, del staff o admin). Devuelve si se mandó (para los límites; nunca se le dice a quien pide). */
+/** Manda el código al correo. A embajadores, staff y admin se les prepara su ficha con su nombre; a
+ * cualquier otro correo el código le llega igual (su ficha nace al confirmarlo). Devuelve si Resend
+ * aceptó el correo: si no, quien lo pidió tiene que saberlo para reintentar. */
 export async function sendMemberCode(email: string): Promise<boolean> {
-  const customer = (await findCustomer(email)) ?? (await ensureAmbassadorCustomer(email)) ?? (await ensureStaffCustomer(email)) ?? (await ensureAdminCustomer(email));
-  if (!customer) return false;
-  const html = buildMemberCodeEmail({ code: currentMemberCode(customer.email), name: firstName(customer.fullName) || null });
-  await sendEmail({ to: customer.email, subject: '🔐 Tu código para entrar a tu cuenta', html });
-  return true;
+  const key = normalizeMemberEmail(email);
+  const customer = (await findCustomer(key)) ?? (await ensureAmbassadorCustomer(key)) ?? (await ensureStaffCustomer(key)) ?? (await ensureAdminCustomer(key));
+  const html = buildMemberCodeEmail({ code: currentMemberCode(key), name: firstName(customer?.fullName) || null });
+  const r = await sendEmail({ to: key, subject: '🔐 Tu código para entrar a tu cuenta', html });
+  return r.success;
+}
+
+/** Primera vez que entra alguien que nunca compró (instaló la app): su ficha de cliente, recién cuando
+ * ya demostró que el correo es suyo con el código. */
+export async function createSignupCustomer(email: string): Promise<CustomerRow | null> {
+  const db = await getDb();
+  if (!db) return null;
+  try {
+    await db.insert(customers).values({
+      email: normalizeMemberEmail(email),
+      accessTypes: [],
+      tags: ['app'],
+      source: 'web',
+      totalOrders: 0,
+      totalSpent: '0',
+    });
+  } catch {
+    // Dos confirmaciones a la vez: la ficha ya la creó la otra.
+  }
+  return findCustomer(email);
 }
 
 /** Email del cliente dueño de esa entrada o pedido (para mandarle el código ahí, nunca a uno que escriba quien pide). */
