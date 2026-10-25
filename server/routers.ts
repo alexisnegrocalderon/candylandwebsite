@@ -24,6 +24,7 @@ import { UNDO_EXPENSE_WINDOW_MS } from "../shared/expenses";
 import { canUseCaja, OPERATOR_ROLES, STAFF_SYSTEMS } from "../shared/cajaRoles";
 import { STAFF_CARGO_KEYS } from "../shared/staffCargos";
 import { applyStaffSchema, staffSchemaStatus } from "./schemaUpdates";
+import * as solteros from "./solteros";
 import { AVATARS_PER_GENDER, DEFAULT_LOOKING_FOR, MAX_PARTY_PHOTOS, MAX_REWINDS_PER_EVENT, PARTY_GENDERS, PARTY_ZONES, parseLookingFor, sanitizeCostume, serializeLookingFor, canPreRegister, partyEntryDenial, sanitizeAlias, sanitizeGiftMessage, sanitizeMessage, isPartyWindowOpen, validatePhotoBytes } from "../shared/party";
 import * as ambassadorProgram from "./ambassadorProgram";
 import { monthKeyFor } from "../shared/ambassadorProgram";
@@ -1620,7 +1621,19 @@ export const appRouter = router({
       try { await members.assertCouponOwner(input.discountCode, input.buyerEmail); } catch (err) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'Cupón no válido' });
       }
-      const result = await db.createOrder(input);
+      // Soltero aprobado en su cuenta: compra Soltero / Dúo de dos hombres sin código (la sesión lo
+      // identifica; el correo de la compra tiene que ser el mismo, ver createOrder).
+      const memberEmail = getMemberEmail(ctx.req);
+      const solteroApprovedEmail = memberEmail && (await solteros.isSolteroApproved(memberEmail)) ? memberEmail : null;
+      let result: Awaited<ReturnType<typeof db.createOrder>>;
+      try {
+        result = await db.createOrder({ ...input, solteroApprovedEmail });
+      } catch (err) {
+        // Las reglas de quién puede comprar (código, aprobación, datos de la primera compra) se le muestran tal cual.
+        const message = err instanceof Error ? err.message : '';
+        if (/código de comunidad|estar aprobado|primera compra/.test(message)) throw new TRPCError({ code: 'BAD_REQUEST', message });
+        throw err;
+      }
       // Descuento del 100%: la orden ya quedó aprobada en createOrder (sin
       // pasar por Mercado Pago) — acá solo falta el email de bienvenida+QR.
       if (result.isFree) await confirmFreeOrder(result.orderNumber);
@@ -4569,12 +4582,35 @@ export const appRouter = router({
       if (!email) return null;
       const c = await members.findCustomer(email);
       if (!c) return null;
-      return { fullName: c.fullName || null, email: c.email, phone: c.phone || null, rut: c.rut || null, docType: (c.rut && !isValidRut(c.rut) ? 'passport' : 'rut') as 'rut' | 'passport' };
+      return { fullName: c.fullName || null, email: c.email, phone: c.phone || null, rut: c.rut || null, instagram: c.instagram || null, docType: (c.rut && !isValidRut(c.rut) ? 'passport' : 'rut') as 'rut' | 'passport' };
     }),
     // Si el correo de la sesión es de alguien del staff (Finanzas → Equipo): su credencial, turnos e info.
     staff: publicProcedure.query(async ({ ctx }) => {
       const email = getMemberEmail(ctx.req);
       return email ? staffPortal.getStaffPortal(email) : null;
+    }),
+    // Aprobación de soltero de esta cuenta (para comprar Soltero / Dúo de dos hombres sin código).
+    soltero: publicProcedure.query(async ({ ctx }) => {
+      const email = getMemberEmail(ctx.req);
+      if (!email) return null;
+      const row = await solteros.getSolteroApproval(email);
+      return row ? { status: row.status, requestedAt: row.requestedAt, reviewedAt: row.reviewedAt } : null;
+    }),
+    solteroRequest: publicProcedure.input(z.object({
+      fullName: z.string().max(255),
+      rut: z.string().max(20),
+      instagram: z.string().max(100),
+      phone: z.string().max(40),
+      referredBy: z.string().max(160).nullish(),
+      message: z.string().max(500).nullish(),
+    })).mutation(async ({ ctx, input }) => {
+      const email = getMemberEmail(ctx.req);
+      if (!email) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Entra a tu cuenta primero.' });
+      const ipKey = `soltero-request:${clientIp(ctx)}`;
+      if (!(await db.checkIpRateLimit(ipKey))) throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos. Espera un rato.' });
+      await db.recordIpAttempt(ipKey, 10, 60 * 60 * 1000);
+      try { return await solteros.requestSolteroApproval(email, input); }
+      catch (e: any) { throw new TRPCError({ code: 'BAD_REQUEST', message: e?.message ?? 'No se pudo enviar la solicitud' }); }
     }),
     // La persona del staff crea (o cambia) el PIN con que entra a caja, puerta, cocina y guardarropía.
     staffSetPin: publicProcedure.input(z.object({ pin: z.string().min(4).max(6) })).mutation(async ({ ctx, input }) => {
@@ -6366,6 +6402,37 @@ export const appRouter = router({
       const result = await db.resetEventTestData(input.eventId);
       await db.recordAdminAudit({ action: 'caja.resetTestData', targetType: 'event', targetId: input.eventId, eventId: input.eventId, payload: result, ip: clientIp(ctx) });
       return result;
+    }),
+  }),
+
+  // Solteros: solicitudes desde la app y aprobación por persona (server/solteros.ts).
+  solteros: router({
+    // Cada solicitud con su cruce contra la lista de bloqueados: «block» (RUT, correo, teléfono o Instagram)
+    // o «review» (solo el nombre coincide), para decidir con esa información a la vista.
+    list: adminReadProcedure.query(async () => {
+      const rows = await solteros.listSolteroApprovals();
+      return Promise.all(rows.map(async (r) => {
+        const hit = await db.findBlockedMatch([{ name: r.fullName, rut: r.rut, email: r.email, phone: r.phone, instagram: r.instagram }]);
+        return { ...r, blocked: hit.block.length > 0 ? 'block' as const : hit.review.length > 0 ? 'review' as const : null };
+      }));
+    }),
+    review: adminProcedure.input(z.object({
+      id: z.number().int().positive(),
+      decision: z.enum(['aprobar', 'rechazar', 'revocar']),
+      note: z.string().max(500).nullish(),
+    })).mutation(async ({ input, ctx }) => {
+      try {
+        const r = await solteros.reviewSoltero(input.id, input.decision, input.note);
+        await db.recordAdminAudit({ action: `solteros.${input.decision}`, targetType: 'solteroApproval', targetId: input.id, ip: clientIp(ctx) });
+        return r;
+      } catch (e: any) { throw new TRPCError({ code: 'BAD_REQUEST', message: e?.message ?? 'No se pudo guardar' }); }
+    }),
+    approveDirect: adminProcedure.input(z.object({ email: z.string().email().max(320), fullName: z.string().max(255).nullish() })).mutation(async ({ input, ctx }) => {
+      try {
+        const r = await solteros.approveSolteroDirect(input.email, input.fullName);
+        await db.recordAdminAudit({ action: 'solteros.approveDirect', targetType: 'solteroApproval', payload: { email: r.email }, ip: clientIp(ctx) });
+        return r;
+      } catch (e: any) { throw new TRPCError({ code: 'BAD_REQUEST', message: e?.message ?? 'No se pudo aprobar' }); }
     }),
   }),
 

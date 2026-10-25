@@ -438,6 +438,37 @@ export const communityCodes = mysqlTable("communityCodes", {
 });
 
 export type CommunityCode = typeof communityCodes.$inferSelect;
+
+// Aprobación de solteros (accesos «Soltero» y «Dúo dos hombres») por persona,
+// en vez de un código: la persona la pide desde su app («Mi cuenta») y el admin
+// aprueba o rechaza. Aprobada, compra esos accesos sin código con su sesión
+// (server/solteros.ts). Es permanente hasta que el admin la revoque. Tabla
+// aparte a propósito: no toca `customers`, que leen todas las pantallas.
+export const solteroApprovals = mysqlTable("solteroApprovals", {
+  id: int("id").autoincrement().primaryKey(),
+  // Correo de «Mi cuenta», normalizado (minúsculas, sin espacios).
+  email: varchar("email", { length: 320 }).notNull(),
+  status: mysqlEnum("status", ["pendiente", "aprobado", "rechazado", "revocado"]).default("pendiente").notNull(),
+  fullName: varchar("fullName", { length: 255 }),
+  rut: varchar("rut", { length: 20 }),
+  instagram: varchar("instagram", { length: 100 }),
+  phone: varchar("phone", { length: 40 }),
+  // Quién lo recomienda (nombre o Instagram de un cliente o embajador).
+  referredBy: varchar("referredBy", { length: 160 }),
+  message: varchar("message", { length: 500 }),
+  // Nota del admin al decidir (no se le muestra a la persona si es un rechazo).
+  adminNote: varchar("adminNote", { length: 500 }),
+  requestedAt: timestamp("requestedAt").defaultNow().notNull(),
+  reviewedAt: timestamp("reviewedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (t) => [
+  uniqueIndex("soltero_approvals_email_idx").on(t.email),
+  index("soltero_approvals_status_idx").on(t.status),
+]);
+
+export type SolteroApproval = typeof solteroApprovals.$inferSelect;
+
 export type InsertCommunityCode = typeof communityCodes.$inferInsert;
 
 // Campañas aliadas (ver shared/partnerCampaign.ts): un link privado que vende

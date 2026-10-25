@@ -1,6 +1,6 @@
 /* Actualizaciones de esquema que el admin puede aplicar desde el panel (botón «Actualizar base de datos»)
- * cuando la migración todavía no se corrió a mano. Es la misma `drizzle/0129_staff_unificado.sql`, pero
- * idempotente: cada paso mira primero si la columna o el índice ya existen, así que se puede apretar
+ * cuando la migración todavía no se corrió a mano: las mismas `drizzle/0129_staff_unificado.sql` y
+ * `drizzle/0130_soltero_approvals.sql`, pero idempotentes: cada paso mira primero si la columna o el índice ya existen, así que se puede apretar
  * más de una vez, o después de correr la migración, sin romper nada. Solo agrega columnas nulas e índices:
  * no borra ni cambia datos. */
 import { sql } from "drizzle-orm";
@@ -15,6 +15,7 @@ interface Step {
 }
 
 interface Have {
+  tables: Set<string>;
   columns: Set<string>; // «tabla.columna»
   indexes: Set<string>; // «tabla.índice»
 }
@@ -40,12 +41,51 @@ const STAFF_STEPS: Step[] = [
   },
 ];
 
+/** drizzle/0130_soltero_approvals.sql: aprobación de solteros (server/solteros.ts). */
+const SOLTERO_STEPS: Step[] = [
+  {
+    label: 'tabla de aprobación de solteros', done: (h) => h.tables.has('solteroApprovals'),
+    statement: [
+      'CREATE TABLE `solteroApprovals` (',
+      '\t`id` int AUTO_INCREMENT NOT NULL,',
+      '\t`email` varchar(320) NOT NULL,',
+      "\t`status` enum('pendiente','aprobado','rechazado','revocado') NOT NULL DEFAULT 'pendiente',",
+      '\t`fullName` varchar(255),',
+      '\t`rut` varchar(20),',
+      '\t`instagram` varchar(100),',
+      '\t`phone` varchar(40),',
+      '\t`referredBy` varchar(160),',
+      '\t`message` varchar(500),',
+      '\t`adminNote` varchar(500),',
+      '\t`requestedAt` timestamp NOT NULL DEFAULT (now()),',
+      '\t`reviewedAt` timestamp NULL,',
+      '\t`createdAt` timestamp NOT NULL DEFAULT (now()),',
+      '\t`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,',
+      '\tCONSTRAINT `solteroApprovals_id` PRIMARY KEY(`id`)',
+      ')',
+    ].join('\n'),
+  },
+  {
+    label: 'índice de correos de solteros', done: (h) => h.indexes.has(col('solteroApprovals', 'soltero_approvals_email_idx')),
+    statement: "CREATE UNIQUE INDEX `soltero_approvals_email_idx` ON `solteroApprovals` (`email`)",
+  },
+  {
+    label: 'índice de estado de solteros', done: (h) => h.indexes.has(col('solteroApprovals', 'soltero_approvals_status_idx')),
+    statement: "CREATE INDEX `soltero_approvals_status_idx` ON `solteroApprovals` (`status`)",
+  },
+];
+
+/** Todo lo que el botón sabe aplicar, en orden. */
+export const SCHEMA_STEPS: Step[] = [...STAFF_STEPS, ...SOLTERO_STEPS];
+
 async function readHave(): Promise<Have | null> {
   const db = await getDb();
   if (!db) return null;
   const [cols] = (await db.execute(sql`SELECT TABLE_NAME AS t, COLUMN_NAME AS c FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ('staffMembers', 'operators')`)) as unknown as [{ t: string; c: string }[]];
-  const [idx] = (await db.execute(sql`SELECT TABLE_NAME AS t, INDEX_NAME AS i FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ('staffMembers', 'operators')`)) as unknown as [{ t: string; i: string }[]];
+  const [idx] = (await db.execute(sql`SELECT TABLE_NAME AS t, INDEX_NAME AS i FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ('staffMembers', 'operators', 'solteroApprovals')`)) as unknown as [{ t: string; i: string }[]];
+  const [tbl] = (await db.execute(sql`SELECT TABLE_NAME AS t FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ('solteroApprovals')`)) as unknown as [{ t: string }[]];
   return {
+    tables: new Set(tbl.map((r) => r.t)),
     columns: new Set(cols.map((r) => col(r.t, r.c))),
     indexes: new Set(idx.map((r) => col(r.t, r.i))),
   };
@@ -54,12 +94,12 @@ async function readHave(): Promise<Have | null> {
 // Una vez completa no vuelve a faltar: se deja de consultar information_schema en cada pedido.
 let staffSchemaReady = false;
 
-/** Qué le falta a la base para el staff unificado. `ready: true` = no falta nada. */
+/** Qué le falta a la base (staff unificado y solteros). `ready: true` = no falta nada. */
 export async function staffSchemaStatus(): Promise<{ ready: boolean; missing: string[] }> {
   if (staffSchemaReady) return { ready: true, missing: [] };
   const have = await readHave();
   if (!have) return { ready: true, missing: [] };
-  const missing = STAFF_STEPS.filter((s) => !s.done(have)).map((s) => s.label);
+  const missing = SCHEMA_STEPS.filter((s) => !s.done(have)).map((s) => s.label);
   staffSchemaReady = missing.length === 0;
   return { ready: staffSchemaReady, missing };
 }
@@ -70,7 +110,7 @@ export async function applyStaffSchema(): Promise<{ applied: string[] }> {
   const have = await readHave();
   if (!db || !have) throw new Error('No hay conexión con la base de datos.');
   const applied: string[] = [];
-  for (const step of STAFF_STEPS) {
+  for (const step of SCHEMA_STEPS) {
     if (step.done(have)) continue;
     await db.execute(sql.raw(step.statement));
     applied.push(step.label);

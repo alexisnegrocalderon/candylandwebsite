@@ -7,7 +7,7 @@ import * as db from "./db";
 const queryText = (q: any): string => (q?.queryChunks ?? []).map((c: any) => (typeof c === "string" ? c : (c?.value ?? []).join?.("") ?? "")).join("");
 
 /** Base falsa de información de esquema: `columns`/`indexes` son lo que ya existe; lo demás queda anotado. */
-function fakeDb(columns: [string, string][], indexes: [string, string][]) {
+function fakeDb(columns: [string, string][], indexes: [string, string][], tables: string[] = []) {
   const ran: string[] = [];
   return {
     ran,
@@ -15,6 +15,7 @@ function fakeDb(columns: [string, string][], indexes: [string, string][]) {
       const text = queryText(q);
       if (text.includes("information_schema.COLUMNS")) return [columns.map(([t, c]) => ({ t, c })), []];
       if (text.includes("information_schema.STATISTICS")) return [indexes.map(([t, i]) => ({ t, i })), []];
+      if (text.includes("information_schema.TABLES")) return [tables.map((t) => ({ t })), []];
       ran.push(text);
       return [{}, []];
     }),
@@ -22,7 +23,11 @@ function fakeDb(columns: [string, string][], indexes: [string, string][]) {
 }
 
 const ALL_COLUMNS: [string, string][] = [["staffMembers", "email"], ["staffMembers", "cargo"], ["staffMembers", "pinHash"], ["staffMembers", "pinSetAt"], ["operators", "staffId"]];
-const ALL_INDEXES: [string, string][] = [["staffMembers", "staff_members_email_idx"], ["operators", "operators_staff_idx"]];
+const ALL_INDEXES: [string, string][] = [
+  ["staffMembers", "staff_members_email_idx"], ["operators", "operators_staff_idx"],
+  ["solteroApprovals", "soltero_approvals_email_idx"], ["solteroApprovals", "soltero_approvals_status_idx"],
+];
+const ALL_TABLES = ["solteroApprovals"];
 
 // Cada prueba con el módulo limpio: guarda en memoria si el esquema ya estaba completo.
 const load = async () => { vi.resetModules(); return import("./schemaUpdates"); };
@@ -37,16 +42,16 @@ describe("actualización de esquema del staff", () => {
 
     const status = await staffSchemaStatus();
     expect(status.ready).toBe(false);
-    expect(status.missing).toHaveLength(6);
+    expect(status.missing).toHaveLength(9);
 
     const { applied } = await applyStaffSchema();
-    expect(applied).toHaveLength(6);
+    expect(applied).toHaveLength(9);
     expect(fake.ran.some((s) => s.includes("ADD `email`"))).toBe(false); // ya existía
     expect(fake.ran.some((s) => s.includes("ADD `cargo`"))).toBe(true);
   });
 
   it("con todo aplicado no hace nada y queda listo", async () => {
-    const fake = fakeDb(ALL_COLUMNS, ALL_INDEXES);
+    const fake = fakeDb(ALL_COLUMNS, ALL_INDEXES, ALL_TABLES);
     vi.mocked(db.getDb).mockResolvedValue(fake as any);
     const { staffSchemaStatus, applyStaffSchema } = await load();
     expect(await staffSchemaStatus()).toEqual({ ready: true, missing: [] });
@@ -54,13 +59,13 @@ describe("actualización de esquema del staff", () => {
     expect(fake.ran).toEqual([]);
   });
 
-  it("hace lo mismo que el archivo de migración 0129", async () => {
+  it("hace lo mismo que los archivos de migración 0129 y 0130", async () => {
     const fake = fakeDb([], []);
     vi.mocked(db.getDb).mockResolvedValue(fake as any);
     const { applyStaffSchema } = await load();
     await applyStaffSchema();
-    const file = readFileSync(new URL("../drizzle/0129_staff_unificado.sql", import.meta.url), "utf8")
-      .split("--> statement-breakpoint").map((s) => s.trim().replace(/;$/, "").trim()).filter(Boolean);
+    const file = ["0129_staff_unificado", "0130_soltero_approvals"].flatMap((name) => readFileSync(new URL(`../drizzle/${name}.sql`, import.meta.url), "utf8")
+      .split("--> statement-breakpoint").map((s) => s.trim().replace(/;$/, "").trim()).filter(Boolean));
     expect(fake.ran.map((s) => s.trim())).toEqual(file);
   });
 });

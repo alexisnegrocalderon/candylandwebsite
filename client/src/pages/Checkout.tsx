@@ -118,9 +118,9 @@ const ACCESO_OPTIONS: AccesoOption[] = [
 ];
 
 /* Etiquetas de la pantalla «Tus datos» (todos los campos juntos). */
-const DATO_LABEL: Record<string, string> = { nombre: 'Nombre y apellido', email: 'Email (ahí llega tu entrada)', whatsapp: 'WhatsApp', rut: 'Documento' };
+const DATO_LABEL: Record<string, string> = { nombre: 'Nombre y apellido', email: 'Email (ahí llega tu entrada)', whatsapp: 'WhatsApp', rut: 'Documento', instagram: 'Instagram' };
 
-type Remembered = { nombre?: string; email?: string; whatsapp?: string; rut?: string; docTipo?: 'rut' | 'passport' };
+type Remembered = { nombre?: string; email?: string; whatsapp?: string; rut?: string; instagram?: string; docTipo?: 'rut' | 'passport' };
 function readRemembered(): Remembered {
   try { return JSON.parse(localStorage.getItem(REMEMBER_KEY) || '{}') ?? {}; } catch { return {}; }
 }
@@ -531,8 +531,13 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
     continuar();
   };
 
-  /* Dúo Dos Hombres necesita el mismo código de comunidad que Soltero. */
-  const requiresCommunityCode = !isPartner && (accesoSlug === 'soltero' || (accesoSlug === 'duo' && duoComposicion === 'dos_hombres'));
+  /* Dúo Dos Hombres necesita el mismo código de comunidad que Soltero, salvo que quien compra esté
+   * aprobado en su cuenta (server/solteros.ts): entonces no se le pide código. El servidor exige además
+   * que el correo de la compra sea el de su cuenta. */
+  const solteroQ = trpc.member.soltero.useQuery(undefined, { enabled: !!memberSession.data?.loggedIn, retry: false, staleTime: 60_000 });
+  const solteroApproved = solteroQ.data?.status === 'aprobado';
+  const needsSoltero = !isPartner && (accesoSlug === 'soltero' || (accesoSlug === 'duo' && duoComposicion === 'dos_hombres'));
+  const requiresCommunityCode = needsSoltero && !solteroApproved;
 
   /* ── Extras / códigos ────────────────────────────────────── */
   const [dbExtraQty, setDbExtraQty] = useState<Record<number, number>>({});
@@ -686,7 +691,7 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
     const mine = readRemembered();
     const m = prefill.data;
     const src: Remembered = m
-      ? { nombre: m.fullName ?? mine.nombre, email: m.email, whatsapp: m.phone ?? mine.whatsapp, rut: m.rut ?? mine.rut, docTipo: m.rut ? m.docType : mine.docTipo }
+      ? { nombre: m.fullName ?? mine.nombre, email: m.email, whatsapp: m.phone ?? mine.whatsapp, rut: m.rut ?? mine.rut, instagram: m.instagram ?? mine.instagram, docTipo: m.rut ? m.docType : mine.docTipo }
       : mine;
     const fill = (key: string, value?: string | null) => { if (value && !watch(key as any)) setValue(key as any, value, { shouldValidate: false }); };
     if (src.docTipo && !watch('buyer__rut' as any)) setValue('buyer__docTipo' as any, src.docTipo, { shouldValidate: false });
@@ -694,6 +699,7 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
     fill('buyer__email', src.email);
     fill('buyer__whatsapp', src.whatsapp);
     fill('buyer__rut', src.rut);
+    fill('buyer__instagram', src.instagram);
   }, [prefill.isLoading, prefill.data, setValue, watch]);
 
   /* ── Recompra en un toque ─────────────────────────────── */
@@ -922,6 +928,8 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
       : [];
     const attendeeData = JSON.stringify({
       acceso: acceso?.nombre, cantidad: qty, grupoTipo: accesoSlug,
+      // Dúo mixto, de dos mujeres o de dos hombres: el servidor pide código o aprobación al de dos hombres.
+      ...(accesoSlug === 'duo' && duoComposicion ? { duoComposicion } : {}),
       extras: extrasElegidos,
       campos: values,
       // +18 con fecha y hora: queda registrado en la orden (el servidor exige que venga confirmado).
@@ -971,7 +979,7 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
         if (remember) {
           localStorage.setItem(REMEMBER_KEY, JSON.stringify({
             nombre: values['buyer__nombre'], email: values['buyer__email'], whatsapp: values['buyer__whatsapp'],
-            rut: values['buyer__rut'], docTipo: values['buyer__docTipo'] ?? 'rut',
+            rut: values['buyer__rut'], instagram: values['buyer__instagram'], docTipo: values['buyer__docTipo'] ?? 'rut',
           } satisfies Remembered));
         } else {
           localStorage.removeItem(REMEMBER_KEY);
@@ -1379,6 +1387,9 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
                       >
                         <MessageCircle className="w-4 h-4" /> Conseguir mi código por WhatsApp
                       </a>
+                      <a href="/cuenta?soltero=1" className="block text-center text-sm font-semibold text-primary underline-offset-2 hover:underline">
+                        ¿Vienes seguido? Pide tu aprobación en tu app y compra sin código
+                      </a>
                     </>
                   )}
                 </div>
@@ -1467,6 +1478,7 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
                   <ul className="space-y-1 text-sm text-muted-foreground">
                     <li><span className="text-foreground font-semibold">{watch('buyer__nombre' as any)}</span> · {watch('buyer__rut' as any)}</li>
                     <li>{watch('buyer__email' as any)} · {watch('buyer__whatsapp' as any)}</li>
+                    {watch('buyer__instagram' as any) && <li>Instagram {String(watch('buyer__instagram' as any)).replace(/^@?/, '@')}</li>}
                     {acompGroups.map((g) => {
                       const nombre = watch(`acceso__acomp${g.n}_nombre` as any);
                       return nombre ? <li key={g.n}>+ {nombre}</li> : null;

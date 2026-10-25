@@ -6,6 +6,7 @@ import { creditAvailability, creditDiscount, normalizeCreditCode, type CreditAva
 import { computeCodeDiscount } from "../shared/discountCode";
 import { classifyHandoffNoise } from "../shared/agentKnowledge";
 import { BLOCK_BY_LABEL, blockedKeysFor, hasHardKey, matchBlocked, type BlockedRow, type BlockMatchBy, type Identity } from "../shared/blockedMatch";
+import { firstPurchaseProblem, parseDuoComposicion, solteroGateProblem } from "../shared/soltero";
 import { findExistingMatch, mergeFields, type ImportFields } from "../shared/blockedImport";
 import { ambassadorBuyerDiscount, bestBuyerDiscount, effectiveBuyerDiscountPercent, type GeneralBuyerDiscount } from "../shared/ambassadorDiscount";
 import { normalizeIgHandle, saysAlreadyBought, type BuyerCandidate } from "../shared/igCustomerLink";
@@ -1416,6 +1417,28 @@ export function parseBuyerRut(attendeeDataJson: string | null | undefined): stri
   }
 }
 
+/** Pasaporte o RUT: lo que eligió el comprador en el checkout (`buyer__docTipo`). */
+export function parseBuyerDocTipo(attendeeDataJson: string | null | undefined): string | null {
+  if (!attendeeDataJson) return null;
+  try {
+    const value = JSON.parse(attendeeDataJson)?.campos?.['buyer__docTipo'];
+    return typeof value === 'string' ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+/** ¿Ya compró antes? (un cliente con al menos una compra, por su correo o su RUT). */
+export async function isReturningBuyer(email: string, rut?: string | null): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return true; // sin base no se puede verificar: no se frena la compra por esto
+  const conditions = [eq(customers.email, email.trim().toLowerCase())];
+  const rutNorm = rut?.trim() ? normalizeRut(rut) : null;
+  if (rutNorm) conditions.push(sql`UPPER(REPLACE(REPLACE(${customers.rut}, '.', ''), ' ', '')) = ${rutNorm}`);
+  const rows = await db.select({ totalOrders: customers.totalOrders }).from(customers).where(or(...conditions));
+  return rows.some((c) => c.totalOrders > 0);
+}
+
 /** Slot del comprador dentro de `attendeeData.campos`: `buyer__nombre` y
  * `buyer__rut` -- el regex de `parseAttendees` deja el primer guion bajo en el
  * slot, de ahí el `buyer_`. */
@@ -1541,6 +1564,9 @@ export async function createOrder(input: {
   partnerSlug?: string;
   /** Firma del DJ que compartió el link (`?dj=aldo`), ver PARTNER_REFS. */
   partnerRef?: string;
+  /** Correo de «Mi cuenta» de quien compra, si está aprobado como soltero (server/solteros.ts): compra
+   * Soltero y Dúo de dos hombres sin código. Lo pone el router con la sesión, nunca el navegador. */
+  solteroApprovedEmail?: string | null;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -1587,6 +1613,34 @@ export async function createOrder(input: {
   // descuento) del de extras (parking/covers/etc, category="extra"), que
   // siempre se cobran completos.
   const tts = await getTicketTypesByEventId(event.id);
+  const accessLines = input.items.map((i) => {
+    const tt = tts.find((t) => t.id === i.ticketTypeId);
+    return { accesoSlug: tt?.accesoSlug, category: tt?.category };
+  }).filter((l) => l.category === 'acceso' || !l.category);
+
+  // Accesos de hombres solos (Soltero, Dúo de dos hombres): código de comunidad o aprobación personal en
+  // «Mi cuenta» con el mismo correo de la compra. Antes solo lo pedía la pantalla; esta es la barrera de
+  // verdad. El código se valida más abajo. La campaña aliada tiene sus propias reglas.
+  {
+    const gate = solteroGateProblem({
+      lines: accessLines, duoComposicion: parseDuoComposicion(input.attendeeData), communityCode: input.communityCode,
+      buyerEmail: input.buyerEmail, approvedEmail: input.solteroApprovedEmail, partner: !!partnerCampaign,
+    });
+    if (gate) throw new Error(gate);
+  }
+
+  // Primera compra (sin compras anteriores con este correo o RUT): RUT válido (o pasaporte), Instagram y
+  // teléfono. Quedan en la orden y se cruzaron arriba con la lista de bloqueados.
+  if (accessLines.length > 0 && !(await isReturningBuyer(input.buyerEmail, parseBuyerRut(input.attendeeData)))) {
+    const problem = firstPurchaseProblem({
+      doc: parseBuyerRut(input.attendeeData),
+      docTipo: parseBuyerDocTipo(input.attendeeData),
+      instagram: parseAttendeeInstagram(input.attendeeData),
+      phone: input.buyerPhone,
+    });
+    if (problem) throw new Error(`Para tu primera compra: ${problem.charAt(0).toLowerCase()}${problem.slice(1)}`);
+  }
+
   const partnerPricing = partnerCampaign
     ? priceForPartnerOrder(
       partnerCampaign,

@@ -21,6 +21,7 @@ import { SchemaUpdateBanner } from '@/components/admin/SchemaUpdateBanner';
 import { AdminBackdropPage } from '@/components/admin/AdminBackdropPage';
 
 // Cada hub del panel es su propio archivo y se descarga al abrir una de sus secciones.
+const SolterosManager = lazy(() => import('@/components/admin/solteros/SolterosManager').then((m) => ({ default: m.SolterosManager })));
 const BlockedManager = lazy(() => import('@/components/admin/blocked/BlockedManager').then((m) => ({ default: m.BlockedManager })));
 const CartaManager = lazy(() => import('@/components/admin/carta/CartaManager').then((m) => ({ default: m.CartaManager })));
 const ContentPlanView = lazy(() => import('@/components/admin/ContentPlanView').then((m) => ({ default: m.ContentPlanView })));
@@ -135,6 +136,7 @@ const ADMIN_SECTIONS = [
   { id: 'winback', label: 'Reactivar clientes', hub: 'clientes', icon: Users, render: () => <WinbackView /> },
   { id: 'birthdays', label: 'Cumpleañeros', hub: 'clientes', icon: Cake, render: () => <BirthdaysView /> },
   { id: 'members', label: 'Socios', hub: 'clientes', icon: Crown, render: () => <MembersManager /> },
+  { id: 'solteros', label: 'Solteros', hub: 'clientes', icon: UserCheck, render: () => <SolterosManager /> },
   { id: 'blocked-customers', label: 'Bloqueo de Clientes', hub: 'clientes', icon: Ban, render: () => <BlockedManager /> },
 
   { id: 'instagram', label: 'Instagram', hub: 'mensajes', icon: Instagram, render: () => <InstagramInbox /> },
