@@ -24,6 +24,7 @@ import { TiltCard } from '@/components/site/TiltCard';
 import { BottomSheet, PayInCajaViewer, SavedCardsSection, TopupSheet, useMemberPayConfig } from '@/components/site/AccountPayments';
 import { AmbassadorAccount, AppScreen, useAmbassadorPanel } from '@/components/site/AmbassadorAccount';
 import { StampsTab } from '@/components/site/StampCard';
+import { SolteroAccess, solteroRowSub, useSolteroStatus } from '@/components/site/SolteroAccess';
 import { StaffAccount, StaffBanner, useStaffPortal } from '@/components/site/StaffAccount';
 import { PlaymatchTab } from '@/components/site/PlaymatchTab';
 import { canEnterParty } from '@shared/party';
@@ -942,6 +943,11 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
   const openEmb = useRef(initial.open === 'embajador' && new URLSearchParams(window.location.search).get('tab') === 'embajador');
   const [more, setMore] = useState(false);
   useEffect(() => { if (openEmb.current && ambassador) { openEmb.current = false; setSheet('embajador'); } }, [ambassador]);
+  // «Pide tu aprobación» desde la compra (`?soltero=1`) abre directo «Acceso Soltero».
+  const solteroStatus = useSolteroStatus();
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('soltero') === '1') setSheet('soltero');
+  }, []);
   // El correo y el aviso de bienvenida al staff (`?staff=1`) abren directo la pantalla Staff, una sola vez.
   const openStaff = useRef(new URLSearchParams(window.location.search).get('staff') === '1');
   useEffect(() => { if (openStaff.current && staff) { openStaff.current = false; setSheet('staff'); } }, [staff]);
@@ -961,7 +967,7 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
   const touch = useRef<{ x: number; y: number } | null>(null);
   const [dir, setDir] = useState(1);
   // Sub-hojas de «Más» y de «Puntos» (cada tema grande abre la suya, para que ninguna pantalla crezca).
-  const [sheet, setSheet] = useState<null | 'tarjetas' | 'beneficios' | 'avisos' | 'movimientos' | 'entradas' | 'embajador' | 'staff' | 'faceid'>(null);
+  const [sheet, setSheet] = useState<null | 'tarjetas' | 'beneficios' | 'avisos' | 'movimientos' | 'entradas' | 'embajador' | 'staff' | 'faceid' | 'soltero'>(null);
   // Preguntas frecuentes, dress code, etc. en hojas de la app (antes había que ir al sitio).
   const [info, setInfo] = useState<InfoKind | null>(null);
   // Face ID: recién entró con el código y este teléfono puede → se le ofrece una vez, después de ver su app.
@@ -1101,6 +1107,7 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
                 ...(passkeyOk ? [{ key: 'faceid', label: `Entrar con ${biometricName()}`, sub: passkeyUsedHere() ? `Activado en ${thisDeviceName()}` : 'Con un toque, sin esperar el código', icon: ScanFace, tint: 'bg-emerald-500', onClick: () => { setFaceIdOffer(false); setSheet('faceid'); } }] : []),
                 { key: 'avisos', label: 'Avisos', sub: pushPending ? 'Actívalos para no perderte nada' : 'Recordatorios, preventas y novedades', icon: Bell, tint: 'bg-rose-500', dot: pushPending, onClick: () => setSheet('avisos') },
                 { key: 'entradas', label: 'Mis entradas', sub: 'Las próximas y las de fiestas pasadas', icon: TicketIcon, tint: 'bg-fuchsia-500', onClick: () => setSheet('entradas') },
+                { key: 'soltero', label: 'Acceso Soltero', sub: solteroRowSub(solteroStatus?.status), icon: BadgeCheck, tint: solteroStatus?.status === 'aprobado' ? 'bg-emerald-500' : 'bg-indigo-500', onClick: () => setSheet('soltero') },
                 ...(pay.savedCards ? [{ key: 'tarjetas', label: 'Mis tarjetas', sub: 'Tus tarjetas guardadas', icon: CreditCard, tint: 'bg-sky-500', onClick: () => setSheet('tarjetas') }] : []),
               ]} />
               <SettingsGroup title="La fiesta" rows={[
@@ -1220,6 +1227,7 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
       <InfoSheet kind={info} onClose={() => setInfo(null)} />
       <BottomSheet open={sheet === 'tarjetas'} onClose={() => setSheet(null)} title="Mis tarjetas"><SavedCardsSection /></BottomSheet>
       {staff && <AppScreen open={sheet === 'staff'} title="Staff" onClose={() => setSheet(null)}><StaffAccount staff={staff} /></AppScreen>}
+      <AppScreen open={sheet === 'soltero'} title="Acceso Soltero" onClose={() => setSheet(null)}><SolteroAccess /></AppScreen>
       {ambassador && <AppScreen open={sheet === 'embajador'} title="Embajador" onClose={() => setSheet(null)}><AmbassadorAccount panel={ambassador} /></AppScreen>}
       <BottomSheet open={sheet === 'beneficios'} onClose={() => setSheet(null)} title="Beneficios"><PerksCard me={me} /></BottomSheet>
       <BottomSheet open={sheet === 'movimientos'} onClose={() => setSheet(null)} title="Movimientos"><Movements me={me} /></BottomSheet>

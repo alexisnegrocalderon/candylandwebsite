@@ -911,6 +911,13 @@
       "when": 1793350000000,
       "tag": "0129_staff_unificado",
       "breakpoints": true
+    },
+    {
+      "idx": 130,
+      "version": "5",
+      "when": 1793450000000,
+      "tag": "0130_soltero_approvals",
+      "breakpoints": true
     }
   ]
 }

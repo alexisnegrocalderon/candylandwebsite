@@ -22,7 +22,7 @@ export function SchemaUpdateBanner() {
       utils.finance.staffSchema.invalidate();
       utils.finance.staffList.invalidate();
       utils.operators.listAll.invalidate();
-      toast.success(r.applied.length ? 'Base de datos actualizada: ya puedes agregar staff' : 'La base ya estaba al día');
+      toast.success(r.applied.length ? 'Base de datos actualizada' : 'La base ya estaba al día');
     },
     onError: (e) => toast.error(e.message || 'No se pudo actualizar la base'),
   });
@@ -34,7 +34,7 @@ export function SchemaUpdateBanner() {
         <div className="min-w-[14rem] flex-1">
           <p className="font-semibold">Falta actualizar la base de datos</p>
           <p className="text-sm text-muted-foreground">
-            El staff nuevo necesita {missing.length} {missing.length === 1 ? 'cambio' : 'cambios'} en la base (solo agrega columnas, no toca tus datos). Hasta que se aplique, no se puede agregar staff.
+            Faltan {missing.length} {missing.length === 1 ? 'cambio' : 'cambios'} en la base para el staff y la aprobación de solteros (solo agrega tablas y columnas, no toca tus datos). Hasta que se aplique, esas secciones no guardan.
           </p>
         </div>
         <button type="button" onClick={() => setOpen(true)} disabled={apply.isPending}
@@ -44,7 +44,7 @@ export function SchemaUpdateBanner() {
       </div>
       <AdminPasswordDialog
         open={open} title="Actualizar la base de datos" actionLabel="Actualizar"
-        description="Agrega las columnas del staff nuevo (correo, cargo y PIN). No borra ni cambia nada de lo que ya hay. Confirma con tu clave de admin."
+        description="Agrega lo que falta para el staff (correo, cargo y PIN) y la tabla de aprobación de solteros. No borra ni cambia nada de lo que ya hay. Confirma con tu clave de admin."
         onConfirm={(adminPassword) => apply.mutateAsync({ adminPassword })} onClose={() => setOpen(false)}
       />
     </>

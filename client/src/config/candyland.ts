@@ -54,6 +54,8 @@ export const CAMPOS_COMPRADOR: CampoForm[] = [
   { name: 'email', label: 'Email', type: 'email', required: true, placeholder: 'tu@email.com', help: 'Aquí llega tu entrada y la dirección.' },
   { name: 'whatsapp', label: 'WhatsApp', type: 'tel', required: true, placeholder: '+56 9 1234 5678' },
   { name: 'rut', label: 'RUT', type: 'text', required: true, placeholder: '12.345.678-9' },
+  // Lo pide el servidor en la primera compra (shared/soltero.ts) y se cruza con la lista de bloqueados.
+  { name: 'instagram', label: 'Instagram', type: 'text', required: true, placeholder: '@tuusuario' },
   { name: 'mayorEdad', label: 'Confirmo que soy mayor de 18 años', type: 'checkbox', required: true },
 ];
 

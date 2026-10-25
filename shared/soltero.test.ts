@@ -1,0 +1,51 @@
+import { describe, expect, it } from 'vitest';
+import { firstPurchaseProblem, needsSolteroApproval, parseDuoComposicion, solteroGateProblem, solteroRequestProblem } from './soltero';
+
+const soltero = { accesoSlug: 'soltero', category: 'acceso' };
+const duo = { accesoSlug: 'duo', category: 'acceso' };
+const soltera = { accesoSlug: 'soltera', category: 'acceso' };
+
+describe('accesos de hombres solos', () => {
+  it('Soltero siempre; Dúo solo si son dos hombres; lo demás nunca', () => {
+    expect(needsSolteroApproval([soltero])).toBe(true);
+    expect(needsSolteroApproval([duo], 'dos_hombres')).toBe(true);
+    expect(needsSolteroApproval([duo], 'mixta')).toBe(false);
+    expect(needsSolteroApproval([soltera, { accesoSlug: null, category: 'extra' }])).toBe(false);
+  });
+
+  it('lee la composición del Dúo que manda el checkout', () => {
+    expect(parseDuoComposicion(JSON.stringify({ duoComposicion: 'dos_hombres' }))).toBe('dos_hombres');
+    expect(parseDuoComposicion('no es json')).toBeNull();
+    expect(parseDuoComposicion(null)).toBeNull();
+  });
+
+  it('pasa con código, o aprobado con el mismo correo de la compra', () => {
+    const base = { lines: [soltero], buyerEmail: 'Ana@X.cl' };
+    expect(solteroGateProblem(base)).toMatch(/código de comunidad o estar aprobado/);
+    expect(solteroGateProblem({ ...base, communityCode: 'SOLTEROS' })).toBeNull();
+    expect(solteroGateProblem({ ...base, approvedEmail: 'ana@x.cl' })).toBeNull();
+    // Aprobado, pero comprando con otro correo (para un amigo sin aprobar): no.
+    expect(solteroGateProblem({ ...base, buyerEmail: 'amigo@x.cl', approvedEmail: 'ana@x.cl' })).not.toBeNull();
+    expect(solteroGateProblem({ ...base, communityCode: '   ' })).not.toBeNull();
+    // La campaña aliada y los accesos que no son de hombres solos no piden nada.
+    expect(solteroGateProblem({ ...base, partner: true })).toBeNull();
+    expect(solteroGateProblem({ lines: [soltera], buyerEmail: 'x@x.cl' })).toBeNull();
+  });
+});
+
+describe('datos obligatorios', () => {
+  it('primera compra: documento, Instagram y teléfono', () => {
+    expect(firstPurchaseProblem({ doc: '11.111.111-1', instagram: '@ana.perez', phone: '+56 9 1234 5678' })).toBeNull();
+    expect(firstPurchaseProblem({ doc: 'AB123456', docTipo: 'passport', instagram: 'ana', phone: '+1 555 123 4567' })).toBeNull();
+    expect(firstPurchaseProblem({ doc: '11.111.111-2', instagram: 'ana', phone: '+56912345678' })).toMatch(/RUT/);
+    expect(firstPurchaseProblem({ doc: '11.111.111-1', instagram: '', phone: '+56912345678' })).toMatch(/Instagram/);
+    expect(firstPurchaseProblem({ doc: '11.111.111-1', instagram: 'https://instagram.com/ana_p', phone: '123' })).toMatch(/WhatsApp/);
+  });
+
+  it('solicitud de soltero: nombre y apellido, RUT, Instagram y teléfono', () => {
+    const ok = { fullName: 'Juan Pérez', rut: '11.111.111-1', instagram: '@juanp', phone: '+56 9 1234 5678' };
+    expect(solteroRequestProblem(ok)).toBeNull();
+    expect(solteroRequestProblem({ ...ok, fullName: 'Juan' })).toMatch(/apellido/);
+    expect(solteroRequestProblem({ ...ok, rut: 'AB12345' })).toMatch(/RUT/);
+  });
+});

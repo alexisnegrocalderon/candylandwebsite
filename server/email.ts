@@ -788,6 +788,29 @@ export function buildStaffWelcomeEmail(data: { name: string; role?: string | nul
   });
 }
 
+/** Aviso al soltero: su solicitud quedó aprobada y ya puede comprar desde su app sin código. */
+export function buildSolteroApprovedEmail(data: { name?: string | null }) {
+  const url = `${EMAIL_BASE_URL}/cuenta`;
+  const name = escapeEmailText((data.name ?? '').split(/\s+/)[0] || '');
+  return emailShell({
+    preheader: 'Ya puedes comprar tu acceso Soltero desde tu app.',
+    pageBg: DISCO_BG,
+    hero: emailHero({
+      accent: 'lilac',
+      heroBg: DISCO_HERO_BG,
+      emoji: '✅',
+      title: name ? `${name}, quedaste aprobado` : 'Quedaste aprobado',
+      subtitle: 'Ya puedes comprar el acceso Soltero (y Dúo de dos hombres) directo desde tu app, sin código.',
+    }),
+    body: `
+      ${card(`<p style="color:${MUTED};font-size:14px;line-height:1.6;margin:0;">Entra a tu app con este mismo correo y compra: el acceso aparece desbloqueado. La aprobación es personal y vale para las próximas fiestas.</p>`)}
+      <div style="text-align:center;margin-top:24px;">
+        ${pastelButton(url, 'Ir a mi app', 'lilac')}
+      </div>
+    `,
+  });
+}
+
 /** Aviso al staff: lo asignaron a una noche (con su cargo, la hora de citación si ya está y si le falta el PIN). */
 export function buildStaffShiftEmail(data: { name: string; role: string; eventTitle: string; eventDateLabel: string; callTime?: string | null; needsPin?: boolean }) {
   const url = `${EMAIL_BASE_URL}/cuenta?staff=1`;

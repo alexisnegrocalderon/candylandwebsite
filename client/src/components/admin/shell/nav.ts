@@ -51,6 +51,7 @@ export const SECTION_KEYWORDS: Record<string, string> = {
   overview: 'evento noche hoy en vivo aforo',
   caja: 'barra tragos turnos cierre',
   staff: 'equipo personal cargos pin operadores bartender seguridad puerta agregar staff',
+  solteros: 'soltero solteros aprobar aprobacion hombres solos codigo comunidad solicitudes',
   'flash-promo': 'promocion oferta relampago',
   'party-gifts': 'regalos tragos gratis',
   denuncias: 'reportes playmatch seguridad',
