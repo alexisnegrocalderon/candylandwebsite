@@ -5,13 +5,13 @@
  * verdad del historial siguen siendo `orders`/`tickets`/`orderItems`. */
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import {
-  birthdayApplications, customers, events, orderItems, orders, partyProfiles, playcoinsLedger, ticketTypes, tickets,
+  ambassadorClients, birthdayApplications, customers, events, orderItems, orders, partyProfiles, playcoinsLedger, ticketTypes, tickets,
 } from "../drizzle/schema";
 import { getDb, skipPendingMailingForCustomer } from "./db";
 import { isValidRut, normalizeRut } from "../shared/rut";
 import {
   ageFromBirthDate, computeCustomerLevel, customerDeleteBlocker, daysBetween, daysUntilBirthday, GENDER_OPTIONS, LOCKABLE_FIELDS, normalizeInstagram, normalizePhone,
-  parseBirthDateInput, parseLockedFields, recencyTone, SOURCE_OPTIONS, suggestNextAction, type CustomerGender, type LockableField,
+  normalizeCustomerEmail, parseBirthDateInput, parseLockedFields, recencyTone, SOURCE_OPTIONS, suggestNextAction, type CustomerGender, type LockableField,
 } from "../shared/customerInsights";
 
 /* ─── Validación de la edición ─────────────────────────────── */
@@ -147,6 +147,39 @@ export async function updateCustomerProfile(customerId: number, input: CustomerE
     if (JSON.stringify(prev) !== JSON.stringify(value)) changed[key] = { antes: prev, despues: value };
   }
   return { changed };
+}
+
+/** Cambia el correo de un cliente (por ejemplo, cuando se escribió mal al comprar). El correo es lo que une al
+ * cliente con sus compras, así que las compras salen con él: sus órdenes pasan al correo nuevo y quien entra a
+ * «Mi cuenta» con ese correo las ve. Si el correo nuevo ya es de otro cliente no se toca nada. */
+export async function changeCustomerEmail(customerId: number, rawEmail: string) {
+  const { value: email, error } = normalizeCustomerEmail(rawEmail);
+  if (!email) throw new Error(error ?? 'Correo no válido.');
+  const db = await getDb();
+  if (!db) throw new Error('Base de datos no disponible');
+  const [before] = await db.select().from(customers).where(eq(customers.id, customerId)).limit(1);
+  if (!before) throw new Error('No encontré a ese cliente.');
+  const old = before.email.trim().toLowerCase();
+  if (email === old) return { changed: false as const, email, orders: 0 };
+
+  const [taken] = await db.select({ id: customers.id, fullName: customers.fullName }).from(customers)
+    .where(sql`lower(${customers.email}) = ${email}`).limit(1);
+  if (taken && taken.id !== customerId) {
+    throw new Error(`Ese correo ya es de otro cliente${taken.fullName ? ` (${taken.fullName})` : ''}. Si es la misma persona, borra la ficha repetida y vuelve a intentar.`);
+  }
+
+  try {
+    await db.update(customers).set({ email }).where(eq(customers.id, customerId));
+  } catch (err) {
+    throw new Error((err as any)?.cause?.message?.includes('Duplicate') ? 'Ese correo ya está en uso por otro cliente.' : 'No se pudo cambiar el correo.');
+  }
+  // Las compras (del correo viejo o ligadas a esta ficha) siguen a la persona.
+  const [moved] = await db.update(orders).set({ buyerEmail: email })
+    .where(sql`(lower(${orders.buyerEmail}) = ${old} OR ${orders.customerId} = ${customerId})`) as any;
+  // Si era cliente de un embajador, sigue siéndolo con el correo nuevo.
+  await db.update(ambassadorClients).set({ customerEmail: email }).where(sql`lower(${ambassadorClients.customerEmail}) = ${old}`)
+    .catch((e: unknown) => console.warn('[clientes] no se pudo mover el cliente de embajador', e));
+  return { changed: true as const, email, previous: old, orders: Number(moved?.affectedRows ?? 0) };
 }
 
 /* ─── Detalle calculado ────────────────────────────────────── */

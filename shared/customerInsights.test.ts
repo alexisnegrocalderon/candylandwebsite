@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  normalizeCustomerEmail,
   computeCustomerLevel, recencyTone, normalizeInstagram, normalizePhone, whatsappUrl, parseBirthDateInput, formatBirthDate,
   daysUntilBirthday, hasBirthdayInMonth, ageFromBirthDate, parseLockedFields, mergeFromOrder, suggestNextAction,
   VIP_SPENT_THRESHOLD_CLP, customerDeleteBlocker, type NextActionInput,
@@ -163,5 +164,18 @@ describe("customerDeleteBlocker", () => {
   it("no deja borrar a quien pidió la baja, para no perderla", () => {
     expect(customerDeleteBlocker({ ...free, emailOptOut: 1 })).toContain("baja");
     expect(customerDeleteBlocker({ ...free, whatsappOptOut: true })).toContain("baja");
+  });
+});
+
+describe("normalizeCustomerEmail", () => {
+  it("lo deja limpio y en minúsculas", () => {
+    expect(normalizeCustomerEmail("  Ana.Perez@Gmail.COM ")).toEqual({ value: "ana.perez@gmail.com" });
+  });
+  it("rechaza lo vacío y lo que no tiene forma de correo", () => {
+    for (const bad of ["", "   ", "ana", "ana@", "ana@x", "a na@x.cl", "ana@@x.cl"]) {
+      const r = normalizeCustomerEmail(bad);
+      expect(r.value).toBeNull();
+      expect(r.error).toBeTruthy();
+    }
   });
 });

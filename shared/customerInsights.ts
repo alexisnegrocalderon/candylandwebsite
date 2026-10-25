@@ -308,3 +308,12 @@ export function customerDeleteBlocker(c: { prepaidBalance: number; emailOptOut: 
   }
   return null;
 }
+
+/** Un correo que sirve como identificador de cliente: en minúsculas, sin espacios y con forma de correo.
+ * Devuelve el correo limpio o el motivo por el que no sirve. */
+export function normalizeCustomerEmail(raw: string | null | undefined): { value: string | null; error?: string } {
+  const value = (raw ?? '').trim().toLowerCase();
+  if (!value) return { value: null, error: 'Escribe el correo.' };
+  if (value.length > 320 || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value)) return { value: null, error: 'Ese correo no parece válido. Revísalo.' };
+  return { value };
+}
