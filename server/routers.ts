@@ -180,6 +180,8 @@ import { generateContentPlan } from "./contentPlanner";
 import { getStampCard, refreshStampsForTicket } from "./stampCard";
 import { activatePlaymatchForTicket } from "./partyActivation";
 import * as staffPortal from "./staffPortal";
+import { ensureStaffSalesLink } from "./staffSales";
+import { hasSalesLink } from "../shared/staffSales";
 import { autoPackFromDesign, deleteAmbassadorItem, ensureAmbassadorDrafts, getUpcomingContentEvents, listAmbassadorItems, notifyAmbassadorsNewContent, saveAmbassadorItem, sendStudioToAmbassadors, setAmbassadorItemStatus } from "./ambassadorContent";
 import { listContentDesigns, getContentDesign, saveContentDesign, deleteContentDesign, getContentVideo, saveContentVideo, listVideoStyles, saveVideoStyle, deleteVideoStyle } from "./contentStudio";
 import { renderMissingConfig, requestVideoRender } from "./studioRender";
@@ -5168,7 +5170,11 @@ export const appRouter = router({
       if (!(await staffSchemaStatus()).ready) return [];
       // Ficha única: completa cargo, correo y enlaces de operadores de antes (idempotente, server/staff.ts).
       await staffSvc.backfillStaffUnify(await staffPortal.getLegacyStaffEmails()).catch((e) => console.warn('[staff] backfill', e));
-      return staffSvc.listStaff();
+      const list = await staffSvc.listStaff();
+      // DJ y RRPP que ya estaban cargados: se les crea su link la primera vez que se abre la lista.
+      for (const m of list) if (m.active && m.email && hasSalesLink(m.cargo)) await ensureStaffSalesLink(m.id).catch((e) => console.warn('[staff] link de ventas', e));
+      const amb = await ambassadorProgram.listAmbassadorsWithLink();
+      return list.map((m) => ({ ...m, sales: hasSalesLink(m.cargo) && m.email ? amb.get(m.email.trim().toLowerCase()) ?? null : null }));
     }),
     staffSave: adminProcedure.input(z.object({
       id: z.number().int().positive().optional(),
@@ -5191,6 +5197,8 @@ export const appRouter = router({
       }
       // Cargo, nombre o archivado cambian sus accesos de las noches que vienen.
       await staffSvc.syncStaffAccess(r.id).catch((e) => console.warn('[staff] sync', e));
+      // DJ y RRPP con correo: su link de ventas (embajador de seguimiento, sin comisión).
+      await ensureStaffSalesLink(r.id).catch((e) => console.warn('[staff] link de ventas', e));
       await db.recordAdminAudit({ action: id ? 'finance.staffUpdate' : 'finance.staffCreate', targetType: 'staffMember', targetId: r.id, ip: clientIp(ctx) });
       // Correo nuevo: le llega la bienvenida con el botón a su app (si falla el envío, igual queda guardado).
       const invited = newEmail ? await staffPortal.sendStaffWelcome(r.id).catch(() => false) : false;

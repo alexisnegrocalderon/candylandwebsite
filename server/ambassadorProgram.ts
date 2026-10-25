@@ -446,6 +446,22 @@ export async function findAmbassadorByEmail(email: string) {
   return rows.length === 1 ? rows[0] : null;
 }
 
+/** Link y ventas de cada embajador por correo (para la ficha del staff: DJ y RRPP). */
+export async function listAmbassadorsWithLink() {
+  const db = await getDb();
+  const out = new Map<string, { code: string; link: string | null; sales: number }>();
+  if (!db) return out;
+  const featured = await getFeaturedEvent();
+  const rows = await db.select().from(exclusiveAmbassadors).where(eq(exclusiveAmbassadors.active, 1));
+  for (const a of rows) {
+    const key = (a.email ?? '').trim().toLowerCase();
+    if (!key) continue;
+    const [r] = await db.select({ n: sql<number>`COUNT(*)` }).from(ambassadorCommissions).where(eq(ambassadorCommissions.ambassadorId, a.id));
+    out.set(key, { code: a.code, link: buildAmbassadorReferralUrl(featured, a.code) ?? `${PANEL_BASE_URL}/?embajador=${encodeURIComponent(a.code)}`, sales: Number(r?.n ?? 0) });
+  }
+  return out;
+}
+
 /** Panel público en /embajador/<CODIGO>. El código hace de llave: no hay
  * login de embajadores (mismo criterio que /mis-referidos). */
 export async function getAmbassadorPanel(code: string, now: Date = new Date()) {
@@ -506,6 +522,8 @@ export async function getAmbassadorPanel(code: string, now: Date = new Date()) {
     commissionScale: config.commissionScale,
     existingClientPercent: config.existingClientPercent,
     overridePercent,
+    // Solo cuenta ventas (DJ, RRPP): sin comisión, su pantalla es «Tu link de ventas» y no la de embajador.
+    salesOnly: overridePercent === 0,
     avgSalePrice,
     eventStats,
     eventsHistory: summarizeSalesByEvent(sales),
@@ -787,7 +805,8 @@ export async function sendWeeklyAmbassadorEmails(now: Date = new Date()) {
 
   let sent = 0, skipped = 0, failed = 0;
   for (const a of ambassadors) {
-    if (!a.email) { skipped++; continue; }
+    // DJ y RRPP (comisión 0, solo seguimiento) no reciben el correo semanal de embajadores.
+    if (!a.email || (a.commissionPercent !== null && Number(a.commissionPercent) === 0)) { skipped++; continue; }
     try {
       const stats = await getAmbassadorStats(a.id, featured.id);
       if (!stats) { skipped++; continue; }

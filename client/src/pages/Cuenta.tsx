@@ -935,7 +935,9 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
     setPrizeState(next);
     try { sessionStorage.setItem(PRIZE_KEY, next); } catch { /* nada */ }
   };
-  const ambassador = useAmbassadorPanel();
+  // DJ y RRPP (embajador solo de seguimiento) ven su link en la pantalla de Staff, no la de embajador.
+  const ambassadorPanel = useAmbassadorPanel();
+  const ambassador = ambassadorPanel && !ambassadorPanel.salesOnly ? ambassadorPanel : null;
   // Solo para quien entra con el correo de alguien del staff (Admin → Noche → Staff).
   const staff = useStaffPortal();
   const tabs = TABS;
