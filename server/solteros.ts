@@ -1,6 +1,6 @@
 /* Aprobación de solteros por persona (tabla `solteroApprovals`, drizzle/0130):
  * la persona la pide desde su app, el admin aprueba o rechaza desde el panel, y
- * aprobada compra «Soltero» y «Dúo» de dos hombres sin código con su sesión de
+ * aprobada compra «Soltero» sin código con su sesión de
  * «Mi cuenta» (la regla está en server/db.ts createOrder). Es permanente hasta
  * que el admin la revoque.
  *
@@ -118,6 +118,6 @@ export async function approveSolteroDirect(email: string, fullName?: string | nu
 }
 
 async function notifyApproved(email: string, name: string | null) {
-  void pushToEmail(email, { title: '✅ Quedaste aprobado', body: 'Ya puedes comprar Soltero o Dúo de dos hombres desde tu app, sin código.', url: '/cuenta' });
-  await sendEmail({ to: email, subject: '✅ Ya puedes comprar Soltero y Dúo de dos hombres', html: buildSolteroApprovedEmail({ name }) }).catch(() => undefined);
+  void pushToEmail(email, { title: '✅ Quedaste aprobado', body: 'Ya puedes comprar tu acceso Soltero desde tu app, sin código.', url: '/cuenta' });
+  await sendEmail({ to: email, subject: '✅ Ya puedes comprar tu acceso Soltero', html: buildSolteroApprovedEmail({ name }) }).catch(() => undefined);
 }

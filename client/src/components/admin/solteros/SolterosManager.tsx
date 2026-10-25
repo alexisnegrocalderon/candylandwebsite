@@ -11,8 +11,8 @@ import { SOLTERO_STATUS_LABEL, type SolteroStatus } from '@shared/soltero';
 import { formatChileShortDate } from '@shared/chileDate';
 
 /* Clientes → Solteros: las solicitudes que llegan desde la app («Mi cuenta» →
- * Acceso Soltero). Aprobado, la persona compra Soltero y Dúo de dos hombres sin
- * código con su sesión; se puede revocar cuando sea (server/solteros.ts). */
+ * Acceso Soltero). Aprobado, la persona compra Soltero sin
+ * código con su sesión (el Dúo de dos hombres siempre pide código); se puede revocar cuando sea (server/solteros.ts). */
 
 const pill = 'rounded-full px-4 py-1.5 text-sm font-semibold transition active:scale-95 disabled:opacity-60';
 const pillOn = 'bg-pink-500 text-white shadow-sm';
@@ -63,7 +63,7 @@ export function SolterosManager() {
       <CardHeader className="space-y-1">
         <CardTitle className="flex items-center gap-2"><UserCheck className="h-5 w-5" /> Solteros</CardTitle>
         <p className="text-sm text-[var(--admin-muted)]">
-          Los hombres que vienen solos piden su aprobación desde su app. Aprobados, compran Soltero y Dúo de dos hombres sin código (con el mismo correo de su cuenta). El código de comunidad sigue funcionando para quien no está aprobado.
+          Los hombres que vienen solos piden su aprobación desde su app. Aprobados, compran el acceso Soltero sin código (con el mismo correo de su cuenta). El Dúo de dos hombres es solo para parejas y siempre pide código de comunidad, aunque estén aprobados. El código sigue funcionando para quien no está aprobado.
         </p>
       </CardHeader>
       <CardContent className="space-y-4">

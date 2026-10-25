@@ -117,7 +117,7 @@ const ACCESO_OPTIONS: AccesoOption[] = [
   { key: 'dos-hombres', slug: 'duo', size: 2, composicion: 'dos_hombres', image: '/candyland/checkout/pareja-dos-hombres.webp', label: 'Dos hombres', sub: 'Con código', emoji: '👬', people: ['m', 'm'], appSub: 'Pareja de hombres' },
 ];
 
-/** Las opciones de hombres solos: piden código de comunidad, salvo que quien compra esté aprobado. */
+/** Las opciones de hombres: piden código de comunidad. Solo «Vengo solo» se desbloquea con la aprobación de soltero. */
 const SOLTERO_OPTION_KEYS = ['soltero', 'dos-hombres'];
 
 /* Etiquetas de la pantalla «Tus datos» (todos los campos juntos). */
@@ -534,13 +534,14 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
     continuar();
   };
 
-  /* Dúo Dos Hombres necesita el mismo código de comunidad que Soltero, salvo que quien compra esté
-   * aprobado en su cuenta (server/solteros.ts): entonces no se le pide código. El servidor exige además
-   * que el correo de la compra sea el de su cuenta. */
+  /* Soltero necesita código de comunidad, salvo que quien compra esté aprobado en su cuenta
+   * (server/solteros.ts): entonces no se le pide. El servidor exige además que el correo de la compra sea
+   * el de su cuenta. Dúo Dos Hombres (parejas de hombres) pide SIEMPRE código: la aprobación no lo cubre. */
   const solteroQ = trpc.member.soltero.useQuery(undefined, { enabled: !!memberSession.data?.loggedIn, retry: false, staleTime: 60_000 });
   const solteroApproved = solteroQ.data?.status === 'aprobado';
   const needsSoltero = !isPartner && (accesoSlug === 'soltero' || (accesoSlug === 'duo' && duoComposicion === 'dos_hombres'));
-  const requiresCommunityCode = needsSoltero && !solteroApproved;
+  // Dúo de dos hombres: siempre con código, aunque esté aprobado como soltero (la aprobación vale solo para Soltero).
+  const requiresCommunityCode = needsSoltero && !(solteroApproved && accesoSlug === 'soltero');
 
   /* ── Extras / códigos ────────────────────────────────────── */
   const [dbExtraQty, setDbExtraQty] = useState<Record<number, number>>({});
@@ -931,7 +932,7 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
       : [];
     const attendeeData = JSON.stringify({
       acceso: acceso?.nombre, cantidad: qty, grupoTipo: accesoSlug,
-      // Dúo mixto, de dos mujeres o de dos hombres: el servidor pide código o aprobación al de dos hombres.
+      // Dúo mixto, de dos mujeres o de dos hombres: el servidor pide código al de dos hombres.
       ...(accesoSlug === 'duo' && duoComposicion ? { duoComposicion } : {}),
       extras: extrasElegidos,
       campos: values,
@@ -1045,18 +1046,18 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
   }
 
   // Opciones de la grilla «¿Cómo vienes?»: el link de la comunidad no ofrece las que piden código.
-  // Aprobado en su cuenta, Soltero y Dúo de dos hombres le aparecen desbloqueados (sin candado ni «Con código»).
+  // Aprobado en su cuenta, «Vengo solo» le aparece desbloqueado (sin candado ni «Con código»). Dos hombres, no.
   const accesoOptions = ACCESO_OPTIONS
     .filter((op) => !isPartner || (partnerAllows(op.slug) && op.key !== 'soltero' && op.key !== 'dos-hombres'))
-    .map((op) => (solteroApproved && SOLTERO_OPTION_KEYS.includes(op.key) ? { ...op, sub: 'Aprobado' } : op));
+    .map((op) => (solteroApproved && op.key === 'soltero' ? { ...op, sub: 'Aprobado' } : op));
   // La misma lista en la app: filas con precio; las que no tienen entrada cargada en este evento no se muestran.
   const appRows: AccessRow[] = accesoOptions.flatMap((op) => {
     const pr = optionPrice(op);
     if (!pr) return [];
     return [{
       key: op.key, label: op.label, sub: op.appSub, people: op.people, ...pr,
-      needsCode: SOLTERO_OPTION_KEYS.includes(op.key) && !solteroApproved,
-      ...(solteroApproved && SOLTERO_OPTION_KEYS.includes(op.key) ? { sub: 'Aprobado · sin código' } : {}),
+      needsCode: SOLTERO_OPTION_KEYS.includes(op.key) && !(solteroApproved && op.key === 'soltero'),
+      ...(solteroApproved && op.key === 'soltero' ? { sub: 'Aprobado · sin código' } : {}),
       active: accesoSlug === op.slug && (op.composicion ? duoComposicion === op.composicion : true),
     }];
   });

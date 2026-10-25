@@ -53,7 +53,7 @@ export function SolteroAccess() {
         <div className="account-glass rounded-[24px] p-5 text-center">
           <BadgeCheck className="mx-auto h-10 w-10 text-emerald-300" />
           <p className="mt-2 text-title3 font-bold">Estás aprobado</p>
-          <p className="mt-1 text-subhead text-white/70">Compra Soltero o Dúo de dos hombres desde tu app sin código, con este mismo correo.</p>
+          <p className="mt-1 text-subhead text-white/70">Compra el acceso Soltero desde tu app sin código, con este mismo correo. El Dúo de dos hombres se sigue comprando con código de comunidad.</p>
         </div>
         <a href="/" className="flex h-14 items-center justify-center rounded-full bg-gradient-to-r from-pink-500 via-fuchsia-500 to-sky-500 text-headline font-semibold text-white">Comprar mi entrada</a>
       </div>
@@ -80,7 +80,7 @@ export function SolteroAccess() {
         </div>
       ) : (
         <p className="text-subhead leading-relaxed text-white/75">
-          Si vienes solo o con otro hombre, te aprobamos una vez y después compras Soltero o Dúo de dos hombres desde tu app sin código. Lo revisamos a mano para cuidar la fiesta.
+          Si vienes solo, te aprobamos una vez y después compras el acceso Soltero desde tu app sin código. Lo revisamos a mano para cuidar la fiesta.
         </p>
       )}
       <input className={field} placeholder="Nombre y apellido" autoComplete="name" value={f.fullName} onChange={(e) => setF({ ...f, fullName: e.target.value })} />
