@@ -3653,12 +3653,16 @@ export const appRouter = router({
      * sobre una cuenta pública. */
     preview: adminProcedure.input(z.object({
       message: z.string().min(1).max(1000),
+      // La conversación de prueba hasta ahora (el agente lee el hilo completo) y, opcionalmente, el borrador sin
+      // guardar: así se prueba lo que se acaba de escribir antes de publicarlo.
+      history: z.array(z.object({ role: z.enum(['user', 'agent']), text: z.string().max(1000) })).max(12).optional(),
+      draft: z.record(z.string(), z.unknown()).optional(),
     })).mutation(async ({ input }) => {
       const settings = await db.getSiteSettings();
-      const config = normalizeInstagramAgentConfig((settings as any).instagramAgentConfig);
+      const config = normalizeInstagramAgentConfig(input.draft ?? (settings as any).instagramAgentConfig);
       const result = await runInstagramAgent({
         incomingText: input.message,
-        history: [],
+        history: (input.history ?? []).map((m) => ({ direction: m.role === 'user' ? 'in' as const : 'out' as const, text: m.text })),
         // La prueba ignora el interruptor maestro a propósito: sirve
         // justamente para decidir si prenderlo.
         config: { ...config, enabled: true },
