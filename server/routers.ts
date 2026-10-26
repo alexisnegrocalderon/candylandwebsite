@@ -191,6 +191,7 @@ import * as staffPortal from "./staffPortal";
 import { ensureStaffSalesLink } from "./staffSales";
 import { pageCustomers, findCustomersForCaja } from "./customerFilters";
 import { COUPON_BATCH_MAX } from "../shared/couponGift";
+import { previewCustomerMerge, mergeCustomers } from "./customerMerge";
 import { getMemberHistory } from "./memberHistory";
 import { hasSalesLink } from "../shared/staffSales";
 import { autoPackFromDesign, deleteAmbassadorItem, ensureAmbassadorDrafts, getUpcomingContentEvents, listAmbassadorItems, notifyAmbassadorsNewContent, saveAmbassadorItem, sendStudioToAmbassadors, setAmbassadorItemStatus } from "./ambassadorContent";
@@ -4604,8 +4605,10 @@ export const appRouter = router({
       // Primera vez de alguien que nunca compró: su ficha nace acá, con el correo ya comprobado.
       const customer = (await members.findCustomer(email)) ?? (await members.createSignupCustomer(email));
       if (!customer) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'No pudimos crear tu cuenta. Intenta de nuevo.' });
-      setMemberSession(ctx.req, ctx.res, email);
-      const r = await members.completeLogin(email);
+      // Con un correo que se unió a otra ficha, la sesión queda con el correo de la ficha principal.
+      const sessionEmail = normalizeMemberEmail(customer.email);
+      setMemberSession(ctx.req, ctx.res, sessionEmail);
+      const r = await members.completeLogin(sessionEmail);
       return { ok: true as const, isNew: r.isNew, granted: r.granted.map((g) => ({ title: g.title, percent: g.percent, days: g.days })) };
     }),
     me: publicProcedure.query(async ({ ctx }) => {
@@ -6867,6 +6870,18 @@ export const appRouter = router({
     adjustPlaycoins: adminProcedure.input(z.object({ customerId: z.number(), delta: z.number().int(), note: z.string().optional() })).mutation(async ({ input }) => {
       await db.adjustPlaycoinsManually(input.customerId, input.delta, input.note ?? '');
       return { success: true } as const;
+    }),
+    // Unir dos fichas de la misma persona (compró con dos correos).
+    mergePreview: adminReadProcedure.input(z.object({ keepId: z.number().int(), fromId: z.number().int() })).query(async ({ input }) => {
+      try { return await previewCustomerMerge(input.keepId, input.fromId); }
+      catch (err) { throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo revisar' }); }
+    }),
+    merge: adminProcedure.input(z.object({ keepId: z.number().int(), fromId: z.number().int() })).mutation(async ({ input, ctx }) => {
+      try {
+        const r = await mergeCustomers(input.keepId, input.fromId);
+        await db.recordAdminAudit({ action: 'customers.merge', targetType: 'customer', targetId: input.keepId, payload: { unido: r.fromEmail, en: r.keepEmail, compras: r.orders }, ip: clientIp(ctx) });
+        return r;
+      } catch (err) { throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudieron unir' }); }
     }),
     // Saldo PlayCard y PIN de la tarjeta (sección App / ficha del cliente).
     adjustPrepaid: adminProcedure.input(z.object({ customerId: z.number(), delta: z.number().int().min(-10_000_000).max(10_000_000).refine((n) => n !== 0), note: z.string().trim().min(3).max(500) })).mutation(async ({ input, ctx }) => {
