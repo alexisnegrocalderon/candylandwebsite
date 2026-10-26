@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Download, Loader2, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Download, Loader2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { saveTicketImage } from '@/lib/ticketImage';
 import { fmtDateTime } from '@/lib/member';
 import { formatChileTime } from '@shared/chileDate';
 import { TICKET_KIND_META, type TicketKind } from '@shared/ticketKind';
+import { groupOf, groupTickets, isPaidAtDoor, nextUnit } from '@shared/nightExtras';
 
 /* Las piezas de las tarjetas de «Mi cuenta» (pestaña PlayCard): el pase de cada entrada o extra, la guardarropía y
  * la cocina de caja, el QR a pantalla completa y los toques «de verdad». */
@@ -65,8 +66,17 @@ export function maskCode(code: string): string {
 
 /** El QR a pantalla completa sobre blanco (máximo contraste para el lector de la puerta y de caja),
  * con la pantalla encendida mientras está abierto. Desde acá también se guarda en Fotos. */
-export function QrViewer({ ev, t, holder, onClose }: { ev: MeEvent; t: MeTicket; holder: string; onClose: () => void }) {
+export function QrViewer({ ev, t, holder, onClose, onSelect }: { ev: MeEvent; t: MeTicket; holder: string; onClose: () => void; onSelect?: (t: MeTicket) => void }) {
   const [saving, setSaving] = useState(false);
+  // Con `onSelect`: una tira con la entrada y cada extra para cambiar de QR sin cerrar esta pantalla (en caja se
+  // pasa del trago al estacionamiento sin salir), y un «‹ 1 de 2 ›» cuando el mismo producto viene repetido.
+  const groups = onSelect ? groupTickets(ev.tickets as MeTicket[]).filter((g) => g.units.some((u) => !!u.qrImageUrl && !isPaidAtDoor(u))) : [];
+  const current = groupOf(groups, t.ticketCode);
+  const unitIdx = current ? current.units.findIndex((u) => u.ticketCode === t.ticketCode) : 0;
+  const showStrip = !!onSelect && groups.length > 1;
+  const showUnits = !!onSelect && !!current && current.units.length > 1;
+  const stepUnit = (d: number) => { if (current && onSelect) onSelect(current.units[(unitIdx + d + current.units.length) % current.units.length] as MeTicket); };
+  const used = t.status === 'used';
   useEffect(() => {
     let lock: { release: () => Promise<void> } | null = null;
     const nav = navigator as Navigator & { wakeLock?: { request: (t: 'screen') => Promise<{ release: () => Promise<void> }> } };
@@ -88,16 +98,40 @@ export function QrViewer({ ev, t, holder, onClose }: { ev: MeEvent; t: MeTicket;
     }
   };
   return (
-    <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }} transition={{ duration: 0.22 }} className="account-font fixed inset-0 z-[90] flex flex-col items-center gap-5 overflow-y-auto bg-white px-6 pb-[max(24px,env(safe-area-inset-bottom))] pt-[max(24px,env(safe-area-inset-top))] text-[#0d0712] [&>*:first-child]:shrink-0" role="dialog" aria-label="Código QR de tu entrada">
+    <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }} transition={{ duration: 0.22 }} className={`account-font fixed inset-0 z-[90] flex flex-col items-center gap-5 overflow-y-auto bg-white px-6 pb-[max(24px,env(safe-area-inset-bottom))] ${showStrip ? 'pt-[calc(max(16px,env(safe-area-inset-top))+60px)]' : 'pt-[max(24px,env(safe-area-inset-top))]'} text-[#0d0712] [&>*:first-child]:shrink-0`} role="dialog" aria-label="Código QR de tu entrada">
       <button type="button" onClick={onClose} aria-label="Cerrar" className="absolute right-4 top-[max(16px,env(safe-area-inset-top))] grid h-11 w-11 place-items-center rounded-full bg-black/5"><X className="h-5 w-5" /></button>
-      {t.kind && (
+      {showStrip ? (
+        <div role="tablist" aria-label="Qué mostrar" className="-mx-6 flex max-w-[100vw] shrink-0 gap-1.5 overflow-x-auto px-6 pr-16 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {groups.map((g) => {
+            const on = g === current;
+            return (
+              <button key={g.key} type="button" role="tab" aria-selected={on} onClick={() => { if (!on && onSelect) onSelect(nextUnit(g) as MeTicket); }}
+                className={`h-9 shrink-0 whitespace-nowrap rounded-full px-3.5 text-subhead font-semibold ${on ? 'bg-[#0d0712] text-white' : 'bg-black/[0.06] text-black/70'}`}>
+                {TICKET_KIND_META[g.kind].emoji} {g.kind === 'acceso' ? 'Entrada' : g.name}{g.units.length > 1 ? ` ×${g.units.length}` : ''}{g.state === 'canjeado' ? ' ✓' : ''}
+              </button>
+            );
+          })}
+        </div>
+      ) : t.kind && (
         <p className={`rounded-full px-4 py-1.5 text-center text-subhead font-bold ${t.kind === 'estacionamiento' ? 'bg-sky-100 text-sky-900' : t.kind === 'acceso' ? 'bg-pink-100 text-pink-900' : 'bg-violet-100 text-violet-900'}`}>
           {TICKET_KIND_META[t.kind].emoji} {t.kindLabel ?? TICKET_KIND_META[t.kind].label}
         </p>
       )}
       <p className="text-center text-title2 font-bold leading-tight tracking-tight">{ev.eventTitle}</p>
       {t.kind && <p className="-mt-3 text-center text-footnote text-black/60">{TICKET_KIND_META[t.kind].where}</p>}
-      {t.qrImageUrl && <img src={t.qrImageUrl} alt="Código QR de tu entrada" className={`aspect-square [image-rendering:pixelated] ${t.companions && t.companions.length > 0 ? 'w-[min(80vw,40vh)]' : 'w-[min(86vw,58vh)]'}`} />}
+      {t.qrImageUrl && <img src={t.qrImageUrl} alt="Código QR de tu entrada" className={`aspect-square [image-rendering:pixelated] ${used ? 'opacity-25' : ''} ${t.companions && t.companions.length > 0 ? 'w-[min(80vw,40vh)]' : 'w-[min(86vw,58vh)]'}`} />}
+      {used && (
+        <p className="-mt-2 rounded-full bg-emerald-100 px-4 py-1.5 text-center text-subhead font-bold text-emerald-900">
+          {t.kind === 'acceso' || !t.kind ? '✓ Ya entraste' : '✓ Ya canjeado'}{t.usedAt ? ` · ${formatChileTime(t.usedAt)}` : ''}
+        </p>
+      )}
+      {showUnits && current && (
+        <div className="-mt-1 flex items-center gap-2 text-subhead font-semibold">
+          <button type="button" onClick={() => stepUnit(-1)} aria-label="Anterior" className="grid h-10 w-10 place-items-center rounded-full bg-black/[0.06]"><ChevronLeft className="h-5 w-5" /></button>
+          <span className="min-w-[96px] text-center tabular-nums">{unitIdx + 1} de {current.units.length}</span>
+          <button type="button" onClick={() => stepUnit(1)} aria-label="Siguiente" className="grid h-10 w-10 place-items-center rounded-full bg-black/[0.06]"><ChevronRight className="h-5 w-5" /></button>
+        </div>
+      )}
       <div className="text-center">
         <p className="text-title3 font-semibold">{t.holderName || holder}</p>
         <p className="font-mono text-subhead text-black/60">{t.ticketCode}</p>

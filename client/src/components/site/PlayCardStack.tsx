@@ -4,7 +4,8 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { ChevronLeft, ChevronRight, Heart, Plus, QrCode, Wallet } from 'lucide-react';
 import { WalletCard } from '@/components/wallet/WalletCard';
 import { TiltCard } from '@/components/site/TiltCard';
-import { QrViewer, TicketPass, holderLabels, tapHaptic, useRealTap, type MeEvent, type Movement } from '@/components/site/walletParts';
+import { QrViewer, TicketPass, holderLabels, tapHaptic, useRealTap, type MeEvent, type MeTicket, type Movement } from '@/components/site/walletParts';
+import { LiveStrip, NightRow, NightSheet } from '@/components/site/NightExtras';
 import { horizontalSwipe } from '@shared/cardSwipe';
 import { canEnterParty } from '@shared/party';
 
@@ -24,10 +25,13 @@ export function PlayCardStack({ ev, holder, prepaidBalance, playcoins, movements
   onTopup?: () => void; onPayCaja?: () => void; onPlaymatch: () => void; onNextTab: () => void;
 }) {
   const [i, setI] = useState(0);
-  const [showQr, setShowQr] = useState(false);
+  // El QR abierto (por código): desde el botón, desde «Mi noche» o al cambiar de QR dentro de la pantalla.
+  const [qrCode, setQrCode] = useState<string | null>(null);
+  const [nightOpen, setNightOpen] = useState(false);
   const t = ev ? ev.tickets[Math.min(i, ev.tickets.length - 1)] : null;
   const usable = !!(ev && t?.qrImageUrl && t.status !== 'used');
   const hasPass = !!(ev && t);
+  const qrTicket = ev && qrCode ? (ev.tickets.find((x) => x.ticketCode === qrCode) ?? null) : null;
 
   const [front, setFront] = useState<'entrada' | 'playcard'>('entrada');
   // Hacia dónde se fue el dedo en el último deslizar (para que la tarjeta entre del mismo lado); 0 = un toque.
@@ -35,7 +39,7 @@ export function PlayCardStack({ ev, holder, prepaidBalance, playcoins, movements
   const shown = hasPass ? front : 'playcard';
   const flip = (d: -1 | 0 | 1) => { tapHaptic(); setDir(d); setFront((f) => (f === 'entrada' ? 'playcard' : 'entrada')); };
   const swap = useRealTap(() => flip(0));
-  const qrTap = useRealTap(() => { tapHaptic(); setShowQr(true); });
+  const qrTap = useRealTap(() => { tapHaptic(); if (t) setQrCode(t.ticketCode); });
   const playmatchTap = useRealTap(() => { tapHaptic(); onPlaymatch(); });
 
   // Deslizar sobre la tarjeta.
@@ -86,7 +90,8 @@ export function PlayCardStack({ ev, holder, prepaidBalance, playcoins, movements
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain">
-      <div className="my-auto flex flex-col gap-3 [@media(max-height:700px)]:gap-2">
+      <div className="my-auto flex flex-col gap-3 [&>*]:shrink-0 [@media(max-height:700px)]:gap-2">
+        <LiveStrip ev={ev} onOpen={() => setNightOpen(true)} />
         {/* `data-pager="multi"`: sobre la tarjeta, deslizar de lado pasa de tarjeta y no cambia de pestaña. */}
         <div className="relative" style={{ paddingTop: hasPass ? STACK_PEEK : 0 }} data-pager={hasPass ? 'multi' : undefined} onTouchStart={hasPass ? onTouchStart : undefined} onTouchEnd={hasPass ? onTouchEnd : undefined}>
           {hasPass && (
@@ -135,7 +140,9 @@ export function PlayCardStack({ ev, holder, prepaidBalance, playcoins, movements
             {onTopup && <button type="button" onClick={() => { tapHaptic(); onTopup(); }} className="lg-pill flex h-11 items-center justify-center gap-2 rounded-full text-subhead font-semibold text-white interactive"><Plus className="h-4 w-4 text-pink-300" /> Recargar</button>}
           </div>
         )}
-        {createPortal(<AnimatePresence>{showQr && ev && t && <QrViewer ev={ev} t={t} holder={holder} onClose={() => setShowQr(false)} />}</AnimatePresence>, document.body)}
+        <NightRow ev={ev} onOpen={() => setNightOpen(true)} />
+        <NightSheet open={nightOpen} onClose={() => setNightOpen(false)} ev={ev} onShowQr={(x: MeTicket) => { setNightOpen(false); setQrCode(x.ticketCode); }} />
+        {createPortal(<AnimatePresence>{ev && qrTicket && <QrViewer ev={ev} t={qrTicket} holder={holder} onClose={() => setQrCode(null)} onSelect={(x) => setQrCode(x.ticketCode)} />}</AnimatePresence>, document.body)}
       </div>
     </div>
   );
