@@ -4615,6 +4615,11 @@ export const appRouter = router({
       const email = getMemberEmail(ctx.req);
       if (!email) return null;
       const home = await members.getMemberHome(email);
+      // Sesión abierta con un correo que se unió a otra ficha: la cookie pasa al correo de la ficha principal.
+      if (home) {
+        const main = (await members.findCustomer(email))?.email;
+        if (main && normalizeMemberEmail(main) !== email) setMemberSession(ctx.req, ctx.res, normalizeMemberEmail(main));
+      }
       // `isAdmin`: el correo es del dueño (ADMIN_EMAILS) → la app muestra el acceso al panel.
       return home ? { ...home, isAdmin: isAdminEmail(email) } : home;
     }),
