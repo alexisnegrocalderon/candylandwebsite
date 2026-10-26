@@ -92,7 +92,7 @@ export const DOSIER_INSUMOS: DosierInsumo[] = [
   spirit('ron', 'Ron blanco', { amount: 3 * 750, from: '3 Bacardí blanco (el dosier dice Havana; supuse 750 ml)' }),
   mixer('goma', 'Goma', 1000),
   mixer('sirope_arandanos', 'Sirope de arándanos', 1000),
-  mixer('sirope_manzana', 'Sirope de manzana verde', 1000),
+  mixer('sirope_maracuya', 'Sirope o pulpa de maracuyá', 1000),
   mixer('pulpa_arandanos', 'Pulpa de arándanos', 1000),
   unidad('peroni', 'Peroni', 'botella', { amount: 24, from: '24 Peroni alcohol' }),
   unidad('peroni_zero', 'Peroni Sin Alcohol', 'botella', { amount: 3, from: '3 Peroni Zero' }),
@@ -123,20 +123,11 @@ export const DOSIER_RECETAS: DosierReceta[] = [
     product: 'PlayRoom', kind: 'preparacion', palabras: ['playroom'], excluir: ['aros', 'cover', 'cumplea', 'hand'], glass: 'copa',
     lines: [{ insumo: 'gin', amount: oz(2) }, { insumo: 'pulpa_hibiscus', amount: oz(2) }, { insumo: 'limon', amount: oz(1) }, { insumo: 'sprite', amount: 150, estimated: true }],
   },
-  {
-    product: 'Mojito Candy', kind: 'preparacion', palabras: ['mojito', 'sabores'], glass: 'vaso', glassAssumed: true,
-    lines: [
-      { insumo: 'ron', amount: oz(3) }, { insumo: 'limon', amount: oz(0.5) }, { insumo: 'goma', amount: oz(0.5) },
-      { insumo: 'sirope_arandanos', amount: oz(1) }, { insumo: 'sirope_manzana', amount: oz(0.5) }, { insumo: 'ginger_ale', amount: oz(4) },
-    ],
-  },
-  {
-    product: 'Toxic Daikiri', kind: 'preparacion', aliases: ['Toxic Daiquiri'], palabras: ['daikiri'], glass: 'vaso', glassAssumed: true,
-    lines: [
-      { insumo: 'ron', amount: oz(3) }, { insumo: 'limon', amount: oz(1) }, { insumo: 'goma', amount: oz(0.5) },
-      { insumo: 'sirope_arandanos', amount: oz(0.5) }, { insumo: 'sirope_manzana', amount: oz(0.5) },
-    ],
-  },
+  // Los mojitos de la carta: la técnica del dosier (5 hojas de hierbabuena con ½ oz de goma y de limón, más 2 oz de ron),
+  // completado con agua mineral o soda. Cada sabor es un producto aparte para que el stock de cada sirope salga exacto.
+  { product: 'Mojito Tradicional', kind: 'preparacion', palabras: ['mojito', 'tradicional'], glass: 'vaso', glassAssumed: true, lines: [{ insumo: 'ron', amount: oz(2) }, { insumo: 'limon', amount: oz(0.5) }, { insumo: 'goma', amount: oz(0.5) }, { insumo: 'agua', amount: 120, estimated: true }] },
+  { product: 'Mojito Maracuyá', kind: 'preparacion', aliases: ['Mojito Maracuya'], palabras: ['mojito', 'maracuya'], glass: 'vaso', glassAssumed: true, lines: [{ insumo: 'ron', amount: oz(2) }, { insumo: 'limon', amount: oz(0.5) }, { insumo: 'goma', amount: oz(0.5) }, { insumo: 'sirope_maracuya', amount: oz(1), estimated: true }, { insumo: 'agua', amount: 120, estimated: true }] },
+  { product: 'Mojito Arándanos', kind: 'preparacion', aliases: ['Mojito Arandanos'], palabras: ['mojito', 'arandano'], glass: 'vaso', glassAssumed: true, lines: [{ insumo: 'ron', amount: oz(2) }, { insumo: 'limon', amount: oz(0.5) }, { insumo: 'goma', amount: oz(0.5) }, { insumo: 'sirope_arandanos', amount: oz(1), estimated: true }, { insumo: 'agua', amount: 120, estimated: true }] },
   { product: 'Mocktail Candy', kind: 'preparacion', palabras: ['mocktail', 'candy'], glass: 'vaso', glassAssumed: true, lines: [{ insumo: 'pulpa_arandanos', amount: oz(2) }, { insumo: 'limon', amount: oz(1) }, { insumo: 'agua', amount: 200 }] },
   { product: 'Mocktail Toxic', kind: 'preparacion', palabras: ['mocktail', 'toxic'], glass: 'vaso', glassAssumed: true, lines: [{ insumo: 'pulpa_hibiscus', amount: oz(2) }, { insumo: 'limon', amount: oz(1) }, { insumo: 'agua', amount: 200 }] },
   // Lo que se vende tal cual: cada venta gasta 1 unidad del inventario.
@@ -151,14 +142,15 @@ export const DOSIER_RECETAS: DosierReceta[] = [
 export const DOSIER_SUPUESTOS: string[] = [
   'Las preparaciones no son productos de la Carta: son la base de los que sí se venden. Elige a qué productos aplica cada una (ya te sugiero los que coinciden por nombre) y queda una receta propia en cada producto, editable.',
   'Piscolón: la tabla dice 200 ml de bebida y la infografía 300 ml. Cargué 200 ml (tabla). Cuba Libre sí lleva 300 ml (infografía).',
-  'Mojito Candy: la tabla dice 3 oz de ron y la infografía 2 oz. Cargué 3 oz (tabla). Un Mojito Tradicional no está en el dosier.',
+  'Mojitos: Mojito Candy y Toxic Daikiri ya no van. Mojito Tradicional, Maracuyá y Arándanos llevan 2 oz de ron (infografía), ½ oz de limón y de goma, y 120 ml de agua mineral o soda. Cada sabor es un producto aparte de la Carta (créalos con esos nombres).',
+  'Mojito Maracuyá y Arándanos: 1 oz de sirope o pulpa por trago es una estimación mía (el Candy llevaba 1 oz de sirope de arándanos).',
   'Mocktails: la infografía menciona 1 oz de goma que la tabla no tiene. Cargué lo de la tabla (sin goma).',
   'Johnnie Walker, Jack Daniels (200 ml de bebida) y PlayRoom (150 ml de Sprite) no traen la medida del relleno: son estimaciones mías. Jack Daniels sale de la infografía (2 oz).',
-  'Mojito Candy, Toxic Daikiri, Cuba Libre, Jack Daniels y los mocktails no dicen el vaso: puse vaso 500 ml.',
+  'Los mojitos, Cuba Libre, Jack Daniels y los mocktails no dicen el vaso: puse vaso 500 ml.',
   'El dosier pide Ron Blanco Havana y en tu stock hay Bacardí blanco: conté el Bacardí blanco como «Ron blanco». José Cuervo dorado lo usé para el shot Reposado.',
   'Los tamaños de botella que no dijiste los supuse de 750 ml. «1 alto de litro» lo cargué como Pisco Alto de 1 L y «1 Disco» no sé qué es (queda como «Disco (¿qué es?)»).',
   'No cargué la «promo Pink and Blue» (no sé qué incluye). No se descuentan hierbabuena, bitter, pepino ni hielo (sin medida de compra).',
-  'Los tragos que no están en el dosier (Té, Gin con Gin, Lucky Click, Mojito Tradicional, Piscola sin alcohol…) quedan sin receta: no gastan insumos hasta que les armes una en la pestaña Recetas.',
+  'Los tragos que no están en el dosier (Té, Gin con Gin, Lucky Click, Piscola sin alcohol, Mocktail Sabores…) quedan sin receta: no gastan insumos hasta que les armes una en la pestaña Recetas.',
 ];
 
 // --- Plan de carga ---

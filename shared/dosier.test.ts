@@ -10,7 +10,10 @@ describe('dosier del aniversario', () => {
     expect(new Set(names).size).toBe(names.length);
     const products = DOSIER_RECETAS.map((r) => normalizeName(r.product));
     expect(new Set(products).size).toBe(products.length);
-    expect(DOSIER_RECETAS.filter((r) => r.kind === 'preparacion' && ['Aperol Spritz','Ramazzotti','Piscolón','Tropical Gin RedBull','Tropical Gin con Pulpa','Johnnie Walker + Bebida','Shot Tequila Olmeca','Trío Shots','PlayRoom','Mojito Candy','Toxic Daikiri','Mocktail Candy','Mocktail Toxic'].includes(r.product))).toHaveLength(13); // las 13 del dosier
+    const nombres = DOSIER_RECETAS.map((r) => r.product);
+    expect(nombres).not.toContain('Mojito Candy'); // ya no van
+    expect(nombres).not.toContain('Toxic Daikiri');
+    for (const n of ['Aperol Spritz', 'Ramazzotti', 'Piscolón', 'Tropical Gin RedBull', 'Tropical Gin con Pulpa', 'Johnnie Walker + Bebida', 'Shot Tequila Olmeca', 'Trío Shots', 'PlayRoom', 'Mojito Tradicional', 'Mojito Maracuyá', 'Mojito Arándanos', 'Mocktail Candy', 'Mocktail Toxic']) expect(nombres).toContain(n);
   });
 
   it('cada línea usa un insumo que existe, una sola vez por trago, con cantidad', () => {
@@ -34,10 +37,11 @@ describe('dosier del aniversario', () => {
     expect(ml('Piscolón', 'pisco')).toBe(90);
     expect(ml('Shot Tequila Olmeca', 'tequila')).toBe(30);
     expect(ml('Trío Shots', 'shot_licor')).toBe(90);
-    expect(ml('Mojito Candy', 'ron')).toBe(90);
-    expect(ml('Mojito Candy', 'limon')).toBe(15);
-    expect(ml('Mojito Candy', 'ginger_ale')).toBe(120);
-    expect(ml('Toxic Daikiri', 'limon')).toBe(30);
+    expect(ml('Mojito Tradicional', 'ron')).toBe(60); // 2 oz (infografía)
+    expect(ml('Mojito Tradicional', 'limon')).toBe(15);
+    expect(ml('Mojito Tradicional', 'goma')).toBe(15);
+    expect(ml('Mojito Maracuyá', 'sirope_maracuya')).toBe(30);
+    expect(ml('Mojito Arándanos', 'sirope_arandanos')).toBe(30);
     expect(ml('PlayRoom', 'pulpa_hibiscus')).toBe(60);
   });
 
@@ -50,12 +54,14 @@ describe('dosier del aniversario', () => {
   });
 
   it('dos tragos que comparten base descuentan del mismo insumo', () => {
-    // Mojito Candy y Toxic Daikiri usan ron blanco; Aperol Spritz y Ramazzotti, espumante.
+    // Los tres mojitos usan ron blanco; Aperol Spritz y Ramazzotti, espumante.
     const idOf = (key: string) => DOSIER_INSUMOS.findIndex((i) => i.key === key) + 1;
     const recetas = DOSIER_RECETAS.flatMap((r, p) => r.lines.map((l) => ({ ticketTypeId: p + 1, insumoId: idOf(l.insumo), amount: l.amount, glass: r.glass })));
     const at = (name: string) => DOSIER_RECETAS.findIndex((r) => r.product === name) + 1;
-    const out = consumoDeVenta([{ ticketTypeId: at('Mojito Candy'), quantity: 2 }, { ticketTypeId: at('Toxic Daikiri'), quantity: 3 }], recetas);
-    expect(out.find((o) => o.insumoId === idOf('ron'))?.delta).toBe(-(2 * 90 + 3 * 90));
+    const out = consumoDeVenta([{ ticketTypeId: at('Mojito Tradicional'), quantity: 2 }, { ticketTypeId: at('Mojito Maracuyá'), quantity: 3 }, { ticketTypeId: at('Mojito Arándanos'), quantity: 1 }], recetas);
+    expect(out.find((o) => o.insumoId === idOf('ron'))?.delta).toBe(-(2 * 60 + 3 * 60 + 1 * 60));
+    expect(out.find((o) => o.insumoId === idOf('sirope_maracuya'))?.delta).toBe(-90); // solo el sabor que se vendió
+    expect(out.find((o) => o.insumoId === idOf('sirope_arandanos'))?.delta).toBe(-30);
     const spritz = consumoDeVenta([{ ticketTypeId: at('Aperol Spritz'), quantity: 1 }, { ticketTypeId: at('Ramazzotti'), quantity: 1 }], recetas);
     expect(spritz.find((o) => o.insumoId === idOf('espumante'))?.delta).toBe(-180);
   });
@@ -69,7 +75,7 @@ describe('planDosier', () => {
   // La Carta real del aniversario: las preparaciones del dosier no existen como productos, son la base de estos.
   const nombres = [
     'Piscolón Mistral 35', 'Piscolón Mistral Nobel', 'Cuba Liberal', 'Tropical Gin', 'Tropical Gin XL', 'Aperol', 'Ramazzotti',
-    'Mojito Tradicional', 'Mojito Sabores', 'Mocktail Sabores', 'Jack Daniels', 'Jägermeister', 'Peroni', 'Peroni Sin Alcohol',
+    'Mojito Tradicional', 'Mojito Maracuyá', 'Mojito Arándanos', 'Mojito Sabores', 'Mocktail Sabores', 'Jack Daniels', 'Jägermeister', 'Peroni', 'Peroni Sin Alcohol',
     'Vaso PlayRoom', 'Aros Playroom', 'Shot Jose Cuervo Reposado', 'Shot Jose Cuervo Silver', 'Piscola Sin Alcohol',
     'Energética Score', 'Gatorlite Isotónica', 'Kunstmann Torobayo', 'Gin con Gin', 'Te', 'Lucky Click', 'Aperol Spritz (COPA)', 'Trio Shots',
   ];
@@ -88,7 +94,9 @@ describe('planDosier', () => {
     expect(sugeridos('Shot Jägermeister')).toEqual([idOf('Jägermeister')]);
     expect(sugeridos('Shot José Cuervo Reposado')).toEqual([idOf('Shot Jose Cuervo Reposado')]);
     expect(sugeridos('Shot José Cuervo Silver')).toEqual([idOf('Shot Jose Cuervo Silver')]);
-    expect(sugeridos('Mojito Candy')).toEqual([idOf('Mojito Sabores')]);
+    expect(sugeridos('Mojito Tradicional')).toEqual([idOf('Mojito Tradicional')]);
+    expect(sugeridos('Mojito Maracuyá')).toEqual([idOf('Mojito Maracuyá')]);
+    expect(sugeridos('Mojito Arándanos')).toEqual([idOf('Mojito Arándanos')]);
     expect(sugeridos('PlayRoom')).toEqual([idOf('Vaso PlayRoom')]); // no los Aros
     expect(sugeridos('Trío Shots')).toEqual([idOf('Trio Shots')]);
   });
@@ -104,7 +112,7 @@ describe('planDosier', () => {
   it('cada producto se sugiere a una sola preparación y los que no están en el dosier quedan sin receta', () => {
     const all = planDosier(base).recetas.flatMap((r) => r.sugeridos);
     expect(new Set(all).size).toBe(all.length);
-    for (const sin of ['Mojito Tradicional', 'Mocktail Sabores', 'Piscola Sin Alcohol', 'Gin con Gin', 'Te', 'Lucky Click', 'Aros Playroom']) {
+    for (const sin of ['Mojito Sabores', 'Mocktail Sabores', 'Piscola Sin Alcohol', 'Gin con Gin', 'Te', 'Lucky Click', 'Aros Playroom']) {
       expect(all).not.toContain(idOf(sin));
     }
   });
