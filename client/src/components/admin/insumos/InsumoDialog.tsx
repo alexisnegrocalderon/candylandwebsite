@@ -30,6 +30,9 @@ export function InsumoDialog({ value, saving, onClose, onSave }: {
   onSave: (v: InsumoFormValue) => void;
 }) {
   const [form, setForm] = useState<InsumoFormValue | null>(value);
+  // Todos los hooks van ANTES del return condicional: si no, al abrir el diálogo React cuenta un hook más
+  // que en el render anterior (error #310) y la pantalla se cae.
+  const [otherSize, setOtherSize] = useState('');
   useEffect(() => { setForm(value); }, [value]);
   if (!form) return <Dialog open={false} />;
   const set = (patch: Partial<InsumoFormValue>) => setForm((f) => (f ? { ...f, ...patch } : f));
@@ -40,7 +43,6 @@ export function InsumoDialog({ value, saving, onClose, onSave }: {
     if (s === form.containerSize) return; // el de compra no se saca
     set({ sizes: form.sizes.includes(s) ? form.sizes.filter((x) => x !== s) : [...form.sizes, s] });
   };
-  const [otherSize, setOtherSize] = useState('');
 
   return (
     <Dialog open={!!value} onOpenChange={(o) => { if (!o) onClose(); }}>
