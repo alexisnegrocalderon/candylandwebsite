@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { BellRing, Gift, Smartphone } from 'lucide-react';
 import { WriteButton } from '@/components/admin/WriteButton';
 import { GrantCouponDialog } from '@/components/admin/app/GrantCouponDialog';
+import { SendPushDialog } from '@/components/admin/app/SendPushDialog';
 import { trpc } from '@/lib/trpc';
 import { Input } from '@/components/ui/input';
 import { foldText } from '@shared/igCustomerLink';
@@ -26,6 +27,7 @@ export function AppInstallsView() {
   const [q, setQ] = useState('');
   const [openId, setOpenId] = useState<number | null>(null);
   const [gift, setGift] = useState<{ email: string; name: string | null } | null>(null);
+  const [push, setPush] = useState<{ email: string; name: string | null } | null>(null);
   const people = (data?.people ?? []).filter((p) => !q || foldText(`${p.name ?? ''} ${p.email}`).includes(foldText(q)));
   const anon = data ? data.ios + data.android + data.desktop - data.people.reduce((s, p) => s + p.devices, 0) : 0;
 
@@ -92,11 +94,17 @@ export function AppInstallsView() {
               <WriteButton size="sm" variant="ghost" className="h-7 gap-1.5 px-2 text-xs" onClick={() => setGift({ email: p.email, name: p.name })}>
                 <Gift className="h-3.5 w-3.5" /> Regalar cupón
               </WriteButton>
+              {p.push && (
+                <WriteButton size="sm" variant="ghost" className="h-7 gap-1.5 px-2 text-xs" onClick={() => setPush({ email: p.email, name: p.name })}>
+                  <BellRing className="h-3.5 w-3.5" /> Enviar push
+                </WriteButton>
+              )}
             </div>
           )}
           </div>
         ))}
       </div>
+      <SendPushDialog open={!!push} onClose={() => setPush(null)} email={push?.email ?? null} name={push?.name} />
       <GrantCouponDialog open={!!gift} onClose={() => setGift(null)} email={gift?.email} name={gift?.name} />
       <CustomerDrawer customerId={openId} onClose={() => setOpenId(null)} onChanged={() => refetch()} onDeleted={() => setOpenId(null)} />
       {anon > 0 && <p className="text-xs text-muted-foreground">+ {anon} {anon === 1 ? 'teléfono' : 'teléfonos'} con la app sin identificar (nunca abrieron una entrada ahí).</p>}

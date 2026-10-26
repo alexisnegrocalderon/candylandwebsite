@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { Copy, Lock, MessageCircle, Instagram, Mail, ChevronLeft, ChevronRight, Sparkles, X, BellOff, Trash2, Gift } from 'lucide-react';
+import { Copy, Lock, MessageCircle, Instagram, Mail, ChevronLeft, ChevronRight, Sparkles, X, BellOff, Trash2, Gift, BellRing } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,6 +13,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '
 import { WriteButton } from '@/components/admin/WriteButton';
 import { ConfirmDeleteButton } from '@/components/admin/ConfirmDeleteButton';
 import { GrantCouponDialog } from '@/components/admin/app/GrantCouponDialog';
+import { SendPushDialog } from '@/components/admin/app/SendPushDialog';
 import { formatChileDate, formatChileDateTime } from '@shared/chileDate';
 import {
   CUSTOMER_LEVEL_META, GENDER_OPTIONS, SOURCE_OPTIONS, customerDeleteBlocker, formatBirthDate, normalizeCustomerEmail, whatsappUrl,
@@ -64,6 +65,9 @@ export function CustomerDrawer({ customerId, onClose, onPrev, onNext, onChanged,
   const [initial, setInitial] = useState<FormState | null>(null);
   const [tab, setTab] = useState('datos');
   const [giftOpen, setGiftOpen] = useState(false);
+  const [pushOpen, setPushOpen] = useState(false);
+  const [prepaidDelta, setPrepaidDelta] = useState('');
+  const [prepaidNote, setPrepaidNote] = useState('');
   const [newTag, setNewTag] = useState('');
   const [adjust, setAdjust] = useState('');
 
@@ -91,6 +95,14 @@ export function CustomerDrawer({ customerId, onClose, onPrev, onNext, onChanged,
   });
   const addTag = trpc.customers.addTag.useMutation({ onSuccess: refresh, onError: (e) => toast.error(e.message) });
   const removeTag = trpc.customers.removeTag.useMutation({ onSuccess: refresh, onError: (e) => toast.error(e.message) });
+  const adjustPrepaid = trpc.customers.adjustPrepaid.useMutation({
+    onSuccess: (r) => { toast.success(`Saldo ajustado: queda en $${r.balanceAfter.toLocaleString('es-CL')}`); setPrepaidDelta(''); setPrepaidNote(''); refresh(); },
+    onError: (e) => toast.error(e.message),
+  });
+  const resetPin = trpc.customers.resetCardPin.useMutation({
+    onSuccess: () => { toast.success('PIN reiniciado: creará uno nuevo en su próxima recarga'); refresh(); },
+    onError: (e) => toast.error(e.message),
+  });
   const adjustPlaycoins = trpc.customers.adjustPlaycoins.useMutation({
     onSuccess: () => { setAdjust(''); refresh(); },
     onError: (e) => toast.error(e.message),
@@ -214,6 +226,10 @@ export function CustomerDrawer({ customerId, onClose, onPrev, onNext, onChanged,
                       <Gift className="w-3.5 h-3.5" /> Regalar cupón
                     </WriteButton>
                     <GrantCouponDialog open={giftOpen} onClose={() => setGiftOpen(false)} email={c.email} name={c.fullName} />
+                    <WriteButton size="sm" variant="outline" className="h-8 gap-1.5" onClick={() => setPushOpen(true)}>
+                      <BellRing className="w-3.5 h-3.5" /> Enviar push
+                    </WriteButton>
+                    <SendPushDialog open={pushOpen} onClose={() => setPushOpen(false)} email={c.email} name={c.fullName} />
                   </div>
                 </div>
               </div>
@@ -469,8 +485,29 @@ export function CustomerDrawer({ customerId, onClose, onPrev, onNext, onChanged,
                       </div>
                     </div>
                     <div className="rounded-xl border border-border/60 p-3">
-                      <p className="text-xs text-muted-foreground">Saldo prepagado</p>
+                      <p className="text-xs text-muted-foreground">Saldo PlayCard</p>
                       <p className="text-2xl font-semibold">{money(c.prepaidBalance)}</p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <Input type="number" inputMode="numeric" value={prepaidDelta} onChange={(e) => setPrepaidDelta(e.target.value)} placeholder="+/- $" className="h-8 w-24 text-xs" aria-label="Monto del ajuste" />
+                        <Input value={prepaidNote} onChange={(e) => setPrepaidNote(e.target.value)} placeholder="Motivo (solo lo ves tú)" className="h-8 min-w-0 flex-1 text-xs" />
+                        <WriteButton size="sm" variant="outline" className="h-8" disabled={adjustPrepaid.isPending || !Number(prepaidDelta) || prepaidNote.trim().length < 3}
+                          onClick={() => {
+                            const delta = Math.round(Number(prepaidDelta));
+                            if (!window.confirm(`¿${delta > 0 ? 'Cargar' : 'Descontar'} $${Math.abs(delta).toLocaleString('es-CL')} ${delta > 0 ? 'a' : 'de'} la PlayCard de ${c.fullName || c.email}? En su app sale como «Ajuste».`)) return;
+                            adjustPrepaid.mutate({ customerId: c.id, delta, note: prepaidNote.trim() });
+                          }}>
+                          Ajustar
+                        </WriteButton>
+                      </div>
+                      <div className="mt-2 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                        <span>{c.cardPinSetAt ? `PIN creado el ${formatChileDate(c.cardPinSetAt)}` : 'Sin PIN'}</span>
+                        {c.cardPinSetAt && (
+                          <WriteButton size="sm" variant="ghost" className="h-7 px-2 text-xs" disabled={resetPin.isPending}
+                            onClick={() => { if (window.confirm('¿Reiniciar el PIN de la tarjeta? Creará uno nuevo en su próxima recarga y le llegará un aviso.')) resetPin.mutate({ customerId: c.id, notify: true }); }}>
+                            Reiniciar PIN
+                          </WriteButton>
+                        )}
+                      </div>
                     </div>
                   </div>
                   {data.playcoinHistory.length > 0 && (

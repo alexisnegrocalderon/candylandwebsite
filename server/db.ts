@@ -6144,6 +6144,31 @@ export async function adjustPlaycoinsManually(customerId: number, delta: number,
   await db.insert(playcoinsLedger).values({ customerId, delta: appliedDelta, reason: 'manual_adjust', balanceAfter, note });
 }
 
+/** Ajuste manual del saldo PlayCard desde el panel (sección App). Nunca deja el saldo negativo; la nota
+ * queda solo para el admin (la app muestra «Ajuste» sin la nota, ver shared/memberHistory.ts). */
+export async function adjustPrepaidManually(customerId: number, delta: number, note: string): Promise<{ balanceAfter: number; applied: number }> {
+  const db = await getDb();
+  if (!db) throw new Error('Base de datos no disponible');
+  const [customer] = await db.select().from(customers).where(eq(customers.id, customerId)).limit(1);
+  if (!customer) throw new Error('Cliente no encontrado');
+  const balanceAfter = Math.max(0, customer.prepaidBalance + delta);
+  const applied = balanceAfter - customer.prepaidBalance;
+  if (applied === 0) return { balanceAfter, applied };
+  await db.update(customers).set({ prepaidBalance: balanceAfter }).where(eq(customers.id, customerId));
+  await db.insert(prepaidLedger).values({ customerId, delta: applied, reason: 'manual_adjust', balanceAfter, note: note.trim().slice(0, 500) || null });
+  return { balanceAfter, applied };
+}
+
+/** Borra el PIN de la tarjeta: el cliente crea uno nuevo en su próxima recarga (setCardPinAfterTopup). */
+export async function resetCardPin(customerId: number): Promise<string | null> {
+  const db = await getDb();
+  if (!db) throw new Error('Base de datos no disponible');
+  const [c] = await db.select({ email: customers.email }).from(customers).where(eq(customers.id, customerId)).limit(1);
+  if (!c) throw new Error('Cliente no encontrado');
+  await db.update(customers).set({ cardPinHash: null, cardPinSetAt: null }).where(eq(customers.id, customerId));
+  return c.email;
+}
+
 /** Parte pura del filtro "excluir etiquetas" de listCustomers -- separada
  * para poder testearla sin base de datos (mismo patrón que tallyTags).
  * Excluye al cliente si tiene CUALQUIERA de las etiquetas de `excludeTags`. */

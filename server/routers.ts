@@ -4946,6 +4946,15 @@ export const appRouter = router({
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo enviar' });
       }
     }),
+    // Push a una persona (ficha del cliente / Clientes con la app): queda en el Historial.
+    devicesFor: adminReadProcedure.input(z.object({ email: z.string().email() })).query(({ input }) => customerPush.countPushForEmail(input.email)),
+    sendToCustomer: adminProcedure.input(pushCampaignSchema.pick({ title: true, body: true, url: true }).extend({ email: z.string().email() })).mutation(async ({ input, ctx }) => {
+      try {
+        return await customerPush.sendPushToCustomer({ ...input, createdBy: ctx.user?.name ?? ctx.user?.email ?? null });
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo enviar' });
+      }
+    }),
     presets: adminReadProcedure.input(z.object({ kind: z.enum(['template', 'audience']) })).query(({ input }) => customerPush.listPresets(input.kind)),
     savePreset: adminProcedure.input(z.object({ kind: z.enum(['template', 'audience']), name: z.string().trim().min(1).max(80), data: z.any() })).mutation(async ({ input }) => {
       return { id: await customerPush.savePreset(input.kind, input.name, input.data) };
@@ -6857,6 +6866,18 @@ export const appRouter = router({
     adjustPlaycoins: adminProcedure.input(z.object({ customerId: z.number(), delta: z.number().int(), note: z.string().optional() })).mutation(async ({ input }) => {
       await db.adjustPlaycoinsManually(input.customerId, input.delta, input.note ?? '');
       return { success: true } as const;
+    }),
+    // Saldo PlayCard y PIN de la tarjeta (sección App / ficha del cliente).
+    adjustPrepaid: adminProcedure.input(z.object({ customerId: z.number(), delta: z.number().int().min(-10_000_000).max(10_000_000).refine((n) => n !== 0), note: z.string().trim().min(3).max(500) })).mutation(async ({ input, ctx }) => {
+      const by = ctx.user?.name ?? ctx.user?.email ?? 'admin';
+      return db.adjustPrepaidManually(input.customerId, input.delta, `${input.note} (por ${by})`);
+    }),
+    resetCardPin: adminProcedure.input(z.object({ customerId: z.number(), notify: z.boolean().default(true) })).mutation(async ({ input }) => {
+      const email = await db.resetCardPin(input.customerId);
+      if (input.notify && email) {
+        await customerPush.pushToEmail(email, { title: '🔑 Tu PIN de la PlayCard se reinició', body: 'Crea uno nuevo la próxima vez que recargues saldo.', url: '/cuenta' });
+      }
+      return { ok: true as const };
     }),
   }),
 
