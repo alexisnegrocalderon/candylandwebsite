@@ -26,9 +26,9 @@ import { StampsTab } from '@/components/site/StampCard';
 import { SolteroAccess, solteroRowSub, useSolteroStatus } from '@/components/site/SolteroAccess';
 import { StaffAccount, StaffBanner, useStaffPortal } from '@/components/site/StaffAccount';
 import { PlaymatchTab } from '@/components/site/PlaymatchTab';
-import { PlayCardTab } from '@/components/site/PlayCardTab';
+import { PlayCardStack } from '@/components/site/PlayCardStack';
 import { MovementsScreen } from '@/components/site/MovementsScreen';
-import { QrViewer, tapHaptic, useCountdown, type MeEvent, type Movement } from '@/components/site/walletParts';
+import { QrViewer, holderLabels, tapHaptic, useCountdown, type MeEvent, type Movement } from '@/components/site/walletParts';
 import { canEnterParty } from '@shared/party';
 import { TICKET_KIND_META, type TicketKind } from '@shared/ticketKind';
 import { useCustomerPush } from '@/lib/customerPush';
@@ -107,26 +107,6 @@ function useCountUp(value: number, ms = 700): number {
     return () => cancelAnimationFrame(raf);
   }, [value, ms]);
   return shown;
-}
-
-/** Cómo se llama cada entrada en el selector: el primer nombre, y si se repite (varias a nombre de
- * quien compró) se numeran: «Alexis 1», «Alexis 2». */
-function holderLabels(list: { holderName: string | null; kind?: TicketKind }[]): string[] {
-  // Accesos: 🎟️ + primer nombre. Extras: su emoji y para qué son («🚗 Auto»), así no parecen otra entrada.
-  const first = list.map((x, n) => {
-    const kind = x.kind ?? 'acceso';
-    if (kind !== 'acceso') return `${TICKET_KIND_META[kind].emoji} ${TICKET_KIND_META[kind].short}`;
-    return `🎟️ ${x.holderName?.trim().split(/\s+/)[0] || `Entrada ${n + 1}`}`;
-  });
-  const count = new Map<string, number>();
-  first.forEach((f) => count.set(f, (count.get(f) ?? 0) + 1));
-  const seen = new Map<string, number>();
-  return first.map((f) => {
-    if ((count.get(f) ?? 0) < 2) return f;
-    const k = (seen.get(f) ?? 0) + 1;
-    seen.set(f, k);
-    return `${f} ${k}`;
-  });
 }
 
 /** Lo primero que ve quien entra: su PlayCard con el QR de la entrada del próximo evento.
@@ -746,8 +726,7 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
             <>
               <WelcomeBanner welcome={welcome} />
               {staff && <StaffBanner staff={staff} onOpen={() => { tapHaptic(); setSheet('staff'); }} />}
-              <PlayCardTab events={upcoming} holder={me.fullName || me.email} prepaidBalance={me.prepaidBalance} playcoins={me.playcoins} movements={me.movements}
-                movementsPreview={<MovementsPreview me={me} onAll={() => setSheet('movimientos')} />}
+              <PlayCardStack ev={upcoming[0] ?? null} holder={me.fullName || me.email} prepaidBalance={me.prepaidBalance} playcoins={me.playcoins} movements={me.movements}
                 onTopup={pay.accountTopup ? () => setTopupOpen(true) : undefined} onPayCaja={pay.cajaPay ? () => setPayOpen(true) : undefined} onPlaymatch={() => go('playmatch')} onNextTab={() => go('playmatch')} />
               <BuyNextCard me={me} />
             </>

@@ -266,3 +266,23 @@ export function KitchenPass({ ev, order }: { ev: MeEvent; order: MeKitchen }) {
     </PassShell>
   );
 }
+
+/** Cómo se llama cada entrada en el selector: el primer nombre, y si se repite (varias a nombre de
+ * quien compró) se numeran: «Alexis 1», «Alexis 2». */
+export function holderLabels(list: { holderName: string | null; kind?: TicketKind }[]): string[] {
+  // Accesos: 🎟️ + primer nombre. Extras: su emoji y para qué son («🚗 Auto»), así no parecen otra entrada.
+  const first = list.map((x, n) => {
+    const kind = x.kind ?? 'acceso';
+    if (kind !== 'acceso') return `${TICKET_KIND_META[kind].emoji} ${TICKET_KIND_META[kind].short}`;
+    return `🎟️ ${x.holderName?.trim().split(/\s+/)[0] || `Entrada ${n + 1}`}`;
+  });
+  const count = new Map<string, number>();
+  first.forEach((f) => count.set(f, (count.get(f) ?? 0) + 1));
+  const seen = new Map<string, number>();
+  return first.map((f) => {
+    if ((count.get(f) ?? 0) < 2) return f;
+    const k = (seen.get(f) ?? 0) + 1;
+    seen.set(f, k);
+    return `${f} ${k}`;
+  });
+}
