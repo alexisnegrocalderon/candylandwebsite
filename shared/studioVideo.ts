@@ -11,6 +11,8 @@
  * - laminas: un diseño del Estudio (carrusel, post o historia) animado lámina
  *   por lámina. Esa composición se arma en el navegador (necesita dibujar las
  *   láminas): ver `slidesVideoHtml`.
+ * - cuenta: «Faltan sólo 8 días para…», el reel de motion graphics del evento
+ *   (shared/studioCountdown.ts y studioCountdownHtml.ts).
  *
  * Reglas de HyperFrames que se cumplen acá: cada escena es un `.clip` con
  * `data-start`/`data-duration`, una sola línea de tiempo GSAP en pausa
@@ -21,8 +23,9 @@ import { BUBBLE_PALETTES, layoutBubbleHeadline } from './studioBubble';
 import { fitFontSize, STUDIO_THEMES, type StudioDesign, type StudioTheme } from './contentStudio';
 import { beatSheet, type ReelBeatInput } from './reelScript';
 import { formatChileDate, formatChileTime } from './chileDate';
+import { normalizeCountdown, type VideoCountdown } from './studioCountdown';
 
-export const VIDEO_TEMPLATES = ['puntos', 'anuncio', 'guion', 'laminas'] as const;
+export const VIDEO_TEMPLATES = ['puntos', 'anuncio', 'guion', 'laminas', 'cuenta'] as const;
 export type VideoTemplate = (typeof VIDEO_TEMPLATES)[number];
 
 /** Reel / historia 9:16, post de feed 3:4, cuadrado 1:1 u horizontal 16:9. */
@@ -49,6 +52,7 @@ export const VIDEO_TEMPLATE_LABEL: Record<VideoTemplate, string> = {
   anuncio: 'Anuncio de evento',
   guion: 'Desde un guion de Reel',
   laminas: 'Láminas animadas',
+  cuenta: 'Cuenta regresiva',
 };
 export const VIDEO_FORMAT_LABEL: Record<VideoFormat, string> = { reel: 'Reel / historia 9:16', feed: 'Feed 3:4', square: 'Cuadrado 1:1', landscape: 'Horizontal 16:9' };
 
@@ -178,6 +182,8 @@ export interface StudioVideo {
   /** Solo «laminas»: el diseño que se anima y cuánto dura cada lámina. */
   design: StudioDesign | null;
   secsPerSlide: number;
+  /** Solo «cuenta»: lo que se ve en pantalla (días, evento, fecha, cierre). */
+  countdown?: VideoCountdown;
   /** Diseño de todas las escenas (cada escena puede cambiarlo). */
   style?: VideoStyle;
   watermark?: VideoWatermark;
@@ -348,7 +354,8 @@ export function normalizeStudioVideo(raw: unknown, designNormalizer: (d: unknown
     mediaUrl = '';
   }
   const design = template === 'laminas' && r.design ? designNormalizer(r.design) : null;
-  if (template === 'laminas' ? !design : scenes.length === 0) return null;
+  const countdown = template === 'cuenta' ? normalizeCountdown(r.countdown) : undefined;
+  if (template === 'laminas' ? !design : template === 'cuenta' ? !countdown : scenes.length === 0) return null;
   const eventId = Number(r.eventId);
   return {
     title: str(r.title, LIMITS.title).trim() || 'Video sin título',
@@ -363,6 +370,7 @@ export function normalizeStudioVideo(raw: unknown, designNormalizer: (d: unknown
     ctaLine: str(r.ctaLine, LIMITS.ctaLine),
     design,
     secsPerSlide: clampSecs(r.secsPerSlide, 2.5),
+    ...(countdown ? { countdown } : {}),
     ...(normalizeVideoStyle(r.style) ? { style: normalizeVideoStyle(r.style) } : {}),
     ...(normalizeWatermark(r.watermark) ? { watermark: normalizeWatermark(r.watermark) } : {}),
     ...(normalizeMusic(r.music) ? { music: normalizeMusic(r.music) } : {}),
@@ -602,7 +610,7 @@ function isVideoUrl(url: string) {
   return /\.(mp4|webm|mov)(\?|#|$)/i.test(url);
 }
 
-function documentHtml(opts: { asset: AssetUrl; width: number; height: number; total: number; css: string; body: string; script: string; title: string }) {
+export function documentHtml(opts: { asset: AssetUrl; width: number; height: number; total: number; css: string; body: string; script: string; title: string; /** @font-face de más, para plantillas con letras propias. */ extraFonts?: string }) {
   return `<!doctype html>
 <html lang="es">
 <head>
@@ -610,7 +618,7 @@ function documentHtml(opts: { asset: AssetUrl; width: number; height: number; to
 <title>${escapeHtml(opts.title)}</title>
 <script src="${GSAP_URL}"></script>
 <style>
-${fontFaces(opts.asset)}
+${fontFaces(opts.asset)}${opts.extraFonts ? `\n${opts.extraFonts}` : ''}
 html, body { margin: 0; background: #000; }
 #root { position: relative; width: ${opts.width}px; height: ${opts.height}px; overflow: hidden; }
 ${opts.css}

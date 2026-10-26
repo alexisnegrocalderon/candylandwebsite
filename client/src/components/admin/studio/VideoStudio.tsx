@@ -15,6 +15,8 @@ import { VARIANT_THEME_LABEL } from '@shared/studioVariants';
 import { contentHash, type RenderSummary } from '@shared/studioRender';
 import { formatChileDateTime } from '@shared/chileDate';
 import { uploadedItem } from '@shared/ambassadorContent';
+import { COUNTDOWN_SECS } from '@shared/studioCountdown';
+import { countdownCompositionHtml } from '@shared/studioCountdownHtml';
 import {
   normalizeStudioVideo,
   projectAssets,
@@ -37,6 +39,7 @@ import {
   type VideoScene,
 } from '@shared/studioVideo';
 import { MotionControls, MusicControls, SceneBackgroundControls, StickerControls, TextStyleControls, WatermarkControls } from './VideoStyleControls';
+import { CountdownControls } from './CountdownControls';
 import { StickerLayer } from './StickerLayer';
 import { StudioSlideView } from './StudioSlideView';
 import { VideoPreview } from './VideoPreview';
@@ -93,6 +96,7 @@ function compose(video: StudioVideo, slidesHtml: string[], asset: AssetUrl): str
   if (video.template === 'laminas') {
     return slidesVideoHtml({ asset, title: video.title, format: video.format, slidesHtml, secsPerSlide: video.secsPerSlide });
   }
+  if (video.template === 'cuenta') return countdownCompositionHtml(video, { asset });
   return videoCompositionHtml(video, { asset });
 }
 
@@ -313,11 +317,13 @@ export function VideoStudio({ editing, setEditing, onClose }: { editing: VideoEd
     if (editing.id == null || editing.dirty) { toast.info('Guarda el video antes de exportarlo.'); return; }
     startRender.mutate({ id: editing.id, project: buildProject(video, slidesHtml) });
   };
-  const total = video.template === 'laminas' ? Math.round((video.design?.slides.length ?? 0) * video.secsPerSlide * 10) / 10 : timeline.total;
+  const total = video.template === 'laminas' ? Math.round((video.design?.slides.length ?? 0) * video.secsPerSlide * 10) / 10 : video.template === 'cuenta' ? COUNTDOWN_SECS : timeline.total;
   const size = VIDEO_SIZES[video.format];
   const previewWidth = { reel: 360, feed: 480, square: 480, landscape: 640 }[video.format];
   const stickerScene = openDesign != null && designTab === 'stickers' ? openDesign : null;
   const isSlides = video.template === 'laminas';
+  // La cuenta regresiva es siempre un reel 9:16 con sus propios colores: no usa escenas, formato ni tema.
+  const isCountdown = video.template === 'cuenta';
 
   // «Mis estilos»: plantilla + diseño + logo + música guardados con un nombre.
   const { data: savedStyles } = trpc.contentStudio.videoStyles.useQuery(undefined, { staleTime: 60_000 });
@@ -356,13 +362,13 @@ export function VideoStudio({ editing, setEditing, onClose }: { editing: VideoEd
       <div className="flex flex-wrap items-center gap-2">
         <Button variant="ghost" size="sm" onClick={close}><ArrowLeft className="w-4 h-4 mr-1" /> Diseños</Button>
         <Input className="max-w-sm" value={video.title} maxLength={200} onChange={(e) => update({ title: e.target.value })} aria-label="Nombre del video" />
-        {!isSlides && (
+        {!isSlides && !isCountdown && (
           <Select value={video.format} onValueChange={(v) => update({ format: v as VideoFormat })}>
             <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
             <SelectContent>{VIDEO_FORMATS.map((f) => <SelectItem key={f} value={f}>{VIDEO_FORMAT_LABEL[f]}</SelectItem>)}</SelectContent>
           </Select>
         )}
-        {!isSlides && (
+        {!isSlides && !isCountdown && (
           <Select value={video.theme} onValueChange={(v) => {
             if (v.startsWith('estilo:')) { const st = savedStyles?.find((x) => `estilo:${x.id}` === v); if (st) applyStyle(st); return; }
             update({ theme: v as StudioTheme });
@@ -383,7 +389,7 @@ export function VideoStudio({ editing, setEditing, onClose }: { editing: VideoEd
           <Button size="icon" variant="outline" className="h-9 w-9" onClick={undo} disabled={past.current.length === 0} aria-label="Deshacer" title="Deshacer (Ctrl+Z)"><Undo2 className="w-4 h-4" /></Button>
           <Button size="icon" variant="outline" className="h-9 w-9" onClick={redo} disabled={future.current.length === 0} aria-label="Rehacer" title="Rehacer (Ctrl+Shift+Z)"><Redo2 className="w-4 h-4" /></Button>
         </div>
-        {!isSlides && (
+        {!isSlides && !isCountdown && (
           <Button size="sm" variant={videoStyleOpen ? 'default' : 'outline'} onClick={() => setVideoStyleOpen((o) => !o)}>
             <Palette className="w-4 h-4 mr-2" /> Estilo del video
           </Button>
@@ -464,7 +470,21 @@ export function VideoStudio({ editing, setEditing, onClose }: { editing: VideoEd
         </div>
 
         <div className="space-y-4 min-w-0">
-          {isSlides ? (
+          {isCountdown && video.countdown ? (
+            <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+              <CardContent className="pt-6 space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  Cuenta regresiva del evento: reel 9:16 de {COUNTDOWN_SECS} s con el estilo Playroom. Cambia los días y se rehacen el número y la etiqueta.
+                </p>
+                <CountdownControls
+                  value={video.countdown}
+                  onChange={(countdown) => update({ countdown }, 'countdown')}
+                  media={video.mediaUrl}
+                  onMedia={(mediaUrl) => update({ mediaUrl }, 'media')}
+                />
+              </CardContent>
+            </Card>
+          ) : isSlides ? (
             <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
               <CardContent className="pt-6 space-y-3">
                 <p className="text-sm text-muted-foreground">
