@@ -1,6 +1,6 @@
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
-import { getDb, createTicketType } from './db';
+import { getDb, createTicketType, ensureCustomerIdForEmail } from './db';
 import {
   birthdayPeople, discountCodes, events, orderItems, orders, ticketTypes, tickets,
 } from '../drizzle/schema';
@@ -135,6 +135,7 @@ async function ensureRewardOrder(person: typeof birthdayPeople.$inferSelect): Pr
     buyerName: person.name,
     buyerEmail: person.email,
     buyerPhone: person.whatsapp,
+    customerId: await ensureCustomerIdForEmail(person.email, person.name),
     eventId: person.eventId,
     subtotal: '0',
     total: '0',
@@ -291,6 +292,7 @@ export async function assignNextEventCredit(params: { birthdayPersonId: number; 
     buyerName: person.name,
     buyerEmail: person.email,
     buyerPhone: person.whatsapp,
+    customerId: await ensureCustomerIdForEmail(person.email, person.name),
     eventId: params.targetEventId,
     subtotal: '0',
     total: '0',

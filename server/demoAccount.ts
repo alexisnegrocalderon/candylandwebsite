@@ -146,6 +146,18 @@ export async function createDemoAccount(input: { email: string; name: string }) 
     { customerId, delta: -200, reason: 'redeem_caja', balanceAfter: 1250, createdAt: at(18) },
   ]);
 
+  // Todo lo anterior queda ligado al cliente, igual que en producción, y un consumo de caja pagado con saldo
+  // (su cobro es el `spend_caja` de arriba) para que «Mis movimientos» muestre la compra con su detalle.
+  await db.update(orders).set({ customerId }).where(sql`LOWER(${orders.buyerEmail}) = ${email}`);
+  const cajaTypeId = insertId(await db.insert(ticketTypes).values({ eventId, name: 'Piscola', price: '5000', totalStock: 100, category: 'consumo' }));
+  const cajaOpId = `demo-caja-${rand(8)}`;
+  const cajaOrder = insertId(await db.insert(orders).values({
+    orderNumber: `CAJA-DEMO${rand(4)}`, buyerName: name, buyerEmail: email, customerId, eventId, subtotal: '5000', total: '5000',
+    paymentStatus: 'approved', paymentId: `CAJA-${cajaOpId}`, paymentMethod: 'saldo', channel: 'caja', emailSent: 1, createdAt: at(19),
+  }));
+  await db.insert(orderItems).values({ orderId: cajaOrder, ticketTypeId: cajaTypeId, quantity: 1, unitPrice: '5000', totalPrice: '5000' });
+  await db.update(prepaidLedger).set({ opId: cajaOpId }).where(sql`${prepaidLedger.customerId} = ${customerId} AND ${prepaidLedger.reason} = 'spend_caja'`);
+
   // 4. Cupones: uno vigente, uno usado y uno vencido. Solo valen en el evento de prueba.
   const coupons = [
     { kind: 'bienvenida', title: '10% de bienvenida', percent: 10, validUntil: new Date(now.getTime() + 30 * DAY), usedCount: 0 },

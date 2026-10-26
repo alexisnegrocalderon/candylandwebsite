@@ -1,6 +1,7 @@
 import { eq, and, inArray, ne, sql } from "drizzle-orm";
 import { orders, orderItems, tickets, ticketTypes } from "../../drizzle/schema";
 import { applyOp } from "./ops";
+import { ensureCustomerIdForEmail } from "../db";
 import { generateDisplayCode, fallbackInternalCode } from "./displayCode";
 import { isParkingTicketType, isAnyParkingTicketType, PLACEHOLDER_BUYER_EMAILS } from "../../shared/parking";
 
@@ -84,6 +85,10 @@ async function createParkingOrderAndTicket(db: any, params: {
     buyerName: params.buyerOrder.buyerName,
     buyerEmail: params.buyerOrder.buyerEmail,
     buyerPhone: params.buyerOrder.buyerPhone,
+    // Mismo cliente que el ticket escaneado: el estacionamiento cobrado en la
+    // puerta queda en SU historial (si la orden de origen no lo traía, se
+    // resuelve por correo).
+    customerId: params.buyerOrder.customerId ?? await ensureCustomerIdForEmail(params.buyerOrder.buyerEmail, params.buyerOrder.buyerName),
     eventId: params.eventId,
     subtotal: String(params.price),
     total: String(params.price),

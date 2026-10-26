@@ -2038,11 +2038,13 @@ export async function createManualOrder(input: {
   const orderNumber = `MP-${Date.now().toString(36).toUpperCase()}-${nanoid(4).toUpperCase()}`;
   const paymentMethod = buildManualPaymentMethod(input.kind, input.paymentMethod);
 
+  const manualCustomerId = await ensureCustomerIdForEmail(input.buyerEmail, input.buyerName);
   const [orderResult] = await db.insert(orders).values({
     orderNumber,
     buyerName: input.buyerName,
     buyerEmail: input.buyerEmail,
     buyerPhone: input.buyerPhone,
+    customerId: manualCustomerId,
     eventId: event.id,
     subtotal: String(subtotal),
     discount: '0',
@@ -3313,7 +3315,7 @@ export async function getCajaSnapshot(eventId: number) {
   }
 
   // RUT del comprador, para que la puerta lo compare con la cedula. Se cruza
-  // por email porque `orders`/`tickets` no guardan `customerId` -- es el
+  // por email porque `orders` de antes de la fase 4 no guardan `customerId` -- es el
   // mismo cruce que usa `upsertCustomerFromOrder`. Es el RUT de quien compro,
   // no uno por cada persona del grupo: `attendeeData` no trae un RUT por
   // asistente.
@@ -5695,6 +5697,28 @@ export async function listAttendeeContacts(search?: string) {
 // = $1 CLP al canjear, mínimo 5.000 de saldo para poder canjear (parcial
 // permitido). Se gana en compras web Y en caja (ver shared/playcoins.ts). ---
 
+/** Cliente asociado a un correo real: lo busca y, si es la primera vez que se
+ * ve a esa persona, crea una ficha mínima (sin tocar totalOrders/totalSpent,
+ * que solo cuenta compras web). Devuelve null para correos marcador
+ * (caja@, invitacion@) o inválidos. Es lo que deja cada movimiento --caja,
+ * puerta, cumpleaños, ventas manuales-- ligado al cliente automáticamente. */
+export async function ensureCustomerIdForEmail(rawEmail: string | null | undefined, name?: string | null): Promise<number | null> {
+  const email = (rawEmail ?? '').trim().toLowerCase();
+  if (!email || !email.includes('@') || PLACEHOLDER_BUYER_EMAILS.has(email)) return null;
+  const db = await getDb();
+  if (!db) return null;
+  try {
+    const [found] = await db.select({ id: customers.id }).from(customers).where(eq(customers.email, email)).limit(1);
+    if (found) return found.id;
+    const fullName = name?.trim() || null;
+    const [ins] = await db.insert(customers).values({ email, fullName, accessTypes: [], tags: [] });
+    return (ins as unknown as { insertId: number }).insertId;
+  } catch (err) {
+    console.error('[customers] No se pudo asociar el correo a un cliente:', err);
+    return null;
+  }
+}
+
 /** Otorga Playcoins por una compra -- crea el cliente si no existe (una
  * venta de caja con email puede ser la primera vez que se ve ese comprador).
  * Idempotente por (reason, orderId) u (reason, opId): un reintento de
@@ -5861,8 +5885,8 @@ export async function spendPrepaidAuthoritative(params: {
  * Payment Brick confirma el pago de una carga de saldo (ver Checkout.tsx):
  * pagar de verdad con Mercado Pago ES la prueba de identidad (decisión
  * explícita del dueño), nunca antes. Resuelve el cliente por EMAIL, no por
- * `orders.customerId` -- esa columna todavía no se puebla en ningún flujo de
- * compra nuevo (solo tiene el backfill histórico de la migración). */
+ * `orders.customerId` -- las órdenes viejas no lo tienen; las nuevas (web, caja,
+ * puerta, manuales, cumpleaños) sí, pero el correo sigue siendo la llave segura. */
 export async function setCardPinAfterTopup(params: { orderNumber: string; pin: string; currentPin?: string }) {
   const db = await getDb();
   if (!db) throw new Error('Base de datos no disponible');
