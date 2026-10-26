@@ -50,7 +50,10 @@ export function AppInstallsView() {
       </div>
 
       {data && data.people.length > 0 && (
-        <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por nombre o correo…" className="max-w-xs" />
+        <div className="flex flex-wrap items-center gap-3">
+          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por nombre o correo…" className="max-w-xs" />
+          <a className="text-sm text-primary underline" href="/api/admin/customers/export.csv?hasApp=1">Descargar correos (CSV)</a>
+        </div>
       )}
       {data && data.people.length === 0 && (
         <div className="rounded-2xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
