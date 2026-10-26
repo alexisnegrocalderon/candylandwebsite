@@ -23,6 +23,8 @@ const TYPE_LABELS: Record<string, string> = {
   shift_close: "Cierre de turno",
   manual_adjust: "Ajuste manual de supervisor",
   void_code: "Anulación",
+  // Hoy la única nota del ledger es el «Deshacer» de un canje (server/caja/undoRedeem.ts).
+  note: "Canje deshecho",
   locker_return: "Entrega de guardarropía",
   kitchen_update: "Cambio en un pedido de cocina",
 };

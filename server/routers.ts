@@ -17,6 +17,7 @@ import { isValidRut, formatRutLive } from "../shared/rut";
 import { hashPin, verifyPin, signOperatorSession } from "./caja/auth";
 import { generateEnrollCode, enrollCodeExpiry, generateDeviceToken, hashDeviceToken, signDeviceSession, DEVICE_SESSION_MS } from "./caja/deviceAuth";
 import { redeemDisplayCode } from "./caja/redeem";
+import { undoRedeemDisplayCode } from "./caja/undoRedeem";
 import { checkInTicket } from "./caja/checkin";
 import { sellParkingAtDoor } from "./caja/parkingPaid";
 import { MAX_TEST_GUESTS, MIN_TEST_GUESTS } from "../shared/playmatchTest";
@@ -6054,6 +6055,8 @@ export const appRouter = router({
       registerId: z.number().optional(),
       ops: z.array(z.discriminatedUnion('type', [
         z.object({ type: z.literal('redeem'), opId: z.string(), displayCode: z.string(), clientAt: z.string() }),
+        // El «Deshacer» de 60 s tras cobrar un extra (server/caja/undoRedeem.ts).
+        z.object({ type: z.literal('undo_redeem'), opId: z.string(), displayCode: z.string(), clientAt: z.string() }),
         z.object({ type: z.literal('checkin'), opId: z.string(), ticketCode: z.string(), clientAt: z.string() }),
         z.object({
           type: z.literal('sale'), opId: z.string(),
@@ -6078,6 +6081,11 @@ export const appRouter = router({
         try {
           if (op.type === 'redeem') {
             results[op.opId] = await redeemDisplayCode(rawDb, {
+              opId: op.opId, displayCode: op.displayCode, eventId: input.eventId,
+              operatorId: ctx.operator.operatorId, registerId: input.registerId, clientAt: new Date(op.clientAt),
+            });
+          } else if (op.type === 'undo_redeem') {
+            results[op.opId] = await undoRedeemDisplayCode(rawDb, {
               opId: op.opId, displayCode: op.displayCode, eventId: input.eventId,
               operatorId: ctx.operator.operatorId, registerId: input.registerId, clientAt: new Date(op.clientAt),
             });
