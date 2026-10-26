@@ -6,6 +6,7 @@ import { and, asc, desc, eq, inArray, or, sql, type SQL } from 'drizzle-orm';
 import { customers, orders } from '../drizzle/schema';
 import { INACTIVE_AFTER_DAYS, VIP_SPENT_THRESHOLD_CLP, type CustomerLevel } from '../shared/customerInsights';
 import { escapeLikePattern } from '../shared/sqlLike';
+import { PLACEHOLDER_BUYER_EMAILS } from '../shared/parking';
 import { getDb, looksLikeRutSearch, rutDigits, type CustomerListFilters } from './db';
 
 export type CustomerPageFilters = CustomerListFilters & { hasApp?: boolean };
@@ -93,4 +94,13 @@ export async function pageCustomers(filters: CustomerPageFilters, page: number, 
   const rows = await db.select().from(customers).where(where)
     .orderBy(desc(customers.lastSeenAt), asc(customers.id)).limit(pageSize).offset(current * pageSize);
   return { rows, total, page: current, pages };
+}
+
+/** Búsqueda de un cliente registrado desde caja: por nombre, correo, teléfono o RUT. Solo devuelve lo
+ * necesario para asociar la venta (correo, nombre, Playcoins) y deja fuera los correos marcador. */
+export async function findCustomersForCaja(db: any, query: string) {
+  const rows = await db.select({ email: customers.email, fullName: customers.fullName, playcoins: customers.playcoins })
+    .from(customers).where(customerWhere({ search: query }, new Date())).orderBy(desc(customers.totalOrders)).limit(8);
+  return (rows as { email: string; fullName: string | null; playcoins: number }[])
+    .filter((r) => r.email && !PLACEHOLDER_BUYER_EMAILS.has(r.email.toLowerCase()));
 }
