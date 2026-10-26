@@ -728,7 +728,7 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
               <WelcomeBanner welcome={welcome} />
               {staff && <StaffBanner staff={staff} onOpen={() => { tapHaptic(); setSheet('staff'); }} />}
               <PlayCardStack ev={upcoming[0] ?? null} holder={me.fullName || me.email} prepaidBalance={me.prepaidBalance} playcoins={me.playcoins} movements={me.movements}
-                onTopup={pay.accountTopup ? () => setTopupOpen(true) : undefined} onPayCaja={pay.cajaPay ? () => setPayOpen(true) : undefined} onPlaymatch={() => go('playmatch')} onNextTab={() => go('playmatch')} />
+                onTopup={pay.accountTopup ? () => setTopupOpen(true) : undefined} onPayCaja={pay.cajaPay ? () => setPayOpen(true) : undefined} onPlaymatch={() => go('playmatch')} />
               <BuyNextCard me={me} />
             </>
           )}
