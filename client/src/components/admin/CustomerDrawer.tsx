@@ -268,6 +268,31 @@ export function CustomerDrawer({ customerId, onClose, onPrev, onNext, onChanged,
 
                 {/* DATOS */}
                 <TabsContent value="datos" className="space-y-6 pt-4">
+                  <div className="rounded-xl border border-border/60 p-3">
+                    <p className="text-xs text-muted-foreground">Saldo PlayCard</p>
+                    <p className="text-2xl font-semibold">{money(c.prepaidBalance)}</p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <Input type="number" inputMode="numeric" value={prepaidDelta} onChange={(e) => setPrepaidDelta(e.target.value)} placeholder="+/- $" className="h-8 w-24 text-xs" aria-label="Monto del ajuste" />
+                      <Input value={prepaidNote} onChange={(e) => setPrepaidNote(e.target.value)} placeholder="Motivo (solo lo ves tú)" className="h-8 min-w-0 flex-1 text-xs" />
+                      <WriteButton size="sm" variant="outline" className="h-8" disabled={adjustPrepaid.isPending || !Number(prepaidDelta) || prepaidNote.trim().length < 3}
+                        onClick={() => {
+                          const delta = Math.round(Number(prepaidDelta));
+                          if (!window.confirm(`¿${delta > 0 ? 'Cargar' : 'Descontar'} $${Math.abs(delta).toLocaleString('es-CL')} ${delta > 0 ? 'a' : 'de'} la PlayCard de ${c.fullName || c.email}? En su app sale como «Ajuste».`)) return;
+                          adjustPrepaid.mutate({ customerId: c.id, delta, note: prepaidNote.trim() });
+                        }}>
+                        Ajustar
+                      </WriteButton>
+                    </div>
+                    <div className="mt-2 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                      <span>{c.cardPinSetAt ? `PIN creado el ${formatChileDate(c.cardPinSetAt)}` : 'Sin PIN'}</span>
+                      {c.cardPinSetAt && (
+                        <WriteButton size="sm" variant="ghost" className="h-7 px-2 text-xs" disabled={resetPin.isPending}
+                          onClick={() => { if (window.confirm('¿Reiniciar el PIN de la tarjeta? Creará uno nuevo en su próxima recarga y le llegará un aviso.')) resetPin.mutate({ customerId: c.id, notify: true }); }}>
+                          Reiniciar PIN
+                        </WriteButton>
+                      )}
+                    </div>
+                  </div>
                   <Section title="Contacto">
                     <Field label="Nombre completo" locked={locked.includes('fullName')}>
                       <Input value={form.fullName} onChange={(e) => set('fullName', e.target.value)} />
@@ -472,7 +497,7 @@ export function CustomerDrawer({ customerId, onClose, onPrev, onNext, onChanged,
                       />
                     </div>
                   </div>
-                  <div className="grid sm:grid-cols-2 gap-4">
+                  <div className="grid gap-4">
                     <div className="rounded-xl border border-border/60 p-3">
                       <p className="text-xs text-muted-foreground">Playcoins</p>
                       <p className="text-2xl font-semibold">🪙 {c.playcoins}</p>
@@ -482,31 +507,6 @@ export function CustomerDrawer({ customerId, onClose, onPrev, onNext, onChanged,
                           onClick={() => { const delta = Number(adjust); if (!Number.isFinite(delta) || delta === 0) return; adjustPlaycoins.mutate({ customerId: c.id, delta, note: 'Ajuste manual desde la ficha' }); }}>
                           Ajustar
                         </WriteButton>
-                      </div>
-                    </div>
-                    <div className="rounded-xl border border-border/60 p-3">
-                      <p className="text-xs text-muted-foreground">Saldo PlayCard</p>
-                      <p className="text-2xl font-semibold">{money(c.prepaidBalance)}</p>
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        <Input type="number" inputMode="numeric" value={prepaidDelta} onChange={(e) => setPrepaidDelta(e.target.value)} placeholder="+/- $" className="h-8 w-24 text-xs" aria-label="Monto del ajuste" />
-                        <Input value={prepaidNote} onChange={(e) => setPrepaidNote(e.target.value)} placeholder="Motivo (solo lo ves tú)" className="h-8 min-w-0 flex-1 text-xs" />
-                        <WriteButton size="sm" variant="outline" className="h-8" disabled={adjustPrepaid.isPending || !Number(prepaidDelta) || prepaidNote.trim().length < 3}
-                          onClick={() => {
-                            const delta = Math.round(Number(prepaidDelta));
-                            if (!window.confirm(`¿${delta > 0 ? 'Cargar' : 'Descontar'} $${Math.abs(delta).toLocaleString('es-CL')} ${delta > 0 ? 'a' : 'de'} la PlayCard de ${c.fullName || c.email}? En su app sale como «Ajuste».`)) return;
-                            adjustPrepaid.mutate({ customerId: c.id, delta, note: prepaidNote.trim() });
-                          }}>
-                          Ajustar
-                        </WriteButton>
-                      </div>
-                      <div className="mt-2 flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                        <span>{c.cardPinSetAt ? `PIN creado el ${formatChileDate(c.cardPinSetAt)}` : 'Sin PIN'}</span>
-                        {c.cardPinSetAt && (
-                          <WriteButton size="sm" variant="ghost" className="h-7 px-2 text-xs" disabled={resetPin.isPending}
-                            onClick={() => { if (window.confirm('¿Reiniciar el PIN de la tarjeta? Creará uno nuevo en su próxima recarga y le llegará un aviso.')) resetPin.mutate({ customerId: c.id, notify: true }); }}>
-                            Reiniciar PIN
-                          </WriteButton>
-                        )}
                       </div>
                     </div>
                   </div>
