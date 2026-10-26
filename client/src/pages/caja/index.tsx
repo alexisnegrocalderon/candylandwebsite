@@ -18,8 +18,7 @@ import {
   nextKitchenTicketNumber, nextLockerTagNumber, getLocalBarra,
   type CajaAttendee, type CajaBarra, type CajaCatalogItem, type CajaStaffComp, type QueuedOp,
 } from './db';
-import { nivelInsumo, recetaDe, tragosDisponibles, tragosPorInsumo, type GlassId } from '@shared/insumos';
-import { baseIdOf, cartToItems, expandCatalog } from '@/lib/cajaGlasses';
+import { nivelInsumo, tragosDisponibles, tragosPorInsumo } from '@shared/insumos';
 import { BarraCount } from './BarraCount';
 import { forgetOffline, useOfflineFallback } from './offlineGate';
 import { canRedeem, clampRedeemAmount, PLAYCOINS_MIN_REDEEM_BALANCE } from '@shared/playcoins';
@@ -1288,7 +1287,7 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
   // no lo necesitan, se encolan igual offline.
   isOnline: boolean;
   onSale: (
-    items: { ticketTypeId: number; quantity: number; glass?: GlassId }[],
+    items: { ticketTypeId: number; quantity: number }[],
     paymentMethod: 'efectivo' | 'debito' | 'credito' | 'qr' | 'saldo',
     buyerEmail?: string,
     redeemPlaycoins?: number,
@@ -1301,7 +1300,7 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
     payToken?: string,
   ) => void | Promise<void>;
 }) {
-  const [baseCatalog, setCatalog] = useState<CajaCatalogItem[]>([]);
+  const [catalog, setCatalog] = useState<CajaCatalogItem[]>([]);
   const [cart, setCart] = useState<Record<number, number>>({});
   // Arranca con el último medio usado en ESTA tablet (en barra se repite
   // casi siempre el mismo); 'saldo' nunca, porque exige datos del cliente.
@@ -1455,7 +1454,7 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
   // Si el carrito tiene algún producto en promo relámpago, se aplica sola.
   useEffect(() => {
     if (!flashPromoActive) return;
-    const hasFlashItem = Object.entries(cart).some(([id, qty]) => qty > 0 && flashPromo!.ticketTypeIds.includes(baseIdOf(Number(id))));
+    const hasFlashItem = Object.entries(cart).some(([id, qty]) => qty > 0 && flashPromo!.ticketTypeIds.includes(Number(id)));
     if (hasFlashItem && discountResult?.discount?.code !== flashPromo!.code) {
       setDiscountResult({ valid: true, discount: { code: flashPromo!.code, discountType: flashPromo!.discountType, discountValue: flashPromo!.discountValue } });
     } else if (!hasFlashItem && discountResult?.discount?.code === flashPromo?.code) {
@@ -1474,8 +1473,6 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
 
   // Stock de la barra por insumos (ver `barraLeft` más abajo).
   const [barra, setBarra] = useState<CajaBarra | null>(null);
-  // Los tragos con receta en varios vasos salen como una tarjeta por vaso.
-  const catalog = useMemo(() => expandCatalog(baseCatalog, barra?.recetas ?? []), [baseCatalog, barra]);
   useEffect(() => {
     getLocalCatalog().then((c) => {
       const sorted = [...c].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
@@ -1493,7 +1490,7 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
     const stock = new Map(barra.insumos.map((i) => [i.id, i.stock]));
     const alertOf = new Map(barra.insumos.map((i) => [i.id, i.alertDrinks]));
     for (const p of catalog) {
-      const left = tragosDisponibles(recetaDe(barra.recetas, p.baseId, p.glass).lines, stock);
+      const left = tragosDisponibles(barra.recetas.filter((r) => r.ticketTypeId === p.id), stock);
       if (left) byProduct.set(p.id, { drinks: left.drinks, low: left.drinks < (alertOf.get(left.limitingInsumoId) ?? 0) });
     }
     const alerts = barra.insumos
@@ -1549,7 +1546,7 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
                 // avisa pero deja vender igual, por discrepancias normales de
                 // inventario -- ver server/caja/sale.ts).
                 const soldOut = p.status === 'soldout';
-                const isFlashPromo = flashPromoActive && flashPromo!.ticketTypeIds.includes(p.baseId);
+                const isFlashPromo = flashPromoActive && flashPromo!.ticketTypeIds.includes(p.id);
                 return (
                   <button
                     key={p.id}
@@ -1680,7 +1677,7 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
   };
 
   const runConfirm = async (method: 'efectivo' | 'debito' | 'credito' | 'qr' | 'saldo' = paymentMethod) => {
-    const cartItems = cartToItems(cart);
+    const cartItems = Object.entries(cart).filter(([, q]) => q > 0).map(([ticketTypeId, quantity]) => ({ ticketTypeId: Number(ticketTypeId), quantity }));
     // Pagando con saldo no se combina con canje de Playcoins -- no se
     // mezclan los dos saldos en una misma venta (decisión explícita del
     // dueño).

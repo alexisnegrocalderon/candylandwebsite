@@ -16,7 +16,7 @@ import { getDb } from "./db";
 import { insumoSchemaStatus } from "./schemaUpdates";
 import { personasForTicket } from "../shared/mission300";
 import {
-  DEFAULT_GLASS, conteoATotal, consumoDeVenta, descuadre, detalleATotal, glassesDeProducto, insumoSizes, recetaDe, nivelInsumo, normalizeName, proyeccionCompra, tragosDisponibles, tragosPorInsumo,
+  DEFAULT_GLASS, conteoATotal, consumoDeVenta, descuadre, detalleATotal, insumoSizes, recetaDe, nivelInsumo, normalizeName, proyeccionCompra, tragosDisponibles, tragosPorInsumo,
   OPEN_PORTIONS, type ConteoDetalle, type Insumo, type InsumoUnit, type MovimientoKind, type RecetaLinea,
 } from "../shared/insumos";
 
@@ -122,16 +122,13 @@ export async function estadoBarra(eventId: number) {
       };
     }),
     productos: (products as any[]).map((p) => {
-      // Una receta por vaso; `receta`/`drinks` son los del vaso principal (el primero que tiene receta).
-      const glasses = glassesDeProducto(recetas, p.id).map((glass) => {
-        const receta = recetaDe(recetas, p.id, glass).lines.map((r) => ({ insumoId: r.insumoId, amount: r.amount }));
-        const left = tragosDisponibles(receta, stock);
-        return { glass, receta, drinks: left?.drinks ?? null, limitingInsumoId: left?.limitingInsumoId ?? null };
-      });
-      const main = glasses[0];
+      // Cada trago viene en su vaso (vaso, copa o shot) y tiene una sola receta.
+      const { glass, lines } = recetaDe(recetas, p.id);
+      const receta = lines.map((r) => ({ insumoId: r.insumoId, amount: r.amount }));
+      const left = tragosDisponibles(receta, stock);
       return {
         id: p.id as number, name: p.name as string, groupName: (p.groupName as string | null) ?? null, emoji: (p.emoji as string | null) ?? null,
-        receta: main?.receta ?? [], drinks: main?.drinks ?? null, limitingInsumoId: main?.limitingInsumoId ?? null, glasses,
+        glass, receta, drinks: left?.drinks ?? null, limitingInsumoId: left?.limitingInsumoId ?? null,
       };
     }),
   };
@@ -188,10 +185,11 @@ export async function setInsumoActive(id: number, active: boolean) {
   return { success: true } as const;
 }
 
-/** Reemplaza la receta de un trago en un vaso (sin líneas = ese vaso deja de existir). */
+/** Reemplaza la receta de un trago. El vaso es del producto (cada trago viene en el suyo):
+ * se cambian todas las líneas juntas, así nunca quedan recetas de dos vasos. */
 export async function setReceta(ticketTypeId: number, glass: string, lines: { insumoId: number; amount: number }[]) {
   const db = await dbOrThrow();
-  await db.delete(insumoRecetas).where(and(eq(insumoRecetas.ticketTypeId, ticketTypeId), eq(insumoRecetas.glass, glass)));
+  await db.delete(insumoRecetas).where(eq(insumoRecetas.ticketTypeId, ticketTypeId));
   const clean = new Map<number, number>();
   for (const l of lines) if (l.amount > 0) clean.set(l.insumoId, (clean.get(l.insumoId) ?? 0) + l.amount);
   if (clean.size > 0) {
@@ -290,7 +288,7 @@ async function isTestEvent(db: any, eventId: number): Promise<boolean> {
 
 /** Descuenta los insumos de una venta. Idempotente por opId (índice único) y
  * nunca lanza: un insumo mal cargado no puede frenar un cobro. */
-export async function descontarVenta(db: any, params: { opId: string; eventId: number; operatorId: number; items: { ticketTypeId: number; quantity: number; glass?: string | null }[] }) {
+export async function descontarVenta(db: any, params: { opId: string; eventId: number; operatorId: number; items: { ticketTypeId: number; quantity: number }[] }) {
   try {
     if (!(await ready()) || (await isTestEvent(db, params.eventId))) return;
     const ids = params.items.map((i) => i.ticketTypeId);

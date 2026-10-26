@@ -209,45 +209,33 @@ describe('botellas de distintos tamaños', () => {
   });
 });
 
-describe('recetas por vaso', () => {
-  // Mojito: vaso 500 ml (60 de ron + 200 de soda) y copa 400 ml (45 de ron + 150 de soda); shot de ron solo.
-  const mojito: RecetaLinea[] = [
+describe('vaso de cada trago', () => {
+  // Mojito sale en vaso de 500 ml; el espumante en copa de 400 ml.
+  const carta: RecetaLinea[] = [
     { ticketTypeId: 2, insumoId: 1, amount: 60, glass: 'vaso' },
     { ticketTypeId: 2, insumoId: 2, amount: 200, glass: 'vaso' },
-    { ticketTypeId: 2, insumoId: 1, amount: 45, glass: 'copa' },
-    { ticketTypeId: 2, insumoId: 2, amount: 150, glass: 'copa' },
-    { ticketTypeId: 2, insumoId: 1, amount: 30, glass: 'shot' },
+    { ticketTypeId: 5, insumoId: 4, amount: 150, glass: 'copa' },
+    { ticketTypeId: 6, insumoId: 1, amount: 30 }, // recetas de antes (sin vaso): vaso
   ];
 
-  it('descuenta la receta del vaso con que se vendió', () => {
-    expect(consumoDeVenta([{ ticketTypeId: 2, quantity: 2, glass: 'copa' }], mojito)).toEqual(
-      expect.arrayContaining([{ insumoId: 1, delta: -90 }, { insumoId: 2, delta: -300 }]),
-    );
-    expect(consumoDeVenta([{ ticketTypeId: 2, quantity: 3, glass: 'shot' }], mojito)).toEqual([{ insumoId: 1, delta: -90 }]);
+  it('cada trago descuenta su propia receta, sea cual sea su vaso', () => {
+    expect(consumoDeVenta([{ ticketTypeId: 5, quantity: 2 }], carta)).toEqual([{ insumoId: 4, delta: -300 }]);
+    expect(consumoDeVenta([{ ticketTypeId: 2, quantity: 1 }, { ticketTypeId: 6, quantity: 2 }], carta).find((c) => c.insumoId === 1)?.delta).toBe(-120);
   });
 
-  it('el mismo trago en dos vasos en una venta suma cada receta', () => {
-    const out = consumoDeVenta([{ ticketTypeId: 2, quantity: 1, glass: 'vaso' }, { ticketTypeId: 2, quantity: 1, glass: 'copa' }], mojito);
-    expect(out.find((o) => o.insumoId === 1)?.delta).toBe(-105);
-  });
-
-  it('sin vaso (o con uno sin receta) usa el primero que tiene receta', async () => {
-    const { recetaDe, glassesDeProducto } = await import('./insumos');
-    expect(recetaDe(mojito, 2).glass).toBe('vaso');
-    expect(recetaDe(mojito.filter((r) => r.glass !== 'vaso'), 2, 'vaso').glass).toBe('copa');
-    expect(glassesDeProducto(mojito, 2)).toEqual(['vaso', 'copa', 'shot']);
-    // Recetas de antes (sin vaso) siguen funcionando.
-    expect(consumoDeVenta([{ ticketTypeId: 1, quantity: 2 }], recetas)).toHaveLength(2);
-  });
-
-  it('"alcanza para N tragos" usa solo la receta principal, no los shots', () => {
-    expect(tragosPorInsumo(1, 600, mojito)).toBe(10); // 600 / 60 (vaso), no el promedio con copa y shot
+  it('el vaso de un trago sale de su receta (vaso si no dice)', async () => {
+    const { recetaDe } = await import('./insumos');
+    expect(recetaDe(carta, 5).glass).toBe('copa');
+    expect(recetaDe(carta, 2).glass).toBe('vaso');
+    expect(recetaDe(carta, 6).glass).toBe('vaso');
+    expect(recetaDe(carta, 99).lines).toEqual([]);
   });
 
   it('suma los ml de la receta contra la capacidad del vaso', async () => {
     const { mlDeReceta, glassInfo } = await import('./insumos');
     const unit = (id: number) => (id === 3 ? 'un' : 'ml') as 'ml' | 'un';
     expect(mlDeReceta([{ insumoId: 1, amount: 60 }, { insumoId: 2, amount: 200 }, { insumoId: 3, amount: 1 }], unit)).toBe(260);
+    expect(glassInfo('vaso')?.ml).toBe(500);
     expect(glassInfo('copa')?.ml).toBe(400);
     expect(glassInfo('shot')?.ml).toBe(30);
     expect(glassInfo(null)?.id).toBe('vaso');

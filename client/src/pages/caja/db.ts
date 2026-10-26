@@ -3,7 +3,7 @@ import { formatKitchenTicketNumber } from '@shared/kitchen';
 import { formatLockerTagNumber } from '@shared/locker';
 import { personasForTicket } from '@shared/mission300';
 import { vipParkingCounts, type DoorParkingOption } from '@shared/parking';
-import { consumoDeVenta, type GlassId, type InsumoUnit, type RecetaLinea } from '@shared/insumos';
+import { consumoDeVenta, type InsumoUnit, type RecetaLinea } from '@shared/insumos';
 
 /* Snapshot local + cola de operaciones para el modo offline de /caja
  * (docs/ARQUITECTURA-CAJA.md §6.2-§6.3). Todo lo que la tablet necesita para
@@ -95,7 +95,7 @@ export type QueuedOp =
   | { opId: string; type: 'checkin'; ticketCode: string; clientAt: string; /** La puerta tocó «Verifiqué las cédulas» (queda en el ledger). */ idVerified?: boolean }
   | { opId: string; type: 'parking_paid'; ticketCode: string; paymentMethod: 'efectivo' | 'debito' | 'credito'; ticketTypeId?: number; clientAt: string }
   | {
-      opId: string; type: 'sale'; items: { ticketTypeId: number; quantity: number; /** En qué vaso se sirvió (define la receta de insumos). */ glass?: GlassId }[];
+      opId: string; type: 'sale'; items: { ticketTypeId: number; quantity: number }[];
       paymentMethod: 'efectivo' | 'debito' | 'credito' | 'qr'; clientAt: string;
       // Playcoins (pedido explícito del usuario): captura opcional del email
       // del cliente para que la venta también gane puntos, y canje opcional

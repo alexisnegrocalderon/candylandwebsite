@@ -58,8 +58,7 @@ export async function createCajaSale(
     eventId: number;
     operatorId: number;
     registerId?: number | null;
-    // `glass`: en qué vaso se sirvió (vaso/copa/shot) -- define qué receta descuenta de los insumos.
-    items: { ticketTypeId: number; quantity: number; glass?: string }[];
+    items: { ticketTypeId: number; quantity: number }[];
     // 'saldo' (pedido explícito del dueño): cubre el 100% del total o
     // rechaza la venta ANTES de crearla -- nunca combinado con otro medio,
     // nunca parcial. Requiere buyerEmail+cardPin. A diferencia de los demás

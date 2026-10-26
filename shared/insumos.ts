@@ -37,11 +37,12 @@ export interface RecetaLinea {
   insumoId: number;
   /** Cuánto gasta UN trago, en la unidad del insumo. */
   amount: number;
-  /** En qué vaso se sirve esta receta (un trago puede tener una por vaso). Vacío = el vaso de siempre. */
+  /** El vaso en que sale este trago (todas las líneas de un trago comparten el mismo). Vacío = vaso. */
   glass?: string | null;
 }
 
-/** Vasos con que se sirve. Un mismo trago puede tener una receta distinta en cada uno. */
+/** Vasos en que sale un trago. Cada trago viene en su vaso (unos en vaso, otros en copa, otros en shot)
+ * y se define en su receta: no es una opción que elija el cliente al comprar. */
 export type GlassId = 'vaso' | 'copa' | 'shot';
 export const GLASSES: { id: GlassId; label: string; ml: number; emoji: string }[] = [
   { id: 'vaso', label: 'Vaso', ml: 500, emoji: '🥃' },
@@ -53,22 +54,20 @@ export const DEFAULT_GLASS: GlassId = 'vaso';
 export const glassInfo = (id: string | null | undefined) => GLASSES.find((g) => g.id === (id || DEFAULT_GLASS));
 const glassKey = (r: { glass?: string | null }) => r.glass || DEFAULT_GLASS;
 
-/** Vasos en que un trago tiene receta, en el orden de `GLASSES`. */
+/** Vaso(s) con receta de un trago (en la práctica uno solo). */
 export function glassesDeProducto(recetas: { ticketTypeId: number; glass?: string | null }[], ticketTypeId: number): string[] {
   const present = new Set(recetas.filter((r) => r.ticketTypeId === ticketTypeId).map(glassKey));
   return [...GLASSES.map((g) => g.id).filter((g) => present.has(g)), ...Array.from(present).filter((g) => !GLASSES.some((x) => x.id === g))];
 }
 
-/** La receta que corre al vender un trago en un vaso. Si ese vaso no tiene receta
- * (o no se eligió ninguno), la del primer vaso que sí la tiene. */
+/** La receta de un trago y el vaso en que sale. */
 export function recetaDe<T extends { ticketTypeId: number; glass?: string | null }>(recetas: T[], ticketTypeId: number, glass?: string | null): { glass: string; lines: T[] } {
   const glasses = glassesDeProducto(recetas, ticketTypeId);
   const chosen = glass && glasses.includes(glass) ? glass : (glasses[0] ?? DEFAULT_GLASS);
   return { glass: chosen, lines: recetas.filter((r) => r.ticketTypeId === ticketTypeId && glassKey(r) === chosen) };
 }
 
-/** Solo la receta principal de cada trago (la de su primer vaso): sirve para
- * estimar "alcanza para N tragos" sin que los shots, que gastan poco, bajen el promedio. */
+/** La receta de cada trago, una sola por trago. */
 export function recetasPrincipales<T extends { ticketTypeId: number; glass?: string | null }>(recetas: T[]): T[] {
   return Array.from(new Set(recetas.map((r) => r.ticketTypeId))).flatMap((id) => recetaDe(recetas, id).lines);
 }
@@ -148,12 +147,12 @@ const round = (n: number) => Math.round(n * 100) / 100;
 /** Lo que gasta una venta, sumado por insumo (dos tragos con ron = un solo
  * movimiento de ron). `delta` va negativo: es lo que sale del stock. */
 export function consumoDeVenta(
-  items: { ticketTypeId: number; quantity: number; glass?: string | null }[],
+  items: { ticketTypeId: number; quantity: number }[],
   recetas: RecetaLinea[],
 ): { insumoId: number; delta: number }[] {
   const byInsumo = new Map<number, number>();
   for (const item of items) {
-    for (const r of recetaDe(recetas, item.ticketTypeId, item.glass).lines) {
+    for (const r of recetaDe(recetas, item.ticketTypeId).lines) {
       if (!(r.amount > 0)) continue;
       byInsumo.set(r.insumoId, (byInsumo.get(r.insumoId) ?? 0) + r.amount * item.quantity);
     }
