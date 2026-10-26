@@ -15,16 +15,20 @@ export function ComprasTab({ eventId, data }: { eventId: number; data: BarraData
   const [personas, setPersonas] = useState(DEFAULT_PERSONAS);
   const [factor, setFactor] = useState(1.1);
   const [manualRate, setManualRate] = useState('');
+  // Cantidad de tragos fijada a mano por producto (el resto se reparte solo).
+  const [manual, setManual] = useState<Record<number, string>>({});
   // Se espera a que la persona termine de teclear antes de recalcular.
-  const [query, setQuery] = useState({ personas, factor, rate: manualRate });
+  const [query, setQuery] = useState({ personas, factor, rate: manualRate, manual });
   useEffect(() => {
-    const id = window.setTimeout(() => setQuery({ personas, factor, rate: manualRate }), 400);
+    const id = window.setTimeout(() => setQuery({ personas, factor, rate: manualRate, manual }), 400);
     return () => window.clearTimeout(id);
-  }, [personas, factor, manualRate]);
+  }, [personas, factor, manualRate, manual]);
 
+  const overrides = Object.fromEntries(Object.entries(query.manual).filter(([, v]) => v.trim() !== '' && Number(v) >= 0).map(([k, v]) => [k, Number(v)]));
   const proyeccion = trpc.insumos.proyeccion.useQuery({
     eventId, personas: Math.max(1, query.personas || 1), factor: query.factor > 0 ? query.factor : 1,
     tragosPorPersona: query.rate.trim() === '' ? null : Number(query.rate),
+    overrides: Object.keys(overrides).length ? overrides : undefined,
   }, { placeholderData: (prev) => prev });
   const p = proyeccion.data;
   const insumoById = new Map(data.insumos.map((i) => [i.id, i]));
@@ -126,17 +130,32 @@ export function ComprasTab({ eventId, data }: { eventId: number; data: BarraData
           </ul>
           {p.costoTotal > 0 && <p className="text-right text-sm">Costo estimado de la compra: <strong>{money(p.costoTotal)}</strong></p>}
 
-          <details className="rounded-2xl border border-border bg-card/40 p-3">
-            <summary className="cursor-pointer text-sm font-semibold">Tragos esperados por producto</summary>
-            <ul className="mt-2 space-y-1 text-sm">
+          <section className="rounded-2xl border border-border bg-card/40 p-3">
+            <div className="flex items-center gap-2">
+              <h3 className="flex-1 text-sm font-semibold">Tragos esperados por producto</h3>
+              {Object.keys(manual).length > 0 && <button type="button" className="text-xs underline" onClick={() => setManual({})}>volver al reparto automático</button>}
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">Cambia la cantidad de cualquier trago y se recalcula todo (insumos, lo que falta y el costo). Los que no toques se reparten el resto.</p>
+            <ul className="mt-2 space-y-1.5 text-sm">
               {p.productos.map((x) => (
-                <li key={x.id} className="flex justify-between gap-2 tabular-nums">
-                  <span className="truncate">{x.name}{!x.fromHistory && <span className="text-xs text-muted-foreground"> (sin historial)</span>}</span>
-                  <span>{x.quantity.toLocaleString('es-CL')} · {Math.round(x.share * 100)} %</span>
+                <li key={x.id} className="flex items-center gap-2 tabular-nums">
+                  <span className="min-w-0 flex-1 truncate">{x.name}{!x.fromHistory && !x.manual && <span className="text-xs text-muted-foreground"> (sin historial)</span>}</span>
+                  <span className="w-12 shrink-0 text-right text-xs text-muted-foreground">{Math.round(x.share * 100)} %</span>
+                  <Input
+                    type="number" inputMode="numeric" min={0} aria-label={`Tragos esperados de ${x.name}`}
+                    value={manual[x.id] ?? String(x.quantity)}
+                    onChange={(e) => setManual((m) => ({ ...m, [x.id]: e.target.value }))}
+                    onBlur={() => setManual((m) => {
+                      if ((m[x.id] ?? 'x').trim() !== '') return m;
+                      const { [x.id]: _removed, ...rest } = m; // vacío = vuelve al reparto automático
+                      return rest;
+                    })}
+                    className={`h-9 w-24 shrink-0 text-right ${manual[x.id] !== undefined ? 'border-primary' : ''}`}
+                  />
                 </li>
               ))}
             </ul>
-          </details>
+          </section>
         </>
       )}
     </div>

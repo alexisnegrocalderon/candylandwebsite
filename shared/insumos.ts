@@ -276,7 +276,7 @@ export interface ProyeccionInput {
   overrides?: Record<number, number>;
 }
 
-export interface ProyeccionProducto { id: number; name: string; quantity: number; share: number; fromHistory: boolean }
+export interface ProyeccionProducto { id: number; name: string; quantity: number; share: number; fromHistory: boolean; /** Cantidad fijada a mano. */ manual: boolean }
 export interface ProyeccionInsumo {
   insumoId: number;
   name: string;
@@ -323,22 +323,25 @@ export function proyeccionCompra(input: ProyeccionInput): Proyeccion {
   const tragosPorPersona = input.tragosPorPersona != null && input.tragosPorPersona >= 0 ? input.tragosPorPersona : historicPerPerson;
   const overrides = input.overrides ?? {};
   const overrideTotal = Object.values(overrides).reduce((s, n) => s + Math.max(0, n), 0);
-  const totalTragos = Math.max(0, Math.round(tragosPorPersona * input.personasObjetivo * factor));
+  const totalPorRitmo = Math.max(0, Math.round(tragosPorPersona * input.personasObjetivo * factor));
   // Lo que no está fijado a mano se reparte según el mix histórico; sin
-  // historial ninguno, en partes iguales entre los tragos sin cantidad fija.
-  const toDistribute = Math.max(0, totalTragos - overrideTotal);
+  // historial de esos tragos, en partes iguales entre los que no tienen cantidad fija.
+  const toDistribute = Math.max(0, totalPorRitmo - overrideTotal);
   const free = input.productos.filter((p) => overrides[p.id] === undefined);
   const freeSold = free.reduce((s, p) => s + (soldByProduct.get(p.id) ?? 0), 0);
 
   const productos: ProyeccionProducto[] = input.productos.map((p) => {
     if (overrides[p.id] !== undefined) {
       const q = Math.max(0, Math.round(overrides[p.id]));
-      return { id: p.id, name: p.name, quantity: q, share: totalTragos > 0 ? q / totalTragos : 0, fromHistory: false };
+      return { id: p.id, name: p.name, quantity: q, share: 0, fromHistory: false, manual: true };
     }
     const sold = soldByProduct.get(p.id) ?? 0;
-    const share = freeSold > 0 ? sold / freeSold : free.length > 0 && soldTotal === 0 ? 1 / free.length : 0;
-    return { id: p.id, name: p.name, quantity: Math.round(toDistribute * share), share, fromHistory: sold > 0 };
+    const share = freeSold > 0 ? sold / freeSold : free.length > 0 ? 1 / free.length : 0;
+    return { id: p.id, name: p.name, quantity: Math.round(toDistribute * share), share, fromHistory: sold > 0, manual: false };
   });
+  // El total es lo que realmente suman los tragos (si fijaste cantidades a mano, manda lo que fijaste).
+  const totalTragos = productos.reduce((s, p) => s + p.quantity, 0);
+  for (const p of productos) p.share = totalTragos > 0 ? p.quantity / totalTragos : 0;
 
   const need = new Map<number, number>();
   for (const p of productos) {

@@ -11,6 +11,7 @@ import { RecetasTab } from './RecetasTab';
 import { ComprasTab } from './ComprasTab';
 import { HistorialTab } from './HistorialTab';
 import { InsumoDialog, type InsumoFormValue } from './InsumoDialog';
+import { DosierDialog } from './DosierDialog';
 
 type Tab = 'stock' | 'recetas' | 'compras' | 'historial';
 const TABS: { id: Tab; label: string; help: string }[] = [
@@ -36,6 +37,7 @@ export function InsumosManager() {
   const activeId = eventId ?? defaultId;
   const [tab, setTab] = useState<Tab>('stock');
   const [dialog, setDialog] = useState<InsumoFormValue | null>(null);
+  const [dosierOpen, setDosierOpen] = useState(false);
 
   const utils = trpc.useUtils();
   const schema = trpc.insumos.schema.useQuery(undefined, { enabled: !isDemo, retry: false, staleTime: 60_000 });
@@ -70,6 +72,9 @@ export function InsumosManager() {
             {(events ?? []).map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}
           </SelectContent>
         </Select>
+        <WriteButton variant="outline" disabled={!ready || !activeId} onClick={() => setDosierOpen(true)} className="shrink-0 interactive">
+          Cargar dosier
+        </WriteButton>
         <WriteButton disabled={!ready} onClick={() => setDialog({ name: '', unit: 'ml', containerSize: 750, containerLabel: 'botella', sizes: [750], costPerContainer: null, alertDrinks: 15, initialBySize: {}, initialLoose: 0 })} className="shrink-0 interactive">
           <Plus className="mr-1 h-4 w-4" /> Insumo
         </WriteButton>
@@ -93,6 +98,8 @@ export function InsumosManager() {
           {tab === 'historial' && <HistorialTab eventId={activeId} data={data} />}
         </>
       )}
+
+      {activeId && <DosierDialog eventId={activeId} open={dosierOpen} onClose={() => setDosierOpen(false)} onDone={() => { setDosierOpen(false); refresh(); }} />}
 
       <InsumoDialog
         value={dialog}

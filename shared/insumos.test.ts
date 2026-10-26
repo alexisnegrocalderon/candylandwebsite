@@ -257,3 +257,31 @@ describe('jigger', () => {
     expect(formatPorcion(2, 'un')).toBe('2 un');
   });
 });
+
+describe('proyección con cantidades fijadas a mano', () => {
+  it('si fijas todos los tragos, el total es lo que sumaste', () => {
+    const productos = [
+      { id: 1, name: 'A', receta: [{ insumoId: 1, amount: 60 }] },
+      { id: 2, name: 'B', receta: [{ insumoId: 1, amount: 90 }] },
+    ];
+    const p = proyeccionCompra({
+      historico: [], productos, insumos: [{ id: 1, name: 'Ron', unit: 'ml', containerSize: 750, containerLabel: 'botella', costPerContainer: 8000, alertDrinks: 15 }],
+      stock: new Map([[1, 1000]]), personasObjetivo: 300, tragosPorPersona: 2, overrides: { 1: 100, 2: 50 },
+    });
+    expect(p.totalTragos).toBe(150);
+    expect(p.insumos[0].need).toBe(100 * 60 + 50 * 90);
+    expect(p.insumos[0].missing).toBe(10500 - 1000);
+    expect(p.insumos[0].containersToBuy).toBe(Math.ceil(9500 / 750));
+  });
+
+  it('los que no fijas se reparten el resto, parejo si no tienen historial', () => {
+    const productos = [1, 2, 3].map((id) => ({ id, name: `T${id}`, receta: [{ insumoId: 1, amount: 30 }] }));
+    const p = proyeccionCompra({
+      historico: [], productos, insumos: [], stock: new Map(), personasObjetivo: 100, tragosPorPersona: 3, overrides: { 1: 100 },
+    });
+    expect(p.productos.find((x) => x.id === 1)?.quantity).toBe(100);
+    expect(p.productos.find((x) => x.id === 2)?.quantity).toBe(100);
+    expect(p.productos.find((x) => x.id === 3)?.quantity).toBe(100);
+    expect(p.totalTragos).toBe(300);
+  });
+});

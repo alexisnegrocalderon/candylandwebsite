@@ -15,6 +15,7 @@ import {
 import { getDb } from "./db";
 import { insumoSchemaStatus } from "./schemaUpdates";
 import { personasForTicket } from "../shared/mission300";
+import { DOSIER_INSUMOS, DOSIER_SUPUESTOS, planDosier } from "../shared/dosier";
 import {
   DEFAULT_GLASS, conteoATotal, consumoDeVenta, descuadre, detalleATotal, insumoSizes, recetaDe, nivelInsumo, normalizeName, proyeccionCompra, tragosDisponibles, tragosPorInsumo,
   OPEN_PORTIONS, type ConteoDetalle, type Insumo, type InsumoUnit, type MovimientoKind, type RecetaLinea,
@@ -473,4 +474,60 @@ export async function proyeccion(params: { eventId: number; personas: number; fa
   });
   const actuales = await personasDelEvento(db, params.eventId);
   return { ...result, fuentes, personasConEntrada: actuales.expected, sinReceta: estado.ready ? estado.productos.filter((p) => p.receta.length === 0).map((p) => p.name) : [] };
+}
+
+// --- Carga del dosier (shared/dosier.ts) ---
+
+/** Qué haría cargar el dosier en este evento: insumos a crear, recetas por trago y stock de partida. */
+export async function dosierPlan(eventId: number, reemplazarRecetas = false) {
+  const db = await dbOrThrow();
+  const [all, stock, recetas, products] = await Promise.all([
+    listInsumos(true),
+    stockMap(db),
+    recetasDelEvento(eventId, db),
+    db.select({ id: ticketTypes.id, name: ticketTypes.name }).from(ticketTypes)
+      .where(and(eq(ticketTypes.eventId, eventId), inArray(ticketTypes.category, ["consumo", "merch"]))),
+  ]);
+  const plan = planDosier({
+    insumos: all, productos: products as { id: number; name: string }[],
+    insumosConMovimientos: new Set(stock.keys()), productosConReceta: new Set(recetas.map((r) => r.ticketTypeId)), reemplazarRecetas,
+  });
+  return { ...plan, supuestos: DOSIER_SUPUESTOS };
+}
+
+/** Carga el dosier: crea los insumos que faltan, la receta de cada trago que está en la Carta y el
+ * stock de partida. Se puede repetir sin duplicar nada (no recrea insumos, no pisa stock en uso). */
+export async function dosierApply(params: { eventId: number; reemplazarRecetas: boolean; cargarStock: boolean }) {
+  if (!(await ready())) throw new Error("Falta activar el stock de barra (actualizar la base de datos).");
+  const plan = await dosierPlan(params.eventId, params.reemplazarRecetas);
+  const idByKey = new Map<string, number>();
+  let created = 0;
+  let stockLoaded = 0;
+  for (const i of plan.insumos) {
+    const def = DOSIER_INSUMOS.find((d) => d.key === i.key)!;
+    if (i.id !== null) { idByKey.set(i.key, i.id); }
+    else {
+      const saved = await saveInsumo({
+        name: def.name, unit: def.unit, containerSize: def.containerSize, containerLabel: def.containerLabel,
+        sizes: def.sizes, alertDrinks: def.alertDrinks, costPerContainer: null,
+      });
+      idByKey.set(i.key, saved.id);
+      created++;
+    }
+    if (params.cargarStock && i.loadStock && i.stock && i.stock.amount > 0) {
+      await addMovimiento({ insumoId: idByKey.get(i.key)!, kind: "carga", amount: i.stock.amount, note: `Dosier: ${i.stock.from}` });
+      stockLoaded++;
+    }
+  }
+  let recetas = 0;
+  for (const r of plan.recetas) {
+    if (r.action !== "cargar" || r.productId === null) continue;
+    await setReceta(r.productId, r.glass, r.lines.map((l) => ({ insumoId: idByKey.get(l.insumo)!, amount: l.amount })));
+    recetas++;
+  }
+  return {
+    insumosCreados: created, stockCargado: stockLoaded, recetasCargadas: recetas,
+    recetasYaTenian: plan.recetas.filter((r) => r.action === "ya_tiene").length,
+    sinProducto: plan.recetas.filter((r) => r.action === "sin_producto").map((r) => r.product),
+  };
 }

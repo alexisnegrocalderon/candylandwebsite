@@ -113,7 +113,9 @@ function RecetaEditor({ producto, data, onCancel, onSaved }: { producto: BarraPr
 
   const info = glassInfo(glass)!;
   const totalMl = mlDeReceta(clean, (id) => data.insumos.find((i) => i.id === id)?.unit);
-  const overflow = totalMl > info.ml;
+  // Un trago en shot puede ser varios vasos (el Trío son 3 shots): ahí se muestra en cuántos se reparte.
+  const isShot = glass === 'shot';
+  const overflow = !isShot && totalMl > info.ml;
 
   return (
     <div className="space-y-3">
@@ -167,7 +169,9 @@ function RecetaEditor({ producto, data, onCancel, onSaved }: { producto: BarraPr
       })}
       {totalMl > 0 && (
         <p className={`text-xs ${overflow ? 'text-amber-500' : 'text-muted-foreground'}`}>
-          Suma {totalMl.toLocaleString('es-CL')} ml de líquido en un {info.label.toLowerCase()} de {info.ml} ml{overflow ? ' — no cabe: revisa las cantidades' : ''}.
+          {isShot
+            ? <>Suma {totalMl.toLocaleString('es-CL')} ml = {Math.round((totalMl / info.ml) * 100) / 100} shots de {info.ml} ml.</>
+            : <>Suma {totalMl.toLocaleString('es-CL')} ml de líquido en un {info.label.toLowerCase()} de {info.ml} ml{overflow ? ' — no cabe: revisa las cantidades' : ''}.</>}
         </p>
       )}
       <div className="flex flex-wrap items-center gap-2">

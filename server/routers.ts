@@ -6050,6 +6050,19 @@ export const appRouter = router({
       }
     }),
     estado: adminProcedure.input(z.object({ eventId: z.number() })).query(({ input }) => insumoSvc.estadoBarra(input.eventId)),
+    // Carga del dosier del aniversario: primero se ve qué haría (dosierPlan), después se aplica.
+    dosierPlan: adminProcedure.input(z.object({ eventId: z.number(), reemplazarRecetas: z.boolean().optional() }))
+      .query(({ input }) => insumoSvc.dosierPlan(input.eventId, input.reemplazarRecetas ?? false)),
+    dosierApply: adminProcedure.input(z.object({ eventId: z.number(), reemplazarRecetas: z.boolean(), cargarStock: z.boolean() }))
+      .mutation(async ({ input, ctx }) => {
+        try {
+          const r = await insumoSvc.dosierApply(input);
+          await db.recordAdminAudit({ action: 'insumos.dosierApply', targetType: 'event', targetId: input.eventId, eventId: input.eventId, payload: { ...input, ...r }, ip: clientIp(ctx) });
+          return r;
+        } catch (e: any) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: e?.message ?? 'No se pudo cargar el dosier' });
+        }
+      }),
     save: adminProcedure.input(z.object({
       id: z.number().optional(), name: z.string().trim().min(1).max(100), unit: z.enum(['ml', 'g', 'un']),
       containerSize: z.number().min(1).max(1_000_000), containerLabel: z.string().max(30),
