@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { toast } from 'sonner';
 import { Instagram, Bot, Hand, Send, Sparkles, AlertTriangle, X, GraduationCap, TrendingUp, Lightbulb, Link2, Info, Settings2 } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
-import { useAdminDeepLink } from '@/lib/adminDeepLink';
+import { deliverAdminDeepLink, useAdminDeepLink } from '@/lib/adminDeepLink';
+import { AdminNavContext } from '@/pages/admin/sections/shared';
+import { AgentConfigCard as WhatsAppAgentConfigCard, ConnectionCard as WhatsAppConnectionCard } from '@/components/admin/WhatsAppInbox';
 import { AgentAutoResumeNote } from '@/components/admin/AgentAutoResumeNote';
 import { CustomerNotesCard } from '@/components/admin/CustomerNotesCard';
 import { IgCustomerLinkCard } from '@/components/admin/IgCustomerLinkCard';
@@ -12,8 +14,6 @@ import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { SplitInbox, InboxList, ThreadRow, InboxTag, ChatHeader, ChatMessages, ChatBubble, ChatComposer, chatTime, inboxTime } from '@/components/admin/inbox/SplitInbox';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { EmptyState } from '@/components/admin/EmptyState';
@@ -22,6 +22,7 @@ import { InstagramAutomations } from '@/components/admin/InstagramAutomations';
 import { InstagramComments } from '@/components/admin/InstagramComments';
 import { InstagramLinkKit } from '@/components/admin/InstagramLinkKit';
 import { formatChileDateTime } from '@shared/chileDate';
+import { BRAND_BLOCKS, SALES_BLOCKS, joinBlocks, splitBlocks, type BlockDef } from '@shared/agentKnowledgeBlocks';
 import { classifyHandoffNoise, NOISE_LABEL } from '@shared/agentKnowledge';
 import { IG_MAX_REPLY_CHARS, type InstagramAgentConfig } from '@shared/instagramAgentConfig';
 
@@ -47,6 +48,8 @@ const VIEWS = ['conversaciones', 'comentarios'] as const;
 type InboxView = (typeof VIEWS)[number];
 const AGENT_TABS = ['conocimiento', 'ajustes', 'ventas', 'automatizaciones', 'links'] as const;
 type AgentTab = (typeof AGENT_TABS)[number];
+/** Cada pestaña del agente es una sección del panel (hub «Agente IA»): `agente-<pestaña>`. */
+export const agentSectionId = (tab: AgentTab | 'whatsapp') => `agente-${tab}`;
 
 function readStoredView(): InboxView {
   try {
@@ -63,21 +66,21 @@ export function InstagramInbox() {
     setViewState(next);
     try { window.localStorage.setItem(TAB_STORAGE_KEY, next); } catch { /* ídem */ }
   };
-  const [agentTab, setAgentTab] = useState<AgentTab | null>(null);
+  const { openSection } = useContext(AdminNavContext);
   // El borrador vive acá arriba y no dentro de cada pestaña: las pestañas se
   // desmontan al cambiar, y "Conocimiento" y "Ajustes" editan la misma
   // config -- cambiar de pestaña (o cerrar el panel) no puede perder lo
   // escrito sin guardar.
-  const agent = useAgentConfigDraft(() => setAgentTab('conocimiento'));
+  const agent = useAgentConfigDraft(() => openSection(agentSectionId('conocimiento')));
   const { data: pendingHandoffs } = trpc.instagram.listHandoffLog.useQuery();
   const pendingCount = pendingHandoffs?.length ?? 0;
   const { data: pendingComments } = trpc.instagramComments.pendingCount.useQuery();
   const [focusCommentId, setFocusCommentId] = useState<number | null>(null);
-  const openThread = (id: number) => { setView('conversaciones'); setSelectedId(id); setAgentTab(null); };
+  const openThread = (id: number) => { setView('conversaciones'); setSelectedId(id); };
   // Llegó desde un aviso push: abre la vista y la conversación o el
   // comentario de ese aviso.
   useAdminDeepLink('instagram', (link) => {
-    if (link.tab && (AGENT_TABS as readonly string[]).includes(link.tab)) setAgentTab(link.tab as AgentTab);
+    if (link.tab && (AGENT_TABS as readonly string[]).includes(link.tab)) openSection(agentSectionId(link.tab as AgentTab));
     if (link.tab && (VIEWS as readonly string[]).includes(link.tab)) setView(link.tab as InboxView);
     if (link.thread) openThread(link.thread);
     if (link.comment) { setView('comentarios'); setFocusCommentId(link.comment); }
@@ -98,7 +101,7 @@ export function InstagramInbox() {
             {!!pendingComments && <span className="admin-badge">{pendingComments}</span>}
           </button>
         </div>
-        <button type="button" onClick={() => setAgentTab('conocimiento')}
+        <button type="button" onClick={() => openSection(agentSectionId('conocimiento'))}
           className="admin-tab relative flex h-10 items-center gap-2 rounded-full px-4 text-sm font-medium">
           <Settings2 className="h-4 w-4" /> Agente
           {pendingCount > 0 && <span className="admin-badge">{pendingCount}</span>}
@@ -126,51 +129,21 @@ export function InstagramInbox() {
       ) : (
         <InstagramComments focusId={focusCommentId} />
       )}
-
-      <Sheet open={agentTab !== null} onOpenChange={(open) => { if (!open) setAgentTab(null); }}>
-        <SheetContent side="right" className="w-full gap-0 overflow-y-auto p-0 sm:max-w-2xl lg:max-w-3xl">
-          <SheetHeader className="border-b border-white/10 px-5 py-4">
-            <SheetTitle className="flex items-center gap-2 font-heading text-xl"><Bot className="h-5 w-5" /> Agente de Instagram</SheetTitle>
-            <SheetDescription>Lo que sabe, cómo habla, cómo vende y sus automatizaciones.</SheetDescription>
-          </SheetHeader>
-          <Tabs value={agentTab ?? 'conocimiento'} onValueChange={(v) => setAgentTab(v as AgentTab)} className="px-5 py-4">
-            <TabsList className="h-auto w-full flex-wrap justify-start">
-              <TabsTrigger value="conocimiento" className="flex-none">Conocimiento y tono{agent.dirty ? ' •' : ''}</TabsTrigger>
-              <TabsTrigger value="ajustes" className="flex-none">Ajustes</TabsTrigger>
-              <TabsTrigger value="ventas" className="flex-none">
-                Ventas y aprendizaje
-                {pendingCount > 0 && (
-                  <span className="ml-1.5 rounded-full bg-amber-500 px-1.5 text-[10px] font-semibold text-white">{pendingCount}</span>
-                )}
-              </TabsTrigger>
-              <TabsTrigger value="automatizaciones" className="flex-none">Automatizaciones</TabsTrigger>
-              <TabsTrigger value="links" className="flex-none">Kit de links</TabsTrigger>
-            </TabsList>
-            <TabsContent value="conocimiento" className="pt-3">
-              <AgentKnowledgeCard agent={agent} />
-            </TabsContent>
-            <TabsContent value="ajustes" className="space-y-6 pt-3">
-              <AgentSettingsCard agent={agent} />
-              <AgentButtonsCard />
-            </TabsContent>
-            <TabsContent value="ventas" className="space-y-6 pt-3">
-              <AgentSalesCard />
-              <FansCard onOpen={openThread} />
-              <AgentCoachCard />
-              <KnowledgeCard />
-              <HandoffLogCard />
-            </TabsContent>
-            <TabsContent value="automatizaciones" className="pt-3">
-              <InstagramAutomations />
-            </TabsContent>
-            <TabsContent value="links" className="pt-3">
-              <InstagramLinkKit />
-            </TabsContent>
-          </Tabs>
-        </SheetContent>
-      </Sheet>
     </div>
   );
+}
+
+/* El borrador vive fuera de React: cada pestaña del agente es una sección distinta del panel y se desmonta al
+ * cambiar de una a otra, pero «Conocimiento» y «Ajustes» editan la misma config y no se puede perder lo escrito. */
+let agentDraft: InstagramAgentConfig | null = null;
+const agentDraftListeners = new Set<() => void>();
+function writeAgentDraft(next: InstagramAgentConfig | null | ((d: InstagramAgentConfig | null) => InstagramAgentConfig | null)) {
+  agentDraft = typeof next === 'function' ? next(agentDraft) : next;
+  agentDraftListeners.forEach((l) => l());
+}
+function useAgentDraftStore(): [InstagramAgentConfig | null, typeof writeAgentDraft] {
+  const draft = useSyncExternalStore((l) => { agentDraftListeners.add(l); return () => { agentDraftListeners.delete(l); }; }, () => agentDraft);
+  return [draft, writeAgentDraft];
 }
 
 /** Un solo borrador de la config del agente, compartido por las pestañas
@@ -183,7 +156,7 @@ function useAgentConfigDraft(onCoachAppend: () => void) {
     onSuccess: () => { utils.instagram.getConfig.invalidate(); toast.success('Guardado.'); },
     onError,
   });
-  const [draft, setDraft] = useState<InstagramAgentConfig | null>(null);
+  const [draft, setDraft] = useAgentDraftStore();
   useEffect(() => { if (config && !draft) setDraft(config); }, [config, draft]);
 
   // "Agregar" desde el coach semanal: suma la sugerencia al borrador (no la
@@ -252,25 +225,13 @@ function AgentMasterSwitch({ agent }: { agent: AgentDraft }) {
   );
 }
 
-function SaveBar({ agent }: { agent: AgentDraft }) {
-  const { draft, save, dirty } = agent;
-  if (!draft) return null;
-  return (
-    <div className="flex flex-wrap items-center gap-3">
-      <WriteButton onClick={() => save.mutate(draft)} disabled={save.isPending}>
-        {save.isPending ? 'Guardando...' : 'Guardar'}
-      </WriteButton>
-      {dirty && <span className="text-xs text-amber-600">Tienes cambios sin guardar (en esta pestaña o en la otra del agente).</span>}
-    </div>
-  );
+/** El «Guardar» ya no va dentro de cada tarjeta: es la barra fija de abajo (StickySaveBar). */
+function SaveBar(_props: { agent: AgentDraft }) {
+  return null;
 }
 
 function AgentKnowledgeCard({ agent }: { agent: AgentDraft }) {
   const { draft, setDraft } = agent;
-  const { data: contextPreview } = trpc.instagram.previewContext.useQuery();
-  const preview = trpc.instagram.preview.useMutation({ onError });
-  const [testMessage, setTestMessage] = useState('hola, cuánto vale la entrada?');
-  const [showContext, setShowContext] = useState(false);
 
   if (!draft) return <AgentConfigLoadState agent={agent} />;
 
@@ -282,32 +243,7 @@ function AgentKnowledgeCard({ agent }: { agent: AgentDraft }) {
           Instagram y WhatsApp usan este mismo conocimiento: se edita solo acá.
         </p>
 
-        <div className="space-y-2">
-          <Label>Qué tiene que saber el agente</Label>
-          <Textarea
-            rows={8}
-            value={draft.brandNotes}
-            onChange={(e) => setDraft({ ...draft, brandNotes: e.target.value })}
-          />
-          <p className="text-xs text-muted-foreground">
-            Tono de la marca y respuestas a las preguntas de siempre. Las fechas y los precios NO se escriben acá: salen
-            solos de los eventos cargados en el panel.
-          </p>
-        </div>
-
-        <div className="space-y-2">
-          <Label>Guía de ventas</Label>
-          <Textarea
-            rows={10}
-            maxLength={6000}
-            value={draft.salesPlaybook}
-            onChange={(e) => setDraft({ ...draft, salesPlaybook: e.target.value })}
-          />
-          <p className="text-xs text-muted-foreground">
-            Tipos de cliente y cómo acompañar a cada uno, más las objeciones típicas y cómo responderlas. El agente la usa para
-            leer a quién le habla y venderle con calidez. Súmale lo que vayas aprendiendo de las conversaciones.
-          </p>
-        </div>
+        <KnowledgeBlocks draft={draft} setDraft={setDraft} />
 
         <StyleExamplesField
           value={draft.styleExamples}
@@ -337,47 +273,6 @@ function AgentKnowledgeCard({ agent }: { agent: AgentDraft }) {
         </div>
 
         <SaveBar agent={agent} />
-
-        <div className="border-t pt-5 space-y-3">
-          <p className="font-medium flex items-center gap-2"><Sparkles className="w-4 h-4" /> Probar sin mandar nada</p>
-          <p className="text-xs text-muted-foreground">La prueba usa lo que ya está guardado: guarda primero si cambiaste algo.</p>
-          <div className="flex gap-2">
-            <Input value={testMessage} onChange={(e) => setTestMessage(e.target.value)} placeholder="Escribe un mensaje como si fueras un seguidor" />
-            <WriteButton onClick={() => preview.mutate({ message: testMessage })} disabled={preview.isPending}>
-              {preview.isPending ? '...' : 'Probar'}
-            </WriteButton>
-          </div>
-          {preview.data && (
-            <div className="rounded-2xl border p-4 space-y-2 text-sm">
-              {preview.data.isPersonal ? (
-                <p className="text-muted-foreground">
-                  🤫 Esto lo marcó como mensaje personal (no de cliente): no se mandaría ninguna respuesta automática, quedaría en la bandeja para que lo veas y contestes vos.
-                </p>
-              ) : (
-                <>
-                  <p className="whitespace-pre-wrap">{preview.data.reply}</p>
-                  {preview.data.action === 'buy_link' && (
-                    <p className="text-xs text-primary">+ botón "Comprar entrada"</p>
-                  )}
-                  {preview.data.action === 'page_link' && (
-                    <p className="text-xs text-primary">+ botón a la página {preview.data.pageKey}</p>
-                  )}
-                  {preview.data.handoff && (
-                    <p className="text-amber-600 text-xs">Derivaría a una persona: {preview.data.handoffReason}</p>
-                  )}
-                </>
-              )}
-            </div>
-          )}
-          <Button variant="ghost" size="sm" onClick={() => setShowContext((v) => !v)}>
-            {showContext ? 'Ocultar' : 'Ver'} los datos que recibe la IA
-          </Button>
-          {showContext && (
-            <pre className="text-xs bg-muted/40 rounded-2xl p-4 overflow-x-auto whitespace-pre-wrap">
-              {contextPreview?.context ?? 'Cargando...'}
-            </pre>
-          )}
-        </div>
       </CardContent>
     </Card>
   );
@@ -1161,6 +1056,266 @@ function NoAiAccountsEditor() {
         <Input value={username} placeholder="@usuario" onChange={(e) => setUsername(e.target.value)} />
         <Button type="button" variant="outline" disabled={!username.trim() || set.isPending} onClick={() => set.mutate({ username, noAi: true })}>Agregar</Button>
       </div>
+    </div>
+  );
+}
+
+/* ── Hub «Agente IA»: una sección del panel por pestaña ───────────────────────────────────────────────── */
+
+const WA_TAB = 'whatsapp' as const;
+
+/** Lo que va arriba de todas las pestañas del agente: los dos canales y su estado de un vistazo. */
+function AgentHeader({ agent }: { agent: AgentDraft }) {
+  const { data: wa } = trpc.whatsapp.getConfig.useQuery();
+  const { openSection } = useContext(AdminNavContext);
+  const { draft, config, setDraft, save } = agent;
+  return (
+    <div className="space-y-3">
+      <div className="grid gap-2 sm:grid-cols-2">
+        <div className="admin-clay-sm flex items-center justify-between gap-3 border border-white/10 bg-white/5 px-4 py-3">
+          <div className="min-w-0">
+            <p className="flex items-center gap-2 font-medium"><Instagram className="h-4 w-4 shrink-0" /> Instagram</p>
+            <p className="text-xs text-muted-foreground">{draft?.enabled ? 'Contesta solo' : 'Apagado: los mensajes llegan y nadie responde solo'}</p>
+          </div>
+          <Switch
+            checked={!!draft?.enabled}
+            disabled={!draft || !config || save.isPending}
+            onCheckedChange={(enabled) => { if (!draft || !config) return; setDraft({ ...draft, enabled }); save.mutate({ ...config, enabled }); }}
+          />
+        </div>
+        <button type="button" onClick={() => openSection(agentSectionId(WA_TAB))}
+          className="admin-clay-sm flex items-center justify-between gap-3 border border-white/10 bg-white/5 px-4 py-3 text-left">
+          <div className="min-w-0">
+            <p className="flex items-center gap-2 font-medium"><Bot className="h-4 w-4 shrink-0" /> WhatsApp</p>
+            <p className="text-xs text-muted-foreground">{wa?.enabled ? 'Contesta solo' : 'Todavía no está activo'}</p>
+          </div>
+          <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-medium ${wa?.enabled ? 'bg-emerald-500/15 text-emerald-300' : 'bg-muted text-muted-foreground'}`}>{wa?.enabled ? 'Activo' : 'No activo'}</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+const AGENT_TITLES: Record<AgentTab | typeof WA_TAB, string> = {
+  conocimiento: 'Conocimiento y tono', ajustes: 'Ajustes del agente', ventas: 'Ventas y aprendizaje',
+  automatizaciones: 'Automatizaciones', links: 'Kit de links', whatsapp: 'Agente de WhatsApp',
+};
+
+/** Una pestaña del agente como pantalla completa (la registra el panel en el hub «Agente IA»). */
+export function AgentSection({ tab }: { tab: AgentTab | typeof WA_TAB }) {
+  const { openSection } = useContext(AdminNavContext);
+  const agent = useAgentConfigDraft(() => openSection(agentSectionId('conocimiento')));
+  const { data: pendingHandoffs } = trpc.instagram.listHandoffLog.useQuery(undefined, { enabled: tab === 'ventas' });
+  const openThread = (id: number) => { deliverAdminDeepLink({ section: 'instagram', thread: id }); openSection('instagram'); };
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <h2 className="flex items-center gap-2 font-heading text-2xl"><Bot className="h-6 w-6" /> {AGENT_TITLES[tab]}</h2>
+        <p className="mt-1 text-sm text-muted-foreground">Lo que sabe, cómo habla, cómo vende y sus automatizaciones. Instagram y WhatsApp comparten el mismo conocimiento.</p>
+      </div>
+      <AgentHeader agent={agent} />
+      <AgentSummary />
+
+      {tab === 'conocimiento' && (
+        <div className="space-y-6">
+          <AgentKnowledgeCard agent={agent} />
+          <AgentTester agent={agent} />
+        </div>
+      )}
+      {tab === 'ajustes' && (
+        <div className="space-y-6">
+          <AgentSettingsCard agent={agent} />
+          <AgentButtonsCard />
+          <AgentTester agent={agent} />
+        </div>
+      )}
+      {tab === 'ventas' && (
+        <div className="space-y-6">
+          {!!pendingHandoffs?.length && <p className="text-sm text-amber-500">{pendingHandoffs.length} {pendingHandoffs.length === 1 ? 'conversación esperando' : 'conversaciones esperando'} al equipo (abajo, «Derivaciones»).</p>}
+          <AgentSalesCard />
+          <FansCard onOpen={openThread} />
+          <AgentCoachCard />
+          <KnowledgeCard />
+          <HandoffLogCard />
+        </div>
+      )}
+      {tab === 'automatizaciones' && <InstagramAutomations />}
+      {tab === 'links' && <InstagramLinkKit />}
+      {tab === WA_TAB && (
+        <div className="space-y-5">
+          <WhatsAppConnectionCard />
+          <WhatsAppAgentConfigCard />
+        </div>
+      )}
+      {agent.dirty && <div className="h-20" aria-hidden />}
+      <StickySaveBar agent={agent} />
+    </div>
+  );
+}
+
+/* ── Conocimiento por bloques ─────────────────────────────────────────────────────────────────────────── */
+
+type BlockField = 'brandNotes' | 'salesPlaybook';
+const BLOCK_GROUPS: { field: BlockField; defs: BlockDef[]; items: { key: string; title: string; hint: string; rows: number }[] }[] = [
+  { field: 'brandNotes', defs: BRAND_BLOCKS, items: [
+    { key: '_rest', title: 'Sobre la marca y el tono', hint: 'Quiénes son, cómo hablan y lo que nunca debe decir. Las fechas y los precios NO se escriben acá: salen solos de los eventos.', rows: 6 },
+    { key: 'faq', title: 'Preguntas frecuentes', hint: 'Respuestas a las preguntas de siempre (guardarropía, estacionamiento, edad, qué llevar…).', rows: 6 },
+  ] },
+  { field: 'salesPlaybook', defs: SALES_BLOCKS, items: [
+    { key: 'clientTypes', title: 'Tipos de cliente', hint: 'Cómo acompañar a cada uno: primera vez, pareja, soltera o soltero, grupo de amigos, cliente que ya vino.', rows: 8 },
+    { key: 'objections', title: 'Objeciones típicas', hint: '«Está caro», «me da vergüenza», «no sé qué ponerme»… y cómo responderlas.', rows: 6 },
+    { key: '_rest', title: 'Otras guías de ventas', hint: 'Lo demás que quieras que el agente tenga en cuenta al vender.', rows: 4 },
+  ] },
+];
+
+/** El conocimiento en bloques que se abren y cierran. Se guarda en los mismos dos textos de siempre. */
+function KnowledgeBlocks({ draft, setDraft }: { draft: InstagramAgentConfig; setDraft: (d: InstagramAgentConfig) => void }) {
+  const initial = () => Object.fromEntries(BLOCK_GROUPS.map((g) => {
+    const { rest, blocks } = splitBlocks(draft[g.field], g.defs);
+    return [g.field, { ...blocks, _rest: rest }];
+  })) as unknown as Record<BlockField, Record<string, string>>;
+  const [parts, setParts] = useState(initial);
+
+  // Cambios que llegan de afuera (el coach agrega una sugerencia, se descarta lo editado): se vuelve a leer el texto.
+  useEffect(() => {
+    const stale = BLOCK_GROUPS.some((g) => joinBlocks(parts[g.field]._rest ?? '', parts[g.field], g.defs) !== draft[g.field].replace(/\s+$/g, ''));
+    if (stale) setParts(initial());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft.brandNotes, draft.salesPlaybook]);
+
+  const edit = (field: BlockField, key: string, value: string) => {
+    const group = BLOCK_GROUPS.find((g) => g.field === field)!;
+    const next = { ...parts, [field]: { ...parts[field], [key]: value } };
+    setParts(next);
+    setDraft({ ...draft, [field]: joinBlocks(next[field]._rest ?? '', next[field], group.defs) });
+  };
+
+  return (
+    <div className="space-y-2">
+      <Label>Qué sabe el agente</Label>
+      {BLOCK_GROUPS.flatMap((g) => g.items.map((item) => ({ ...item, field: g.field }))).map((item, i) => {
+        const value = parts[item.field][item.key] ?? '';
+        return (
+          <details key={`${item.field}-${item.key}`} open={i === 0} className="group rounded-2xl border border-white/10 bg-white/[0.03]">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3">
+              <span className="font-medium">{item.title}</span>
+              <span className="text-xs text-muted-foreground">{value.trim() ? (() => { const n = value.trim().split(/\n/).filter(Boolean).length; return `${n} ${n === 1 ? 'línea' : 'líneas'}`; })() : 'vacío'} <span className="ml-1 inline-block transition-transform group-open:rotate-90">›</span></span>
+            </summary>
+            <div className="space-y-2 px-4 pb-4">
+              <Textarea rows={item.rows} value={value} maxLength={6000} onChange={(e) => edit(item.field, item.key, e.target.value)} />
+              <p className="text-xs text-muted-foreground">{item.hint}</p>
+            </div>
+          </details>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ── Barra fija «Guardar / Descartar» ─────────────────────────────────────────────────────────────────── */
+
+function StickySaveBar({ agent }: { agent: AgentDraft }) {
+  const { draft, config, setDraft, save, dirty } = agent;
+  if (!draft || !config || !dirty) return null;
+  return (
+    <div className="fixed inset-x-3 bottom-24 z-40 mx-auto flex max-w-xl items-center gap-3 rounded-2xl border border-white/15 bg-[#1b1126]/95 px-4 py-3 shadow-2xl backdrop-blur md:bottom-4 md:left-[calc(50%+9rem)]">
+      <span className="min-w-0 flex-1 text-sm text-amber-300">Tienes cambios sin guardar</span>
+      <Button variant="ghost" size="sm" onClick={() => setDraft(config)} disabled={save.isPending}>Descartar</Button>
+      <WriteButton size="sm" onClick={() => save.mutate(draft)} disabled={save.isPending}>{save.isPending ? 'Guardando…' : 'Guardar'}</WriteButton>
+    </div>
+  );
+}
+
+/* ── Probar el agente: una conversación de prueba con lo que hay escrito (guardado o no) ─────────────── */
+
+function AgentTester({ agent }: { agent: AgentDraft }) {
+  const [thread, setThread] = useState<{ role: 'user' | 'agent'; text: string; note?: string }[]>([]);
+  const [input, setInput] = useState('');
+  const [showContext, setShowContext] = useState(false);
+  const { data: contextPreview } = trpc.instagram.previewContext.useQuery(undefined, { enabled: showContext });
+  const bottom = useRef<HTMLDivElement>(null);
+  const preview = trpc.instagram.preview.useMutation({
+    onSuccess: (res) => {
+      const note = res.isPersonal ? 'Lo marcó como mensaje personal: no respondería solo.'
+        : res.handoff ? `Derivaría a una persona: ${res.handoffReason}`
+        : res.action === 'buy_link' ? '+ botón «Comprar entrada»' : res.action === 'page_link' ? `+ botón a la página ${res.pageKey}` : undefined;
+      setThread((t) => [...t, { role: 'agent', text: res.isPersonal ? '(sin respuesta automática)' : res.reply, note }]);
+    },
+    onError,
+  });
+  useEffect(() => { bottom.current?.scrollIntoView({ block: 'nearest' }); }, [thread.length, preview.isPending]);
+
+  const send = () => {
+    const text = input.trim();
+    if (!text || preview.isPending) return;
+    const history = thread.filter((m) => m.text !== '(sin respuesta automática)').slice(-10).map(({ role, text: t }) => ({ role, text: t }));
+    setThread((t) => [...t, { role: 'user', text }]);
+    setInput('');
+    preview.mutate({ message: text, history, ...(agent.dirty && agent.draft ? { draft: agent.draft as unknown as Record<string, unknown> } : {}) });
+  };
+
+  return (
+    <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2"><Sparkles className="h-5 w-5" /> Probar el agente</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-sm text-muted-foreground">
+          Escribe como si fueras un seguidor y mira qué contestaría, sin mandarle nada a nadie.
+          {agent.dirty ? ' Usa tus cambios sin guardar.' : ' Usa lo que está guardado.'} Cada mensaje es una consulta real a la IA.
+        </p>
+        <div className="max-h-80 min-h-24 space-y-2 overflow-y-auto rounded-2xl bg-white/[0.03] p-3">
+          {thread.length === 0 && <p className="py-4 text-center text-sm text-muted-foreground">Prueba con: «hola, cuánto vale la entrada?»</p>}
+          {thread.map((m, i) => (
+            <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+              <div className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm ${m.role === 'user' ? 'bg-primary/80 text-primary-foreground' : 'bg-white/10'}`}>
+                <p className="whitespace-pre-wrap">{m.text}</p>
+                {m.note && <p className="mt-1 text-xs text-amber-300">{m.note}</p>}
+              </div>
+            </div>
+          ))}
+          {preview.isPending && <p className="text-xs text-muted-foreground">Escribiendo…</p>}
+          <div ref={bottom} />
+        </div>
+        <div className="flex gap-2">
+          <Input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') send(); }} placeholder="Escribe un mensaje como si fueras un seguidor" maxLength={1000} />
+          <WriteButton onClick={send} disabled={preview.isPending || !input.trim()}><Send className="h-4 w-4" /></WriteButton>
+        </div>
+        <div className="flex items-center justify-between gap-3">
+          <Button variant="ghost" size="sm" onClick={() => setThread([])} disabled={thread.length === 0}>Empezar de nuevo</Button>
+          <Button variant="ghost" size="sm" onClick={() => setShowContext((v) => !v)}>{showContext ? 'Ocultar' : 'Ver'} los datos que recibe la IA</Button>
+        </div>
+        {showContext && <pre className="overflow-x-auto whitespace-pre-wrap rounded-2xl bg-muted/40 p-4 text-xs">{contextPreview?.context ?? 'Cargando...'}</pre>}
+      </CardContent>
+    </Card>
+  );
+}
+
+/* ── Resumen arriba ────────────────────────────────────────────────────────────────────────────────────── */
+
+function AgentSummary() {
+  const { data: threads } = trpc.instagram.listThreads.useQuery(undefined, { retry: false, staleTime: 60_000 });
+  const { data: sales } = trpc.instagram.agentSales.useQuery(undefined, { retry: false, staleTime: 60_000 });
+  const { data: handoffs } = trpc.instagram.listHandoffLog.useQuery(undefined, { retry: false, staleTime: 60_000 });
+  const { openSection } = useContext(AdminNavContext);
+  const today = new Date().toLocaleDateString('es-CL', { timeZone: 'America/Santiago' });
+  const talkedToday = (threads ?? []).filter((t: any) => t.lastInboundAt && new Date(t.lastInboundAt).toLocaleDateString('es-CL', { timeZone: 'America/Santiago' }) === today).length;
+  const clp = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
+  const stats: { value: string; label: string; onClick?: () => void; alert?: boolean }[] = [
+    { value: String(talkedToday), label: 'conversaciones hoy (Instagram)' },
+    { value: sales ? `${sales.last7Days.ordersCount} · ${clp(sales.last7Days.revenue)}` : '—', label: 'ventas atribuidas, 7 días', onClick: () => openSection(agentSectionId('ventas')) },
+    { value: String(handoffs?.length ?? 0), label: 'preguntas por enseñarle', onClick: () => openSection(agentSectionId('ventas')), alert: (handoffs?.length ?? 0) > 0 },
+  ];
+  return (
+    <div className="grid grid-cols-3 gap-2">
+      {stats.map((s) => (
+        <button key={s.label} type="button" onClick={s.onClick} disabled={!s.onClick}
+          className={`admin-clay-sm rounded-2xl border px-3 py-2.5 text-left ${s.alert ? 'border-amber-500/40' : 'border-white/10'}`}>
+          <p className="text-lg font-bold tabular-nums leading-tight">{s.value}</p>
+          <p className="text-[11px] leading-tight text-muted-foreground">{s.label}</p>
+        </button>
+      ))}
     </div>
   );
 }

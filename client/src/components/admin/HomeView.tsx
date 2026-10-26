@@ -17,6 +17,7 @@ import { AlertsStrip } from '@/components/admin/home/AlertsStrip';
 import { useEvento } from '@/components/admin/home/EventoBlock';
 import { usePlata } from '@/components/admin/home/PlataBlock';
 import { useGente } from '@/components/admin/home/GenteBlock';
+import { AgentCard } from '@/components/admin/home/AgentCard';
 import { SummaryTabs } from '@/components/admin/home/SummaryTabs';
 
 /** Pantalla de entrada del panel: cómo va el próximo evento, qué está
@@ -153,6 +154,9 @@ export function HomeView({ badgeCounts, onOpen }: { badgeCounts: Record<string, 
           onClick={() => onOpen('gastos')}
         />
       </div>
+
+      {/* El agente de IA a mano: estado de los canales y quién espera al equipo. */}
+      {!isDemo && <AgentCard waiting={gente.data?.mensajes?.handoffsPending ?? 0} onOpen={onOpen} />}
 
       <div className="grid gap-5 lg:grid-cols-3">
         {/* Gráfico de ventas */}

@@ -10,7 +10,7 @@ import { requestGiftCoupon } from '@/components/admin/members/requestGiftCoupon'
 import { useHideSplashOnMount } from '@/lib/splash';
 import { useSeo } from '@/hooks/useSeo';
 import { useInstallableApp } from '@/hooks/useInstallableApp';
-import { Home, Calendar, DollarSign, Ticket, Users, Plus, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, Contact, Mail, History, Gift, MessageCircle, Crown, Martini, Instagram, UserPlus, Ban, Receipt, Compass, Sparkles, Car, Send, ShieldAlert, Zap, Cake, Calculator, Star, FlaskConical, Palette, UserCheck, Banknote, Landmark, Headphones, ListChecks, PartyPopper, BellRing, Wine, Smartphone } from 'lucide-react';
+import { Home, Calendar, DollarSign, Ticket, Users, Plus, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, Contact, Mail, History, Gift, MessageCircle, Crown, Martini, Instagram, UserPlus, Ban, Receipt, Compass, Sparkles, Car, Send, ShieldAlert, Zap, Cake, Calculator, Star, FlaskConical, Palette, UserCheck, Banknote, Landmark, Headphones, ListChecks, PartyPopper, BellRing, Wine, Smartphone, Bot, TrendingUp, Link2 } from 'lucide-react';
 import { AdminLoginForm } from '@/components/admin/AdminLoginForm';
 import { OPEN_SECTION_EVENT } from '@/components/admin/studio/handoff';
 import { parseAdminDeepLink } from '@shared/adminDeepLink';
@@ -33,6 +33,7 @@ const AppInstallsView = lazy(() => import('@/components/admin/push/AppInstallsVi
 const CustomerPushView = lazy(() => import('@/components/admin/push/CustomerPushView').then((m) => ({ default: m.CustomerPushView })));
 const EventSurveyView = lazy(() => import('@/components/admin/EventSurveyView').then((m) => ({ default: m.EventSurveyView })));
 const ExpenseTerminal = lazy(() => import('@/components/admin/expenses/ExpenseTerminal').then((m) => ({ default: m.ExpenseTerminal })));
+const AgentSection = lazy(() => import('@/components/admin/InstagramInbox').then((m) => ({ default: m.AgentSection })));
 const InstagramInbox = lazy(() => import('@/components/admin/InstagramInbox').then((m) => ({ default: m.InstagramInbox })));
 const MembersManager = lazy(() => import('@/components/admin/members/MembersManager').then((m) => ({ default: m.MembersManager })));
 const ProfileAuditView = lazy(() => import('@/components/admin/ProfileAuditView').then((m) => ({ default: m.ProfileAuditView })));
@@ -108,6 +109,8 @@ const ADMIN_QUICK_ACTIONS: AdminQuickAction[] = [
   { key: 'evento', label: 'Crear evento', icon: Calendar, section: 'events' },
   { key: 'cupon', label: 'Regalar cupón', icon: Gift, section: 'members', onSelect: requestGiftCoupon },
   { key: 'push', label: 'Enviar push', icon: BellRing, section: 'push-clientes' },
+  { key: 'agente', label: 'Agente IA', icon: Bot, section: 'agente-conocimiento' },
+  { key: 'esperando', label: 'Conversaciones esperando', icon: MessageCircle, section: 'instagram' },
 ];
 
 const ADMIN_SECTIONS = [
@@ -150,6 +153,14 @@ const ADMIN_SECTIONS = [
   { id: 'mejor-disfraz', label: 'Mejor disfraz', hub: 'app', icon: Trophy, render: () => <MejorDisfrazView /> },
   { id: 'party-gifts', label: 'Tragos de la Fiesta', hub: 'app', icon: Martini, render: () => <PartyGiftsView /> },
   { id: 'cuenta-demo', label: 'Cuenta de prueba', hub: 'app', icon: UserCheck, render: () => <CuentaDemoView /> },
+
+  // Agente IA: cada pestaña del agente es una sección (comparten el borrador de «Conocimiento» y «Ajustes»).
+  { id: 'agente-conocimiento', label: 'Conocimiento y tono', hub: 'agente', icon: Bot, render: () => <AgentSection tab="conocimiento" /> },
+  { id: 'agente-ajustes', label: 'Ajustes', hub: 'agente', icon: SettingsIcon, render: () => <AgentSection tab="ajustes" /> },
+  { id: 'agente-ventas', label: 'Ventas y aprendizaje', hub: 'agente', icon: TrendingUp, render: () => <AgentSection tab="ventas" /> },
+  { id: 'agente-automatizaciones', label: 'Automatizaciones', hub: 'agente', icon: Zap, render: () => <AgentSection tab="automatizaciones" /> },
+  { id: 'agente-links', label: 'Kit de links', hub: 'agente', icon: Link2, render: () => <AgentSection tab="links" /> },
+  { id: 'agente-whatsapp', label: 'WhatsApp', hub: 'agente', icon: MessageCircle, render: () => <AgentSection tab="whatsapp" /> },
 
   { id: 'instagram', label: 'Instagram', hub: 'mensajes', icon: Instagram, render: () => <InstagramInbox /> },
   { id: 'whatsapp', label: 'WhatsApp', hub: 'mensajes', icon: MessageCircle, render: () => <WhatsAppInbox /> },
@@ -228,7 +239,13 @@ export default function AdminDashboard() {
   useEffect(() => {
     const go = (search: string) => {
       const link = parseAdminDeepLink(search);
-      if (!link || !ADMIN_SECTIONS.some((s) => s.id === link.section)) return;
+      if (!link) return;
+      // Los avisos viejos apuntan a «instagram» con la pestaña del agente: ahora son secciones de «Agente IA».
+      if (link.section === 'instagram' && link.tab && ['conocimiento', 'ajustes', 'ventas', 'automatizaciones', 'links'].includes(link.tab)) {
+        openSection(`agente-${link.tab}` as typeof ADMIN_SECTIONS[number]['id']);
+        return;
+      }
+      if (!ADMIN_SECTIONS.some((s) => s.id === link.section)) return;
       openSection(link.section as typeof ADMIN_SECTIONS[number]['id']);
       deliverAdminDeepLink(link);
     };
