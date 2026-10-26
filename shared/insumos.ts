@@ -91,6 +91,28 @@ export function formatPorcion(amount: number, unit: InsumoUnit): string {
   return `${amount.toLocaleString('es-CL')} ${unit}`;
 }
 
+/** Vista "por botella base": marcas qué tragos usan un insumo y cuánto. Devuelve las recetas que cambian
+ * (con todas sus líneas, listas para guardar): se agrega o corrige el insumo en los tragos marcados, se quita
+ * de los que ya no lo usan y no se toca nada más. Un trago sin receta parte con el vaso de siempre. */
+export function aplicarUso(
+  recetas: { ticketTypeId: number; insumoId: number; amount: number; glass?: string | null }[],
+  insumoId: number,
+  usos: { ticketTypeId: number; amount: number }[],
+): { ticketTypeId: number; glass: string; lines: { insumoId: number; amount: number }[] }[] {
+  const wanted = new Map(usos.filter((u) => u.amount > 0).map((u) => [u.ticketTypeId, u.amount]));
+  const current = new Set(recetas.filter((r) => r.insumoId === insumoId).map((r) => r.ticketTypeId));
+  const changes: { ticketTypeId: number; glass: string; lines: { insumoId: number; amount: number }[] }[] = [];
+  for (const ticketTypeId of Array.from(new Set([...Array.from(current), ...Array.from(wanted.keys())]))) {
+    const { glass, lines } = recetaDe(recetas, ticketTypeId);
+    const before = lines.find((l) => l.insumoId === insumoId)?.amount;
+    const after = wanted.get(ticketTypeId);
+    if (before === after) continue;
+    const others = lines.filter((l) => l.insumoId !== insumoId).map((l) => ({ insumoId: l.insumoId, amount: l.amount }));
+    changes.push({ ticketTypeId, glass: lines.length ? glass : DEFAULT_GLASS, lines: after !== undefined ? [...others, { insumoId, amount: after }] : others });
+  }
+  return changes;
+}
+
 /** Cuánto líquido suma una receta (solo insumos en ml) frente a la capacidad del vaso. */
 export function mlDeReceta(lines: { insumoId: number; amount: number }[], unitOf: (insumoId: number) => InsumoUnit | undefined): number {
   return Math.round(lines.reduce((s, l) => s + (unitOf(l.insumoId) === 'ml' ? l.amount : 0), 0) * 100) / 100;
@@ -111,10 +133,12 @@ export const MOVIMIENTO_LABEL: Record<MovimientoKind, string> = {
 /** La botella abierta se cuenta porcionada en 10: 5/10 = a la mitad. */
 export const OPEN_PORTIONS = 10;
 
-/** Porciones de la botella abierta que se pueden marcar al contar (0/10 … 10/10). */
-export const OPEN_FRACTIONS = Array.from({ length: OPEN_PORTIONS + 1 }, (_, k) => ({
-  value: k / OPEN_PORTIONS,
-  label: `${k}/${OPEN_PORTIONS}`,
+/** Porciones que se marcan en una botella ABIERTA: del 1 al 9. Con 0 no habría botella y con 10 sería una
+ * cerrada (esa se cuenta entre las cerradas). */
+export const OPEN_FRACTIONS = Array.from({ length: OPEN_PORTIONS - 1 }, (_, k) => ({
+  portions: k + 1,
+  value: (k + 1) / OPEN_PORTIONS,
+  label: String(k + 1),
 }));
 
 /** Tamaños de botella de siempre para los destilados: 750 ml, 1 L y 1,5 L. */
@@ -377,6 +401,60 @@ export function proyeccionCompra(input: ProyeccionInput): Proyeccion {
     sinHistorial: input.productos.filter((p) => !soldByProduct.has(p.id)).map((p) => p.name),
     cobertura: Math.round(cobertura * 1000) / 1000,
   };
+}
+
+/** Merma de los conteos: lo que faltó frente a lo que las ventas decían que debía quedar, por conteo y por persona.
+ * Solo cuentan los faltantes (lo que sobra no es pérdida). El costo sale del precio de compra del envase. */
+export function mermaDeConteos(
+  conteos: { id: number; kind: string; operatorName: string | null; createdAt: Date | string; lines: { insumoId: number; diff: number }[] }[],
+  insumos: { id: number; name: string; unit: InsumoUnit; containerSize: number; containerLabel: string; costPerContainer?: number | null }[],
+) {
+  const byId = new Map(insumos.map((i) => [i.id, i]));
+  const porConteo = conteos.map((c) => {
+    const faltantes = c.lines.filter((l) => l.diff < 0 && byId.has(l.insumoId)).map((l) => {
+      const ins = byId.get(l.insumoId)!;
+      const cantidad = -l.diff;
+      const costo = ins.costPerContainer != null && ins.containerSize > 0 ? Math.round((cantidad / ins.containerSize) * Number(ins.costPerContainer)) : null;
+      return { insumoId: ins.id, name: ins.name, cantidad, costo, texto: formatCantidad(cantidad, ins) };
+    }).sort((a, b) => (b.costo ?? 0) - (a.costo ?? 0));
+    return { id: c.id, kind: c.kind, operatorName: c.operatorName ?? '—', createdAt: c.createdAt, faltantes, costo: faltantes.reduce((s, f) => s + (f.costo ?? 0), 0) };
+  });
+  const porPersona = new Map<string, { operatorName: string; conteos: number; faltantes: number; costo: number }>();
+  for (const c of porConteo) {
+    const e = porPersona.get(c.operatorName) ?? { operatorName: c.operatorName, conteos: 0, faltantes: 0, costo: 0 };
+    e.conteos += 1; e.faltantes += c.faltantes.length; e.costo += c.costo;
+    porPersona.set(c.operatorName, e);
+  }
+  return {
+    porConteo,
+    porPersona: Array.from(porPersona.values()).sort((a, b) => b.costo - a.costo || b.faltantes - a.faltantes),
+    costoTotal: porConteo.reduce((s, c) => s + c.costo, 0),
+  };
+}
+
+export interface FilaStock {
+  name: string; unit: InsumoUnit; containerSize: number; containerLabel: string; sizes?: number[] | null;
+  stock: number; drinks: number | null; level: 'agotado' | 'bajo' | 'ok' | 'sin_uso';
+  costPerContainer?: number | null;
+}
+
+const NIVEL_ICONO: Record<FilaStock['level'], string> = { agotado: '⛔', bajo: '⚠️', ok: '✅', sin_uso: '▫️' };
+
+/** El stock de la barra como texto para mandar por WhatsApp: lo urgente primero. */
+export function stockTexto(filas: FilaStock[], titulo: string): string {
+  const orden = { agotado: 0, bajo: 1, ok: 2, sin_uso: 3 } as const;
+  const lines = [...filas].sort((a, b) => orden[a.level] - orden[b.level] || a.name.localeCompare(b.name)).map((f) =>
+    `${NIVEL_ICONO[f.level]} ${f.name}: ${formatCantidad(f.stock, f)}${f.drinks !== null ? ` (~${f.drinks} tragos)` : ''}`);
+  return [`📦 ${titulo}`, ...lines].join('\n');
+}
+
+/** El stock de la barra como CSV (se abre en Excel o Sheets). */
+export function stockCsv(filas: FilaStock[]): string {
+  const q = (v: string | number) => `"${String(v).replace(/"/g, '""')}"`;
+  const head = ['Insumo', 'Stock', `Stock (en ml, g o un)`, 'Alcanza para (tragos)', 'Estado', 'Costo por envase'];
+  const estado = { agotado: 'Agotado', bajo: 'Queda poco', ok: 'OK', sin_uso: 'Sin receta' } as const;
+  const rows = filas.map((f) => [f.name, formatCantidad(f.stock, f), f.stock, f.drinks ?? '', estado[f.level], f.costPerContainer ?? '']);
+  return '\uFEFF' + [head, ...rows].map((r) => r.map(q).join(',')).join('\n');
 }
 
 /** Lista de compras como texto para mandar por WhatsApp. */

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { MoreHorizontal } from 'lucide-react';
+import { Copy, Download, MoreHorizontal } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -8,8 +8,9 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { WriteButton } from '@/components/admin/WriteButton';
-import { describirBotellas, formatCantidad, insumoSizes } from '@shared/insumos';
+import { describirBotellas, formatCantidad, insumoSizes, stockCsv, stockTexto } from '@shared/insumos';
 import { SizeCounts } from './SizeCounts';
+import { UsoDialog } from './UsoDialog';
 import { LEVEL_STYLE, type BarraData, type BarraInsumo } from './types';
 import type { InsumoFormValue } from './InsumoDialog';
 
@@ -28,6 +29,8 @@ export function StockTab({ eventId, data, onEdit, onChanged }: {
   onChanged: () => void;
 }) {
   const [action, setAction] = useState<Action>(null);
+  // Vista por botella base: el insumo cuyos tragos se están editando.
+  const [uso, setUso] = useState<BarraInsumo | null>(null);
   const setActive = trpc.insumos.setActive.useMutation({ onSuccess: onChanged, onError: (e) => toast.error(e.message) });
 
   const counts = {
@@ -40,6 +43,18 @@ export function StockTab({ eventId, data, onEdit, onChanged }: {
     const rank = { agotado: 0, bajo: 1, ok: 2, sin_uso: 3 } as const;
     return rank[a.level] - rank[b.level] || (a.drinks ?? 1e9) - (b.drinks ?? 1e9) || a.name.localeCompare(b.name);
   });
+
+  const filas = data.insumos.map((i) => ({ ...i, drinks: i.drinks, level: i.level }));
+  const copyText = async () => {
+    try { await navigator.clipboard.writeText(stockTexto(filas, `Stock de barra · ${new Date().toLocaleString('es-CL', { timeZone: 'America/Santiago', dateStyle: 'short', timeStyle: 'short' })}`)); toast.success('Stock copiado: pégalo en WhatsApp'); }
+    catch { toast.error('No se pudo copiar'); }
+  };
+  const downloadCsv = () => {
+    const url = URL.createObjectURL(new Blob([stockCsv(filas)], { type: 'text/csv;charset=utf-8' }));
+    const a = document.createElement('a');
+    a.href = url; a.download = `stock-barra-${new Date().toISOString().slice(0, 10)}.csv`; a.click();
+    URL.revokeObjectURL(url);
+  };
 
   if (data.insumos.length === 0) {
     return (
@@ -65,6 +80,11 @@ export function StockTab({ eventId, data, onEdit, onChanged }: {
         ))}
       </div>
 
+      <div className="flex items-center justify-end gap-2">
+        <Button variant="outline" size="sm" onClick={copyText}><Copy className="mr-1 h-4 w-4" /> WhatsApp</Button>
+        <Button variant="outline" size="sm" onClick={downloadCsv}><Download className="mr-1 h-4 w-4" /> Excel</Button>
+      </div>
+
       <ul className="space-y-2">
         {sorted.map((i) => {
           const style = LEVEL_STYLE[i.level];
@@ -82,7 +102,9 @@ export function StockTab({ eventId, data, onEdit, onChanged }: {
                     {i.drinks !== null && <span className="text-muted-foreground"> · alcanza para ~{i.drinks} tragos</span>}
                     {pct !== null && <span className="text-muted-foreground"> · {pct} % de la apertura</span>}
                   </p>
-                  {i.usedBy.length > 0 && <p className="mt-0.5 truncate text-xs text-muted-foreground">Lo usan: {i.usedBy.join(', ')}</p>}
+                  <button type="button" onClick={() => setUso(i)} className="mt-0.5 block max-w-full truncate text-left text-xs text-muted-foreground underline-offset-2 hover:underline">
+                    {i.usedBy.length > 0 ? `Lo usan (${i.usedBy.length}): ${i.usedBy.join(', ')}` : 'Ningún trago lo usa todavía'} · editar
+                  </button>
                   {pct !== null && (
                     <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted" aria-hidden>
                       <div className={`h-full rounded-full ${i.level === 'agotado' ? 'bg-red-500' : i.level === 'bajo' ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${Math.min(100, Math.max(0, pct))}%` }} />
@@ -95,6 +117,7 @@ export function StockTab({ eventId, data, onEdit, onChanged }: {
                     <Button variant="ghost" size="icon" aria-label={`Más acciones de ${i.name}`}><MoreHorizontal className="h-5 w-5" /></Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
+                    <DropdownMenuItem onSelect={() => setUso(i)}>Tragos que lo usan</DropdownMenuItem>
                     <DropdownMenuItem onSelect={() => setAction({ kind: 'merma', insumo: i })}>Registrar merma</DropdownMenuItem>
                     <DropdownMenuItem onSelect={() => setAction({ kind: 'fijar', insumo: i })}>Fijar stock</DropdownMenuItem>
                     <DropdownMenuItem onSelect={() => onEdit({
@@ -113,6 +136,7 @@ export function StockTab({ eventId, data, onEdit, onChanged }: {
         })}
       </ul>
 
+      <UsoDialog eventId={eventId} insumo={uso} data={data} onClose={() => setUso(null)} onSaved={() => { setUso(null); onChanged(); }} />
       <MovimientoDialog eventId={eventId} action={action} onClose={() => setAction(null)} onDone={() => { setAction(null); onChanged(); }} />
     </div>
   );

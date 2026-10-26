@@ -5,7 +5,7 @@ import { openedFromApp, preselectedOperatorId } from '@/lib/staffLink';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useHideSplashWhenSettled } from '@/lib/splash';
 import { toast } from 'sonner';
-import { Camera, Check, Delete, X, ShoppingCart, Search, LayoutDashboard, AlertTriangle, LogOut, Receipt } from 'lucide-react';
+import { Camera, Check, Delete, X, ShoppingCart, Search, LayoutDashboard, AlertTriangle, LogOut, Receipt, Wine } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { useSeo } from '@/hooks/useSeo';
 import { Button } from '@/components/ui/button';
@@ -20,6 +20,7 @@ import {
 } from './db';
 import { nivelInsumo, tragosDisponibles, tragosPorInsumo } from '@shared/insumos';
 import { BarraCount } from './BarraCount';
+import { BarraStock } from './BarraStock';
 import { forgetOffline, useOfflineFallback } from './offlineGate';
 import { canRedeem, clampRedeemAmount, PLAYCOINS_MIN_REDEEM_BALANCE } from '@shared/playcoins';
 import { formatChileDateTime } from '@shared/chileDate';
@@ -42,7 +43,7 @@ function newOpId() {
   return crypto.randomUUID();
 }
 
-type View = 'menu' | 'sheet' | 'sale' | 'history' | 'dashboard' | 'conflicts' | 'rejected';
+type View = 'menu' | 'sheet' | 'sale' | 'history' | 'stock' | 'dashboard' | 'conflicts' | 'rejected';
 
 /** Marco de toda la caja con el mismo vidrio oscuro del panel: tema en
  * <html> (diálogos y selects en portal también), fondo de planetas y barra
@@ -906,7 +907,7 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
       )}
 
       {barraCount && (
-        <BarraCount eventId={localEvent.id} registerId={registerId} kind={barraCount} onDone={finishBarraCount} onSkip={finishBarraCount} />
+        <BarraCount eventId={localEvent.id} registerId={registerId} kind={barraCount} canSkip={isSupervisor} onDone={finishBarraCount} onSkip={finishBarraCount} />
       )}
 
       {showCloseForm && (
@@ -1103,6 +1104,12 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
           </div>
         )}
 
+        {view === 'stock' && (
+          <div className="max-w-lg mx-auto">
+            <BarraStock version={snapshotQuery.dataUpdatedAt} />
+          </div>
+        )}
+
         {view === 'dashboard' && (
           <div className="max-w-lg mx-auto">
             <CajaDashboard eventId={localEvent.id} />
@@ -1158,6 +1165,7 @@ function CajaSidebar({ view, setView, setSelectedOrderId, isSupervisor, onCerrar
     { view: 'sale', label: 'Nueva venta', short: 'Vender', icon: ShoppingCart },
     { view: 'menu', label: 'Buscar', icon: Search },
     { view: 'history', label: 'Ventas', icon: Receipt },
+    { view: 'stock', label: 'Stock', icon: Wine },
     { view: 'dashboard', label: 'Resumen', icon: LayoutDashboard },
     ...(isSupervisor ? [{ view: 'conflicts' as View, label: 'Conflictos', icon: AlertTriangle }] : []),
   ];

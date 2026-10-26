@@ -301,3 +301,78 @@ describe('proyección: tragos sin receta también se llevan su parte', () => {
     expect(p.productos.find((x) => x.id === 2)?.quantity).toBe(30); // su 10 %, no los 300
   });
 });
+
+describe('vista por botella base', () => {
+  const rec: RecetaLinea[] = [
+    { ticketTypeId: 1, insumoId: 10, amount: 90, glass: 'vaso' }, { ticketTypeId: 1, insumoId: 20, amount: 200, glass: 'vaso' },
+    { ticketTypeId: 2, insumoId: 10, amount: 90, glass: 'vaso' },
+    { ticketTypeId: 3, insumoId: 30, amount: 60, glass: 'copa' },
+  ];
+
+  it('agrega el insumo a los tragos marcados, corrige cantidades y lo quita de los desmarcados', async () => {
+    const { aplicarUso } = await import('./insumos');
+    const out = aplicarUso(rec, 10, [{ ticketTypeId: 1, amount: 60 }, { ticketTypeId: 3, amount: 45 }]);
+    const by = (id: number) => out.find((c) => c.ticketTypeId === id)!;
+    expect(by(1).lines).toEqual([{ insumoId: 20, amount: 200 }, { insumoId: 10, amount: 60 }]); // corrige 90 → 60 sin tocar la bebida
+    expect(by(2).lines).toEqual([]); // dejó de usarlo
+    expect(by(3)).toMatchObject({ glass: 'copa', lines: [{ insumoId: 30, amount: 60 }, { insumoId: 10, amount: 45 }] }); // conserva su vaso
+    expect(out).toHaveLength(3);
+  });
+
+  it('no toca lo que no cambia, y un trago sin receta parte con el vaso de siempre', async () => {
+    const { aplicarUso } = await import('./insumos');
+    expect(aplicarUso(rec, 10, [{ ticketTypeId: 1, amount: 90 }, { ticketTypeId: 2, amount: 90 }])).toEqual([]);
+    const nuevo = aplicarUso(rec, 10, [{ ticketTypeId: 1, amount: 90 }, { ticketTypeId: 2, amount: 90 }, { ticketTypeId: 9, amount: 30 }]);
+    expect(nuevo).toEqual([{ ticketTypeId: 9, glass: 'vaso', lines: [{ insumoId: 10, amount: 30 }] }]);
+    // cantidad 0 = no lo usa
+    expect(aplicarUso(rec, 10, [{ ticketTypeId: 1, amount: 0 }, { ticketTypeId: 2, amount: 90 }])[0].lines).toEqual([{ insumoId: 20, amount: 200 }]);
+  });
+});
+
+describe('exportar el stock', () => {
+  const filas = [
+    { name: 'Pisco', unit: 'ml' as const, containerSize: 1000, containerLabel: 'botella', stock: 5400, drinks: 60, level: 'ok' as const, costPerContainer: 9000 },
+    { name: 'Ron', unit: 'ml' as const, containerSize: 750, containerLabel: 'botella', stock: 0, drinks: 0, level: 'agotado' as const },
+    { name: 'Gin', unit: 'ml' as const, containerSize: 750, containerLabel: 'botella', stock: 300, drinks: 5, level: 'bajo' as const },
+  ];
+
+  it('el texto de WhatsApp pone primero lo urgente', async () => {
+    const { stockTexto } = await import('./insumos');
+    const t = stockTexto(filas, 'Stock de barra').split('\n');
+    expect(t[0]).toBe('📦 Stock de barra');
+    expect(t[1]).toContain('⛔ Ron');
+    expect(t[2]).toContain('⚠️ Gin: 300 ml (~5 tragos)');
+    expect(t[3]).toBe('✅ Pisco: 5 botellas + 400 ml (~60 tragos)');
+  });
+
+  it('el CSV trae una fila por insumo y escapa las comillas', async () => {
+    const { stockCsv } = await import('./insumos');
+    const csv = stockCsv([...filas, { ...filas[0], name: 'Pisco "Alto"' }]);
+    expect(csv.split('\n')).toHaveLength(5);
+    expect(csv).toContain('"Pisco ""Alto"""');
+    expect(csv.split('\n')[1]).toContain('"Pisco","5 botellas + 400 ml","5400","60","OK","9000"');
+  });
+});
+
+describe('merma de los conteos', () => {
+  const insumos = [
+    { id: 1, name: 'Pisco', unit: 'ml' as const, containerSize: 1000, containerLabel: 'botella', costPerContainer: 9000 },
+    { id: 2, name: 'Limones', unit: 'un' as const, containerSize: 1, containerLabel: 'unidad', costPerContainer: null },
+  ];
+  const conteos = [
+    { id: 1, kind: 'cierre', operatorName: 'Ana', createdAt: '2026-10-31T05:00:00Z', lines: [{ insumoId: 1, diff: -500 }, { insumoId: 2, diff: -3 }] },
+    { id: 2, kind: 'cierre', operatorName: 'Beto', createdAt: '2026-10-31T06:00:00Z', lines: [{ insumoId: 1, diff: 200 }, { insumoId: 2, diff: 0 }] }, // sobra: no es merma
+    { id: 3, kind: 'apertura', operatorName: 'Ana', createdAt: '2026-10-31T01:00:00Z', lines: [{ insumoId: 1, diff: -100 }] },
+  ];
+
+  it('suma lo que faltó con su costo, por conteo y por persona', async () => {
+    const { mermaDeConteos } = await import('./insumos');
+    const r = mermaDeConteos(conteos, insumos);
+    const c1 = r.porConteo.find((c) => c.id === 1)!;
+    expect(c1.faltantes.map((f) => [f.name, f.cantidad, f.costo])).toEqual([['Pisco', 500, 4500], ['Limones', 3, null]]);
+    expect(c1.costo).toBe(4500);
+    expect(r.porConteo.find((c) => c.id === 2)!.faltantes).toEqual([]);
+    expect(r.porPersona[0]).toEqual({ operatorName: 'Ana', conteos: 2, faltantes: 3, costo: 5400 });
+    expect(r.costoTotal).toBe(5400);
+  });
+});

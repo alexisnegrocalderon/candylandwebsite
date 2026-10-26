@@ -26,10 +26,12 @@ function loadDraft(eventId: number, kind: Kind): Record<number, Line> {
  * de guardar, para que nadie cuente "lo que debería haber". Lo que no se toca
  * no se manda (ese insumo queda como estaba). El borrador se guarda en el
  * dispositivo, así se puede contar a medias sin perderlo. */
-export function BarraCount({ eventId, registerId, kind, onDone, onSkip }: {
+export function BarraCount({ eventId, registerId, kind, canSkip, onDone, onSkip }: {
   eventId: number;
   registerId: number | null;
   kind: Kind;
+  /** El conteo es obligatorio: solo un supervisor (o la falta de señal) deja saltarlo. */
+  canSkip: boolean;
   onDone: () => void;
   onSkip: () => void;
 }) {
@@ -48,6 +50,9 @@ export function BarraCount({ eventId, registerId, kind, onDone, onSkip }: {
     if (estado.data && (!estado.data.ready || estado.data.insumos.length === 0)) onDone();
   }, [estado.data, onDone]);
 
+  // Lo más importante primero: los insumos que más tragos usan (los licores base) arriba y los sueltos al final,
+  // así si hay apuro no se quedan sin contar los que más pesan.
+  const ordered = useMemo(() => [...insumos].sort((a, b) => b.usedBy.length - a.usedBy.length || a.name.localeCompare(b.name)), [insumos]);
   const touched = useMemo(() => insumos.filter((i) => lines[i.id] !== undefined).length, [insumos, lines]);
   const update = (id: number, fn: (l: Line) => Line) => setLines((all) => ({ ...all, [id]: fn(all[id] ?? emptyLine()) }));
   const setClosed = (id: number, size: number, count: number) => update(id, (l) => ({ ...l, closed: { ...l.closed, [size]: Math.max(0, Math.floor(count || 0)) } }));
@@ -106,7 +111,7 @@ export function BarraCount({ eventId, registerId, kind, onDone, onSkip }: {
     return (
       <div className={`${shell} items-center justify-center gap-4 p-6 text-center`}>
         <p className="text-white/60 text-sm">{estado.isError ? 'Sin conexión: el conteo de barra necesita señal.' : 'Cargando insumos de la barra…'}</p>
-        {estado.isError && <button onClick={onSkip} className="text-white/60 text-sm underline">Saltar por ahora</button>}
+        {estado.isError && <button onClick={onSkip} className="text-white/60 text-sm underline">Sin señal: saltar y contar después</button>}
       </div>
     );
   }
@@ -118,17 +123,17 @@ export function BarraCount({ eventId, registerId, kind, onDone, onSkip }: {
       <div className="shrink-0 p-4 pb-2 max-w-lg w-full mx-auto">
         <p className="text-white/60 text-xs uppercase tracking-wide">{kind === 'apertura' ? 'Inicio de turno' : 'Cierre de turno'}</p>
         <h1 className="text-xl font-bold">Conteo de barra</h1>
-        <p className="text-sm text-white/60">Cuenta lo que hay en la barra y en la bodega: las botellas cerradas de cada tamaño y, de las abiertas, cuántas porciones de 10 quedan.</p>
+        <p className="text-sm text-white/60">Cuenta lo que hay en la barra y en la bodega: las botellas cerradas de cada tamaño y, de cada botella abierta, cuántas porciones le quedan (del 1 al 9). Parte por lo más importante.</p>
         {previous && (
           <p className="mt-1 text-xs text-amber-200/80">
-            Ya se contó hoy ({previous.operatorName ?? 'alguien'}, {new Date(previous.createdAt).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}). Puedes saltarlo si nada cambió.
+            Ya se contó hoy ({previous.operatorName ?? 'alguien'}, {new Date(previous.createdAt).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}). Igual cuenta lo que hay ahora: queda anotado a tu nombre.
           </p>
         )}
         <p className="mt-2 text-xs text-white/50">Contados {touched} de {insumos.length}</p>
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 pb-4 max-w-lg w-full mx-auto space-y-3">
-        {insumos.map((i) => {
+        {ordered.map((i) => {
           const line = lines[i.id];
           const onlyUnits = i.containerSize <= 1;
           const sizes = onlyUnits ? [1] : insumoSizes(i);
@@ -160,7 +165,7 @@ export function BarraCount({ eventId, registerId, kind, onDone, onSkip }: {
                   {(line?.open ?? []).map((o, idx) => (
                     <div key={idx} className="rounded-2xl bg-white/5 p-3 space-y-2">
                       <div className="flex items-center gap-2">
-                        <p className="flex-1 text-sm text-white/60">Abierta {idx + 1} · {o.portions === null ? 'sin marcar' : `${o.portions}/${OPEN_PORTIONS}`}</p>
+                        <p className="flex-1 text-sm text-white/60">Abierta {idx + 1} · {o.portions === null ? 'marca cuánto le queda' : `le quedan ${o.portions} de ${OPEN_PORTIONS}`}</p>
                         {sizes.length > 1 && sizes.map((size) => (
                           <button key={size} type="button" onClick={() => update(i.id, (l) => ({ ...l, open: l.open.map((x, j) => (j === idx ? { ...x, size } : x)) }))}
                             className={`h-9 px-3 rounded-xl text-xs font-semibold active:scale-95 ${o.size === size ? 'bg-primary text-white' : 'bg-white/10 text-white/70'}`}>
@@ -170,10 +175,10 @@ export function BarraCount({ eventId, registerId, kind, onDone, onSkip }: {
                         <button type="button" aria-label="Quitar esta botella" onClick={() => update(i.id, (l) => ({ ...l, open: l.open.filter((_, j) => j !== idx) }))}
                           className="w-9 h-9 rounded-xl bg-white/10 grid place-items-center active:scale-95"><X className="w-4 h-4" /></button>
                       </div>
-                      <div className="grid grid-cols-6 gap-2">
-                        {OPEN_FRACTIONS.map((f, k) => (
-                          <button key={f.label} type="button" onClick={() => update(i.id, (l) => ({ ...l, open: l.open.map((x, j) => (j === idx ? { ...x, portions: k } : x)) }))}
-                            className={`h-11 rounded-xl text-sm font-semibold active:scale-95 ${o.portions === k ? 'bg-primary text-white' : 'bg-white/10 text-white/70'}`}>
+                      <div className="grid grid-cols-9 gap-1.5">
+                        {OPEN_FRACTIONS.map((f) => (
+                          <button key={f.label} type="button" aria-label={`Quedan ${f.portions} de ${OPEN_PORTIONS}`} onClick={() => update(i.id, (l) => ({ ...l, open: l.open.map((x, j) => (j === idx ? { ...x, portions: f.portions } : x)) }))}
+                            className={`h-12 rounded-xl text-base font-semibold active:scale-95 ${o.portions === f.portions ? 'bg-primary text-white' : 'bg-white/10 text-white/70'}`}>
                             {f.label}
                           </button>
                         ))}
@@ -182,7 +187,7 @@ export function BarraCount({ eventId, registerId, kind, onDone, onSkip }: {
                   ))}
                   <button type="button" onClick={() => update(i.id, (l) => ({ ...l, open: [...l.open, { size: i.containerSize, portions: null }] }))}
                     className="w-full h-11 rounded-xl border border-dashed border-white/20 text-sm text-white/70 active:scale-95">
-                    + {(line?.open.length ?? 0) === 0 ? 'Hay una botella abierta' : 'Otra botella abierta'} (porciones de 10)
+                    + {(line?.open.length ?? 0) === 0 ? 'Hay una botella abierta' : 'Otra botella abierta'} (del 1 al 9; si está llena, cuéntala entre las cerradas)
                   </button>
                 </div>
               )}
@@ -195,7 +200,9 @@ export function BarraCount({ eventId, registerId, kind, onDone, onSkip }: {
         <Button className="w-full h-14 text-base bg-primary hover:bg-primary/90" disabled={save.isPending} onClick={submit}>
           {save.isPending ? 'Guardando…' : 'Guardar conteo'}
         </Button>
-        <button type="button" onClick={onSkip} className="w-full text-center text-white/50 text-sm py-2">Saltar por ahora</button>
+        {canSkip
+          ? <button type="button" onClick={onSkip} className="w-full text-center text-white/50 text-sm py-2">Saltar (solo supervisor)</button>
+          : <p className="text-center text-xs text-white/40 py-1">El conteo es obligatorio. Si algo no se puede, pídele a un supervisor que lo salte.</p>}
       </div>
     </div>
   );

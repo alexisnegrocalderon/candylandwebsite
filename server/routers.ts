@@ -6139,6 +6139,11 @@ export const appRouter = router({
       return saved;
     }),
     setActive: adminProcedure.input(z.object({ id: z.number(), active: z.boolean() })).mutation(({ input }) => insumoSvc.setInsumoActive(input.id, input.active)),
+    // Vista por botella base: qué tragos usan este insumo y cuánto.
+    setUso: adminProcedure.input(z.object({
+      eventId: z.number(), insumoId: z.number(),
+      usos: z.array(z.object({ ticketTypeId: z.number(), amount: z.number().min(0).max(100_000) })).max(500),
+    })).mutation(({ input }) => insumoSvc.setUsoInsumo(input.eventId, input.insumoId, input.usos)),
     setReceta: adminProcedure.input(z.object({
       ticketTypeId: z.number(), glass: z.enum(['vaso', 'copa', 'shot']), lines: z.array(z.object({ insumoId: z.number(), amount: z.number().min(0).max(100_000) })).max(30),
     })).mutation(({ input }) => insumoSvc.setReceta(input.ticketTypeId, input.glass, input.lines)),

@@ -17,7 +17,7 @@ import { insumoSchemaStatus } from "./schemaUpdates";
 import { personasForTicket } from "../shared/mission300";
 import { DOSIER_INSUMOS, DOSIER_SUPUESTOS, planDosier } from "../shared/dosier";
 import {
-  DEFAULT_GLASS, conteoATotal, consumoDeVenta, descuadre, detalleATotal, insumoSizes, recetaDe, nivelInsumo, normalizeName, proyeccionCompra, tragosDisponibles, tragosPorInsumo,
+  DEFAULT_GLASS, aplicarUso, conteoATotal, consumoDeVenta, descuadre, detalleATotal, insumoSizes, recetaDe, nivelInsumo, normalizeName, proyeccionCompra, tragosDisponibles, tragosPorInsumo,
   OPEN_PORTIONS, type ConteoDetalle, type Insumo, type InsumoUnit, type MovimientoKind, type RecetaLinea,
 } from "../shared/insumos";
 
@@ -197,6 +197,18 @@ export async function setReceta(ticketTypeId: number, glass: string, lines: { in
     await db.insert(insumoRecetas).values(Array.from(clean, ([insumoId, amount]) => ({ ticketTypeId, insumoId, amount: String(amount), glass })));
   }
   return { success: true } as const;
+}
+
+/** Vista por botella base: fija qué tragos de la Carta usan este insumo y cuánto lleva cada uno (en la unidad del insumo).
+ * Los tragos marcados lo agregan o corrigen, los que ya no aparecen lo pierden; el resto de cada receta queda igual. */
+export async function setUsoInsumo(eventId: number, insumoId: number, usos: { ticketTypeId: number; amount: number }[]) {
+  const db = await dbOrThrow();
+  const valid = new Set<number>(((await db.select({ id: ticketTypes.id }).from(ticketTypes)
+    .where(and(eq(ticketTypes.eventId, eventId), inArray(ticketTypes.category, ["consumo", "merch"])))) as { id: number }[]).map((p) => p.id));
+  const recetas = await recetasDelEvento(eventId, db);
+  const changes = aplicarUso(recetas, insumoId, usos.filter((u) => valid.has(u.ticketTypeId)));
+  for (const c of changes) await setReceta(c.ticketTypeId, c.glass, c.lines);
+  return { changed: changes.length };
 }
 
 /** Compra, carga inicial, merma o ajuste a mano. `amount` en la unidad del

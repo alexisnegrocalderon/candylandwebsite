@@ -10,6 +10,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { WriteButton } from '@/components/admin/WriteButton';
 import { marginOf, marginTone } from '@shared/carta';
 import { COLOR_PALETTE, EMOJI_SUGGESTIONS, validateForm, type ProductForm } from './constants';
+import { ProductoIngredientes } from '@/components/admin/insumos/ProductoIngredientes';
 
 const money = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
 const NEW_SECTION = '__nueva__';
@@ -36,7 +37,7 @@ function Block({ title, hint, defaultOpen = true, children }: { title: string; h
  * margen en vivo, vista previa del botón de /caja y el botón Guardar siempre a
  * la vista. En celular ocupa la pantalla; en pantalla ancha, un panel lateral
  * que no mueve la lista. */
-export function ProductSheet({ open, onOpenChange, mode, initial, sections, saving, onSave }: {
+export function ProductSheet({ open, onOpenChange, mode, initial, sections, saving, onSave, eventId, productId }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   mode: 'new' | 'edit';
@@ -45,6 +46,9 @@ export function ProductSheet({ open, onOpenChange, mode, initial, sections, savi
   sections: string[];
   saving: boolean;
   onSave: (form: ProductForm) => void;
+  /** Para editar los insumos que descuenta (solo al editar un producto ya guardado). */
+  eventId?: number | null;
+  productId?: number;
 }) {
   const [form, setForm] = useState<ProductForm>(initial);
   const [creatingSection, setCreatingSection] = useState(false);
@@ -126,6 +130,15 @@ export function ProductSheet({ open, onOpenChange, mode, initial, sections, savi
             </div>
             <p className="text-xs text-muted-foreground">El stock solo avisa: nunca impide vender.</p>
           </Block>
+
+          {/* Los insumos que descuenta (licor base, mezcladores, vaso): se arman acá mismo, sin ir a otra sección. */}
+          {['consumo', 'merch'].includes(form.category) && (
+            <Block title="Insumos que descuenta" hint="Licor base, mezcladores y vaso: se descuentan solos con cada venta">
+              {mode === 'edit' && eventId && productId
+                ? <ProductoIngredientes eventId={eventId} productId={productId} />
+                : <p className="text-sm text-muted-foreground">Guarda el producto y vuelve a abrirlo para agregarle sus insumos.</p>}
+            </Block>
+          )}
 
           <Block title="Aspecto" hint="Ícono y color del botón en /caja">
             <div>

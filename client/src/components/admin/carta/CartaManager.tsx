@@ -389,6 +389,8 @@ export function CartaManager() {
         sections={sections}
         saving={createType.isPending || updateType.isPending}
         onSave={saveSheet}
+        eventId={activeId}
+        productId={sheet?.id}
       />
 
       <PriceAdjustDialog
