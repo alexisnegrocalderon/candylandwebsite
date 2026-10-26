@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ArrowRight, BookOpen, Check, Pencil, ShieldCheck } from 'lucide-react';
+import { ArrowRight, BookOpen, Check, EyeOff, Flag, Handshake, Heart, Lock, Martini, Moon, Pencil, ShieldCheck, Sparkles, CameraOff } from 'lucide-react';
 import { Link } from 'wouter';
 import { trpc } from '@/lib/trpc';
 import { AppScreen, useBackClosable } from '@/components/site/AmbassadorAccount';
@@ -26,21 +26,29 @@ export type PmEvent = { eventId: number; eventTitle: string; eventDate: string |
 
 const tapHaptic = () => { try { navigator.vibrate?.(8); } catch { /* sin vibración */ } };
 const GUIDE_KEY = 'playmatch.guide.v1';
-const NEON_RING = 'bg-gradient-to-br from-pink-500/70 via-fuchsia-400/40 to-sky-400/70';
+
+/** Un cuadradito de vidrio con color y un ícono (en lugar de emoji sueltos): el mismo lenguaje que Ajustes. */
+function Tile({ icon: Icon, size = 44, className = '' }: { icon: typeof Heart; size?: number; className?: string }) {
+  return (
+    <span aria-hidden className={`grid shrink-0 place-items-center bg-gradient-to-br from-pink-500 to-sky-500 shadow-[inset_0_1px_0_rgba(255,255,255,0.35),0_8px_20px_-8px_rgba(236,72,153,0.6)] ${className}`} style={{ width: size, height: size, borderRadius: size * 0.3 }}>
+      <Icon className="text-white" style={{ width: size * 0.5, height: size * 0.5 }} />
+    </span>
+  );
+}
 
 const GUIDE = [
-  { emoji: '🍬', title: '¿Qué es Playmatch?', body: 'La fiesta en tu celular: mira quién está en cada zona de la mansión, conecta y chatea. Solo existe mientras dura la fiesta.' },
-  { emoji: '💘', title: 'Cómo se hace match', body: 'Pon tu foto y desliza: ♥ a la derecha, ✕ a la izquierda. Si los dos se dan ♥ es match y se abre el chat. Tienes 3 Caramelos ★ por noche (hacia arriba): con esos la otra persona se entera al tiro.' },
-  { emoji: '🍹', title: 'Invita un trago', body: 'Regálale un trago a alguien desde Playmatch. Si lo acepta, lo retira en la barra.' },
-  { emoji: '🔒', title: 'Tu privacidad primero', body: 'Te ven con un alias y un avatar, nunca con tu nombre. La foto se toma adentro y se borra al cerrar la fiesta. Puedes bloquear y denunciar cuando quieras.' },
+  { icon: Sparkles, title: '¿Qué es Playmatch?', body: 'La fiesta en tu celular: mira quién está en cada zona de la mansión, conecta y chatea. Solo existe mientras dura la fiesta.' },
+  { icon: Heart, title: 'Cómo se hace match', body: 'Pon tu foto y desliza: ♥ a la derecha, ✕ a la izquierda. Si los dos se dan ♥ es match y se abre el chat. Tienes 3 Caramelos ★ por noche (hacia arriba): con esos la otra persona se entera al tiro.' },
+  { icon: Martini, title: 'Invita un trago', body: 'Regálale un trago a alguien desde Playmatch. Si lo acepta, lo retira en la barra.' },
+  { icon: Lock, title: 'Tu privacidad primero', body: 'Te ven con un alias y un avatar, nunca con tu nombre. La foto se toma adentro y se borra al cerrar la fiesta. Puedes bloquear y denunciar cuando quieras.' },
 ];
 
 const RULES = [
-  { emoji: '🤝', text: 'Respeto siempre: un no es un no, y nadie te escribe sin que aceptes primero.' },
-  { emoji: '🙈', text: 'Nada de datos personales: ni redes, ni teléfono, ni tu nombre real en el alias o el chat.' },
-  { emoji: '📵', text: 'Sin capturas ni fotos de otras personas.' },
-  { emoji: '🌙', text: 'Lo que pasa en Playmatch se queda en la fiesta: al cerrar se borra todo.' },
-  { emoji: '🚩', text: 'Si alguien te incomoda, bloquéalo o denúncialo. El equipo lo revisa al momento y puede sacarlo de Playmatch.' },
+  { icon: Handshake, text: 'Respeto siempre: un no es un no, y nadie te escribe sin que aceptes primero.' },
+  { icon: EyeOff, text: 'Nada de datos personales: ni redes, ni teléfono, ni tu nombre real en el alias o el chat.' },
+  { icon: CameraOff, text: 'Sin capturas ni fotos de otras personas.' },
+  { icon: Moon, text: 'Lo que pasa en Playmatch se queda en la fiesta: al cerrar se borra todo.' },
+  { icon: Flag, text: 'Si alguien te incomoda, bloquéalo o denúncialo. El equipo lo revisa al momento y puede sacarlo de Playmatch.' },
 ];
 
 const STEPS = ['Inscríbete ahora', 'Muestra tu QR en la puerta', 'Te llega el aviso y entras al tiro'];
@@ -174,15 +182,13 @@ export function PlaymatchTab({ events, buyHref }: { events: PmEvent[]; buyHref?:
       </div>
 
       {inside ? (
-        <button type="button" onClick={() => { tapHaptic(); setScreen('fiesta'); }} className={`block w-full rounded-[26px] p-[1.5px] text-left ${NEON_RING} interactive`}>
-          <span className="flex items-center gap-3 rounded-[25px] bg-[#0d0712] px-4 py-4">
-            <span className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-gradient-to-br from-pink-500 to-sky-500 text-2xl">🍬</span>
-            <span className="min-w-0 flex-1">
-              <span className="block text-body font-bold leading-tight">Entrar a Playmatch</span>
-              <span className="block truncate text-footnote text-white/60">Desliza, haz match y chatea</span>
-            </span>
-            <ArrowRight className="h-5 w-5 shrink-0 text-pink-300" />
+        <button type="button" onClick={() => { tapHaptic(); setScreen('fiesta'); }} className="account-glass flex w-full items-center gap-3.5 rounded-[26px] px-4 py-4 text-left ring-1 ring-pink-400/40 interactive">
+          <Tile icon={Heart} size={48} />
+          <span className="min-w-0 flex-1">
+            <span className="block text-body font-bold leading-tight">Entrar a Playmatch</span>
+            <span className="block truncate text-footnote text-white/60">Desliza, haz match y chatea</span>
           </span>
+          <ArrowRight className="h-5 w-5 shrink-0 text-pink-300" />
         </button>
       ) : (
         <div className="account-glass rounded-[26px] px-4 py-4">
@@ -203,12 +209,10 @@ export function PlaymatchTab({ events, buyHref }: { events: PmEvent[]; buyHref?:
 
 function Hero({ title, body }: { title: string; body: string }) {
   return (
-    <div className={`rounded-[26px] p-[1.5px] ${NEON_RING}`}>
-      <div className="rounded-[25px] bg-[#0d0712] px-5 py-6 text-center">
-        <p className="text-4xl" aria-hidden>🍬</p>
-        <p className="mt-2 text-title3 font-bold tracking-tight">{title}</p>
-        <p className="mx-auto mt-1.5 max-w-xs text-footnote leading-snug text-white/65">{body}</p>
-      </div>
+    <div className="account-glass rounded-[26px] px-5 py-7 text-center">
+      <Tile icon={Heart} size={56} className="mx-auto" />
+      <p className="mt-3 text-title3 font-bold tracking-tight">{title}</p>
+      <p className="mx-auto mt-1.5 max-w-xs text-footnote leading-snug text-white/65">{body}</p>
     </div>
   );
 }
@@ -239,8 +243,8 @@ function Guide({ onDone }: { onDone: () => void }) {
   const g = GUIDE[i];
   return (
     <div className="space-y-4" data-pager="multi">
-      <div className={`overflow-hidden rounded-[28px] p-[1.5px] ${NEON_RING}`}>
-        <div className="relative h-[300px] overflow-hidden rounded-[27px] bg-[#0d0712]">
+      <div className="account-glass overflow-hidden rounded-[28px]">
+        <div className="relative h-[300px] overflow-hidden rounded-[28px]">
           <AnimatePresence initial={false} custom={dir} mode="popLayout">
             <motion.div
               key={i}
@@ -255,7 +259,7 @@ function Guide({ onDone }: { onDone: () => void }) {
               onDragEnd={(_, info) => { if (info.offset.x < -50) go(i + 1); else if (info.offset.x > 50) go(i - 1); }}
               className="absolute inset-0 flex flex-col items-center justify-center px-7 text-center"
             >
-              <span className="grid h-20 w-20 place-items-center rounded-full bg-gradient-to-br from-pink-500/30 to-sky-500/30 text-5xl" aria-hidden>{g.emoji}</span>
+              <Tile icon={g.icon} size={72} />
               <p className="mt-5 text-title2 font-bold tracking-tight">{g.title}</p>
               <p className="mt-2 text-subhead leading-snug text-white/70">{g.body}</p>
             </motion.div>
@@ -279,8 +283,8 @@ function Rules() {
       <p className="text-subhead leading-snug text-white/65">Playmatch es para pasarlo bien y conocer gente con respeto. Al inscribirte aceptas estas normas:</p>
       <ul className="space-y-2">
         {RULES.map((r) => (
-          <li key={r.text} className="account-glass flex items-start gap-3 rounded-[20px] px-4 py-3.5">
-            <span className="text-title3 leading-none" aria-hidden>{r.emoji}</span>
+          <li key={r.text} className="account-glass flex items-center gap-3 rounded-[20px] px-4 py-3">
+            <Tile icon={r.icon} size={36} />
             <span className="text-subhead leading-snug">{r.text}</span>
           </li>
         ))}
