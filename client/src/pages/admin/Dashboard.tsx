@@ -109,6 +109,8 @@ const ADMIN_QUICK_ACTIONS: AdminQuickAction[] = [
   { key: 'evento', label: 'Crear evento', icon: Calendar, section: 'events' },
   { key: 'cupon', label: 'Regalar cupón', icon: Gift, section: 'members', onSelect: requestGiftCoupon },
   { key: 'push', label: 'Enviar push', icon: BellRing, section: 'push-clientes' },
+  { key: 'agente', label: 'Agente IA', icon: Bot, section: 'agente-conocimiento' },
+  { key: 'esperando', label: 'Conversaciones esperando', icon: MessageCircle, section: 'instagram' },
 ];
 
 const ADMIN_SECTIONS = [
