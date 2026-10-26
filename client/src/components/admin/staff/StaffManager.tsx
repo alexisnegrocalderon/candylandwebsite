@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { KeyRound, Link2, Mail, Pencil, Trash2, UserPlus, Users } from 'lucide-react';
+import { CalendarPlus, KeyRound, Link2, Mail, Pencil, Trash2, UserPlus, Users } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { useIsDemo, DEMO_TOOLTIP } from '@/lib/demoMode';
 import { Input } from '@/components/ui/input';
@@ -15,7 +15,7 @@ import { OPERATOR_ROLE_LABELS } from '@shared/cajaRoles';
 /* La ficha única del staff (Admin → Noche → Staff): una persona, un cargo y su
  * correo. Con el correo le llega la invitación a su app, donde crea su propio
  * PIN; el cargo decide a qué pantalla entra (shared/staffCargos.ts). Los pagos
- * por noche siguen en Finanzas → Staff de la noche. */
+ * por noche se ajustan en Finanzas → Staff de la noche. */
 
 const money = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
 const onErr = (e: unknown) => toast.error((e as { message?: string })?.message || 'No se pudo completar la acción');
@@ -130,6 +130,52 @@ function UnlinkedOperators({ team }: { team: any[] }) {
   );
 }
 
+/** «Asignar a una fiesta» desde la ficha: crea el turno (con lo pactado por defecto) y le llega el aviso a su app. El
+ * pago (boleta, retención, «pagado») se ajusta después en Finanzas → Staff de la noche. */
+function AssignShift({ m, onDone }: { m: any; onDone: () => void }) {
+  const utils = trpc.useUtils();
+  const { data: events } = trpc.events.listAll.useQuery();
+  const upcoming = useMemo(() => {
+    const cutoff = Date.now() - 2 * 86_400_000;
+    return (events ?? []).filter((e: any) => e.eventDate && new Date(e.eventDate).getTime() >= cutoff)
+      .sort((a: any, b: any) => new Date(a.eventDate).getTime() - new Date(b.eventDate).getTime()).slice(0, 20);
+  }, [events]);
+  const [eventId, setEventId] = useState('');
+  const [amount, setAmount] = useState(String(m.defaultRateClp || ''));
+  const add = trpc.finance.shiftAdd.useMutation({
+    onSuccess: (r) => {
+      utils.finance.shiftsList.invalidate(); utils.finance.eventReport.invalidate(); utils.finance.payables.invalidate(); utils.operators.listAll.invalidate(); utils.finance.staffList.invalidate();
+      toast.success(r.notified ? `${m.name} asignado · le avisamos por correo y en su app` : `${m.name} asignado`);
+      onDone();
+    },
+    onError: onErr,
+  });
+  return (
+    <div className="basis-full space-y-2 rounded-2xl bg-black/5 p-3">
+      <p className="text-xs font-semibold text-[var(--admin-muted)]">Asignar a {m.name} a una fiesta</p>
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="min-w-[12rem] flex-1">
+          <Select value={eventId} onValueChange={setEventId}>
+            <SelectTrigger><SelectValue placeholder="Elige la fiesta" /></SelectTrigger>
+            <SelectContent>
+              {upcoming.map((e: any) => (
+                <SelectItem key={e.id} value={String(e.id)}>{e.title} · {new Date(e.eventDate).toLocaleDateString('es-CL', { day: 'numeric', month: 'short' })}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <Input type="number" inputMode="numeric" placeholder="Monto $" className="w-28" value={amount} onChange={(e) => setAmount(e.target.value)} />
+        <button type="button" disabled={!eventId || add.isPending} className={`${pill} ${pillOn} px-5 py-2`}
+          onClick={() => add.mutate({ eventId: Number(eventId), staffId: m.id, amountClp: Math.max(0, Math.round(Number(amount) || 0)) })}>
+          {add.isPending ? 'Asignando…' : 'Asignar'}
+        </button>
+        <button type="button" onClick={onDone} className={`${pill} ${pillOff}`}>Cancelar</button>
+      </div>
+      <p className="text-[11px] text-[var(--admin-muted)]">Se paga por transferencia; si es con boleta de honorarios, cámbialo en Finanzas → Staff de la noche.</p>
+    </div>
+  );
+}
+
 /* El atajo «Agregar staff» del «+» (celular) abre la sección con el formulario ya abierto. */
 let openNewOnMount = false;
 export function requestNewStaff() { openNewOnMount = true; }
@@ -144,6 +190,7 @@ export function StaffManager() {
     openNewOnMount = false;
     return 'new';
   });
+  const [assigning, setAssigning] = useState<number | null>(null);
   const [filter, setFilter] = useState<StaffCargo | 'todos'>('todos');
   const [showArchived, setShowArchived] = useState(false);
   const invite = trpc.finance.staffInvite.useMutation({ onSuccess: () => toast.success('Invitación enviada'), onError: onErr });
@@ -181,7 +228,7 @@ export function StaffManager() {
         </div>
         <p className="text-sm text-[var(--admin-muted)]">
           Una ficha por persona. Con su correo le llega la invitación a su app, donde crea su PIN; su cargo decide a qué pantalla entra.
-          Para asignarlos a una noche y pagarles: Finanzas → Staff de la noche.
+          Con «Asignar» les das su turno en una fiesta; el pago se ajusta en Finanzas → Staff de la noche.
         </p>
         {pendingPin > 0 && <p className="text-xs font-semibold text-amber-700">{pendingPin} {pendingPin === 1 ? 'persona todavía no crea' : 'personas todavía no crean'} su PIN.</p>}
       </CardHeader>
@@ -214,6 +261,11 @@ export function StaffManager() {
                 </p>
                 {m.notes && <p className="text-xs text-[var(--admin-muted)]">{m.notes}</p>}
               </div>
+              {m.active && (
+                <button type="button" disabled={isDemo} title={isDemo ? DEMO_TOOLTIP : 'Asignar a una fiesta: le aparece su credencial en su app'} onClick={() => setAssigning(assigning === m.id ? null : m.id)} className={`${pill} ${assigning === m.id ? pillOn : pillOff} flex items-center gap-1`}>
+                  <CalendarPlus className="h-3.5 w-3.5" /> Asignar
+                </button>
+              )}
               {m.sales?.link && m.active && (
                 <button type="button" className={`${pill} ${pillOff} flex items-center gap-1`} title={`Su código es ${m.sales.code}. Las compras con este link quedan a su nombre.`}
                   onClick={() => { void navigator.clipboard.writeText(m.sales!.link!).then(() => toast.success(`Link de ${m.name} copiado`)).catch(() => toast.error('No se pudo copiar')); }}>
@@ -236,6 +288,7 @@ export function StaffManager() {
               <button type="button" disabled={isDemo || del.isPending} aria-label={`Eliminar a ${m.name}`}
                 onClick={() => { if (window.confirm(`¿Eliminar a ${m.name}? Si ya tiene pagos registrados quedará archivado.`)) del.mutate({ id: m.id }); }}
                 className="rounded-full p-2 hover:bg-black/5"><Trash2 className="h-4 w-4" /></button>
+              {assigning === m.id && <AssignShift m={m} onDone={() => setAssigning(null)} />}
             </div>
           ))}
         </div>
