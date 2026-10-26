@@ -1382,6 +1382,30 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
     searchInsideAttendeesLocal(customerSearch).then(setCustomerSearchResults);
   }, [customerSearch]);
 
+  // Clientes registrados que aún no entran (búsqueda por nombre, correo, RUT o teléfono): solo con señal.
+  const [registeredResults, setRegisteredResults] = useState<{ email: string; fullName: string | null; playcoins: number }[]>([]);
+  useEffect(() => {
+    const q = customerSearch.trim();
+    if (q.length < 3 || !isOnline) { setRegisteredResults([]); return; }
+    let cancelled = false;
+    const t = setTimeout(() => {
+      utils.caja.findCustomer.fetch({ query: q }).then((r) => { if (!cancelled) setRegisteredResults(r); }).catch(() => { if (!cancelled) setRegisteredResults([]); });
+    }, 350);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [customerSearch, isOnline, utils]);
+
+  const pickRegistered = (c: { email: string; fullName: string | null; playcoins: number }) => {
+    setPayToken(null);
+    setBuyerEmail(c.email);
+    setAssociatedName(c.fullName ?? c.email);
+    setShowEmailStep(true);
+    setBalance(c.playcoins);
+    setRedeemInput('');
+    setCustomerSearch('');
+    setCustomerSearchResults([]);
+    setRegisteredResults([]);
+  };
+
   const pickCustomer = (a: CajaAttendee) => {
     setPayToken(null);
     setBuyerEmail(a.buyerEmail);
@@ -1821,7 +1845,7 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
                     <Input
                       value={customerSearch}
                       onChange={(e) => setCustomerSearch(e.target.value)}
-                      placeholder="🔍 Buscar cliente (Playcoins)"
+                      placeholder="🔍 Buscar cliente: nombre, correo, RUT o teléfono"
                       className="h-10 bg-white/10 border-white/15 text-white placeholder:text-white/60"
                     />
                     {customerSearchResults.length > 0 && (
@@ -1838,8 +1862,20 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
                         ))}
                       </div>
                     )}
-                    {customerSearch.trim() && customerSearchResults.length === 0 && (
-                      <p className="text-xs text-white/60 mt-1">Nadie que ya haya entrado coincide con "{customerSearch.trim()}".</p>
+                    {registeredResults.length > 0 && (
+                      <div className="mt-1 w-full bg-[var(--admin-surface-solid)] border border-white/15 rounded-xl overflow-hidden max-h-48 overflow-y-auto">
+                        <p className="px-3 pt-2 text-[11px] uppercase tracking-wide text-white/50">Clientes registrados</p>
+                        {registeredResults.map((c) => (
+                          <button key={c.email} onClick={() => pickRegistered(c)}
+                            className="w-full text-left px-3 py-2 text-sm text-white/80 hover:bg-white/10 border-b border-white/5 last:border-0">
+                            <span className="font-medium">{c.fullName ?? c.email}</span>
+                            <span className="block text-xs text-white/60">{c.email}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {customerSearch.trim() && customerSearchResults.length === 0 && registeredResults.length === 0 && (
+                      <p className="text-xs text-white/60 mt-1">Nadie coincide con "{customerSearch.trim()}"{isOnline ? '' : ' (sin señal: solo se busca entre quienes ya entraron)'}.</p>
                     )}
                   </div>
                   <button

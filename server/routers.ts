@@ -181,7 +181,7 @@ import { getStampCard, refreshStampsForTicket } from "./stampCard";
 import { activatePlaymatchForTicket } from "./partyActivation";
 import * as staffPortal from "./staffPortal";
 import { ensureStaffSalesLink } from "./staffSales";
-import { pageCustomers } from "./customerFilters";
+import { pageCustomers, findCustomersForCaja } from "./customerFilters";
 import { getMemberHistory } from "./memberHistory";
 import { hasSalesLink } from "../shared/staffSales";
 import { autoPackFromDesign, deleteAmbassadorItem, ensureAmbassadorDrafts, getUpcomingContentEvents, listAmbassadorItems, notifyAmbassadorsNewContent, saveAmbassadorItem, sendStudioToAmbassadors, setAmbassadorItemStatus } from "./ambassadorContent";
@@ -6364,6 +6364,12 @@ export const appRouter = router({
       if (!check.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: check.reason });
       const c = await members.findCustomer(check.email);
       return { email: check.email, name: c?.fullName ?? null, prepaidBalance: c?.prepaidBalance ?? 0, playcoins: c?.playcoins ?? 0 };
+    }),
+    // Buscar un cliente registrado por nombre, correo, RUT o teléfono (la lista local solo trae a quienes ya entraron).
+    findCustomer: operatorProcedure.input(z.object({ query: z.string().trim().min(3).max(80) })).query(async ({ input }) => {
+      const rawDb = await db.getDb();
+      if (!rawDb) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Base de datos no disponible' });
+      return findCustomersForCaja(rawDb, input.query);
     }),
     sale: operatorProcedure.input(z.object({
       opId: z.string(),

@@ -334,11 +334,14 @@ export async function getLocalAttendee(orderId: number): Promise<CajaAttendee | 
 export async function searchInsideAttendeesLocal(query: string): Promise<CajaAttendee[]> {
   const q = query.trim().toLowerCase();
   if (!q) return [];
+  const normRut = (v: string) => v.replace(/[.\-\s]/g, '').toLowerCase();
+  const rutQ = q.length >= 4 ? normRut(q) : '';
 
   const all = await cajaDB.attendees.toArray();
   return all
     .filter((a) => a.access.some((acc) => acc.status === 'used'))
-    .filter((a) => a.buyerName.toLowerCase().includes(q) || a.attendees.some((p) => p.name.toLowerCase().includes(q)))
+    .filter((a) => a.buyerName.toLowerCase().includes(q) || a.buyerEmail.toLowerCase().includes(q) || (a.buyerPhone?.includes(query.trim()) ?? false)
+      || a.attendees.some((p) => p.name.toLowerCase().includes(q) || (!!rutQ && !!p.rut && normRut(p.rut).includes(rutQ))))
     .slice(0, 20);
 }
 
