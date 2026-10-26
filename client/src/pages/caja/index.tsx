@@ -1842,14 +1842,16 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
                       <p className="text-xs text-white/60 mt-1">Nadie que ya haya entrado coincide con "{customerSearch.trim()}".</p>
                     )}
                   </div>
-                  <div className="flex items-center gap-3 flex-wrap">
-                    <button onClick={() => setShowEmailStep(true)} className="text-xs text-white/50 underline">
-                      + Registrar email
-                    </button>
-                    <button onClick={() => setScanningCustomer(true)} className="text-xs text-white/50 underline">
-                      📷 Asociar
-                    </button>
-                  </div>
+                  <button
+                    onClick={() => setScanningCustomer(true)}
+                    className="w-full rounded-xl border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 text-left"
+                  >
+                    <span className="block text-sm font-semibold text-emerald-300">📷 Escanear QR «Pagar» de la app</span>
+                    <span className="block text-xs text-white/60">Pídele que lo abra en su celular: la compra queda en su historial y gana Playcoins.</span>
+                  </button>
+                  <button onClick={() => setShowEmailStep(true)} className="text-xs text-white/50 underline">
+                    + Registrar email
+                  </button>
                 </div>
               ) : (
                 <div className="space-y-2">
