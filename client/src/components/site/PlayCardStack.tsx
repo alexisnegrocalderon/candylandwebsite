@@ -36,8 +36,13 @@ export function PlayCardStack({ ev, holder, prepaidBalance, playcoins, movements
   const [front, setFront] = useState<'entrada' | 'playcard'>('entrada');
   // Hacia dónde se fue el dedo en el último deslizar (para que la tarjeta entre del mismo lado); 0 = un toque.
   const [dir, setDir] = useState<-1 | 0 | 1>(0);
+  // ¿El último movimiento fue pasar de entrada (el dedo o las flechas) o voltear a la PlayCard? Cambia cómo entra la tarjeta.
+  const [movedTicket, setMovedTicket] = useState(false);
   const shown = hasPass ? front : 'playcard';
-  const flip = (d: -1 | 0 | 1) => { tapHaptic(); setDir(d); setFront((f) => (f === 'entrada' ? 'playcard' : 'entrada')); };
+  const flip = (d: -1 | 0 | 1) => { tapHaptic(); setDir(d); setMovedTicket(false); setFront((f) => (f === 'entrada' ? 'playcard' : 'entrada')); };
+  // Pasar de una entrada a otra: lo mismo con las flechas del selector que deslizando sobre la tarjeta.
+  const count = ev?.tickets.length ?? 0;
+  const step = (d: -1 | 1) => { if (!ev || count < 2) return; tapHaptic(); setDir(d); setMovedTicket(true); setI((v) => (v + d + count) % count); };
   const swap = useRealTap(() => flip(0));
   const qrTap = useRealTap(() => { tapHaptic(); if (t) setQrCode(t.ticketCode); });
   const playmatchTap = useRealTap(() => { tapHaptic(); onPlaymatch(); });
@@ -50,9 +55,13 @@ export function PlayCardStack({ ev, holder, prepaidBalance, playcoins, movements
     if (!start) return;
     const p = e.changedTouches[0];
     const swipe = horizontalSwipe(p.clientX - start.x, p.clientY - start.y);
-    if (swipe === 'left') { if (shown === 'entrada') flip(1); else onNextTab(); }
-    else if (swipe === 'right' && shown === 'playcard') flip(-1);
+    if (!swipe) return;
+    if (shown === 'entrada') step(swipe === 'left' ? 1 : -1);
+    else if (swipe === 'left') onNextTab();
+    else flip(-1);
   };
+
+  const ownsSwipe = hasPass && (count > 1 || shown === 'playcard');
 
   const playcard = (
     <WalletCard
@@ -68,7 +77,6 @@ export function PlayCardStack({ ev, holder, prepaidBalance, playcoins, movements
 
   // Hasta 3 entradas: píldoras. Más: selector con flechas («‹ Persona 2 · 2/6 ›»), que siempre cabe en una línea.
   const many = !!ev && ev.tickets.length > 3;
-  const step = (d: number) => { if (!ev) return; tapHaptic(); setI((v) => (v + d + ev.tickets.length) % ev.tickets.length); };
   const labels = ev ? holderLabels(ev.tickets) : [];
   const holderPills = ev && ev.tickets.length > 1 && (many ? (
     <div className="flex h-9 items-center gap-1 px-1 text-subhead font-semibold">
@@ -92,8 +100,9 @@ export function PlayCardStack({ ev, holder, prepaidBalance, playcoins, movements
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain">
       <div className="my-auto flex flex-col gap-3 [&>*]:shrink-0 [@media(max-height:700px)]:gap-2">
         <LiveStrip ev={ev} onOpen={() => setNightOpen(true)} />
-        {/* `data-pager="multi"`: sobre la tarjeta, deslizar de lado pasa de tarjeta y no cambia de pestaña. */}
-        <div className="relative" style={{ paddingTop: hasPass ? STACK_PEEK : 0 }} data-pager={hasPass ? 'multi' : undefined} onTouchStart={hasPass ? onTouchStart : undefined} onTouchEnd={hasPass ? onTouchEnd : undefined}>
+        {/* `data-pager="multi"`: sobre la tarjeta, deslizar de lado pasa de entrada y no cambia de pestaña. Con una sola
+            entrada no hay a dónde pasar: ahí deslizar sigue cambiando de pestaña, como siempre. */}
+        <div className="relative" style={{ paddingTop: hasPass ? STACK_PEEK : 0 }} data-pager={ownsSwipe ? 'multi' : undefined} onTouchStart={ownsSwipe ? onTouchStart : undefined} onTouchEnd={ownsSwipe ? onTouchEnd : undefined}>
           {hasPass && (
             <motion.button
               key={`back-${shown}`}
@@ -111,9 +120,9 @@ export function PlayCardStack({ ev, holder, prepaidBalance, playcoins, movements
             </motion.button>
           )}
           <motion.div
-            key={`front-${shown}`}
+            key={`front-${shown}-${shown === 'entrada' ? i : 0}`}
             className="relative z-10"
-            initial={hasPass ? { x: dir * 56, y: -STACK_PEEK, scale: 0.94, opacity: 0.6 } : false}
+            initial={hasPass ? (movedTicket && shown === 'entrada' ? { x: dir * 72, scale: 0.97, opacity: 0.4 } : { x: dir * 56, y: -STACK_PEEK, scale: 0.94, opacity: 0.6 }) : false}
             animate={{ x: 0, y: 0, scale: 1, opacity: 1 }}
             transition={{ type: 'spring', damping: 26, stiffness: 260 }}
           >
