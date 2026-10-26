@@ -47,7 +47,7 @@ export async function listContentDesigns(): Promise<DesignListItem[]> {
       if (!video) return [];
       return [{
         kind: 'video' as const, id: row.id, title: video.title, format: row.format, videoFormat: video.format, template: video.template, theme: video.theme,
-        eventId: video.eventId, updatedAt: row.updatedAt, sceneCount: video.template === 'laminas' ? video.design?.slides.length ?? 0 : video.scenes.length,
+        eventId: video.eventId, updatedAt: row.updatedAt, sceneCount: video.template === 'laminas' ? video.design?.slides.length ?? 0 : video.template === 'cuenta' ? 1 : video.scenes.length,
       }];
     }
     if (row.kind === 'ia') {

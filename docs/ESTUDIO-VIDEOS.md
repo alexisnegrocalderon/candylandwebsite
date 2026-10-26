@@ -38,3 +38,28 @@ y `GITHUB_RENDER_REF` (rama del workflow, por defecto `main`).
 
 Si falta algo, el editor de video lo dice y deja usar «Descargar proyecto (ZIP)»,
 que se graba a mano con `npx hyperframes render` o pidiéndoselo a Claude Code.
+
+## Cuenta regresiva («Faltan sólo 8 días para…»)
+
+Primer formato del **estilo Playroom** (ver `docs/ESTILO-PLAYROOM.md`). En el
+Estudio → Video → «Partir de» → **Cuenta regresiva: <evento>**. Arma el reel
+9:16 de 6,5 s con los datos reales del evento (hora de Chile): los días que
+faltan, el nombre del evento, «SÁB|06 21HRS», la palabra que se comenta y la ciudad. Nunca
+lleva la dirección.
+
+- **Cambiar los días** rehace el número, el sello y la etiqueta («FALTA SÓLO... 1 DÍA»,
+  «ES... HOY»). Cada texto se puede corregir a mano.
+- **Colores:** los de la marca, en un fondo liso (sin degradados): **Celeste** `#00A3FF` o
+  **Rosa** `#EF8DFF`, con blanco, magenta `#FF008E` y azul `#0010DF`. Los colores de ediciones
+  pasadas (REDROOM rojo, Dark Candy) ya no se usan. Para sumar otro fondo de la marca se agrega
+  una entrada en `COUNTDOWN_LOOKS` (`shared/studioCountdown.ts`).
+- **Fondo:** sin foto queda el degradado del evento; con una foto o un clip (por
+  ejemplo, uno hecho con Nano Banana o Flow) va debajo con un velo del color.
+- **Música:** se agrega en el video igual que en los otros formatos, o se deja sin
+  audio y se pone la canción al publicar desde Instagram.
+- Se graba igual que los demás: «Exportar MP4» (HyperFrames en GitHub Actions). Las
+  letras nuevas (Anton y Barlow Condensed, licencia OFL) salen de
+  `client/public/studio/fonts/`.
+
+Código: `shared/studioCountdown.ts` (datos, días que faltan, texto) y
+`shared/studioCountdownHtml.ts` (la composición). Panel: `CountdownControls.tsx`.

@@ -1,0 +1,5 @@
+Anton-Regular.ttf: Copyright 2020 The Anton Project Authors (https://github.com/googlefonts/AntonFont.git).
+BarlowCondensed-ExtraBoldItalic.ttf: Copyright 2017 The Barlow Project Authors (https://github.com/jpt/barlow).
+Ambas con la licencia SIL Open Font License 1.1 (https://openfontlicense.org), que permite usarlas
+y redistribuirlas, también en trabajos comerciales. Se usan en los reels de motion graphics del Estudio
+(shared/studioCountdownHtml.ts).
