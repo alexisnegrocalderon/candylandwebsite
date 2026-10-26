@@ -69,6 +69,7 @@ describe('conteo', () => {
   it('cerradas + fracción de la abierta', () => {
     expect(conteoATotal(3, 0.5, 750)).toBe(2625);
     expect(conteoATotal(0, 0.25, 750)).toBe(187.5);
+    expect(conteoATotal(2, 3 / 10, 750)).toBe(1725); // 2 cerradas + 3/10 de la abierta
     expect(conteoATotal(-2, 3, 750)).toBe(750);
   });
 

@@ -15,7 +15,7 @@ function loadDraft(eventId: number, kind: Kind): Record<number, Line> {
 }
 
 /** Conteo de barra al abrir y al cerrar turno: una tarjeta por insumo con
- * botellas cerradas (−/+) y la abierta en fracciones (Vacía/¼/½/¾/Llena).
+ * botellas cerradas (−/+) y la abierta porcionada en 10 (5/10 = a la mitad).
  *
  * Es un conteo "a ciegas": no muestra lo que el sistema espera hasta después
  * de guardar, para que nadie cuente "lo que debería haber". Lo que no se toca
@@ -139,8 +139,8 @@ export function BarraCount({ eventId, registerId, kind, onDone, onSkip }: {
               </div>
               {!onlyUnits && (
                 <div>
-                  <p className="text-sm text-white/60 mb-2">La abierta</p>
-                  <div className="grid grid-cols-5 gap-2">
+                  <p className="text-sm text-white/60 mb-2">La abierta (porciones de 10)</p>
+                  <div className="grid grid-cols-6 gap-2">
                     {OPEN_FRACTIONS.map((f) => {
                       const active = line?.fraction === f.value && line !== undefined;
                       return (

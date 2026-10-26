@@ -48,14 +48,14 @@ export const MOVIMIENTO_LABEL: Record<MovimientoKind, string> = {
   ajuste: 'Ajuste manual',
 };
 
-/** Fracciones de la botella abierta que se pueden marcar al contar. */
-export const OPEN_FRACTIONS = [
-  { value: 0, label: 'Vacía' },
-  { value: 0.25, label: '¼' },
-  { value: 0.5, label: '½' },
-  { value: 0.75, label: '¾' },
-  { value: 1, label: 'Llena' },
-] as const;
+/** La botella abierta se cuenta porcionada en 10: 5/10 = a la mitad. */
+export const OPEN_PORTIONS = 10;
+
+/** Porciones de la botella abierta que se pueden marcar al contar (0/10 … 10/10). */
+export const OPEN_FRACTIONS = Array.from({ length: OPEN_PORTIONS + 1 }, (_, k) => ({
+  value: k / OPEN_PORTIONS,
+  label: `${k}/${OPEN_PORTIONS}`,
+}));
 
 /** Descuadre del conteo de cierre por sobre este % de lo esperado: se avisa. */
 export const DESCUADRE_PCT = 10;
