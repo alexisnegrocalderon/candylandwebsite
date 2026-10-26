@@ -131,3 +131,47 @@ export function mergeHistory(
   const items = after.slice(0, limit);
   return { items, next: after.length > limit ? encodeCursor(items[items.length - 1]) : null };
 }
+
+/* ── Cómo se muestra (pantalla «Mis movimientos») ───────────────────────── */
+
+const CHILE_TZ = 'America/Santiago';
+
+/** El día (en hora de Chile) de un instante: «2026-10-24». Sirve para agrupar la lista. */
+export function historyDayKey(at: string | Date): string {
+  return new Date(at).toLocaleDateString('en-CA', { timeZone: CHILE_TZ });
+}
+
+/** «Hoy», «Ayer» o «vie 24 oct» (con el año si no es el actual). */
+export function historyDayLabel(dayKey: string, now: Date = new Date()): string {
+  const today = historyDayKey(now);
+  if (dayKey === today) return 'Hoy';
+  if (dayKey === historyDayKey(new Date(now.getTime() - 86_400_000))) return 'Ayer';
+  const d = new Date(`${dayKey}T12:00:00-03:00`);
+  const sameYear = dayKey.slice(0, 4) === today.slice(0, 4);
+  return d.toLocaleDateString('es-CL', { weekday: 'short', day: 'numeric', month: 'short', ...(sameYear ? {} : { year: 'numeric' }), timeZone: CHILE_TZ }).replace(/\./g, '');
+}
+
+/** «+$20.000», «−$16.000» o «+640 pc». null si el movimiento no tiene monto. */
+export function formatHistoryAmount(amount: number | null | undefined, unit: 'clp' | 'pc' | null | undefined): string | null {
+  if (amount == null || !unit) return null;
+  const sign = amount >= 0 ? '+' : '−';
+  const n = Math.abs(amount).toLocaleString('es-CL');
+  return unit === 'clp' ? `${sign}$${n}` : `${sign}${n} pc`;
+}
+
+export function formatHistoryBalance(balance: number | null | undefined, unit: 'clp' | 'pc' | null | undefined): string | null {
+  if (balance == null || !unit) return null;
+  return unit === 'clp' ? `Saldo $${balance.toLocaleString('es-CL')}` : `Saldo ${balance.toLocaleString('es-CL')} pc`;
+}
+
+export const HISTORY_ICON: Record<HistoryKind, string> = {
+  compra: '🛒', saldo: '💳', playcoins: '🪙', canje: '✅', ingreso: '🚪', guardarropia: '🧥', cocina: '🍔',
+};
+
+export const HISTORY_EMPTY: Record<HistoryFilter, string> = {
+  todo: 'Todavía no hay movimientos. Tus compras, tu saldo, tus Playcoins y lo que canjees en las fiestas aparecen acá.',
+  compras: 'Todavía no hay compras en tu cuenta.',
+  saldo: 'Todavía no has recargado ni usado tu saldo.',
+  playcoins: 'Todavía no has ganado ni canjeado Playcoins.',
+  canjes: 'Todavía no has entrado ni canjeado nada en una fiesta.',
+};

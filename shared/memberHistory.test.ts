@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { decodeCursor, encodeCursor, matchesFilter, mergeHistory, playcoinsTitle, prepaidTitle, sourcesFor, summarizeItems, type HistoryItem } from './memberHistory';
+import { decodeCursor, encodeCursor, formatHistoryAmount, formatHistoryBalance, historyDayKey, historyDayLabel, matchesFilter, mergeHistory, playcoinsTitle, prepaidTitle, sourcesFor, summarizeItems, type HistoryItem } from './memberHistory';
 
 const item = (id: string, at: string, kind: HistoryItem['kind'] = 'compra', extra: Partial<HistoryItem> = {}): HistoryItem => ({ id, at, kind, title: id, ...extra });
 
@@ -68,5 +68,30 @@ describe('mezcla y paginación', () => {
   it('el cursor lleva fecha e id', () => {
     const c = encodeCursor({ at: '2026-10-01T10:00:00Z', id: 'x|y' });
     expect(decodeCursor(c)).toEqual({ at: '2026-10-01T10:00:00Z', id: 'x|y' });
+  });
+});
+
+describe('cómo se muestra', () => {
+  it('agrupa por día en hora de Chile (de noche en Chile ya es el día siguiente en UTC)', () => {
+    expect(historyDayKey('2026-10-24T23:30:00-03:00')).toBe('2026-10-24');
+    expect(historyDayKey('2026-10-25T02:30:00Z')).toBe('2026-10-24');
+    expect(historyDayKey('2026-10-25T04:00:00Z')).toBe('2026-10-25');
+  });
+  it('rotula Hoy, Ayer y el resto con su fecha', () => {
+    const now = new Date('2026-10-25T15:00:00Z');
+    expect(historyDayLabel('2026-10-25', now)).toBe('Hoy');
+    expect(historyDayLabel('2026-10-24', now)).toBe('Ayer');
+    expect(historyDayLabel('2026-10-20', now)).toMatch(/20 oct/);
+    expect(historyDayLabel('2025-12-31', now)).toMatch(/2025/);
+  });
+  it('da formato a montos y saldos', () => {
+    expect(formatHistoryAmount(20000, 'clp')).toBe('+$20.000');
+    expect(formatHistoryAmount(-16000, 'clp')).toBe('−$16.000');
+    expect(formatHistoryAmount(640, 'pc')).toBe('+640 pc');
+    expect(formatHistoryAmount(null, 'clp')).toBeNull();
+    expect(formatHistoryAmount(5, null)).toBeNull();
+    expect(formatHistoryBalance(4000, 'clp')).toBe('Saldo $4.000');
+    expect(formatHistoryBalance(420, 'pc')).toBe('Saldo 420 pc');
+    expect(formatHistoryBalance(undefined, 'pc')).toBeNull();
   });
 });
