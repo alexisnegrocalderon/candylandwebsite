@@ -7,6 +7,7 @@ import { fmtDateTime } from '@/lib/member';
 import { formatChileTime } from '@shared/chileDate';
 import { TICKET_KIND_META, type TicketKind } from '@shared/ticketKind';
 import { groupOf, groupTickets, isPaidAtDoor, nextUnit } from '@shared/nightExtras';
+import { horizontalSwipe } from '@shared/cardSwipe';
 
 /* Las piezas de las tarjetas de «Mi cuenta» (pestaña PlayCard): el pase de cada entrada o extra, la guardarropía y
  * la cocina de caja, el QR a pantalla completa y los toques «de verdad». */
@@ -89,6 +90,26 @@ export function QrViewer({ ev, t, holder, onClose, onSelect }: { ev: MeEvent; t:
   const showUnits = !!onSelect && !!current && current.units.length > 1;
   const stepUnit = (d: number) => { if (current && onSelect) onSelect(current.units[(unitIdx + d + current.units.length) % current.units.length] as MeTicket); };
   const used = t.status === 'used';
+  // Deslizar de lado dentro de la pantalla pasa al código de al lado (entradas y extras, en el orden de la tira), sin
+  // cambiar de pestaña por debajo. Los deslizares sobre la tira de arriba son de la propia tira.
+  const sequence = onSelect ? groups.flatMap((g) => g.units.filter((u) => !!u.qrImageUrl && !isPaidAtDoor(u))) : [];
+  const seqIdx = sequence.findIndex((u) => u.ticketCode === t.ticketCode);
+  const [dir, setDir] = useState<-1 | 0 | 1>(0);
+  const stepCode = (d: -1 | 1) => {
+    if (!onSelect || sequence.length < 2 || seqIdx < 0) return;
+    setDir(d);
+    onSelect(sequence[(seqIdx + d + sequence.length) % sequence.length] as MeTicket);
+  };
+  const swipeStart = useRef<{ x: number; y: number } | null>(null);
+  const onSwipeStart = (e: React.TouchEvent) => {
+    swipeStart.current = (e.target as HTMLElement).closest('[role="tablist"]') ? null : { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  };
+  const onSwipeEnd = (e: React.TouchEvent) => {
+    const s = swipeStart.current; swipeStart.current = null;
+    if (!s) return;
+    const sw = horizontalSwipe(e.changedTouches[0].clientX - s.x, e.changedTouches[0].clientY - s.y);
+    if (sw) stepCode(sw === 'left' ? 1 : -1);
+  };
   useEffect(() => {
     let lock: { release: () => Promise<void> } | null = null;
     const nav = navigator as Navigator & { wakeLock?: { request: (t: 'screen') => Promise<{ release: () => Promise<void> }> } };
@@ -113,7 +134,7 @@ export function QrViewer({ ev, t, holder, onClose, onSelect }: { ev: MeEvent; t:
     <motion.div
       initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }} transition={{ duration: 0.22 }}
       className={`account-font fixed inset-0 z-[90] flex flex-col items-center gap-5 overflow-y-auto px-6 pb-[max(24px,env(safe-area-inset-bottom))] ${showStrip ? 'pt-[calc(max(16px,env(safe-area-inset-top))+60px)]' : 'pt-[max(24px,env(safe-area-inset-top))]'} text-white [&>*:first-child]:shrink-0`}
-      style={QR_PAGE_BG} role="dialog" aria-label="Código QR de tu entrada"
+      style={QR_PAGE_BG} role="dialog" aria-label="Código QR de tu entrada" onTouchStart={onSwipeStart} onTouchEnd={onSwipeEnd}
     >
       <button type="button" onClick={onClose} aria-label="Cerrar" className="absolute right-4 top-[max(16px,env(safe-area-inset-top))] grid h-11 w-11 place-items-center rounded-full bg-white/10"><X className="h-5 w-5" /></button>
       {showStrip ? (
@@ -133,34 +154,37 @@ export function QrViewer({ ev, t, holder, onClose, onSelect }: { ev: MeEvent; t:
           {TICKET_KIND_META[t.kind].emoji} {t.kindLabel ?? TICKET_KIND_META[t.kind].label}
         </p>
       )}
-      <p className="text-center text-title2 font-bold leading-tight tracking-tight">{ev.eventTitle}</p>
-      {t.kind && <p className="-mt-3 text-center text-footnote text-white/60">{TICKET_KIND_META[t.kind].where}</p>}
-      {t.qrImageUrl && <QrCard src={t.qrImageUrl} alt="Código QR de tu entrada" faded={used} className={t.companions && t.companions.length > 0 ? 'w-[min(80vw,40vh)]' : 'w-[min(86vw,58vh)]'} />}
-      {used && (
-        <p className="-mt-2 rounded-full bg-emerald-400/15 px-4 py-1.5 text-center text-subhead font-bold text-emerald-300">
-          {t.kind === 'acceso' || !t.kind ? '✓ Ya entraste' : '✓ Ya canjeado'}{t.usedAt ? ` · ${formatChileTime(t.usedAt)}` : ''}
-        </p>
-      )}
-      {showUnits && current && (
-        <div className="-mt-1 flex items-center gap-2 text-subhead font-semibold">
-          <button type="button" onClick={() => stepUnit(-1)} aria-label="Anterior" className="grid h-10 w-10 place-items-center rounded-full bg-white/10"><ChevronLeft className="h-5 w-5" /></button>
-          <span className="min-w-[96px] text-center tabular-nums">{unitIdx + 1} de {current.units.length}</span>
-          <button type="button" onClick={() => stepUnit(1)} aria-label="Siguiente" className="grid h-10 w-10 place-items-center rounded-full bg-white/10"><ChevronRight className="h-5 w-5" /></button>
+      <motion.div key={t.ticketCode} initial={dir === 0 ? false : { opacity: 0, x: dir * 56 }} animate={{ opacity: 1, x: 0 }} transition={{ type: 'spring', damping: 28, stiffness: 300 }} className="flex w-full flex-col items-center gap-5">
+        <p className="text-center text-title2 font-bold leading-tight tracking-tight">{ev.eventTitle}</p>
+        {t.kind && <p className="-mt-3 text-center text-footnote text-white/60">{TICKET_KIND_META[t.kind].where}</p>}
+        {t.qrImageUrl && <QrCard src={t.qrImageUrl} alt="Código QR de tu entrada" faded={used} className={t.companions && t.companions.length > 0 ? 'w-[min(80vw,40vh)]' : 'w-[min(86vw,58vh)]'} />}
+        {used && (
+          <p className="-mt-2 rounded-full bg-emerald-400/15 px-4 py-1.5 text-center text-subhead font-bold text-emerald-300">
+            {t.kind === 'acceso' || !t.kind ? '✓ Ya entraste' : '✓ Ya canjeado'}{t.usedAt ? ` · ${formatChileTime(t.usedAt)}` : ''}
+          </p>
+        )}
+        {showUnits && current && (
+          <div className="-mt-1 flex items-center gap-2 text-subhead font-semibold">
+            <button type="button" onClick={() => stepUnit(-1)} aria-label="Anterior" className="grid h-10 w-10 place-items-center rounded-full bg-white/10"><ChevronLeft className="h-5 w-5" /></button>
+            <span className="min-w-[96px] text-center tabular-nums">{unitIdx + 1} de {current.units.length}</span>
+            <button type="button" onClick={() => stepUnit(1)} aria-label="Siguiente" className="grid h-10 w-10 place-items-center rounded-full bg-white/10"><ChevronRight className="h-5 w-5" /></button>
+          </div>
+        )}
+        <div className="text-center">
+          <p className="text-title3 font-semibold">{t.holderName || holder}</p>
+          <p className="font-mono text-subhead text-white/60">{t.ticketCode}</p>
+          {t.displayCode && t.kind !== 'acceso' && <p className="mt-1 font-mono text-title3 font-bold tracking-[0.12em]">{t.displayCode}</p>}
         </div>
-      )}
-      <div className="text-center">
-        <p className="text-title3 font-semibold">{t.holderName || holder}</p>
-        <p className="font-mono text-subhead text-white/60">{t.ticketCode}</p>
-        {t.displayCode && t.kind !== 'acceso' && <p className="mt-1 font-mono text-title3 font-bold tracking-[0.12em]">{t.displayCode}</p>}
-      </div>
-      {t.companions && t.companions.length > 0 && (
-        <div className="w-full max-w-sm rounded-2xl bg-white/[0.07] px-4 py-3 text-center">
-          <p className="text-caption2 font-semibold uppercase tracking-[0.18em] text-white/60">{t.companions.length > 1 ? 'Acompañantes' : 'Acompañante'}</p>
-          {t.companions.map((c) => (
-            <p key={c.rut} className="mt-1 text-subhead font-semibold leading-tight">{c.nombre} <span className="font-mono text-footnote font-normal text-white/60">· {c.rut}</span></p>
-          ))}
-        </div>
-      )}
+        {t.companions && t.companions.length > 0 && (
+          <div className="w-full max-w-sm rounded-2xl bg-white/[0.07] px-4 py-3 text-center">
+            <p className="text-caption2 font-semibold uppercase tracking-[0.18em] text-white/60">{t.companions.length > 1 ? 'Acompañantes' : 'Acompañante'}</p>
+            {t.companions.map((c) => (
+              <p key={c.rut} className="mt-1 text-subhead font-semibold leading-tight">{c.nombre} <span className="font-mono text-footnote font-normal text-white/60">· {c.rut}</span></p>
+            ))}
+          </div>
+        )}
+        {sequence.length > 1 && <p className="-mt-1 text-center text-caption1 text-white/45">Desliza de lado para ver los otros códigos</p>}
+      </motion.div>
       <p className="text-center text-caption1 text-white/60">Sube el brillo de la pantalla. Muestra tu carnet en la entrada.</p>
       <button type="button" onClick={() => { void save(); }} disabled={saving} className="inline-flex h-12 items-center justify-center gap-2 rounded-full bg-white px-6 text-subhead font-bold text-[#0b0612] interactive disabled:opacity-60">
         {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} Guardar en Fotos
