@@ -100,3 +100,18 @@ describe('texto', () => {
     expect(personalizeName('{nombre}, tu entrada te espera', null)).toBe('tu entrada te espera');
   });
 });
+
+describe('regla de correos específicos', () => {
+  it('normaliza (minúsculas, sin repetir) y le llega solo a esos correos', () => {
+    const s = seg([{ type: 'emails', emails: ['Ana@X.cl', 'ana@x.cl'] } as PushRule]);
+    expect(s.include).toEqual([{ type: 'emails', emails: ['ana@x.cl'] }]);
+    const c = ctx({ [ruleKey(s.include[0])]: { emails: new Set(['ana@x.cl']) } });
+    expect(ids(run(s, c))).toEqual([1]);
+  });
+  it('vacía no se borra: no le llega a nadie (nunca «todos»)', () => {
+    const s = seg([{ type: 'emails', emails: [] } as PushRule]);
+    expect(s.include).toHaveLength(1);
+    const c = ctx({ [ruleKey(s.include[0])]: { emails: new Set() } });
+    expect(ids(run(s, c))).toEqual([]);
+  });
+});

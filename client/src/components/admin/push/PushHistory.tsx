@@ -15,7 +15,7 @@ const STATUS: Record<string, { label: string; cls: string }> = {
 };
 const KIND: Record<string, string> = {
   manual: '', recordatorio: 'Recordatorio', evento: 'Nuevo evento', preventa: 'Preventa', pocos_cupos: 'Pocos cupos', reactivacion: 'Reactivación',
-  cumpleanos: 'Cumpleaños', gracias: 'Gracias', saldo: 'Saldo',
+  cumpleanos: 'Cumpleaños', gracias: 'Gracias', saldo: 'Saldo', personal: 'A una persona',
 };
 
 const fmt = (d: string | Date | null) => d ? new Date(d).toLocaleString('es-CL', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';

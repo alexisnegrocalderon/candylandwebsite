@@ -99,6 +99,8 @@ export const KIND_RULES: Record<string, { marketing: boolean; quiet: boolean; de
   gracias: { marketing: false, quiet: true, dedupeDays: 3650, perEvent: true },
   saldo: { marketing: false, quiet: true, dedupeDays: 3650, perEvent: true },
   recordatorio: { marketing: false, quiet: false },
+  // Mensaje del dueño a una persona (desde su ficha): sale al tiro y no gasta su aviso de promo del día.
+  personal: { marketing: false, quiet: false },
 };
 const kindRule = (kind: string) => KIND_RULES[kind] ?? KIND_RULES.manual;
 
@@ -364,6 +366,9 @@ async function resolveRules(rules: PushRule[], subs: SubRow[]): Promise<Record<s
     switch (rule.type) {
       case 'event':
         out[key] = { emails: await buyersOf(and(approved, eq(orders.eventId, rule.eventId))) };
+        break;
+      case 'emails':
+        out[key] = { emails: new Set(rule.emails) };
         break;
       case 'nextEvent': {
         const ev = await nextEvent();
@@ -902,3 +907,18 @@ export async function pushAbandonedCarts(orderIds: number[]): Promise<number> {
     return 0;
   }
 }
+
+/** Push a una persona desde el panel (sección App): queda en el Historial como campaña de un destinatario. */
+export async function sendPushToCustomer(input: { email: string; title: string; body: string; url?: string | null; createdBy?: string | null }): Promise<{ campaignId: number; sent: number; devices: number }> {
+  const key = emailKey(input.email);
+  if (!key) throw new Error('Correo inválido');
+  const { active } = await countPushForEmail(key);
+  if (active === 0) throw new Error('Esta persona no tiene los avisos activados en ningún teléfono.');
+  const campaignId = await createPushCampaign({
+    title: input.title, body: input.body, url: input.url || '/cuenta', kind: 'personal', createdBy: input.createdBy ?? null,
+    segment: { type: 'combo', include: [{ type: 'emails', emails: [key] }], exclude: [] },
+  });
+  const r = await sendPushCampaign(campaignId);
+  return { campaignId, sent: r.sentNow, devices: active };
+}
+
