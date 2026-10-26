@@ -26,7 +26,7 @@ import { DEMO_EVENT_SLUG } from '../shared/demoAccount';
 import { COUPON_BATCH_MAX, couponGiftError, couponPushText, defaultCouponTitle, type CouponAudience, type CouponGiftType } from '../shared/couponGift';
 import { PLACEHOLDER_BUYER_EMAILS } from '../shared/parking';
 import { customerWhere } from './customerFilters';
-import { appEmails } from './appDevices';
+import { appUserEmails } from './appDevices';
 
 type CustomerRow = typeof customers.$inferSelect;
 
@@ -497,7 +497,7 @@ export async function resolveCouponAudience(audience: CouponAudience): Promise<{
   } else if (audience.kind === 'members') {
     rows = await db.select(cols).from(customers).where(isNotNull(customers.memberSince)).limit(COUPON_BATCH_MAX + 1);
   } else if (audience.kind === 'app') {
-    rows = await db.select(cols).from(customers).where(customerWhere({ hasApp: true }, new Date(), await appEmails())).limit(COUPON_BATCH_MAX + 1);
+    rows = await db.select(cols).from(customers).where(customerWhere({ hasApp: true }, new Date(), await appUserEmails())).limit(COUPON_BATCH_MAX + 1);
   } else if (audience.kind === 'level') {
     rows = await db.select(cols).from(customers).where(customerWhere({ level: audience.level }, new Date())).limit(COUPON_BATCH_MAX + 1);
   } else {

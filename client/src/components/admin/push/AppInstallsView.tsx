@@ -51,10 +51,10 @@ export function AppInstallsView() {
         <Stat value={data ? data.ios + data.android + data.desktop : '—'} label="con la app (60 días)" />
         <Stat value={data?.active7 ?? '—'} label="la abrieron esta semana" />
         <Stat value={data ? `${data.ios} / ${data.android} / ${data.desktop}` : '—'} label="iPhone / Android / PC" />
-        <Stat value={data ? `${data.identified}` : '—'} label={`identificados${data ? ` · ${data.withPush} con avisos` : ''}`} />
+        <Stat value={data ? `${data.identified + data.accounts.length}` : '—'} label={`con correo conocido${data ? ` · ${data.withPush} con avisos` : ''}`} />
       </div>
 
-      {data && data.people.length > 0 && (
+      {data && data.people.length + data.accounts.length > 0 && (
         <div className="flex flex-wrap items-center gap-3">
           <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por nombre o correo…" className="max-w-xs" />
           <a className="text-sm text-primary underline" href="/api/admin/customers/export.csv?hasApp=1">Descargar correos (CSV)</a>
@@ -104,6 +104,31 @@ export function AppInstallsView() {
           </div>
         ))}
       </div>
+      {data && data.accounts.length > 0 && (
+        <section className="space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Con cuenta en la app · {data.accounts.length}</p>
+          <p className="text-xs text-muted-foreground">Crearon su cuenta en «Mi cuenta» pero ese teléfono todavía no la identifica como app instalada (aparecen arriba apenas la abran).</p>
+          {data.accounts.filter((a) => !q || foldText(`${a.name ?? ''} ${a.email}`).includes(foldText(q))).map((a) => (
+            <div key={a.email} className="rounded-2xl border border-border bg-card/60">
+              <button type="button" onClick={() => setOpenId(a.customerId)} className="flex w-full items-center gap-3 p-3 text-left">
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-muted text-muted-foreground"><Smartphone className="h-4 w-4" /></span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-semibold">{a.name || a.email}</p>
+                  <p className="truncate text-xs text-muted-foreground">{a.name ? `${a.email} · ` : ''}cuenta desde {fmt(a.memberSince)}</p>
+                </div>
+              </button>
+              <div className="flex flex-wrap gap-2 border-t border-border px-3 py-2">
+                <WriteButton size="sm" variant="ghost" className="h-7 gap-1.5 px-2 text-xs" onClick={() => setGift({ email: a.email, name: a.name })}>
+                  <Gift className="h-3.5 w-3.5" /> Regalar cupón
+                </WriteButton>
+                <WriteButton size="sm" variant="ghost" className="h-7 gap-1.5 px-2 text-xs" onClick={() => setPush({ email: a.email, name: a.name })}>
+                  <BellRing className="h-3.5 w-3.5" /> Enviar push
+                </WriteButton>
+              </div>
+            </div>
+          ))}
+        </section>
+      )}
       <SendPushDialog open={!!push} onClose={() => setPush(null)} email={push?.email ?? null} name={push?.name} />
       <GrantCouponDialog open={!!gift} onClose={() => setGift(null)} email={gift?.email} name={gift?.name} />
       <CustomerDrawer customerId={openId} onClose={() => setOpenId(null)} onChanged={() => refetch()} onDeleted={() => setOpenId(null)} />

@@ -32,7 +32,7 @@ import { MovementsScreen } from '@/components/site/MovementsScreen';
 import { QrViewer, holderLabels, tapHaptic, useCountdown, type MeEvent, type Movement } from '@/components/site/walletParts';
 import { canEnterParty } from '@shared/party';
 import { TICKET_KIND_META, type TicketKind } from '@shared/ticketKind';
-import { useCustomerPush } from '@/lib/customerPush';
+import { reportAppOpen, useCustomerPush } from '@/lib/customerPush';
 import { avisosNotice } from '@/lib/pushPromptView';
 import { useIsMobile } from '@/hooks/useMobile';
 import { MemberLogin, type LoginDone } from '@/components/site/MemberLogin';
@@ -967,6 +967,12 @@ export default function Cuenta() {
   // La pantalla es oscura: barra de estado y fondo oscuros mientras estás acá (sin franja blanca arriba).
   useDarkChrome();
   const shell = `account-font account-tokens relative min-h-dvh bg-[#0b0612] text-white ${halloween ? 'pm-halloween' : ''}`;
+
+  // Con la cuenta abierta, este teléfono queda ligado a su correo en «Clientes con la app» del panel (una vez por sesión).
+  const linkedDevice = useRef(false);
+  useEffect(() => {
+    if (data && !linkedDevice.current) { linkedDevice.current = true; reportAppOpen(undefined, true); }
+  }, [data]);
 
   useEffect(() => {
     if (data) { saveAccountSnapshot(data); setSnapshot({ me: data, savedAt: Date.now() }); }

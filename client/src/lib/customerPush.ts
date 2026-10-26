@@ -76,10 +76,10 @@ const OPENED_KEY = 'mp_app_opened';
 /** Avisa al servidor que el sitio se abrió como app instalada (una vez por
  * apertura; con `ticketCode`, aunque ya haya avisado, para ligarla a esa
  * compra). Es lo que cuenta "quién tiene la app" (server/appDevices.ts). */
-export function reportAppOpen(ticketCode?: string): void {
+export function reportAppOpen(ticketCode?: string, force = false): void {
   if (!isStandalone()) return;
   try {
-    if (!ticketCode && sessionStorage.getItem(OPENED_KEY)) return;
+    if (!ticketCode && !force && sessionStorage.getItem(OPENED_KEY)) return;
     let deviceId = localStorage.getItem(DEVICE_KEY);
     if (!deviceId) {
       deviceId = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join('');

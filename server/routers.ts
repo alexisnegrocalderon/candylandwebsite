@@ -894,7 +894,7 @@ function decorateCustomers(rows: any[], withApp: Set<string>, now: Date) {
 async function customerRows(input: z.infer<typeof customerFiltersInput>) {
   const now = new Date();
   const { hasApp, ...filters } = input;
-  const [all, withApp] = await Promise.all([db.listCustomers(filters), appDevices.appEmails()]);
+  const [all, withApp] = await Promise.all([db.listCustomers(filters), appDevices.appUserEmails()]);
   const rows = hasApp ? all.filter((c: any) => withApp.has(c.email.toLowerCase())) : all;
   return decorateCustomers(rows, withApp, now);
 }
@@ -4905,8 +4905,8 @@ export const appRouter = router({
       ticketCode: z.string().max(64).optional(),
       // Dispositivo con avisos activos: suma la hora de apertura a su historial (mejor hora por persona).
       endpoint: z.string().url().max(512).optional(),
-    })).mutation(async ({ input }) => {
-      await appDevices.recordAppOpen(input);
+    })).mutation(async ({ input, ctx }) => {
+      await appDevices.recordAppOpen({ ...input, memberEmail: getMemberEmail(ctx.req) });
       return { success: true };
     }),
     appStats: adminReadProcedure.query(() => appDevices.appInstallStats()),
@@ -6766,7 +6766,7 @@ export const appRouter = router({
       // lista en memoria de siempre: la tabla nunca queda sin datos por esto.
       try {
         const now = new Date();
-        const withApp = await appDevices.appEmails();
+        const withApp = await appDevices.appUserEmails();
         const result = await pageCustomers(filters, page, pageSize, { now, appEmails: withApp });
         return { ...result, rows: decorateCustomers(result.rows, withApp, now) };
       } catch (err) {
@@ -6781,7 +6781,7 @@ export const appRouter = router({
     detail: adminReadProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
       const profile = await getCustomerProfile(input.id);
       if (!profile) throw new TRPCError({ code: 'NOT_FOUND', message: 'No encontré a ese cliente.' });
-      return { ...profile, hasApp: (await appDevices.appEmails()).has(String(profile.customer.email).toLowerCase()) };
+      return { ...profile, hasApp: (await appDevices.appUserEmails()).has(String(profile.customer.email).toLowerCase()) };
     }),
     // Edición manual de la ficha. Lo que se toca queda protegido de las
     // compras nuevas (lockedFields) y se deja en la bitácora de admin.
