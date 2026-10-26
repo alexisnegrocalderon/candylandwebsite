@@ -467,7 +467,8 @@ export async function proyeccion(params: { eventId: number; personas: number; fa
   const estado = await estadoBarra(params.eventId);
   const allInsumos = estado.ready ? estado.insumos : [];
   const stock = new Map(allInsumos.map((i) => [i.id, i.stock]));
-  const productos = estado.ready ? estado.productos.filter((p) => p.receta.length > 0) : [];
+  // Todos los tragos de la carta: los que no tienen receta no gastan insumos, pero sí tienen su parte de las ventas.
+  const productos = estado.ready ? estado.productos : [];
   const result = proyeccionCompra({
     historico, productos, insumos: allInsumos, stock, personasObjetivo: params.personas,
     factor: params.factor, tragosPorPersona: params.tragosPorPersona, overrides: params.overrides,
@@ -478,28 +479,35 @@ export async function proyeccion(params: { eventId: number; personas: number; fa
 
 // --- Carga del dosier (shared/dosier.ts) ---
 
-/** Qué haría cargar el dosier en este evento: insumos a crear, recetas por trago y stock de partida. */
-export async function dosierPlan(eventId: number, reemplazarRecetas = false) {
+/** Qué haría cargar el dosier en este evento: insumos a crear, stock de partida y, para cada
+ * preparación, a qué productos de la Carta se la sugiero. */
+export async function dosierPlan(eventId: number) {
   const db = await dbOrThrow();
   const [all, stock, recetas, products] = await Promise.all([
     listInsumos(true),
     stockMap(db),
     recetasDelEvento(eventId, db),
-    db.select({ id: ticketTypes.id, name: ticketTypes.name }).from(ticketTypes)
-      .where(and(eq(ticketTypes.eventId, eventId), inArray(ticketTypes.category, ["consumo", "merch"]))),
+    // Solo los tragos y comidas de la carta (no guardarropía ni merch).
+    db.select({ id: ticketTypes.id, name: ticketTypes.name, groupName: ticketTypes.groupName }).from(ticketTypes)
+      .where(and(eq(ticketTypes.eventId, eventId), eq(ticketTypes.category, "consumo"))),
   ]);
   const plan = planDosier({
-    insumos: all, productos: products as { id: number; name: string }[],
-    insumosConMovimientos: new Set(stock.keys()), productosConReceta: new Set(recetas.map((r) => r.ticketTypeId)), reemplazarRecetas,
+    insumos: all, productos: products as { id: number; name: string; groupName: string | null }[],
+    insumosConMovimientos: new Set(stock.keys()), productosConReceta: new Set(recetas.map((r) => r.ticketTypeId)),
   });
   return { ...plan, supuestos: DOSIER_SUPUESTOS };
 }
 
-/** Carga el dosier: crea los insumos que faltan, la receta de cada trago que está en la Carta y el
- * stock de partida. Se puede repetir sin duplicar nada (no recrea insumos, no pisa stock en uso). */
-export async function dosierApply(params: { eventId: number; reemplazarRecetas: boolean; cargarStock: boolean }) {
+/** Carga el dosier: crea los insumos que faltan, el stock de partida y copia cada preparación a los
+ * productos de la Carta elegidos (cada producto queda con su propia receta, editable). Se puede repetir
+ * sin duplicar nada (no recrea insumos, no pisa un stock en uso ni, salvo que se pida, una receta ya cargada). */
+export async function dosierApply(params: {
+  eventId: number; reemplazarRecetas: boolean; cargarStock: boolean;
+  asignaciones: { receta: string; productIds: number[] }[];
+}) {
   if (!(await ready())) throw new Error("Falta activar el stock de barra (actualizar la base de datos).");
-  const plan = await dosierPlan(params.eventId, params.reemplazarRecetas);
+  const plan = await dosierPlan(params.eventId);
+  const validProducts = new Map(plan.productos.map((p) => [p.id, p]));
   const idByKey = new Map<string, number>();
   let created = 0;
   let stockLoaded = 0;
@@ -520,14 +528,19 @@ export async function dosierApply(params: { eventId: number; reemplazarRecetas: 
     }
   }
   let recetas = 0;
-  for (const r of plan.recetas) {
-    if (r.action !== "cargar" || r.productId === null) continue;
-    await setReceta(r.productId, r.glass, r.lines.map((l) => ({ insumoId: idByKey.get(l.insumo)!, amount: l.amount })));
-    recetas++;
+  let yaTenian = 0;
+  const done = new Set<number>(); // un producto recibe una sola preparación
+  for (const a of params.asignaciones) {
+    const def = plan.recetas.find((r) => r.product === a.receta);
+    if (!def) continue;
+    for (const productId of a.productIds) {
+      const product = validProducts.get(productId);
+      if (!product || done.has(productId)) continue;
+      done.add(productId);
+      if (product.tieneReceta && !params.reemplazarRecetas) { yaTenian++; continue; }
+      await setReceta(productId, def.glass, def.lines.map((l) => ({ insumoId: idByKey.get(l.insumo)!, amount: l.amount })));
+      recetas++;
+    }
   }
-  return {
-    insumosCreados: created, stockCargado: stockLoaded, recetasCargadas: recetas,
-    recetasYaTenian: plan.recetas.filter((r) => r.action === "ya_tiene").length,
-    sinProducto: plan.recetas.filter((r) => r.action === "sin_producto").map((r) => r.product),
-  };
+  return { insumosCreados: created, stockCargado: stockLoaded, recetasCargadas: recetas, recetasYaTenian: yaTenian };
 }

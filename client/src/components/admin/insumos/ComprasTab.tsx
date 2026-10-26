@@ -94,7 +94,14 @@ export function ComprasTab({ eventId, data }: { eventId: number; data: BarraData
             {p.fuentes.length > 0
               ? <p className="mt-1 text-xs text-muted-foreground">Basado en: {p.fuentes.map((f) => `${f.title} (${f.personas} personas, ${f.tragos} tragos)`).join(' · ')}</p>
               : <p className="mt-1 text-xs text-amber-500">No hay ventas de barra de fiestas anteriores: pon los tragos por persona a mano (el reparto entre tragos queda parejo).</p>}
-            {p.sinReceta.length > 0 && <p className="mt-1 text-xs text-amber-500">Sin receta (no entran en la lista): {p.sinReceta.join(', ')}</p>}
+            {p.cobertura < 0.98 && p.fuentes.length > 0 && (
+              <p className="mt-1 text-xs text-muted-foreground">Solo el {Math.round(p.cobertura * 100)} % de lo vendido antes corresponde a tragos de esta carta; el resto no se cuenta.</p>
+            )}
+            {p.sinReceta.length > 0 && (
+              <p className="mt-1 text-xs text-amber-500">
+                Sin receta ({p.sinReceta.length}): se llevan su parte de los tragos pero no gastan insumos, así que no suman a la lista hasta que les armes una receta: {p.sinReceta.join(', ')}
+              </p>
+            )}
           </div>
 
           <div className="flex items-center gap-2">
@@ -139,7 +146,11 @@ export function ComprasTab({ eventId, data }: { eventId: number; data: BarraData
             <ul className="mt-2 space-y-1.5 text-sm">
               {p.productos.map((x) => (
                 <li key={x.id} className="flex items-center gap-2 tabular-nums">
-                  <span className="min-w-0 flex-1 truncate">{x.name}{!x.fromHistory && !x.manual && <span className="text-xs text-muted-foreground"> (sin historial)</span>}</span>
+                  <span className="min-w-0 flex-1 truncate">
+                    {x.name}
+                    {p.sinReceta.includes(x.name) && <span className="text-xs text-amber-500"> (sin receta)</span>}
+                    {!x.fromHistory && !x.manual && <span className="text-xs text-muted-foreground"> (sin historial)</span>}
+                  </span>
                   <span className="w-12 shrink-0 text-right text-xs text-muted-foreground">{Math.round(x.share * 100)} %</span>
                   <Input
                     type="number" inputMode="numeric" min={0} aria-label={`Tragos esperados de ${x.name}`}

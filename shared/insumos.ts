@@ -296,10 +296,14 @@ export interface Proyeccion {
   costoTotal: number;
   /** Tragos de la carta que nunca se vendieron antes (no entran en el mix). */
   sinHistorial: string[];
+  /** Qué parte de lo vendido antes corresponde a tragos de esta carta (0 a 1). */
+  cobertura: number;
 }
 
 /** Lista de compras: tragos por persona y mix de las fiestas anteriores,
- * escalados a `personasObjetivo` → necesidad por insumo → lo que falta. */
+ * escalados a `personasObjetivo` → necesidad por insumo → lo que falta.
+ * `productos` son TODOS los tragos de la carta (los que no tienen receta no gastan
+ * insumos, pero sí se llevan su parte de los tragos: si no, la de los demás saldría inflada). */
 export function proyeccionCompra(input: ProyeccionInput): Proyeccion {
   const factor = input.factor && input.factor > 0 ? input.factor : 1;
   const personasHistoricas = input.historico.reduce((s, h) => s + Math.max(0, h.personas), 0);
@@ -323,7 +327,9 @@ export function proyeccionCompra(input: ProyeccionInput): Proyeccion {
   const tragosPorPersona = input.tragosPorPersona != null && input.tragosPorPersona >= 0 ? input.tragosPorPersona : historicPerPerson;
   const overrides = input.overrides ?? {};
   const overrideTotal = Object.values(overrides).reduce((s, n) => s + Math.max(0, n), 0);
-  const totalPorRitmo = Math.max(0, Math.round(tragosPorPersona * input.personasObjetivo * factor));
+  // Lo vendido antes de tragos que ya no están en esta carta no se va a vender: no cuenta.
+  const cobertura = soldAll > 0 ? soldTotal / soldAll : 1;
+  const totalPorRitmo = Math.max(0, Math.round(tragosPorPersona * input.personasObjetivo * factor * cobertura));
   // Lo que no está fijado a mano se reparte según el mix histórico; sin
   // historial de esos tragos, en partes iguales entre los que no tienen cantidad fija.
   const toDistribute = Math.max(0, totalPorRitmo - overrideTotal);
@@ -369,6 +375,7 @@ export function proyeccionCompra(input: ProyeccionInput): Proyeccion {
     insumos,
     costoTotal: insumos.reduce((s, i) => s + (i.cost ?? 0), 0),
     sinHistorial: input.productos.filter((p) => !soldByProduct.has(p.id)).map((p) => p.name),
+    cobertura: Math.round(cobertura * 1000) / 1000,
   };
 }
 

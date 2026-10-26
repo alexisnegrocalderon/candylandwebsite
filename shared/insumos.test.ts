@@ -105,11 +105,12 @@ describe('proyeccionCompra', () => {
   it('escala tragos por persona y mix de esta carta a 300 personas', () => {
     const p = proyeccionCompra(base);
     expect(p.tragosPorPersona).toBe(3); // 600 vendidos / 200 personas (incluye la cerveza)
-    expect(p.totalTragos).toBe(900);
-    expect(p.productos.find((x) => x.id === 1)?.quantity).toBe(675); // 75 % de 900
-    expect(p.productos.find((x) => x.id === 2)?.quantity).toBe(225);
+    expect(p.cobertura).toBeCloseTo(2 / 3, 2); // la cerveza no está en esta carta: un tercio de lo vendido no cuenta
+    expect(p.totalTragos).toBe(600);
+    expect(p.productos.find((x) => x.id === 1)?.quantity).toBe(450); // 75 % de 600
+    expect(p.productos.find((x) => x.id === 2)?.quantity).toBe(150);
     const r = p.insumos.find((i) => i.insumoId === 1)!;
-    expect(r.need).toBe(675 * 60 + 225 * 45);
+    expect(r.need).toBe(450 * 60 + 150 * 45);
     expect(r.missing).toBe(r.need - 7500);
     expect(r.containersToBuy).toBe(Math.ceil(r.missing / 750));
     expect(r.cost).toBe(r.containersToBuy * 8000);
@@ -118,9 +119,9 @@ describe('proyeccionCompra', () => {
 
   it('respeta cantidades a mano y el factor', () => {
     const p = proyeccionCompra({ ...base, factor: 1.1, overrides: { 2: 100 } });
-    expect(p.totalTragos).toBe(990);
+    expect(p.totalTragos).toBe(660); // 600 de esta carta + 10 % de margen
     expect(p.productos.find((x) => x.id === 2)?.quantity).toBe(100);
-    expect(p.productos.find((x) => x.id === 1)?.quantity).toBe(890);
+    expect(p.productos.find((x) => x.id === 1)?.quantity).toBe(560);
   });
 
   it('sin historial reparte parejo con los tragos por persona dados', () => {
@@ -283,5 +284,20 @@ describe('proyección con cantidades fijadas a mano', () => {
     expect(p.productos.find((x) => x.id === 2)?.quantity).toBe(100);
     expect(p.productos.find((x) => x.id === 3)?.quantity).toBe(100);
     expect(p.totalTragos).toBe(300);
+  });
+});
+
+describe('proyección: tragos sin receta también se llevan su parte', () => {
+  it('un trago popular sin receta no deja que los demás se lleven sus tragos', () => {
+    const productos = [
+      { id: 1, name: 'Piscolón', receta: [] as { insumoId: number; amount: number }[] }, // el más vendido, sin receta todavía
+      { id: 2, name: 'Mojito', receta: [{ insumoId: 1, amount: 90 }] },
+    ];
+    const p = proyeccionCompra({
+      historico: [{ personas: 100, ventas: [{ name: 'Piscolón', quantity: 270 }, { name: 'Mojito', quantity: 30 }] }],
+      productos, insumos: [], stock: new Map(), personasObjetivo: 100,
+    });
+    expect(p.totalTragos).toBe(300);
+    expect(p.productos.find((x) => x.id === 2)?.quantity).toBe(30); // su 10 %, no los 300
   });
 });

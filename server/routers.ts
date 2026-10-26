@@ -6051,9 +6051,13 @@ export const appRouter = router({
     }),
     estado: adminProcedure.input(z.object({ eventId: z.number() })).query(({ input }) => insumoSvc.estadoBarra(input.eventId)),
     // Carga del dosier del aniversario: primero se ve qué haría (dosierPlan), después se aplica.
-    dosierPlan: adminProcedure.input(z.object({ eventId: z.number(), reemplazarRecetas: z.boolean().optional() }))
-      .query(({ input }) => insumoSvc.dosierPlan(input.eventId, input.reemplazarRecetas ?? false)),
-    dosierApply: adminProcedure.input(z.object({ eventId: z.number(), reemplazarRecetas: z.boolean(), cargarStock: z.boolean() }))
+    dosierPlan: adminProcedure.input(z.object({ eventId: z.number() }))
+      .query(({ input }) => insumoSvc.dosierPlan(input.eventId)),
+    dosierApply: adminProcedure.input(z.object({
+      eventId: z.number(), reemplazarRecetas: z.boolean(), cargarStock: z.boolean(),
+      // A qué productos de la Carta se copia cada preparación del dosier.
+      asignaciones: z.array(z.object({ receta: z.string().max(100), productIds: z.array(z.number()).max(100) })).max(100),
+    }))
       .mutation(async ({ input, ctx }) => {
         try {
           const r = await insumoSvc.dosierApply(input);
