@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { toast } from 'sonner';
 import { Instagram, Bot, Hand, Send, Sparkles, AlertTriangle, X, GraduationCap, TrendingUp, Lightbulb, Link2, Info, Settings2 } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
-import { useAdminDeepLink } from '@/lib/adminDeepLink';
+import { deliverAdminDeepLink, useAdminDeepLink } from '@/lib/adminDeepLink';
+import { AdminNavContext } from '@/pages/admin/sections/shared';
+import { AgentConfigCard as WhatsAppAgentConfigCard, ConnectionCard as WhatsAppConnectionCard } from '@/components/admin/WhatsAppInbox';
 import { AgentAutoResumeNote } from '@/components/admin/AgentAutoResumeNote';
 import { CustomerNotesCard } from '@/components/admin/CustomerNotesCard';
 import { IgCustomerLinkCard } from '@/components/admin/IgCustomerLinkCard';
@@ -12,8 +14,6 @@ import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { SplitInbox, InboxList, ThreadRow, InboxTag, ChatHeader, ChatMessages, ChatBubble, ChatComposer, chatTime, inboxTime } from '@/components/admin/inbox/SplitInbox';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { EmptyState } from '@/components/admin/EmptyState';
@@ -47,6 +47,8 @@ const VIEWS = ['conversaciones', 'comentarios'] as const;
 type InboxView = (typeof VIEWS)[number];
 const AGENT_TABS = ['conocimiento', 'ajustes', 'ventas', 'automatizaciones', 'links'] as const;
 type AgentTab = (typeof AGENT_TABS)[number];
+/** Cada pestaña del agente es una sección del panel (hub «Agente IA»): `agente-<pestaña>`. */
+export const agentSectionId = (tab: AgentTab | 'whatsapp') => `agente-${tab}`;
 
 function readStoredView(): InboxView {
   try {
@@ -63,21 +65,21 @@ export function InstagramInbox() {
     setViewState(next);
     try { window.localStorage.setItem(TAB_STORAGE_KEY, next); } catch { /* ídem */ }
   };
-  const [agentTab, setAgentTab] = useState<AgentTab | null>(null);
+  const { openSection } = useContext(AdminNavContext);
   // El borrador vive acá arriba y no dentro de cada pestaña: las pestañas se
   // desmontan al cambiar, y "Conocimiento" y "Ajustes" editan la misma
   // config -- cambiar de pestaña (o cerrar el panel) no puede perder lo
   // escrito sin guardar.
-  const agent = useAgentConfigDraft(() => setAgentTab('conocimiento'));
+  const agent = useAgentConfigDraft(() => openSection(agentSectionId('conocimiento')));
   const { data: pendingHandoffs } = trpc.instagram.listHandoffLog.useQuery();
   const pendingCount = pendingHandoffs?.length ?? 0;
   const { data: pendingComments } = trpc.instagramComments.pendingCount.useQuery();
   const [focusCommentId, setFocusCommentId] = useState<number | null>(null);
-  const openThread = (id: number) => { setView('conversaciones'); setSelectedId(id); setAgentTab(null); };
+  const openThread = (id: number) => { setView('conversaciones'); setSelectedId(id); };
   // Llegó desde un aviso push: abre la vista y la conversación o el
   // comentario de ese aviso.
   useAdminDeepLink('instagram', (link) => {
-    if (link.tab && (AGENT_TABS as readonly string[]).includes(link.tab)) setAgentTab(link.tab as AgentTab);
+    if (link.tab && (AGENT_TABS as readonly string[]).includes(link.tab)) openSection(agentSectionId(link.tab as AgentTab));
     if (link.tab && (VIEWS as readonly string[]).includes(link.tab)) setView(link.tab as InboxView);
     if (link.thread) openThread(link.thread);
     if (link.comment) { setView('comentarios'); setFocusCommentId(link.comment); }
@@ -98,7 +100,7 @@ export function InstagramInbox() {
             {!!pendingComments && <span className="admin-badge">{pendingComments}</span>}
           </button>
         </div>
-        <button type="button" onClick={() => setAgentTab('conocimiento')}
+        <button type="button" onClick={() => openSection(agentSectionId('conocimiento'))}
           className="admin-tab relative flex h-10 items-center gap-2 rounded-full px-4 text-sm font-medium">
           <Settings2 className="h-4 w-4" /> Agente
           {pendingCount > 0 && <span className="admin-badge">{pendingCount}</span>}
@@ -126,51 +128,21 @@ export function InstagramInbox() {
       ) : (
         <InstagramComments focusId={focusCommentId} />
       )}
-
-      <Sheet open={agentTab !== null} onOpenChange={(open) => { if (!open) setAgentTab(null); }}>
-        <SheetContent side="right" className="w-full gap-0 overflow-y-auto p-0 sm:max-w-2xl lg:max-w-3xl">
-          <SheetHeader className="border-b border-white/10 px-5 py-4">
-            <SheetTitle className="flex items-center gap-2 font-heading text-xl"><Bot className="h-5 w-5" /> Agente de Instagram</SheetTitle>
-            <SheetDescription>Lo que sabe, cómo habla, cómo vende y sus automatizaciones.</SheetDescription>
-          </SheetHeader>
-          <Tabs value={agentTab ?? 'conocimiento'} onValueChange={(v) => setAgentTab(v as AgentTab)} className="px-5 py-4">
-            <TabsList className="h-auto w-full flex-wrap justify-start">
-              <TabsTrigger value="conocimiento" className="flex-none">Conocimiento y tono{agent.dirty ? ' •' : ''}</TabsTrigger>
-              <TabsTrigger value="ajustes" className="flex-none">Ajustes</TabsTrigger>
-              <TabsTrigger value="ventas" className="flex-none">
-                Ventas y aprendizaje
-                {pendingCount > 0 && (
-                  <span className="ml-1.5 rounded-full bg-amber-500 px-1.5 text-[10px] font-semibold text-white">{pendingCount}</span>
-                )}
-              </TabsTrigger>
-              <TabsTrigger value="automatizaciones" className="flex-none">Automatizaciones</TabsTrigger>
-              <TabsTrigger value="links" className="flex-none">Kit de links</TabsTrigger>
-            </TabsList>
-            <TabsContent value="conocimiento" className="pt-3">
-              <AgentKnowledgeCard agent={agent} />
-            </TabsContent>
-            <TabsContent value="ajustes" className="space-y-6 pt-3">
-              <AgentSettingsCard agent={agent} />
-              <AgentButtonsCard />
-            </TabsContent>
-            <TabsContent value="ventas" className="space-y-6 pt-3">
-              <AgentSalesCard />
-              <FansCard onOpen={openThread} />
-              <AgentCoachCard />
-              <KnowledgeCard />
-              <HandoffLogCard />
-            </TabsContent>
-            <TabsContent value="automatizaciones" className="pt-3">
-              <InstagramAutomations />
-            </TabsContent>
-            <TabsContent value="links" className="pt-3">
-              <InstagramLinkKit />
-            </TabsContent>
-          </Tabs>
-        </SheetContent>
-      </Sheet>
     </div>
   );
+}
+
+/* El borrador vive fuera de React: cada pestaña del agente es una sección distinta del panel y se desmonta al
+ * cambiar de una a otra, pero «Conocimiento» y «Ajustes» editan la misma config y no se puede perder lo escrito. */
+let agentDraft: InstagramAgentConfig | null = null;
+const agentDraftListeners = new Set<() => void>();
+function writeAgentDraft(next: InstagramAgentConfig | null | ((d: InstagramAgentConfig | null) => InstagramAgentConfig | null)) {
+  agentDraft = typeof next === 'function' ? next(agentDraft) : next;
+  agentDraftListeners.forEach((l) => l());
+}
+function useAgentDraftStore(): [InstagramAgentConfig | null, typeof writeAgentDraft] {
+  const draft = useSyncExternalStore((l) => { agentDraftListeners.add(l); return () => { agentDraftListeners.delete(l); }; }, () => agentDraft);
+  return [draft, writeAgentDraft];
 }
 
 /** Un solo borrador de la config del agente, compartido por las pestañas
@@ -183,7 +155,7 @@ function useAgentConfigDraft(onCoachAppend: () => void) {
     onSuccess: () => { utils.instagram.getConfig.invalidate(); toast.success('Guardado.'); },
     onError,
   });
-  const [draft, setDraft] = useState<InstagramAgentConfig | null>(null);
+  const [draft, setDraft] = useAgentDraftStore();
   useEffect(() => { if (config && !draft) setDraft(config); }, [config, draft]);
 
   // "Agregar" desde el coach semanal: suma la sugerencia al borrador (no la
@@ -1161,6 +1133,92 @@ function NoAiAccountsEditor() {
         <Input value={username} placeholder="@usuario" onChange={(e) => setUsername(e.target.value)} />
         <Button type="button" variant="outline" disabled={!username.trim() || set.isPending} onClick={() => set.mutate({ username, noAi: true })}>Agregar</Button>
       </div>
+    </div>
+  );
+}
+
+/* ── Hub «Agente IA»: una sección del panel por pestaña ───────────────────────────────────────────────── */
+
+const WA_TAB = 'whatsapp' as const;
+
+/** Lo que va arriba de todas las pestañas del agente: los dos canales y su estado de un vistazo. */
+function AgentHeader({ agent }: { agent: AgentDraft }) {
+  const { data: wa } = trpc.whatsapp.getConfig.useQuery();
+  const { openSection } = useContext(AdminNavContext);
+  const { draft, config, setDraft, save } = agent;
+  return (
+    <div className="space-y-3">
+      <div className="grid gap-2 sm:grid-cols-2">
+        <div className="admin-clay-sm flex items-center justify-between gap-3 border border-white/10 bg-white/5 px-4 py-3">
+          <div className="min-w-0">
+            <p className="flex items-center gap-2 font-medium"><Instagram className="h-4 w-4 shrink-0" /> Instagram</p>
+            <p className="text-xs text-muted-foreground">{draft?.enabled ? 'Contesta solo' : 'Apagado: los mensajes llegan y nadie responde solo'}</p>
+          </div>
+          <Switch
+            checked={!!draft?.enabled}
+            disabled={!draft || !config || save.isPending}
+            onCheckedChange={(enabled) => { if (!draft || !config) return; setDraft({ ...draft, enabled }); save.mutate({ ...config, enabled }); }}
+          />
+        </div>
+        <button type="button" onClick={() => openSection(agentSectionId(WA_TAB))}
+          className="admin-clay-sm flex items-center justify-between gap-3 border border-white/10 bg-white/5 px-4 py-3 text-left">
+          <div className="min-w-0">
+            <p className="flex items-center gap-2 font-medium"><Bot className="h-4 w-4 shrink-0" /> WhatsApp</p>
+            <p className="text-xs text-muted-foreground">{wa?.enabled ? 'Contesta solo' : 'Todavía no está activo'}</p>
+          </div>
+          <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-medium ${wa?.enabled ? 'bg-emerald-500/15 text-emerald-300' : 'bg-muted text-muted-foreground'}`}>{wa?.enabled ? 'Activo' : 'No activo'}</span>
+        </button>
+      </div>
+      {agent.dirty && <p className="text-xs text-amber-500">Tienes cambios sin guardar en el conocimiento o los ajustes del agente.</p>}
+    </div>
+  );
+}
+
+const AGENT_TITLES: Record<AgentTab | typeof WA_TAB, string> = {
+  conocimiento: 'Conocimiento y tono', ajustes: 'Ajustes del agente', ventas: 'Ventas y aprendizaje',
+  automatizaciones: 'Automatizaciones', links: 'Kit de links', whatsapp: 'Agente de WhatsApp',
+};
+
+/** Una pestaña del agente como pantalla completa (la registra el panel en el hub «Agente IA»). */
+export function AgentSection({ tab }: { tab: AgentTab | typeof WA_TAB }) {
+  const { openSection } = useContext(AdminNavContext);
+  const agent = useAgentConfigDraft(() => openSection(agentSectionId('conocimiento')));
+  const { data: pendingHandoffs } = trpc.instagram.listHandoffLog.useQuery(undefined, { enabled: tab === 'ventas' });
+  const openThread = (id: number) => { deliverAdminDeepLink({ section: 'instagram', thread: id }); openSection('instagram'); };
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <h2 className="flex items-center gap-2 font-heading text-2xl"><Bot className="h-6 w-6" /> {AGENT_TITLES[tab]}</h2>
+        <p className="mt-1 text-sm text-muted-foreground">Lo que sabe, cómo habla, cómo vende y sus automatizaciones. Instagram y WhatsApp comparten el mismo conocimiento.</p>
+      </div>
+      <AgentHeader agent={agent} />
+
+      {tab === 'conocimiento' && <AgentKnowledgeCard agent={agent} />}
+      {tab === 'ajustes' && (
+        <div className="space-y-6">
+          <AgentSettingsCard agent={agent} />
+          <AgentButtonsCard />
+        </div>
+      )}
+      {tab === 'ventas' && (
+        <div className="space-y-6">
+          {!!pendingHandoffs?.length && <p className="text-sm text-amber-500">{pendingHandoffs.length} {pendingHandoffs.length === 1 ? 'conversación esperando' : 'conversaciones esperando'} al equipo (abajo, «Derivaciones»).</p>}
+          <AgentSalesCard />
+          <FansCard onOpen={openThread} />
+          <AgentCoachCard />
+          <KnowledgeCard />
+          <HandoffLogCard />
+        </div>
+      )}
+      {tab === 'automatizaciones' && <InstagramAutomations />}
+      {tab === 'links' && <InstagramLinkKit />}
+      {tab === WA_TAB && (
+        <div className="space-y-5">
+          <WhatsAppConnectionCard />
+          <WhatsAppAgentConfigCard />
+        </div>
+      )}
     </div>
   );
 }

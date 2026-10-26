@@ -1,5 +1,5 @@
 import {
-  Home, Radio, Ticket, Calendar, Users, MessagesSquare, Palette, Crown, Banknote, Handshake, Receipt, Smartphone,
+  Home, Radio, Ticket, Calendar, Users, MessagesSquare, Palette, Crown, Banknote, Handshake, Receipt, Smartphone, Bot,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -10,7 +10,7 @@ import {
 
 export type AdminHubId =
   | 'inicio' | 'noche' | 'ventas' | 'eventos' | 'clientes'
-  | 'app' | 'mensajes' | 'contenido' | 'comunidad' | 'finanzas' | 'gastos' | 'coproduccion' | 'ajustes';
+  | 'app' | 'agente' | 'mensajes' | 'contenido' | 'comunidad' | 'finanzas' | 'gastos' | 'coproduccion' | 'ajustes';
 
 export interface AdminHub {
   id: AdminHubId;
@@ -30,6 +30,8 @@ export const ADMIN_HUBS: AdminHub[] = [
   { id: 'clientes', label: 'Clientes', icon: Users },
   // Todo lo de la app Playroom junto: cupones, avisos push, quién la tiene, Playmatch y la cuenta de prueba.
   { id: 'app', label: 'App', icon: Smartphone, mobile: true },
+  // El agente que contesta Instagram y WhatsApp: su conocimiento, ajustes, ventas, automatizaciones y links.
+  { id: 'agente', label: 'Agente IA', icon: Bot },
   { id: 'mensajes', label: 'Mensajes', icon: MessagesSquare },
   { id: 'contenido', label: 'Contenido', icon: Palette },
   { id: 'comunidad', label: 'Comunidad', icon: Crown },
@@ -81,7 +83,13 @@ export const SECTION_KEYWORDS: Record<string, string> = {
   'app-resumen': 'app resumen playroom cupones saldo playcard playcoins instalaciones',
   'app-clientes': 'app instalada quien tiene la app clientes correos telefonos instalar qr',
   'blocked-customers': 'bloqueo lista negra vetados',
-  instagram: 'dm mensajes chat agente ig comentarios',
+  instagram: 'dm mensajes chat ig comentarios bandeja',
+  'agente-conocimiento': 'agente ia inteligencia artificial bot tono voz marca conocimiento responder instagram whatsapp',
+  'agente-ajustes': 'agente ia bot ajustes derivar equipo horario respuestas ejemplos estilo',
+  'agente-ventas': 'agente ia bot ventas aprendizaje coach fans derivaciones',
+  'agente-automatizaciones': 'agente ia automatizacion palabra clave comentario regalo respuesta automatica',
+  'agente-links': 'agente ia kit de links botones compra instagram',
+  'agente-whatsapp': 'agente ia whatsapp bot wsp activar conexion meta',
   whatsapp: 'wsp chat mensajes',
   mailing: 'correo email newsletter campaña',
   'mailing-history': 'correos enviados historial',

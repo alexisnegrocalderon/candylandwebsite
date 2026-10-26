@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useContext, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { MessageCircle, Bot, Hand, Send, Sparkles, AlertTriangle, List, Link as LinkIcon, Info, Settings2 } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { useAdminDeepLink } from '@/lib/adminDeepLink';
+import { AdminNavContext } from '@/pages/admin/sections/shared';
 import { AgentAutoResumeNote } from '@/components/admin/AgentAutoResumeNote';
 import { CustomerNotesCard } from '@/components/admin/CustomerNotesCard';
 import { Button } from '@/components/ui/button';
@@ -32,14 +33,14 @@ const onError = (error: unknown) => {
 
 export function WhatsAppInbox() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
-  const [agentOpen, setAgentOpen] = useState(false);
+  const { openSection } = useContext(AdminNavContext);
   useAdminDeepLink('whatsapp', (link) => { if (link.thread) setSelectedId(link.thread); });
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
         <h2 className="mr-auto flex items-center gap-2 font-heading text-2xl"><MessageCircle className="h-6 w-6" /> WhatsApp</h2>
-        <button type="button" onClick={() => setAgentOpen(true)}
+        <button type="button" onClick={() => openSection('agente-whatsapp')}
           className="admin-tab flex h-10 items-center gap-2 rounded-full px-4 text-sm font-medium">
           <Settings2 className="h-4 w-4" /> Agente
         </button>
@@ -60,25 +61,11 @@ export function WhatsAppInbox() {
           </div>
         )}
       />
-
-      {/* El conocimiento (notas de marca, tono, derivación) se edita en el
-          agente de Instagram y lo comparten los dos canales. */}
-      <Sheet open={agentOpen} onOpenChange={setAgentOpen}>
-        <SheetContent side="right" className="w-full gap-0 overflow-y-auto p-0 sm:max-w-2xl">
-          <SheetHeader className="border-b border-white/10 px-5 py-4">
-            <SheetTitle className="flex items-center gap-2 font-heading text-xl"><Bot className="h-5 w-5" /> Agente de WhatsApp</SheetTitle>
-            <SheetDescription>El mismo agente del Instagram: su conocimiento y tono se editan allá.</SheetDescription>
-          </SheetHeader>
-          <div className="px-5 py-4">
-            <AgentConfigCard />
-          </div>
-        </SheetContent>
-      </Sheet>
     </div>
   );
 }
 
-function ConnectionCard() {
+export function ConnectionCard() {
   const { data } = trpc.whatsapp.connectionStatus.useQuery();
   if (!data) return null;
 
@@ -112,7 +99,7 @@ function ConnectionCard() {
   );
 }
 
-function AgentConfigCard() {
+export function AgentConfigCard() {
   const utils = trpc.useUtils();
   const configQuery = trpc.whatsapp.getConfig.useQuery();
   const config = configQuery.data;
