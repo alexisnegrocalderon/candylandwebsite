@@ -19,7 +19,7 @@ export async function aliasMap(): Promise<Map<string, string>> {
   try {
     const db = await getDb();
     if (!db) return out;
-    const rows = await db.select({ email: customers.email, tags: customers.tags }).from(customers).where(sql`${customers.tags} LIKE ${`%${ALIAS_TAG_PREFIX}%`}`);
+    const rows = await db.select({ email: customers.email, tags: customers.tags }).from(customers).where(sql`CAST(${customers.tags} AS CHAR) LIKE ${`%${ALIAS_TAG_PREFIX}%`}`);
     for (const r of rows) {
       let tags: unknown = r.tags;
       if (typeof tags === 'string') { try { tags = JSON.parse(tags); } catch { tags = []; } }
