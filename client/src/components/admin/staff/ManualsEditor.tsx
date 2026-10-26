@@ -51,7 +51,8 @@ export function ManualsEditor({ team }: { team: any[] }) {
   useEffect(() => {
     if (dirty) return;
     setTitle(published?.title ?? MANUAL_DRAFTS[key].title);
-    setSections(published ? toDraft(published.sections) : []);
+    // Sin versión publicada: se abre con el borrador de ese cargo ya cargado, para revisarlo y corregirlo.
+    setSections(toDraft(published ? published.sections : MANUAL_DRAFTS[key].sections));
     setNote('');
   }, [key, published?.version, current === undefined]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -182,7 +183,7 @@ export function ManualsEditor({ team }: { team: any[] }) {
               className={`${pill} bg-emerald-500 px-6 py-2 text-white`}>
               {publish.isPending ? 'Publicando…' : `Publicar versión ${nextVersion}`}
             </button>
-            {dirty && <span className="text-xs font-semibold text-amber-600">Cambios sin publicar</span>}
+            {(dirty || !published) && <span className="text-xs font-semibold text-amber-600">{published ? 'Cambios sin publicar' : 'Borrador sin publicar: revísalo y corrígelo antes de publicar'}</span>}
             {clean.length !== sections.length && <span className="text-xs text-[var(--admin-muted)]">Las secciones vacías no se publican.</span>}
           </div>
         </div>
