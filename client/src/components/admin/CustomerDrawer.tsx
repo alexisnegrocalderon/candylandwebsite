@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { Copy, Lock, MessageCircle, Instagram, Mail, ChevronLeft, ChevronRight, Sparkles, X, BellOff, Trash2 } from 'lucide-react';
+import { Copy, Lock, MessageCircle, Instagram, Mail, ChevronLeft, ChevronRight, Sparkles, X, BellOff, Trash2, Gift } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,6 +12,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { WriteButton } from '@/components/admin/WriteButton';
 import { ConfirmDeleteButton } from '@/components/admin/ConfirmDeleteButton';
+import { GrantCouponDialog } from '@/components/admin/app/GrantCouponDialog';
 import { formatChileDate, formatChileDateTime } from '@shared/chileDate';
 import {
   CUSTOMER_LEVEL_META, GENDER_OPTIONS, SOURCE_OPTIONS, customerDeleteBlocker, formatBirthDate, normalizeCustomerEmail, whatsappUrl,
@@ -62,6 +63,7 @@ export function CustomerDrawer({ customerId, onClose, onPrev, onNext, onChanged,
   const [form, setForm] = useState<FormState | null>(null);
   const [initial, setInitial] = useState<FormState | null>(null);
   const [tab, setTab] = useState('datos');
+  const [giftOpen, setGiftOpen] = useState(false);
   const [newTag, setNewTag] = useState('');
   const [adjust, setAdjust] = useState('');
 
@@ -208,6 +210,10 @@ export function CustomerDrawer({ customerId, onClose, onPrev, onNext, onChanged,
                     <Button size="sm" variant="ghost" className="h-8 gap-1.5" onClick={() => { navigator.clipboard?.writeText(c.email); toast.success('Email copiado'); }}>
                       <Copy className="w-3.5 h-3.5" /> Copiar email
                     </Button>
+                    <WriteButton size="sm" variant="outline" className="h-8 gap-1.5" onClick={() => setGiftOpen(true)}>
+                      <Gift className="w-3.5 h-3.5" /> Regalar cupón
+                    </WriteButton>
+                    <GrantCouponDialog open={giftOpen} onClose={() => setGiftOpen(false)} email={c.email} name={c.fullName} />
                   </div>
                 </div>
               </div>

@@ -190,6 +190,7 @@ import { activatePlaymatchForTicket } from "./partyActivation";
 import * as staffPortal from "./staffPortal";
 import { ensureStaffSalesLink } from "./staffSales";
 import { pageCustomers, findCustomersForCaja } from "./customerFilters";
+import { COUPON_BATCH_MAX } from "../shared/couponGift";
 import { getMemberHistory } from "./memberHistory";
 import { hasSalesLink } from "../shared/staffSales";
 import { autoPackFromDesign, deleteAmbassadorItem, ensureAmbassadorDrafts, getUpcomingContentEvents, listAmbassadorItems, notifyAmbassadorsNewContent, saveAmbassadorItem, sendStudioToAmbassadors, setAmbassadorItemStatus } from "./ambassadorContent";
@@ -897,6 +898,23 @@ async function customerRows(input: z.infer<typeof customerFiltersInput>) {
   const rows = hasApp ? all.filter((c: any) => withApp.has(c.email.toLowerCase())) : all;
   return decorateCustomers(rows, withApp, now);
 }
+
+/** Regalo de cupón desde el panel (sección App): ver shared/couponGift.ts. */
+const couponGiftInput = {
+  type: z.enum(['percentage', 'fixed']),
+  value: z.number().int().min(1).max(1_000_000),
+  days: z.number().int().min(1).max(365),
+  title: z.string().max(100).optional(),
+  eventId: z.number().int().nullable().optional(),
+  notify: z.boolean(),
+};
+const couponAudienceInput = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('emails'), emails: z.array(z.string().max(200)).min(1).max(COUPON_BATCH_MAX) }),
+  z.object({ kind: z.literal('level'), level: z.enum(['vip', 'recurrente', 'nuevo', 'inactivo']) }),
+  z.object({ kind: z.literal('birthdayMonth'), month: z.number().int().min(1).max(12) }),
+  z.object({ kind: z.literal('app') }),
+  z.object({ kind: z.literal('members') }),
+]);
 
 export const appRouter = router({
   // Cuenta de prueba de la App (admin → Noche → «Cuenta de prueba»): server/demoAccount.ts.
@@ -4798,13 +4816,31 @@ export const appRouter = router({
       await db.updateSiteSettings({ memberConfig: config });
       return config;
     }),
-    grantCoupon: adminProcedure.input(z.object({ email: z.string().email(), percent: z.number().int().min(1).max(100), days: z.number().int().min(1).max(365), title: z.string().max(100).optional() })).mutation(async ({ input }) => {
+    grantCoupon: adminProcedure.input(z.object({ email: z.string().email(), ...couponGiftInput })).mutation(async ({ input }) => {
+      const { email, ...gift } = input;
       try {
-        const g = await members.grantManualCoupon(input.email, input.percent, input.days, input.title ?? '');
-        return { code: g.code, percent: g.percent, days: g.days };
+        const g = await members.grantManualCoupon(email, gift);
+        return { code: g.code, title: g.title, days: g.days, notified: g.notified };
       } catch (err) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo crear el cupón' });
       }
+    }),
+    // A cuántos clientes le llegaría un regalo en lote (antes de confirmar).
+    previewCouponAudience: adminProcedure.input(couponAudienceInput).query(async ({ input }) => {
+      const r = await members.resolveCouponAudience(input);
+      return { count: r.customers.length, notCustomers: r.notCustomers, overLimit: r.overLimit, sample: r.customers.slice(0, 5).map((c) => c.fullName || c.email) };
+    }),
+    grantCouponBatch: adminProcedure.input(z.object({ audience: couponAudienceInput, batchId: z.string().min(6).max(40), ...couponGiftInput })).mutation(async ({ input }) => {
+      const { audience, batchId, ...gift } = input;
+      try {
+        return await members.grantCouponBatch(audience, gift, batchId);
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudieron crear los cupones' });
+      }
+    }),
+    revokeCoupon: adminProcedure.input(z.object({ id: z.number().int() })).mutation(async ({ input }) => {
+      await members.revokeMemberCoupon(input.id);
+      return { ok: true as const };
     }),
   }),
 

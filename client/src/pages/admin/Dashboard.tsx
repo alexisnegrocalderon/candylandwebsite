@@ -6,6 +6,7 @@ import { motion } from 'framer-motion';
 import { useAuth } from '@/_core/hooks/useAuth';
 import { canOpenAdmin, isPartnerRole } from '@/lib/demoMode';
 import { StaffManager, requestNewStaff } from '@/components/admin/staff/StaffManager';
+import { requestGiftCoupon } from '@/components/admin/members/requestGiftCoupon';
 import { useHideSplashOnMount } from '@/lib/splash';
 import { useSeo } from '@/hooks/useSeo';
 import { useInstallableApp } from '@/hooks/useInstallableApp';
@@ -104,6 +105,8 @@ const ADMIN_QUICK_ACTIONS: AdminQuickAction[] = [
   { key: 'gasto', label: 'Cargar gasto', icon: Receipt, section: 'cargar-gasto' },
   { key: 'acceso', label: 'Acceso manual', icon: Gift, section: 'manual-access' },
   { key: 'evento', label: 'Crear evento', icon: Calendar, section: 'events' },
+  { key: 'cupon', label: 'Regalar cupón', icon: Gift, section: 'members', onSelect: requestGiftCoupon },
+  { key: 'push', label: 'Enviar push', icon: BellRing, section: 'push-clientes' },
 ];
 
 const ADMIN_SECTIONS = [
