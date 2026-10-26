@@ -23,6 +23,7 @@ import { firstName } from '../shared/pushText';
 import { sortByKind, ticketKind, ticketKindLabel, type TicketKind } from '../shared/ticketKind';
 import { companionsFromCampos, knownCompanions, lastPurchaseFrom, type Companion } from '../shared/repurchase';
 import { DEMO_EVENT_SLUG } from '../shared/demoAccount';
+import { aliasTag } from '../shared/customerMerge';
 import { COUPON_BATCH_MAX, couponGiftError, couponPushText, defaultCouponTitle, type CouponAudience, type CouponGiftType } from '../shared/couponGift';
 import { PLACEHOLDER_BUYER_EMAILS } from '../shared/parking';
 import { customerWhere } from './customerFilters';
@@ -38,8 +39,12 @@ export async function getMemberConfig(): Promise<MemberConfig> {
 export async function findCustomer(email: string): Promise<CustomerRow | null> {
   const db = await getDb();
   if (!db) return null;
-  const [c] = await db.select().from(customers).where(eq(customers.email, normalizeMemberEmail(email))).limit(1);
-  return c ?? null;
+  const key = normalizeMemberEmail(email);
+  const [c] = await db.select().from(customers).where(eq(customers.email, key)).limit(1);
+  if (c) return c;
+  // Un correo que se unió a otra ficha (Clientes → Unir) lleva a esa ficha.
+  const [alias] = await db.select().from(customers).where(sql`COALESCE(JSON_CONTAINS(${customers.tags}, ${JSON.stringify(aliasTag(key))}), 0) = 1`).limit(1);
+  return alias ?? null;
 }
 
 /** ¿Este correo ya entró alguna vez a su cuenta? */

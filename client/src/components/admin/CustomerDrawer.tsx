@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { Copy, Lock, MessageCircle, Instagram, Mail, ChevronLeft, ChevronRight, Sparkles, X, BellOff, Trash2, Gift, BellRing } from 'lucide-react';
+import { Copy, Lock, MessageCircle, Instagram, Mail, ChevronLeft, ChevronRight, Sparkles, X, BellOff, Trash2, Gift, BellRing, Merge } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,6 +14,7 @@ import { WriteButton } from '@/components/admin/WriteButton';
 import { ConfirmDeleteButton } from '@/components/admin/ConfirmDeleteButton';
 import { GrantCouponDialog } from '@/components/admin/app/GrantCouponDialog';
 import { SendPushDialog } from '@/components/admin/app/SendPushDialog';
+import { MergeCustomerDialog } from '@/components/admin/app/MergeCustomerDialog';
 import { formatChileDate, formatChileDateTime } from '@shared/chileDate';
 import {
   CUSTOMER_LEVEL_META, GENDER_OPTIONS, SOURCE_OPTIONS, customerDeleteBlocker, formatBirthDate, normalizeCustomerEmail, whatsappUrl,
@@ -66,6 +67,7 @@ export function CustomerDrawer({ customerId, onClose, onPrev, onNext, onChanged,
   const [tab, setTab] = useState('datos');
   const [giftOpen, setGiftOpen] = useState(false);
   const [pushOpen, setPushOpen] = useState(false);
+  const [mergeOpen, setMergeOpen] = useState(false);
   const [prepaidDelta, setPrepaidDelta] = useState('');
   const [prepaidNote, setPrepaidNote] = useState('');
   const [newTag, setNewTag] = useState('');
@@ -230,6 +232,10 @@ export function CustomerDrawer({ customerId, onClose, onPrev, onNext, onChanged,
                       <BellRing className="w-3.5 h-3.5" /> Enviar push
                     </WriteButton>
                     <SendPushDialog open={pushOpen} onClose={() => setPushOpen(false)} email={c.email} name={c.fullName} />
+                    <WriteButton size="sm" variant="outline" className="h-8 gap-1.5" onClick={() => setMergeOpen(true)}>
+                      <Merge className="w-3.5 h-3.5" /> Unir con otra ficha
+                    </WriteButton>
+                    <MergeCustomerDialog open={mergeOpen} onClose={() => setMergeOpen(false)} keepId={c.id} keepEmail={c.email} onMerged={() => { onChanged(); refresh(); }} />
                   </div>
                 </div>
               </div>
@@ -300,7 +306,7 @@ export function CustomerDrawer({ customerId, onClose, onPrev, onNext, onChanged,
                     <Field label="Email">
                       <Input value={form.email} onChange={(e) => set('email', e.target.value)} type="email" inputMode="email" autoCapitalize="none" autoCorrect="off" />
                       {form.email.trim().toLowerCase() !== c.email.toLowerCase() && (
-                        <p className="text-xs text-amber-600 mt-1">Al guardar, {data.kpis.totalOrders === 1 ? 'su compra pasa' : `sus ${data.kpis.totalOrders} compras pasan`} a este correo y entra a su app con él.</p>
+                        <p className="text-xs text-amber-600 mt-1">Al guardar, {data.kpis.totalOrders === 1 ? 'su compra pasa' : `sus ${data.kpis.totalOrders} compras pasan`} a este correo y entra a su app con él. Si ese correo ya es de otra ficha de la misma persona, usa «Unir con otra ficha».</p>
                       )}
                     </Field>
                     <Field label="Teléfono / WhatsApp" locked={locked.includes('phone')}>
