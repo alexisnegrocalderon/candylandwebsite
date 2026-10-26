@@ -27,6 +27,7 @@ import { SolteroAccess, solteroRowSub, useSolteroStatus } from '@/components/sit
 import { StaffAccount, StaffBanner, useStaffPortal } from '@/components/site/StaffAccount';
 import { PlaymatchTab } from '@/components/site/PlaymatchTab';
 import { PlayCardStack } from '@/components/site/PlayCardStack';
+import { anyLive, type NightEvent } from '@shared/nightExtras';
 import { MovementsScreen } from '@/components/site/MovementsScreen';
 import { QrViewer, holderLabels, tapHaptic, useCountdown, type MeEvent, type Movement } from '@/components/site/walletParts';
 import { canEnterParty } from '@shared/party';
@@ -948,7 +949,12 @@ export default function Cuenta() {
   const utils = trpc.useUtils();
   // Lo último guardado en este teléfono: la app abre al instante con eso y sin señal se queda con eso.
   const [snapshot, setSnapshot] = useState(() => loadAccountSnapshot<Me>());
-  const { data, isLoading, isError, refetch, isFetching } = trpc.member.me.useQuery(undefined, { retry: false });
+  // Con un pedido en cocina o un abrigo en guardarropía a medias, la App vuelve a preguntar sola cada 15 s
+  // (si no, el estado nunca cambiaría en la pantalla). Sin nada en curso, no pregunta de más.
+  const { data, isLoading, isError, refetch, isFetching } = trpc.member.me.useQuery(undefined, {
+    retry: false,
+    refetchInterval: (q) => (anyLive(q.state.data?.events as NightEvent[] | undefined) ? 15_000 : false),
+  });
   const session = useMemberSession();
   const logout = trpc.member.logout.useMutation({ onSuccess: () => utils.member.invalidate() });
   const [welcome, setWelcome] = useState<LoginDone | null>(null);
