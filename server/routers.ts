@@ -24,7 +24,9 @@ import { MAX_TEST_GUESTS, MIN_TEST_GUESTS } from "../shared/playmatchTest";
 import { UNDO_EXPENSE_WINDOW_MS } from "../shared/expenses";
 import { canUseCaja, OPERATOR_ROLES, STAFF_SYSTEMS } from "../shared/cajaRoles";
 import { STAFF_CARGO_KEYS } from "../shared/staffCargos";
-import { applyStaffSchema, staffSchemaStatus } from "./schemaUpdates";
+import { applyManualSchema, applyStaffSchema, manualSchemaStatus, staffSchemaStatus } from "./schemaUpdates";
+import * as staffManualSvc from "./staffManuals";
+import { MANUAL_LIMITS, isManualKey } from "../shared/staffManuals";
 import * as solteros from "./solteros";
 import { AVATARS_PER_GENDER, DEFAULT_LOOKING_FOR, MAX_PARTY_PHOTOS, MAX_REWINDS_PER_EVENT, PARTY_GENDERS, PARTY_ZONES, parseLookingFor, sanitizeCostume, serializeLookingFor, canPreRegister, partyEntryDenial, sanitizeAlias, sanitizeGiftMessage, sanitizeMessage, isPartyWindowOpen, validatePhotoBytes } from "../shared/party";
 import * as ambassadorProgram from "./ambassadorProgram";
@@ -4632,6 +4634,26 @@ export const appRouter = router({
       try { return await solteros.requestSolteroApproval(email, input); }
       catch (e: any) { throw new TRPCError({ code: 'BAD_REQUEST', message: e?.message ?? 'No se pudo enviar la solicitud' }); }
     }),
+    // Manual del staff de quien entra (reglamento general + el de su cargo) y su «Leí y acepto».
+    staffManual: publicProcedure.query(async ({ ctx }) => {
+      const email = getMemberEmail(ctx.req);
+      if (!email) return null;
+      const staff = await staffPortal.findStaffByEmail(email);
+      if (!staff || !(await manualSchemaStatus()).ready) return null;
+      return staffManualSvc.manualForStaff(staff);
+    }),
+    staffManualAccept: publicProcedure.mutation(async ({ ctx }) => {
+      const email = getMemberEmail(ctx.req);
+      if (!email) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Entra a tu cuenta primero.' });
+      const staff = await staffPortal.findStaffByEmail(email);
+      if (!staff) throw new TRPCError({ code: 'FORBIDDEN', message: 'Esta cuenta no es del staff.' });
+      if (!(await manualSchemaStatus()).ready) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'El manual todavía no está disponible.' });
+      const ua = ctx.req.headers['user-agent'];
+      const fwd = ctx.req.headers['x-forwarded-for'];
+      const ip = (typeof fwd === 'string' ? fwd.split(',')[0].trim() : fwd?.[0]) || ctx.req.socket.remoteAddress || null;
+      try { return await staffManualSvc.acceptManuals(staff, { userAgent: typeof ua === 'string' ? ua : null, ip }); }
+      catch (e: any) { throw new TRPCError({ code: 'BAD_REQUEST', message: e?.message ?? 'No se pudo guardar' }); }
+    }),
     // La persona del staff crea (o cambia) el PIN con que entra a caja, puerta, cocina y guardarropía.
     staffSetPin: publicProcedure.input(z.object({ pin: z.string().min(4).max(6) })).mutation(async ({ ctx, input }) => {
       const email = getMemberEmail(ctx.req);
@@ -5183,6 +5205,35 @@ export const appRouter = router({
         throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: `No se pudo actualizar la base: ${e?.message ?? 'error desconocido'}` });
       }
     }),
+    // Manual del staff (reglamento general + uno por cargo, con versiones). Sin las tablas (migración 0131) el editor avisa y ofrece crearlas.
+    manualSchema: adminProcedure.query(() => manualSchemaStatus()),
+    manualSchemaApply: adminPasswordProcedure.mutation(async ({ ctx }) => {
+      try {
+        const r = await applyManualSchema();
+        await db.recordAdminAudit({ action: 'system.manualSchemaApply', targetType: 'schema', payload: r, ip: clientIp(ctx) });
+        return { ...r, ...(await manualSchemaStatus()) };
+      } catch (e: any) {
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: `No se pudo actualizar la base: ${e?.message ?? 'error desconocido'}` });
+      }
+    }),
+    manualsCurrent: adminProcedure.query(async () => ((await manualSchemaStatus()).ready ? staffManualSvc.currentManuals() : [])),
+    manualsHistory: adminProcedure.input(z.object({ key: z.string() })).query(async ({ input }) => {
+      if (!isManualKey(input.key) || !(await manualSchemaStatus()).ready) return [];
+      return staffManualSvc.manualHistory(input.key);
+    }),
+    manualsPublish: adminProcedure.input(z.object({
+      key: z.string(), title: z.string().min(1).max(MANUAL_LIMITS.docTitle), sections: z.array(z.any()).max(MANUAL_LIMITS.sections), changeNote: z.string().max(MANUAL_LIMITS.changeNote).nullish(),
+    })).mutation(async ({ input, ctx }) => {
+      if (!isManualKey(input.key)) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Manual desconocido' });
+      if (!(await manualSchemaStatus()).ready) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Primero actualiza la base de datos (aviso del editor).' });
+      try {
+        const r = await staffManualSvc.publishManual({ key: input.key, title: input.title, sections: input.sections, changeNote: input.changeNote });
+        await db.recordAdminAudit({ action: 'finance.manualPublish', targetType: 'staffManual', targetId: `${input.key}@${r.version}`, ip: clientIp(ctx) });
+        return r;
+      } catch (e: any) { throw new TRPCError({ code: 'BAD_REQUEST', message: e?.message ?? 'No se pudo publicar' }); }
+    }),
+    manualsOverview: adminProcedure.query(async () => ((await manualSchemaStatus()).ready ? staffManualSvc.acceptanceOverview() : [])),
+    manualAcceptanceLog: adminProcedure.input(z.object({ staffId: z.number().int().positive() })).query(async ({ input }) => ((await manualSchemaStatus()).ready ? staffManualSvc.acceptanceLog(input.staffId) : [])),
     staffList: adminProcedure.query(async () => {
       // Sin las columnas nuevas todavía no hay nada que listar (el panel avisa y ofrece actualizarla).
       if (!(await staffSchemaStatus()).ready) return [];

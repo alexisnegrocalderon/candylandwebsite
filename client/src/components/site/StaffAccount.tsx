@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'wouter';
 import { toast } from 'sonner';
-import { ArrowRight, BadgeCheck, Check, Clock, Copy, KeyRound, Link2, MapPin, MessageCircle, Phone, Shirt, Wrench } from 'lucide-react';
+import { ArrowRight, BadgeCheck, BookOpenCheck, Check, ChevronDown, Clock, Copy, KeyRound, Link2, MapPin, MessageCircle, Phone, Shirt, Wrench } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { pinProblem } from '@shared/staffCargos';
 import type { inferRouterOutputs } from '@trpc/server';
@@ -88,6 +88,62 @@ function Block({ icon, title, children }: { icon: React.ReactNode; title: string
   );
 }
 
+/** El manual: el reglamento general y el de su cargo, con «Leí y acepto» (queda guardada la versión, la fecha y la hora). */
+function StaffManualCard() {
+  const utils = trpc.useUtils();
+  const { data } = trpc.member.staffManual.useQuery(undefined, { retry: false, staleTime: 60_000 });
+  const [open, setOpen] = useState<string | null>(null);
+  const accept = trpc.member.staffManualAccept.useMutation({
+    onSuccess: () => { toast.success('Listo: quedó registrado que leíste y aceptaste.'); utils.member.staffManual.invalidate(); },
+    onError: (e) => toast.error(e.message || 'No se pudo guardar'),
+  });
+  if (!data || data.documents.length === 0) return null;
+  const done = data.status === 'al_dia';
+  return (
+    <Block icon={<BookOpenCheck className="h-4 w-4" />} title="Tu manual">
+      <p className="mb-3 text-subhead text-white/80">
+        {data.status === 'desactualizado' ? 'Hubo cambios en tu manual. Léelos y vuelve a aceptar.' : done ? 'Aceptaste el manual vigente. Tenlo a mano cuando lo necesites.' : 'Léelo con calma antes de la fiesta y toca «Leí y acepto».'}
+      </p>
+      <div className="space-y-2">
+        {data.documents.map((d) => {
+          const isOpen = open === d.key;
+          const stale = d.acceptedVersion == null ? 'Nuevo' : d.acceptedVersion < d.version ? 'Con cambios' : null;
+          return (
+            <div key={d.key} className="rounded-2xl bg-white/[0.06]">
+              <button type="button" onClick={() => setOpen(isOpen ? null : d.key)} aria-expanded={isOpen} className="flex w-full items-center gap-2 px-4 py-3 text-left interactive">
+                <span className="min-w-0 flex-1 truncate text-subhead font-semibold">{d.title}</span>
+                {stale && <span className="rounded-full bg-amber-400/20 px-2 py-0.5 text-caption2 font-bold text-amber-200">{stale}</span>}
+                <ChevronDown className={`h-4 w-4 shrink-0 text-white/60 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+              </button>
+              {isOpen && (
+                <div className="space-y-4 px-4 pb-4">
+                  {d.changeNote && stale === 'Con cambios' && <p className="rounded-xl bg-amber-400/10 px-3 py-2 text-footnote text-amber-100">Qué cambió: {d.changeNote}</p>}
+                  {d.sections.map((sec, i) => (
+                    <div key={i}>
+                      <p className="text-caption1 font-semibold uppercase tracking-wider text-violet-200">{sec.title}</p>
+                      {sec.kind === 'text'
+                        ? <p className="mt-1 whitespace-pre-line text-subhead leading-relaxed text-white/85">{sec.text}</p>
+                        : <ul className="mt-1 space-y-1.5">{sec.items.map((it, j) => <li key={j} className="flex items-start gap-2 text-subhead text-white/85"><Check className="mt-0.5 h-4 w-4 shrink-0 text-violet-300" />{it}</li>)}</ul>}
+                    </div>
+                  ))}
+                  <p className="text-caption2 text-white/50">Versión {d.version}</p>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {done
+        ? <p className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-emerald-400/15 px-3 py-1 text-footnote font-semibold text-emerald-300"><BadgeCheck className="h-4 w-4" /> Manual aceptado</p>
+        : (
+          <button type="button" disabled={accept.isPending} onClick={() => accept.mutate()} className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-violet-400 to-fuchsia-400 text-headline font-bold text-black interactive disabled:opacity-60">
+            {accept.isPending ? 'Guardando…' : 'Leí y acepto'}
+          </button>
+        )}
+    </Block>
+  );
+}
+
 /** El PIN con que entra a su pantalla de trabajo: lo elige la persona, nadie más lo conoce. */
 function StaffPinCard({ pin }: { pin: NonNullable<StaffPortal['pin']> }) {
   const utils = trpc.useUtils();
@@ -161,6 +217,8 @@ export function StaffAccount({ staff }: { staff: StaffPortal }) {
           )}
         </div>
       </div>
+
+      <StaffManualCard />
 
       {next && (
         <Block icon={<Clock className="h-4 w-4" />} title="Tu próximo turno">

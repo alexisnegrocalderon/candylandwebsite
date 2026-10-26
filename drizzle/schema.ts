@@ -2731,6 +2731,41 @@ export const staffShifts = mysqlTable("staffShifts", {
 
 export type StaffShift = typeof staffShifts.$inferSelect;
 
+// Manual del staff (shared/staffManuals.ts): un reglamento general y uno por cargo, con versiones. Publicar un cambio
+// crea una versión nueva (nunca se edita una publicada); cada aceptación guarda qué versión leyó la persona.
+export const staffManuals = mysqlTable("staffManuals", {
+  id: int("id").autoincrement().primaryKey(),
+  manualKey: varchar("manualKey", { length: 24 }).notNull(),
+  version: int("version").notNull(),
+  title: varchar("title", { length: 120 }).notNull(),
+  sections: json("sections").notNull(),
+  changeNote: varchar("changeNote", { length: 255 }),
+  publishedAt: timestamp("publishedAt").defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex("staff_manuals_key_version_idx").on(t.manualKey, t.version),
+]);
+
+export type StaffManual = typeof staffManuals.$inferSelect;
+
+export const staffManualAcceptances = mysqlTable("staffManualAcceptances", {
+  id: int("id").autoincrement().primaryKey(),
+  staffId: int("staffId").notNull(),
+  manualKey: varchar("manualKey", { length: 24 }).notNull(),
+  version: int("version").notNull(),
+  // Lo que dice la ficha al aceptar (por si después cambia).
+  fullName: varchar("fullName", { length: 120 }).notNull(),
+  rut: varchar("rut", { length: 20 }),
+  userAgent: varchar("userAgent", { length: 255 }),
+  ip: varchar("ip", { length: 64 }),
+  acceptedAt: timestamp("acceptedAt").defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex("staff_manual_accept_idx").on(t.staffId, t.manualKey, t.version),
+  index("staff_manual_accept_staff_idx").on(t.staffId),
+]);
+
+export type StaffManualAcceptance = typeof staffManualAcceptances.$inferSelect;
+
+
 
 // Un registro por mes tributario (F29): si ya se declaró y pagó, con qué
 // folio y cuánto. `remanente` es el crédito fiscal que pasa al mes siguiente
