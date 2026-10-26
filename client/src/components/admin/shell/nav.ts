@@ -78,6 +78,7 @@ export const SECTION_KEYWORDS: Record<string, string> = {
   winback: 'reactivar recuperar clientes inactivos',
   birthdays: 'cumpleaños cumpleañeros',
   members: 'socios cuenta mi cuenta cupones regalar cupon preventa anticipada login beneficios pagos tarjeta recarga app',
+  'app-resumen': 'app resumen playroom cupones saldo playcard playcoins instalaciones',
   'app-clientes': 'app instalada quien tiene la app clientes correos telefonos instalar qr',
   'blocked-customers': 'bloqueo lista negra vetados',
   instagram: 'dm mensajes chat agente ig comentarios',

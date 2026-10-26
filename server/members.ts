@@ -428,6 +428,29 @@ export async function memberStats() {
   };
 }
 
+/** Cifras de la portada de App: saldo PlayCard y Playcoins en circulación, y cupones del mes. */
+export async function appOverview(now = new Date()) {
+  const db = await getDb();
+  const empty = { prepaidTotal: 0, withBalance: 0, playcoinsTotal: 0, members: 0, couponsMonth: { granted: 0, used: 0, active: 0 } };
+  if (!db) return empty;
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const [[money], coupons] = await Promise.all([
+    db.select({
+      prepaid: sql<number>`coalesce(sum(${customers.prepaidBalance}), 0)`,
+      withBalance: sql<number>`sum(case when ${customers.prepaidBalance} > 0 then 1 else 0 end)`,
+      playcoins: sql<number>`coalesce(sum(${customers.playcoins}), 0)`,
+      members: sql<number>`sum(case when ${customers.memberSince} is null then 0 else 1 end)`,
+    }).from(customers),
+    db.select({ usedCount: discountCodes.usedCount, maxUses: discountCodes.maxUses, validUntil: discountCodes.validUntil, isActive: discountCodes.isActive })
+      .from(memberCoupons).innerJoin(discountCodes, eq(memberCoupons.discountCodeId, discountCodes.id)).where(gte(memberCoupons.createdAt, monthStart)),
+  ]);
+  const status = coupons.map((c) => couponStatus(c, now));
+  return {
+    prepaidTotal: Number(money?.prepaid ?? 0), withBalance: Number(money?.withBalance ?? 0), playcoinsTotal: Number(money?.playcoins ?? 0), members: Number(money?.members ?? 0),
+    couponsMonth: { granted: coupons.length, used: status.filter((x) => x === 'usado').length, active: status.filter((x) => x === 'disponible').length },
+  };
+}
+
 export interface CouponGiftInput { type: CouponGiftType; value: number; days: number; title?: string; eventId?: number | null; notify: boolean }
 
 async function eventTitleOf(eventId: number | null | undefined): Promise<string | null> {

@@ -4826,6 +4826,7 @@ export const appRouter = router({
       }
     }),
     // A cuántos clientes le llegaría un regalo en lote (antes de confirmar).
+    adminOverview: adminReadProcedure.query(() => members.appOverview()),
     previewCouponAudience: adminProcedure.input(couponAudienceInput).query(async ({ input }) => {
       const r = await members.resolveCouponAudience(input);
       return { count: r.customers.length, notCustomers: r.notCustomers, overLimit: r.overLimit, sample: r.customers.slice(0, 5).map((c) => c.fullName || c.email) };

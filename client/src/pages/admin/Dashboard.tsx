@@ -28,6 +28,7 @@ const CartaManager = lazy(() => import('@/components/admin/carta/CartaManager').
 const InsumosManager = lazy(() => import('@/components/admin/insumos/InsumosManager').then((m) => ({ default: m.InsumosManager })));
 const ContentPlanView = lazy(() => import('@/components/admin/ContentPlanView').then((m) => ({ default: m.ContentPlanView })));
 const ContestsView = lazy(() => import('@/components/admin/ContestsView').then((m) => ({ default: m.ContestsView })));
+const AppOverview = lazy(() => import('@/components/admin/app/AppOverview').then((m) => ({ default: m.AppOverview })));
 const AppInstallsView = lazy(() => import('@/components/admin/push/AppInstallsView').then((m) => ({ default: m.AppInstallsView })));
 const CustomerPushView = lazy(() => import('@/components/admin/push/CustomerPushView').then((m) => ({ default: m.CustomerPushView })));
 const EventSurveyView = lazy(() => import('@/components/admin/EventSurveyView').then((m) => ({ default: m.EventSurveyView })));
@@ -139,6 +140,7 @@ const ADMIN_SECTIONS = [
   { id: 'blocked-customers', label: 'Bloqueo de Clientes', hub: 'clientes', icon: Ban, render: () => <BlockedManager /> },
 
   // App Playroom: todo lo que se edita y se envía para la app, en un solo lugar (los ids no cambian).
+  { id: 'app-resumen', label: 'Resumen', hub: 'app', icon: LayoutDashboard, render: () => <AppOverview /> },
   { id: 'members', label: 'Cupones y pagos', hub: 'app', icon: Crown, render: () => <MembersManager /> },
   { id: 'push-clientes', label: 'Notificaciones', hub: 'app', icon: BellRing, render: () => <CustomerPushView /> },
   { id: 'app-clientes', label: 'Clientes con la app', hub: 'app', icon: Smartphone, render: () => <AppInstallsView /> },
