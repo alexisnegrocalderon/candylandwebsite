@@ -26,6 +26,8 @@ import { canUseCaja, OPERATOR_ROLES, STAFF_SYSTEMS } from "../shared/cajaRoles";
 import { STAFF_CARGO_KEYS } from "../shared/staffCargos";
 import { applyManualSchema, applyStaffSchema, manualSchemaStatus, staffSchemaStatus } from "./schemaUpdates";
 import * as staffManualSvc from "./staffManuals";
+import { recordDoorAlert } from "./caja/doorAlert";
+import { DOOR_ALERT_COOLDOWN_MS, DOOR_ALERT_KEYS, DOOR_ALERT_NOTE_MAX } from "../shared/doorAlert";
 import { MANUAL_LIMITS, isManualKey } from "../shared/staffManuals";
 import * as solteros from "./solteros";
 import { AVATARS_PER_GENDER, DEFAULT_LOOKING_FOR, MAX_PARTY_PHOTOS, MAX_REWINDS_PER_EVENT, PARTY_GENDERS, PARTY_ZONES, parseLookingFor, sanitizeCostume, serializeLookingFor, canPreRegister, partyEntryDenial, sanitizeAlias, sanitizeGiftMessage, sanitizeMessage, isPartyWindowOpen, validatePhotoBytes } from "../shared/party";
@@ -203,7 +205,7 @@ import { normalizeAgentCoachReport } from "../shared/agentCoach";
 import { normalizeWhatsAppAgentConfig, DEFAULT_WHATSAPP_AGENT_CONFIG, WA_MAX_REPLY_CHARS } from "../shared/whatsappAgentConfig";
 import { sendManualWhatsAppReply } from "./whatsapp";
 import { normalizeFlashPromoPresets } from "../shared/flashPromoPresets";
-import { sendTestPushToAllAdmins, sendPushToAdmins, sendPushToProfile, sendPushToEventGuests } from "./push";
+import { sendTestPushToAllAdmins, sendPushToAdmins, sendPushToAdminsAlways, sendPushToProfile, sendPushToEventGuests } from "./push";
 import { runAdminDigest } from "./adminDigest";
 import { buildShiftClosePdf } from "./caja/shiftReportPdf";
 import { buildKitchenVendorPdf } from "./caja/kitchenVendorPdf";
@@ -2034,7 +2036,8 @@ export const appRouter = router({
       // estacionamiento y tiene que mostrar el monto antes de cobrar.
       // El staff del evento con su credencial: la puerta los reconoce aunque no haya señal.
       const [parking, staff] = await Promise.all([db.getParkingPricing(input.eventId), staffPortal.staffForDoor(input.eventId).catch(() => [])]);
-      return { ...snapshot, parking, staff };
+      const contacts = await staffPortal.getEventStaffInfo(input.eventId).then((i) => i.contacts).catch(() => []);
+      return { ...snapshot, parking, staff, contacts };
     }),
 
     // Credencial del staff escaneada en la puerta: queda anotada su llegada.
@@ -2064,13 +2067,31 @@ export const appRouter = router({
       return res;
     }),
 
+    // Aviso urgente de la puerta a los organizadores: queda en el ledger y les llega un push al instante. Un aviso cada ~20 s por persona.
+    alert: doorProcedure.input(z.object({
+      opId: z.string().min(8).max(64), eventId: z.number(), reason: z.enum(DOOR_ALERT_KEYS),
+      note: z.string().max(DOOR_ALERT_NOTE_MAX * 2).nullish(), ticketCode: z.string().max(40).nullish(), buyerName: z.string().max(120).nullish(),
+    })).mutation(async ({ input, ctx }) => {
+      const rawDb = await db.getDb();
+      if (!rawDb) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Base de datos no disponible' });
+      const key = `door-alert:${ctx.operator.operatorId}`;
+      if (!(await db.checkIpRateLimit(key))) throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Ya avisaste hace un momento. Espera unos segundos.' });
+      await db.recordIpAttempt(key, 1, DOOR_ALERT_COOLDOWN_MS);
+      const push = await recordDoorAlert(rawDb, {
+        opId: input.opId, eventId: input.eventId, operatorId: ctx.operator.operatorId, operatorName: ctx.operator.name ?? 'La puerta',
+        reason: input.reason, note: input.note, ticketCode: input.ticketCode, buyerName: input.buyerName, clientAt: new Date(),
+      });
+      await sendPushToAdminsAlways(push);
+      return { ok: true as const };
+    }),
+
     // Vaciado de la cola offline. Solo acepta check-in y cobro de
     // estacionamiento: la puerta no vende de la carta ni canjea otros
     // extras, aunque comparta la cola con la caja.
     sync: doorProcedure.input(z.object({
       eventId: z.number(),
       ops: z.array(z.discriminatedUnion('type', [
-        z.object({ type: z.literal('checkin'), opId: z.string(), ticketCode: z.string(), clientAt: z.string() }),
+        z.object({ type: z.literal('checkin'), opId: z.string(), ticketCode: z.string(), clientAt: z.string(), idVerified: z.boolean().optional() }),
         z.object({
           type: z.literal('parking_paid'), opId: z.string(), ticketCode: z.string(),
           // Qué estacionamiento se cobró (normal o VIP). Opcional: los cobros
@@ -2089,7 +2110,7 @@ export const appRouter = router({
           if (op.type === 'checkin') {
             results[op.opId] = await checkInTicket(rawDb, {
               opId: op.opId, ticketCode: op.ticketCode, eventId: input.eventId,
-              operatorId: ctx.operator.operatorId, clientAt: new Date(op.clientAt),
+              operatorId: ctx.operator.operatorId, clientAt: new Date(op.clientAt), idVerified: op.idVerified,
             });
           } else {
             results[op.opId] = await sellParkingAtDoor(rawDb, {

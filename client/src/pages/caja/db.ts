@@ -2,7 +2,7 @@ import Dexie, { type Table } from 'dexie';
 import { formatKitchenTicketNumber } from '@shared/kitchen';
 import { formatLockerTagNumber } from '@shared/locker';
 import { personasForTicket } from '@shared/mission300';
-import type { DoorParkingOption } from '@shared/parking';
+import { vipParkingCounts, type DoorParkingOption } from '@shared/parking';
 
 /* Snapshot local + cola de operaciones para el modo offline de /caja
  * (docs/ARQUITECTURA-CAJA.md §6.2-§6.3). Todo lo que la tablet necesita para
@@ -22,7 +22,7 @@ export interface CajaAttendee {
    * pasaporte (selector elegido en el checkout, ver Checkout.tsx). */
   attendees: { name: string; rut: string | null; docType: 'rut' | 'passport' }[];
   access: { ticketCode: string; status: string; typeName: string; accesoSlug: string | null; groupSize: number | null }[];
-  extras: { displayCode: string | null; status: string; typeName: string }[];
+  extras: { displayCode: string | null; status: string; typeName: string; /** Cobrado en la puerta (no era un VIP reservado de antes). */ atDoor?: boolean }[];
   /** Compra por el link de una campaña aliada (ej. comunidad electrónica):
    * gente que viene por primera vez. Opcional: snapshots viejos no lo traen. */
   partnerBadge?: { label: string; emoji: string; refLabel: string | null } | null;
@@ -91,7 +91,7 @@ export interface CajaStaffComp {
 export type QueuedOp =
   | { opId: string; type: 'redeem'; displayCode: string; clientAt: string }
   | { opId: string; type: 'undo_redeem'; displayCode: string; clientAt: string }
-  | { opId: string; type: 'checkin'; ticketCode: string; clientAt: string }
+  | { opId: string; type: 'checkin'; ticketCode: string; clientAt: string; /** La puerta tocó «Verifiqué las cédulas» (queda en el ledger). */ idVerified?: boolean }
   | { opId: string; type: 'parking_paid'; ticketCode: string; paymentMethod: 'efectivo' | 'debito' | 'credito'; ticketTypeId?: number; clientAt: string }
   | {
       opId: string; type: 'sale'; items: { ticketTypeId: number; quantity: number }[];
@@ -178,6 +178,8 @@ export async function saveSnapshot(snapshot: {
   parking?: { options: DoorParkingOption[]; venueFeePerCarClp: number };
   /** Solo la puerta lo trae: el staff del evento con el código de su credencial. */
   staff?: DoorStaff[];
+  /** Solo la puerta lo trae: los contactos de la noche (para llamar si no hay señal). */
+  contacts?: { label: string; phone: string }[];
   serverTime: string;
 }) {
   await cajaDB.transaction('rw', [cajaDB.attendees, cajaDB.codes, cajaDB.catalog, cajaDB.gifts, cajaDB.staffComps, cajaDB.meta, cajaDB.opsQueue], async () => {
@@ -205,6 +207,7 @@ export async function saveSnapshot(snapshot: {
     await cajaDB.meta.put({ key: 'lastSnapshotAt', value: Date.now() });
     if (snapshot.parking) await cajaDB.meta.put({ key: 'parking', value: snapshot.parking });
     if (snapshot.staff) await cajaDB.meta.put({ key: 'staff', value: { eventId: snapshot.event.id, list: snapshot.staff } });
+    if (snapshot.contacts) await cajaDB.meta.put({ key: 'contacts', value: { eventId: snapshot.event.id, list: snapshot.contacts } });
 
     // El snapshot llega del servidor SIN lo que esta tablet todavía no
     // sincronizó: sin esto, un código recién canjeado volvía a "válido" (y se
@@ -224,6 +227,13 @@ export async function getLocalParking(): Promise<{ options: DoorParkingOption[];
   const row = await cajaDB.meta.get('parking');
   const value = row?.value as any;
   return value && Array.isArray(value.options) ? value : null;
+}
+
+/** Los contactos de la noche del último snapshot de la puerta (sirven sin señal). */
+export async function getLocalContacts(eventId: number): Promise<{ label: string; phone: string }[]> {
+  const row = await cajaDB.meta.get('contacts');
+  const value = row?.value as { eventId: number; list: { label: string; phone: string }[] } | undefined;
+  return value && value.eventId === eventId ? value.list : [];
 }
 
 export interface DoorStaff { code: string; name: string; role: string | null }
@@ -321,6 +331,12 @@ export async function countCheckedInPersonas(): Promise<{ entered: number; expec
     }
   }
   return { entered, expected };
+}
+
+/** Estacionamientos VIP reservados de antes / ya llegaron / por llegar, según el snapshot local (incluye al instante
+ * los check-in de este mismo celular que todavía no se sincronizan). */
+export async function countVipParking() {
+  return vipParkingCounts(await cajaDB.attendees.toArray());
 }
 
 export async function getLocalAttendee(orderId: number): Promise<CajaAttendee | undefined> {

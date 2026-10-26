@@ -150,3 +150,20 @@ export function cashChange(received: number, price: number | null): number | nul
   if (price == null || !Number.isFinite(received) || received < price) return null;
   return received - price;
 }
+
+/** Estacionamientos VIP reservados de antes (online o staff; los cobrados en la puerta no cuentan: no estaban
+ * reservados) frente a cuántos de esos ya llegaron (el acceso de su orden ya entró) y cuántos faltan. Es lo que le
+ * dice a la puerta cuántos lugares VIP seguir guardando junto a la escalera. */
+export function vipParkingCounts(attendees: {
+  access: { status: string }[];
+  extras: { typeName: string; status: string; atDoor?: boolean }[];
+}[]): { reserved: number; arrived: number; pending: number } {
+  let reserved = 0, arrived = 0;
+  for (const a of attendees) {
+    const vip = a.extras.filter((e) => !e.atDoor && e.status !== 'cancelled' && isAnyParkingTicketType(e.typeName) && /vip/i.test(e.typeName)).length;
+    if (vip === 0) continue;
+    reserved += vip;
+    if (a.access.some((acc) => acc.status === 'used')) arrived += vip;
+  }
+  return { reserved, arrived, pending: reserved - arrived };
+}

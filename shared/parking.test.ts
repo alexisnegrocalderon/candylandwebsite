@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isParkingTicketType, isAnyParkingTicketType, classifyParkingOrigin, summarizeParkingCounts, cashChange, listDoorParkingOptions, doorParkingScript, summarizeDoorParking, type DoorParkingCharge } from "./parking";
+import { isParkingTicketType, isAnyParkingTicketType, classifyParkingOrigin, summarizeParkingCounts, cashChange, vipParkingCounts, listDoorParkingOptions, doorParkingScript, summarizeDoorParking, type DoorParkingCharge } from "./parking";
 
 describe("isParkingTicketType", () => {
   it("reconoce Estacionamiento y Parking, ignorando mayúsculas", () => {
@@ -145,5 +145,21 @@ describe('cashChange', () => {
     expect(cashChange(2000, 5000)).toBeNull();
     expect(cashChange(10000, null)).toBeNull();
     expect(cashChange(NaN, 5000)).toBeNull();
+  });
+});
+
+describe("vipParkingCounts", () => {
+  const vip = { typeName: "Estacionamiento VIP", status: "valid" };
+  it("separa reservados, ya llegaron y por llegar", () => {
+    const c = vipParkingCounts([
+      { access: [{ status: "used" }], extras: [vip] },
+      { access: [{ status: "valid" }], extras: [vip, { ...vip }] },
+      { access: [{ status: "valid" }], extras: [{ typeName: "Estacionamiento", status: "valid" }] },
+    ]);
+    expect(c).toEqual({ reserved: 3, arrived: 1, pending: 2 });
+  });
+  it("no cuenta los cobrados en la puerta ni los anulados", () => {
+    const c = vipParkingCounts([{ access: [{ status: "used" }], extras: [{ ...vip, atDoor: true }, { ...vip, status: "cancelled" }] }]);
+    expect(c).toEqual({ reserved: 0, arrived: 0, pending: 0 });
   });
 });

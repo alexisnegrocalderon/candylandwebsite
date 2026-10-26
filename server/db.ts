@@ -3371,7 +3371,11 @@ export async function getCajaSnapshot(eventId: number) {
         // la invitación especial instantánea (ver createInstantInvite).
         groupSize: t.groupSize ?? null,
       })),
-      extras: ts.filter((t: any) => ttById.get(t.ticketTypeId)?.category === 'extra').map((t: any) => ({ displayCode: t.displayCode, status: t.status, typeName: ttById.get(t.ticketTypeId)?.name })),
+      extras: ts.filter((t: any) => ttById.get(t.ticketTypeId)?.category === 'extra').map((t: any) => ({
+        displayCode: t.displayCode, status: t.status, typeName: ttById.get(t.ticketTypeId)?.name,
+        // Cobrado en la puerta (orden PUERTA-PARKING-…): no cuenta como estacionamiento reservado de antes.
+        atDoor: classifyParkingOrigin({ orderPaymentMethod: o.paymentMethod ?? '', orderPaymentId: o.paymentId ?? null }) === 'puerta',
+      })),
     };
   });
 

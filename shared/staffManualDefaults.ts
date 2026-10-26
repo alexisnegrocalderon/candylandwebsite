@@ -41,13 +41,14 @@ export const MANUAL_DRAFTS: Record<ManualKey, { title: string; sections: ManualS
     ],
   },
   puerta: {
-    title: 'Manual de Puerta y Seguridad',
+    title: 'Manual de Puerta',
     sections: [
-      list('Apertura', ['Llegar a la hora de citación', 'Entrar a /puerta con tu PIN', 'Revisar que el escáner y la cámara funcionan', 'Coordinar con el supervisor la hora de apertura y los accesos', 'Revisar la lista de staff y de invitados de la noche']),
-      list('Cierre', ['Revisar que el recinto quede despejado', 'Confirmar con el supervisor que no queda nadie atrás', 'Cerrar tu sesión']),
-      text('Cómo se ingresa', 'Cada persona entra con su QR: escanéalo en /puerta y comprueba que el estado diga válido. Una entrada se usa una sola vez. Si el sistema marca «ya usada» o «anulada», no dejes pasar y avisa al supervisor. Revisa el documento de identidad cuando corresponda.'),
-      text('Qué hacer ante problemas', 'Cliente sin entrada o con una entrada rara: se le deriva al supervisor, nunca se improvisa.\nPersona ebria o agresiva: no entra; mantén la calma y llama al supervisor.\nPelea o emergencia: protocolo de seguridad, llamar a [teléfono de emergencia / producción].'),
-      text('Reglas', 'No se deja entrar a menores ni a personas que no cumplan las condiciones del evento.\nNo se registran fotos ni datos de clientes.\nNo se discute: ante dudas, el supervisor decide.'),
+      list('Apertura', ['Llegar a la hora de citación y mostrar tu credencial', 'Entrar a /puerta con tu PIN', 'Revisar que la cámara escanea y que el celular tiene batería y señal', 'Ver en pantalla cuántos estacionamientos VIP están reservados y dejar esos lugares libres, los más cercanos a la escalera de ingreso a la casona', 'Confirmar con los organizadores la hora de apertura y a quién llamar ante una urgencia [falta: teléfono de emergencia]']),
+      list('Cierre', ['Revisar con los organizadores que no quede nadie por ingresar', 'Confirmar el registro de los estacionamientos cobrados en la puerta', 'Entregar el efectivo cobrado y el resumen a los organizadores', 'Cerrar tu sesión']),
+      text('Cómo recibir', 'Recibe a cada persona de forma grata y cordial. Eres la primera cara de la fiesta: saluda, sonríe y mantén la fila ordenada y tranquila.'),
+      text('Revisar el acceso', 'Escanea el acceso de cada persona. Comprueba que el tipo de acceso coincida con las personas que vienen y pide la identificación (cédula o pasaporte) de cada una; compara su nombre y su documento con lo que muestra la pantalla. En la pantalla toca «Verifiqué las cédulas» antes de dar el acceso.\nSi el sistema marca el código como usado o anulado, o la persona no coincide, no la dejes pasar y avisa a los organizadores.'),
+      text('Estacionamiento', 'Al escanear, revisa si el acceso ya tiene estacionamiento pagado o si debe pagar, y de qué tipo es: normal o VIP.\nLa pantalla indica cuántos estacionamientos VIP están reservados desde antes. Esa cantidad de lugares queda reservada y debe ser la más cercana a la escalera de ingreso a la casona: indica a los autos VIP hacia ahí.\nSi la persona no tiene estacionamiento pagado (por auto, con el QR del chofer o de quien venga con el asistente): escanea el QR, indica en el sistema que va a pagar estacionamiento y con qué medio de pago (efectivo, débito o crédito). Queda anotado en el sistema.\nSi paga con tarjeta, además se cobra con la máquina: cobra en la máquina por el monto que muestra la pantalla y confirma en el sistema cuando salga aprobado.'),
+      text('Fuera del sistema', 'Cualquier situación que no esté en el sistema se resuelve con los organizadores, de inmediato. Usa el botón «Avisar a los organizadores» de tu pantalla: elige el motivo y les llega una notificación al instante. Si no tienes señal, llámalos por teléfono.'),
     ],
   },
   cocina: {
