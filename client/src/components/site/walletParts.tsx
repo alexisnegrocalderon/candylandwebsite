@@ -64,7 +64,19 @@ export function maskCode(code: string): string {
   return code.length > 6 ? `${code.slice(0, 2)} •••• ${code.slice(-4)}` : code;
 }
 
-/** El QR a pantalla completa sobre blanco (máximo contraste para el lector de la puerta y de caja),
+/** La pantalla de un QR: oscura con un resplandor suave (de noche, un fondo blanco encandila). El QR va en una tarjeta
+ * blanca con margen: el lector solo necesita el código y su borde blanco, no toda la pantalla. */
+export const QR_PAGE_BG = { background: 'radial-gradient(520px 380px at 50% 28%, rgba(163, 116, 255, 0.22), transparent 70%), #0b0612' } as const;
+
+export function QrCard({ src, alt, faded = false, className = '' }: { src: string; alt: string; faded?: boolean; className?: string }) {
+  return (
+    <div className={`shrink-0 rounded-[28px] bg-white p-4 shadow-[0_24px_60px_-20px_rgba(0,0,0,0.85),0_0_0_1px_rgba(255,255,255,0.14)] ${className}`}>
+      <img src={src} alt={alt} className={`block aspect-square w-full [image-rendering:pixelated] ${faded ? 'opacity-25' : ''}`} />
+    </div>
+  );
+}
+
+/** El QR a pantalla completa (en su tarjeta blanca: máximo contraste para el lector de la puerta y de caja),
  * con la pantalla encendida mientras está abierto. Desde acá también se guarda en Fotos. */
 export function QrViewer({ ev, t, holder, onClose, onSelect }: { ev: MeEvent; t: MeTicket; holder: string; onClose: () => void; onSelect?: (t: MeTicket) => void }) {
   const [saving, setSaving] = useState(false);
@@ -98,55 +110,59 @@ export function QrViewer({ ev, t, holder, onClose, onSelect }: { ev: MeEvent; t:
     }
   };
   return (
-    <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }} transition={{ duration: 0.22 }} className={`account-font fixed inset-0 z-[90] flex flex-col items-center gap-5 overflow-y-auto bg-white px-6 pb-[max(24px,env(safe-area-inset-bottom))] ${showStrip ? 'pt-[calc(max(16px,env(safe-area-inset-top))+60px)]' : 'pt-[max(24px,env(safe-area-inset-top))]'} text-[#0d0712] [&>*:first-child]:shrink-0`} role="dialog" aria-label="Código QR de tu entrada">
-      <button type="button" onClick={onClose} aria-label="Cerrar" className="absolute right-4 top-[max(16px,env(safe-area-inset-top))] grid h-11 w-11 place-items-center rounded-full bg-black/5"><X className="h-5 w-5" /></button>
+    <motion.div
+      initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }} transition={{ duration: 0.22 }}
+      className={`account-font fixed inset-0 z-[90] flex flex-col items-center gap-5 overflow-y-auto px-6 pb-[max(24px,env(safe-area-inset-bottom))] ${showStrip ? 'pt-[calc(max(16px,env(safe-area-inset-top))+60px)]' : 'pt-[max(24px,env(safe-area-inset-top))]'} text-white [&>*:first-child]:shrink-0`}
+      style={QR_PAGE_BG} role="dialog" aria-label="Código QR de tu entrada"
+    >
+      <button type="button" onClick={onClose} aria-label="Cerrar" className="absolute right-4 top-[max(16px,env(safe-area-inset-top))] grid h-11 w-11 place-items-center rounded-full bg-white/10"><X className="h-5 w-5" /></button>
       {showStrip ? (
         <div role="tablist" aria-label="Qué mostrar" className="-mx-6 flex max-w-[100vw] shrink-0 gap-1.5 overflow-x-auto px-6 pr-16 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {groups.map((g) => {
             const on = g === current;
             return (
               <button key={g.key} type="button" role="tab" aria-selected={on} onClick={() => { if (!on && onSelect) onSelect(nextUnit(g) as MeTicket); }}
-                className={`h-9 shrink-0 whitespace-nowrap rounded-full px-3.5 text-subhead font-semibold ${on ? 'bg-[#0d0712] text-white' : 'bg-black/[0.06] text-black/70'}`}>
+                className={`h-9 shrink-0 whitespace-nowrap rounded-full px-3.5 text-subhead font-semibold ${on ? 'bg-white text-[#0b0612]' : 'bg-white/10 text-white/75'}`}>
                 {TICKET_KIND_META[g.kind].emoji} {g.kind === 'acceso' ? 'Entrada' : g.name}{g.units.length > 1 ? ` ×${g.units.length}` : ''}{g.state === 'canjeado' ? ' ✓' : ''}
               </button>
             );
           })}
         </div>
       ) : t.kind && (
-        <p className={`rounded-full px-4 py-1.5 text-center text-subhead font-bold ${t.kind === 'estacionamiento' ? 'bg-sky-100 text-sky-900' : t.kind === 'acceso' ? 'bg-pink-100 text-pink-900' : 'bg-violet-100 text-violet-900'}`}>
+        <p className={`rounded-full px-4 py-1.5 text-center text-subhead font-bold ${t.kind === 'estacionamiento' ? 'bg-sky-400/15 text-sky-200' : t.kind === 'acceso' ? 'bg-pink-400/15 text-pink-200' : 'bg-violet-400/15 text-violet-200'}`}>
           {TICKET_KIND_META[t.kind].emoji} {t.kindLabel ?? TICKET_KIND_META[t.kind].label}
         </p>
       )}
       <p className="text-center text-title2 font-bold leading-tight tracking-tight">{ev.eventTitle}</p>
-      {t.kind && <p className="-mt-3 text-center text-footnote text-black/60">{TICKET_KIND_META[t.kind].where}</p>}
-      {t.qrImageUrl && <img src={t.qrImageUrl} alt="Código QR de tu entrada" className={`aspect-square [image-rendering:pixelated] ${used ? 'opacity-25' : ''} ${t.companions && t.companions.length > 0 ? 'w-[min(80vw,40vh)]' : 'w-[min(86vw,58vh)]'}`} />}
+      {t.kind && <p className="-mt-3 text-center text-footnote text-white/60">{TICKET_KIND_META[t.kind].where}</p>}
+      {t.qrImageUrl && <QrCard src={t.qrImageUrl} alt="Código QR de tu entrada" faded={used} className={t.companions && t.companions.length > 0 ? 'w-[min(80vw,40vh)]' : 'w-[min(86vw,58vh)]'} />}
       {used && (
-        <p className="-mt-2 rounded-full bg-emerald-100 px-4 py-1.5 text-center text-subhead font-bold text-emerald-900">
+        <p className="-mt-2 rounded-full bg-emerald-400/15 px-4 py-1.5 text-center text-subhead font-bold text-emerald-300">
           {t.kind === 'acceso' || !t.kind ? '✓ Ya entraste' : '✓ Ya canjeado'}{t.usedAt ? ` · ${formatChileTime(t.usedAt)}` : ''}
         </p>
       )}
       {showUnits && current && (
         <div className="-mt-1 flex items-center gap-2 text-subhead font-semibold">
-          <button type="button" onClick={() => stepUnit(-1)} aria-label="Anterior" className="grid h-10 w-10 place-items-center rounded-full bg-black/[0.06]"><ChevronLeft className="h-5 w-5" /></button>
+          <button type="button" onClick={() => stepUnit(-1)} aria-label="Anterior" className="grid h-10 w-10 place-items-center rounded-full bg-white/10"><ChevronLeft className="h-5 w-5" /></button>
           <span className="min-w-[96px] text-center tabular-nums">{unitIdx + 1} de {current.units.length}</span>
-          <button type="button" onClick={() => stepUnit(1)} aria-label="Siguiente" className="grid h-10 w-10 place-items-center rounded-full bg-black/[0.06]"><ChevronRight className="h-5 w-5" /></button>
+          <button type="button" onClick={() => stepUnit(1)} aria-label="Siguiente" className="grid h-10 w-10 place-items-center rounded-full bg-white/10"><ChevronRight className="h-5 w-5" /></button>
         </div>
       )}
       <div className="text-center">
         <p className="text-title3 font-semibold">{t.holderName || holder}</p>
-        <p className="font-mono text-subhead text-black/60">{t.ticketCode}</p>
+        <p className="font-mono text-subhead text-white/60">{t.ticketCode}</p>
         {t.displayCode && t.kind !== 'acceso' && <p className="mt-1 font-mono text-title3 font-bold tracking-[0.12em]">{t.displayCode}</p>}
       </div>
       {t.companions && t.companions.length > 0 && (
-        <div className="w-full max-w-sm rounded-2xl bg-black/[0.04] px-4 py-3 text-center">
-          <p className="text-caption2 font-semibold uppercase tracking-[0.18em] text-black/60">{t.companions.length > 1 ? 'Acompañantes' : 'Acompañante'}</p>
+        <div className="w-full max-w-sm rounded-2xl bg-white/[0.07] px-4 py-3 text-center">
+          <p className="text-caption2 font-semibold uppercase tracking-[0.18em] text-white/60">{t.companions.length > 1 ? 'Acompañantes' : 'Acompañante'}</p>
           {t.companions.map((c) => (
-            <p key={c.rut} className="mt-1 text-subhead font-semibold leading-tight">{c.nombre} <span className="font-mono text-footnote font-normal text-black/60">· {c.rut}</span></p>
+            <p key={c.rut} className="mt-1 text-subhead font-semibold leading-tight">{c.nombre} <span className="font-mono text-footnote font-normal text-white/60">· {c.rut}</span></p>
           ))}
         </div>
       )}
-      <p className="text-center text-caption1 text-black/60">Sube el brillo de la pantalla. Muestra tu carnet en la entrada.</p>
-      <button type="button" onClick={() => { void save(); }} disabled={saving} className="inline-flex h-12 items-center justify-center gap-2 rounded-full bg-[#0d0712] px-6 text-subhead font-bold text-white interactive disabled:opacity-60">
+      <p className="text-center text-caption1 text-white/60">Sube el brillo de la pantalla. Muestra tu carnet en la entrada.</p>
+      <button type="button" onClick={() => { void save(); }} disabled={saving} className="inline-flex h-12 items-center justify-center gap-2 rounded-full bg-white px-6 text-subhead font-bold text-[#0b0612] interactive disabled:opacity-60">
         {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} Guardar en Fotos
       </button>
     </motion.div>

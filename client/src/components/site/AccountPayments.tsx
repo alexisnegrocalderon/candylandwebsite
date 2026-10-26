@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { CreditCard, Loader2, Star, Trash2, X } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { TopupPanel } from '@/components/wallet/TopupPanel';
+import { QR_PAGE_BG, QrCard } from '@/components/site/walletParts';
 import '@/pages/Ticket.wallet.css';
 
 /* Pagos desde «Mi cuenta» (Etapa A). Cada pieza se muestra solo con su
@@ -98,19 +99,19 @@ export function PayInCajaViewer({ onClose, prepaidBalance, playcoins }: { onClos
 
   const secs = Math.max(0, Math.ceil((expiresAt - now) / 1000));
   return createPortal(
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="account-font fixed inset-0 z-[90] flex flex-col items-center justify-center gap-5 bg-white px-6 pb-[max(24px,env(safe-area-inset-bottom))] pt-[max(24px,env(safe-area-inset-top))] text-[#0d0712]" role="dialog" aria-label="QR para pagar en caja">
-      <button type="button" onClick={onClose} aria-label="Cerrar" className="absolute right-4 top-[max(16px,env(safe-area-inset-top))] grid h-11 w-11 place-items-center rounded-full bg-black/5"><X className="h-5 w-5" /></button>
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="account-font fixed inset-0 z-[90] flex flex-col items-center justify-center gap-5 px-6 pb-[max(24px,env(safe-area-inset-bottom))] pt-[max(24px,env(safe-area-inset-top))] text-white" style={QR_PAGE_BG} role="dialog" aria-label="QR para pagar en caja">
+      <button type="button" onClick={onClose} aria-label="Cerrar" className="absolute right-4 top-[max(16px,env(safe-area-inset-top))] grid h-11 w-11 place-items-center rounded-full bg-white/10"><X className="h-5 w-5" /></button>
       <p className="text-title2 font-bold tracking-tight">Pagar en caja</p>
       <div className="flex gap-6 text-center">
-        <div><p className="text-caption2 uppercase tracking-wider text-black/60">Saldo</p><p className="text-title2 font-bold tabular-nums">{fmtClp(prepaidBalance)}</p></div>
-        <div><p className="text-caption2 uppercase tracking-wider text-black/60">Playcoins</p><p className="text-title2 font-bold tabular-nums text-violet-600">{playcoins.toLocaleString('es-CL')}</p></div>
+        <div><p className="text-caption2 uppercase tracking-wider text-white/60">Saldo</p><p className="text-title2 font-bold tabular-nums">{fmtClp(prepaidBalance)}</p></div>
+        <div><p className="text-caption2 uppercase tracking-wider text-white/60">Playcoins</p><p className="text-title2 font-bold tabular-nums text-violet-300">{playcoins.toLocaleString('es-CL')}</p></div>
       </div>
-      {qr ? <img src={qr} alt="QR de pago" className="aspect-square w-[min(80vw,52vh)] [image-rendering:pixelated]" /> : (
-        <div className="grid aspect-square w-[min(80vw,52vh)] place-items-center rounded-2xl bg-black/5">{error ? <p className="px-6 text-center text-subhead text-rose-600">{error}</p> : <Loader2 className="h-8 w-8 animate-spin text-black/40" />}</div>
+      {qr ? <QrCard src={qr} alt="QR de pago" className="w-[min(86vw,52vh)]" /> : (
+        <div className="grid aspect-square w-[min(86vw,52vh)] place-items-center rounded-[28px] bg-white/[0.07]">{error ? <p className="px-6 text-center text-subhead text-rose-300">{error}</p> : <Loader2 className="h-8 w-8 animate-spin text-white/50" />}</div>
       )}
-      <p className="text-center text-subhead text-black/60">Muéstralo a la cajera: cobra de tu saldo sin pedirte el PIN.<br />{qr && <span className="font-semibold">Se renueva en {secs} s · sirve una sola vez</span>}</p>
-      {error && <button type="button" onClick={() => { void refresh(); }} className="h-11 rounded-full bg-[#0d0712] px-6 text-subhead font-bold text-white">Reintentar</button>}
-      <p className="text-center text-caption1 text-black/60">Necesita conexión. Si ves algo raro, cierra y vuelve a abrir.</p>
+      <p className="text-center text-subhead text-white/60">Muéstralo a la cajera: cobra de tu saldo sin pedirte el PIN.<br />{qr && <span className="font-semibold text-white/80">Se renueva en {secs} s · sirve una sola vez</span>}</p>
+      {error && <button type="button" onClick={() => { void refresh(); }} className="h-11 rounded-full bg-white px-6 text-subhead font-bold text-[#0b0612]">Reintentar</button>}
+      <p className="text-center text-caption1 text-white/60">Necesita conexión. Si ves algo raro, cierra y vuelve a abrir.</p>
     </motion.div>,
     document.body,
   );
