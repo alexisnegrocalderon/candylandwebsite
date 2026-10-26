@@ -6069,8 +6069,8 @@ export const appRouter = router({
     }),
     setActive: adminProcedure.input(z.object({ id: z.number(), active: z.boolean() })).mutation(({ input }) => insumoSvc.setInsumoActive(input.id, input.active)),
     setReceta: adminProcedure.input(z.object({
-      ticketTypeId: z.number(), lines: z.array(z.object({ insumoId: z.number(), amount: z.number().min(0).max(100_000) })).max(30),
-    })).mutation(({ input }) => insumoSvc.setReceta(input.ticketTypeId, input.lines)),
+      ticketTypeId: z.number(), glass: z.enum(['vaso', 'copa', 'shot']), lines: z.array(z.object({ insumoId: z.number(), amount: z.number().min(0).max(100_000) })).max(30),
+    })).mutation(({ input }) => insumoSvc.setReceta(input.ticketTypeId, input.glass, input.lines)),
     movimiento: adminProcedure.input(z.object({
       insumoId: z.number(), kind: z.enum(['carga', 'compra', 'merma', 'ajuste']), amount: z.number().min(-10_000_000).max(10_000_000),
       eventId: z.number().nullable().optional(), note: z.string().max(255).optional(),
@@ -6223,7 +6223,7 @@ export const appRouter = router({
         z.object({ type: z.literal('checkin'), opId: z.string(), ticketCode: z.string(), clientAt: z.string() }),
         z.object({
           type: z.literal('sale'), opId: z.string(),
-          items: z.array(z.object({ ticketTypeId: z.number(), quantity: z.number().min(1) })).min(1),
+          items: z.array(z.object({ ticketTypeId: z.number(), quantity: z.number().min(1), glass: z.enum(['vaso', 'copa', 'shot']).optional() })).min(1),
           paymentMethod: z.enum(['efectivo', 'debito', 'credito', 'qr']),
           buyerEmail: z.string().email().optional(),
           redeemPlaycoins: z.number().int().min(0).optional(),
@@ -6545,7 +6545,7 @@ export const appRouter = router({
     sale: operatorProcedure.input(z.object({
       opId: z.string(),
       eventId: z.number(),
-      items: z.array(z.object({ ticketTypeId: z.number(), quantity: z.number().min(1) })).min(1),
+      items: z.array(z.object({ ticketTypeId: z.number(), quantity: z.number().min(1), glass: z.enum(['vaso', 'copa', 'shot']).optional() })).min(1),
       paymentMethod: z.enum(['efectivo', 'debito', 'credito', 'qr', 'saldo']),
       registerId: z.number().optional(),
       buyerEmail: z.string().email().optional(),

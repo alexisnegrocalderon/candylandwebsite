@@ -129,13 +129,29 @@ const INSUMO_STEPS: Step[] = INSUMO_SQL.map((statement) => {
   const table = /CREATE TABLE `(\w+)`/.exec(statement)?.[1];
   if (table) return { label: `tabla ${table}`, done: (h: Have) => h.tables.has(table), statement };
   const [, index, on] = /CREATE (?:UNIQUE )?INDEX `(\w+)` ON `(\w+)`/.exec(statement) ?? [];
-  return { label: `índice ${index}`, done: (h: Have) => h.indexes.has(col(on, index)), statement };
+  // La migración 0134 cambia este índice por otro que incluye el vaso: con cualquiera de los dos está hecho.
+  const replacedBy = index === 'insumo_recetas_tt_insumo_idx' ? 'insumo_recetas_tt_insumo_glass_idx' : null;
+  return { label: `índice ${index}`, done: (h: Have) => h.indexes.has(col(on, index)) || (!!replacedBy && h.indexes.has(col(on, replacedBy))), statement };
 });
 
 /** drizzle/0133_insumos_tamanos.sql: botellas de distintos tamaños. Se aplica junto con las tablas de insumos. */
 INSUMO_STEPS.push(
   { label: 'insumos.sizes', done: (h) => h.columns.has(col('insumos', 'sizes')), statement: "ALTER TABLE `insumos` ADD `sizes` json" },
   { label: 'insumoConteoLineas.detail', done: (h) => h.columns.has(col('insumoConteoLineas', 'detail')), statement: "ALTER TABLE `insumoConteoLineas` ADD `detail` json" },
+);
+
+/** drizzle/0134_insumos_vasos.sql: una receta por vaso. El índice único viejo (sin vaso) se cambia por uno que sí lo incluye. */
+INSUMO_STEPS.push(
+  { label: 'insumoRecetas.glass', done: (h) => h.columns.has(col('insumoRecetas', 'glass')), statement: "ALTER TABLE `insumoRecetas` ADD `glass` varchar(10) NOT NULL DEFAULT 'vaso'" },
+  // Con la tabla ausente tampoco está "hecho": se crea primero y el índice viejo se quita justo después.
+  {
+    label: 'quitar índice sin vaso de las recetas', done: (h) => h.tables.has('insumoRecetas') && !h.indexes.has(col('insumoRecetas', 'insumo_recetas_tt_insumo_idx')),
+    statement: "DROP INDEX `insumo_recetas_tt_insumo_idx` ON `insumoRecetas`",
+  },
+  {
+    label: 'índice de recetas por vaso', done: (h) => h.indexes.has(col('insumoRecetas', 'insumo_recetas_tt_insumo_glass_idx')),
+    statement: "CREATE UNIQUE INDEX `insumo_recetas_tt_insumo_glass_idx` ON `insumoRecetas` (`ticketTypeId`,`insumoId`,`glass`)",
+  },
 );
 
 /** Todo lo que el botón sabe aplicar, en orden. */
@@ -146,7 +162,7 @@ const INSUMO_TABLES_SQL = ['insumos', 'insumoRecetas', 'insumoMovimientos', 'ins
 async function readHave(): Promise<Have | null> {
   const db = await getDb();
   if (!db) return null;
-  const [cols] = (await db.execute(sql`SELECT TABLE_NAME AS t, COLUMN_NAME AS c FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ('staffMembers', 'operators', 'insumos', 'insumoConteoLineas')`)) as unknown as [{ t: string; c: string }[]];
+  const [cols] = (await db.execute(sql`SELECT TABLE_NAME AS t, COLUMN_NAME AS c FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ('staffMembers', 'operators', 'insumos', 'insumoConteoLineas', 'insumoRecetas')`)) as unknown as [{ t: string; c: string }[]];
   const [idx] = (await db.execute(sql`SELECT TABLE_NAME AS t, INDEX_NAME AS i FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ('staffMembers', 'operators', 'solteroApprovals', 'staffManuals', 'staffManualAcceptances', ${sql.raw(INSUMO_TABLES_SQL)})`)) as unknown as [{ t: string; i: string }[]];
   const [tbl] = (await db.execute(sql`SELECT TABLE_NAME AS t FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ('solteroApprovals', 'staffManuals', 'staffManualAcceptances', ${sql.raw(INSUMO_TABLES_SQL)})`)) as unknown as [{ t: string }[]];
   return {

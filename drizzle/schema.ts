@@ -3306,8 +3306,10 @@ export const insumoRecetas = mysqlTable("insumoRecetas", {
   ticketTypeId: int("ticketTypeId").notNull(),
   insumoId: int("insumoId").notNull(),
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  // En qué vaso se sirve (vaso 500 ml, copa 400 ml, shot): un trago puede tener una receta por vaso.
+  glass: varchar("glass", { length: 10 }).default("vaso").notNull(),
 }, (t) => [
-  uniqueIndex("insumo_recetas_tt_insumo_idx").on(t.ticketTypeId, t.insumoId),
+  uniqueIndex("insumo_recetas_tt_insumo_glass_idx").on(t.ticketTypeId, t.insumoId, t.glass),
   index("insumo_recetas_insumo_idx").on(t.insumoId),
 ]);
 

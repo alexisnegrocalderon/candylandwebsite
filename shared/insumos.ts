@@ -37,6 +37,45 @@ export interface RecetaLinea {
   insumoId: number;
   /** Cuánto gasta UN trago, en la unidad del insumo. */
   amount: number;
+  /** En qué vaso se sirve esta receta (un trago puede tener una por vaso). Vacío = el vaso de siempre. */
+  glass?: string | null;
+}
+
+/** Vasos con que se sirve. Un mismo trago puede tener una receta distinta en cada uno. */
+export type GlassId = 'vaso' | 'copa' | 'shot';
+export const GLASSES: { id: GlassId; label: string; ml: number; emoji: string }[] = [
+  { id: 'vaso', label: 'Vaso', ml: 500, emoji: '🥃' },
+  { id: 'copa', label: 'Copa', ml: 400, emoji: '🍷' },
+  { id: 'shot', label: 'Shot', ml: 30, emoji: '🥂' },
+];
+export const DEFAULT_GLASS: GlassId = 'vaso';
+
+export const glassInfo = (id: string | null | undefined) => GLASSES.find((g) => g.id === (id || DEFAULT_GLASS));
+const glassKey = (r: { glass?: string | null }) => r.glass || DEFAULT_GLASS;
+
+/** Vasos en que un trago tiene receta, en el orden de `GLASSES`. */
+export function glassesDeProducto(recetas: { ticketTypeId: number; glass?: string | null }[], ticketTypeId: number): string[] {
+  const present = new Set(recetas.filter((r) => r.ticketTypeId === ticketTypeId).map(glassKey));
+  return [...GLASSES.map((g) => g.id).filter((g) => present.has(g)), ...Array.from(present).filter((g) => !GLASSES.some((x) => x.id === g))];
+}
+
+/** La receta que corre al vender un trago en un vaso. Si ese vaso no tiene receta
+ * (o no se eligió ninguno), la del primer vaso que sí la tiene. */
+export function recetaDe<T extends { ticketTypeId: number; glass?: string | null }>(recetas: T[], ticketTypeId: number, glass?: string | null): { glass: string; lines: T[] } {
+  const glasses = glassesDeProducto(recetas, ticketTypeId);
+  const chosen = glass && glasses.includes(glass) ? glass : (glasses[0] ?? DEFAULT_GLASS);
+  return { glass: chosen, lines: recetas.filter((r) => r.ticketTypeId === ticketTypeId && glassKey(r) === chosen) };
+}
+
+/** Solo la receta principal de cada trago (la de su primer vaso): sirve para
+ * estimar "alcanza para N tragos" sin que los shots, que gastan poco, bajen el promedio. */
+export function recetasPrincipales<T extends { ticketTypeId: number; glass?: string | null }>(recetas: T[]): T[] {
+  return Array.from(new Set(recetas.map((r) => r.ticketTypeId))).flatMap((id) => recetaDe(recetas, id).lines);
+}
+
+/** Cuánto líquido suma una receta (solo insumos en ml) frente a la capacidad del vaso. */
+export function mlDeReceta(lines: { insumoId: number; amount: number }[], unitOf: (insumoId: number) => InsumoUnit | undefined): number {
+  return Math.round(lines.reduce((s, l) => s + (unitOf(l.insumoId) === 'ml' ? l.amount : 0), 0) * 100) / 100;
 }
 
 export type MovimientoKind = 'carga' | 'compra' | 'venta' | 'anulacion' | 'conteo_ajuste' | 'merma' | 'ajuste';
@@ -109,13 +148,13 @@ const round = (n: number) => Math.round(n * 100) / 100;
 /** Lo que gasta una venta, sumado por insumo (dos tragos con ron = un solo
  * movimiento de ron). `delta` va negativo: es lo que sale del stock. */
 export function consumoDeVenta(
-  items: { ticketTypeId: number; quantity: number }[],
+  items: { ticketTypeId: number; quantity: number; glass?: string | null }[],
   recetas: RecetaLinea[],
 ): { insumoId: number; delta: number }[] {
   const byInsumo = new Map<number, number>();
   for (const item of items) {
-    for (const r of recetas) {
-      if (r.ticketTypeId !== item.ticketTypeId || !(r.amount > 0)) continue;
+    for (const r of recetaDe(recetas, item.ticketTypeId, item.glass).lines) {
+      if (!(r.amount > 0)) continue;
       byInsumo.set(r.insumoId, (byInsumo.get(r.insumoId) ?? 0) + r.amount * item.quantity);
     }
   }
@@ -148,7 +187,7 @@ export function tragosDisponibles(
 /** Cuántos tragos "típicos" alcanzan de un insumo: stock dividido por lo que
  * gasta en promedio un trago que lo usa. `null` si ningún trago lo usa. */
 export function tragosPorInsumo(insumoId: number, stockValue: number, recetas: RecetaLinea[]): number | null {
-  const amounts = recetas.filter((r) => r.insumoId === insumoId && r.amount > 0).map((r) => r.amount);
+  const amounts = recetasPrincipales(recetas).filter((r) => r.insumoId === insumoId && r.amount > 0).map((r) => r.amount);
   if (amounts.length === 0) return null;
   const avg = amounts.reduce((s, a) => s + a, 0) / amounts.length;
   return Math.max(0, Math.floor(stockValue / avg + 1e-9));

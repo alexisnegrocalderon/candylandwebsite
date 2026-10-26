@@ -16,7 +16,7 @@ import { getDb } from "./db";
 import { insumoSchemaStatus } from "./schemaUpdates";
 import { personasForTicket } from "../shared/mission300";
 import {
-  conteoATotal, consumoDeVenta, descuadre, detalleATotal, insumoSizes, nivelInsumo, normalizeName, proyeccionCompra, tragosDisponibles, tragosPorInsumo,
+  DEFAULT_GLASS, conteoATotal, consumoDeVenta, descuadre, detalleATotal, glassesDeProducto, insumoSizes, recetaDe, nivelInsumo, normalizeName, proyeccionCompra, tragosDisponibles, tragosPorInsumo,
   OPEN_PORTIONS, type ConteoDetalle, type Insumo, type InsumoUnit, type MovimientoKind, type RecetaLinea,
 } from "../shared/insumos";
 
@@ -69,10 +69,10 @@ export async function stockMap(db?: any): Promise<Map<number, number>> {
 /** Recetas de los productos de un evento. */
 export async function recetasDelEvento(eventId: number, db?: any): Promise<RecetaLinea[]> {
   const d = db ?? (await dbOrThrow());
-  const rows = await d.select({ ticketTypeId: insumoRecetas.ticketTypeId, insumoId: insumoRecetas.insumoId, amount: insumoRecetas.amount })
+  const rows = await d.select({ ticketTypeId: insumoRecetas.ticketTypeId, insumoId: insumoRecetas.insumoId, amount: insumoRecetas.amount, glass: insumoRecetas.glass })
     .from(insumoRecetas).innerJoin(ticketTypes, eq(ticketTypes.id, insumoRecetas.ticketTypeId))
     .where(eq(ticketTypes.eventId, eventId));
-  return rows.map((r: any) => ({ ticketTypeId: r.ticketTypeId, insumoId: r.insumoId, amount: n(r.amount) }));
+  return rows.map((r: any) => ({ ticketTypeId: r.ticketTypeId, insumoId: r.insumoId, amount: n(r.amount), glass: (r.glass as string) || DEFAULT_GLASS }));
 }
 
 /** Stock con que se abrió la noche: el último conteo de apertura del evento
@@ -108,7 +108,8 @@ export async function estadoBarra(eventId: number) {
   const usedBy = new Map<number, string[]>();
   for (const r of recetas) {
     const name = (products as any[]).find((p) => p.id === r.ticketTypeId)?.name;
-    if (name) usedBy.set(r.insumoId, [...(usedBy.get(r.insumoId) ?? []), name]);
+    const names = usedBy.get(r.insumoId) ?? [];
+    if (name && !names.includes(name)) usedBy.set(r.insumoId, [...names, name]);
   }
   return {
     ready: true as const,
@@ -121,11 +122,16 @@ export async function estadoBarra(eventId: number) {
       };
     }),
     productos: (products as any[]).map((p) => {
-      const receta = recetas.filter((r) => r.ticketTypeId === p.id).map((r) => ({ insumoId: r.insumoId, amount: r.amount }));
-      const left = tragosDisponibles(receta, stock);
+      // Una receta por vaso; `receta`/`drinks` son los del vaso principal (el primero que tiene receta).
+      const glasses = glassesDeProducto(recetas, p.id).map((glass) => {
+        const receta = recetaDe(recetas, p.id, glass).lines.map((r) => ({ insumoId: r.insumoId, amount: r.amount }));
+        const left = tragosDisponibles(receta, stock);
+        return { glass, receta, drinks: left?.drinks ?? null, limitingInsumoId: left?.limitingInsumoId ?? null };
+      });
+      const main = glasses[0];
       return {
         id: p.id as number, name: p.name as string, groupName: (p.groupName as string | null) ?? null, emoji: (p.emoji as string | null) ?? null,
-        receta, drinks: left?.drinks ?? null, limitingInsumoId: left?.limitingInsumoId ?? null,
+        receta: main?.receta ?? [], drinks: main?.drinks ?? null, limitingInsumoId: main?.limitingInsumoId ?? null, glasses,
       };
     }),
   };
@@ -182,14 +188,14 @@ export async function setInsumoActive(id: number, active: boolean) {
   return { success: true } as const;
 }
 
-/** Reemplaza la receta completa de un trago. */
-export async function setReceta(ticketTypeId: number, lines: { insumoId: number; amount: number }[]) {
+/** Reemplaza la receta de un trago en un vaso (sin líneas = ese vaso deja de existir). */
+export async function setReceta(ticketTypeId: number, glass: string, lines: { insumoId: number; amount: number }[]) {
   const db = await dbOrThrow();
-  await db.delete(insumoRecetas).where(eq(insumoRecetas.ticketTypeId, ticketTypeId));
+  await db.delete(insumoRecetas).where(and(eq(insumoRecetas.ticketTypeId, ticketTypeId), eq(insumoRecetas.glass, glass)));
   const clean = new Map<number, number>();
   for (const l of lines) if (l.amount > 0) clean.set(l.insumoId, (clean.get(l.insumoId) ?? 0) + l.amount);
   if (clean.size > 0) {
-    await db.insert(insumoRecetas).values(Array.from(clean, ([insumoId, amount]) => ({ ticketTypeId, insumoId, amount: String(amount) })));
+    await db.insert(insumoRecetas).values(Array.from(clean, ([insumoId, amount]) => ({ ticketTypeId, insumoId, amount: String(amount), glass })));
   }
   return { success: true } as const;
 }
@@ -265,8 +271,8 @@ export async function copyRecetasBetweenEvents(fromEventId: number, toEventId: n
     const targetOf = new Map((fromTypes as any[]).map((t) => [t.id as number, toByName.get(normalizeName(t.name))]));
     const toExisting = new Set((await recetasDelEvento(toEventId, db)).map((r) => r.ticketTypeId));
     const values = recetas
-      .map((r) => ({ ticketTypeId: targetOf.get(r.ticketTypeId), insumoId: r.insumoId, amount: String(r.amount) }))
-      .filter((r): r is { ticketTypeId: number; insumoId: number; amount: string } => r.ticketTypeId !== undefined && !toExisting.has(r.ticketTypeId));
+      .map((r) => ({ ticketTypeId: targetOf.get(r.ticketTypeId), insumoId: r.insumoId, amount: String(r.amount), glass: r.glass || DEFAULT_GLASS }))
+      .filter((r): r is { ticketTypeId: number; insumoId: number; amount: string; glass: string } => r.ticketTypeId !== undefined && !toExisting.has(r.ticketTypeId));
     if (values.length) await db.insert(insumoRecetas).values(values);
     return values.length;
   } catch (err) {
@@ -284,12 +290,12 @@ async function isTestEvent(db: any, eventId: number): Promise<boolean> {
 
 /** Descuenta los insumos de una venta. Idempotente por opId (índice único) y
  * nunca lanza: un insumo mal cargado no puede frenar un cobro. */
-export async function descontarVenta(db: any, params: { opId: string; eventId: number; operatorId: number; items: { ticketTypeId: number; quantity: number }[] }) {
+export async function descontarVenta(db: any, params: { opId: string; eventId: number; operatorId: number; items: { ticketTypeId: number; quantity: number; glass?: string | null }[] }) {
   try {
     if (!(await ready()) || (await isTestEvent(db, params.eventId))) return;
     const ids = params.items.map((i) => i.ticketTypeId);
     const rows = await db.select().from(insumoRecetas).where(inArray(insumoRecetas.ticketTypeId, ids));
-    const recetas: RecetaLinea[] = rows.map((r: any) => ({ ticketTypeId: r.ticketTypeId, insumoId: r.insumoId, amount: n(r.amount) }));
+    const recetas: RecetaLinea[] = rows.map((r: any) => ({ ticketTypeId: r.ticketTypeId, insumoId: r.insumoId, amount: n(r.amount), glass: (r.glass as string) || DEFAULT_GLASS }));
     const consumo = consumoDeVenta(params.items, recetas);
     if (consumo.length === 0) return;
     await db.insert(insumoMovimientos).values(consumo.map((c) => ({

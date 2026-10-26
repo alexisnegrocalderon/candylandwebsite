@@ -82,13 +82,13 @@ describe("actualización de esquema del staff", () => {
 });
 
 describe("actualización de esquema de insumos", () => {
-  it("va aparte y hace lo mismo que las migraciones 0132 y 0133", async () => {
+  it("va aparte y hace lo mismo que las migraciones 0132, 0133 y 0134", async () => {
     const fake = fakeDb([], []);
     vi.mocked(db.getDb).mockResolvedValue(fake as any);
     const { insumoSchemaStatus, applyInsumoSchema } = await load();
     expect((await insumoSchemaStatus()).ready).toBe(false);
     await applyInsumoSchema();
-    const file = ["0132_insumos_recetas", "0133_insumos_tamanos"].flatMap((name) => readFileSync(new URL(`../drizzle/${name}.sql`, import.meta.url), "utf8")
+    const file = ["0132_insumos_recetas", "0133_insumos_tamanos", "0134_insumos_vasos"].flatMap((name) => readFileSync(new URL(`../drizzle/${name}.sql`, import.meta.url), "utf8")
       .split("--> statement-breakpoint").map((s) => s.trim().replace(/;$/, "").trim()).filter(Boolean));
     expect(fake.ran.map((s) => s.trim())).toEqual(file);
   });
@@ -96,12 +96,32 @@ describe("actualización de esquema de insumos", () => {
   it("con las tablas e índices creados queda listo", async () => {
     const tables = ["insumos", "insumoRecetas", "insumoMovimientos", "insumoConteos", "insumoConteoLineas"];
     const indexes: [string, string][] = [
+      ["insumoRecetas", "insumo_recetas_tt_insumo_glass_idx"], ["insumoRecetas", "insumo_recetas_insumo_idx"],
+      ["insumoMovimientos", "insumo_mov_op_idx"], ["insumoMovimientos", "insumo_mov_insumo_idx"], ["insumoMovimientos", "insumo_mov_event_idx"],
+      ["insumoConteos", "insumo_conteos_event_idx"], ["insumoConteoLineas", "insumo_conteo_lineas_conteo_idx"],
+    ];
+    vi.mocked(db.getDb).mockResolvedValue(fakeDb([["insumos", "sizes"], ["insumoConteoLineas", "detail"], ["insumoRecetas", "glass"]], indexes, tables) as any);
+    const { insumoSchemaStatus } = await load();
+    expect(await insumoSchemaStatus()).toEqual({ ready: true, missing: [] });
+  });
+});
+
+describe("recetas por vaso en una base que ya tenía 0132 y 0133", () => {
+  it("agrega la columna y cambia el índice único, una sola vez", async () => {
+    const tables = ["insumos", "insumoRecetas", "insumoMovimientos", "insumoConteos", "insumoConteoLineas"];
+    const indexes: [string, string][] = [
       ["insumoRecetas", "insumo_recetas_tt_insumo_idx"], ["insumoRecetas", "insumo_recetas_insumo_idx"],
       ["insumoMovimientos", "insumo_mov_op_idx"], ["insumoMovimientos", "insumo_mov_insumo_idx"], ["insumoMovimientos", "insumo_mov_event_idx"],
       ["insumoConteos", "insumo_conteos_event_idx"], ["insumoConteoLineas", "insumo_conteo_lineas_conteo_idx"],
     ];
-    vi.mocked(db.getDb).mockResolvedValue(fakeDb([["insumos", "sizes"], ["insumoConteoLineas", "detail"]], indexes, tables) as any);
-    const { insumoSchemaStatus } = await load();
-    expect(await insumoSchemaStatus()).toEqual({ ready: true, missing: [] });
+    const fake = fakeDb([["insumos", "sizes"], ["insumoConteoLineas", "detail"]], indexes, tables);
+    vi.mocked(db.getDb).mockResolvedValue(fake as any);
+    const { insumoSchemaStatus, applyInsumoSchema } = await load();
+    expect((await insumoSchemaStatus()).missing).toHaveLength(3);
+    await applyInsumoSchema();
+    expect(fake.ran).toHaveLength(3);
+    expect(fake.ran[0]).toContain("ADD `glass`");
+    expect(fake.ran[1]).toContain("DROP INDEX");
+    expect(fake.ran[2]).toContain("CREATE UNIQUE INDEX `insumo_recetas_tt_insumo_glass_idx`");
   });
 });
