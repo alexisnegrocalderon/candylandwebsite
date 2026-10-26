@@ -9,7 +9,7 @@ import { StaffManager, requestNewStaff } from '@/components/admin/staff/StaffMan
 import { useHideSplashOnMount } from '@/lib/splash';
 import { useSeo } from '@/hooks/useSeo';
 import { useInstallableApp } from '@/hooks/useInstallableApp';
-import { Home, Calendar, DollarSign, Ticket, Users, Plus, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, Contact, Mail, History, Gift, MessageCircle, Crown, Martini, Instagram, UserPlus, Ban, Receipt, Compass, Sparkles, Car, Send, ShieldAlert, Zap, Cake, Calculator, Star, FlaskConical, Palette, UserCheck, Banknote, Landmark, Headphones, ListChecks, PartyPopper, BellRing, Wine } from 'lucide-react';
+import { Home, Calendar, DollarSign, Ticket, Users, Plus, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, Contact, Mail, History, Gift, MessageCircle, Crown, Martini, Instagram, UserPlus, Ban, Receipt, Compass, Sparkles, Car, Send, ShieldAlert, Zap, Cake, Calculator, Star, FlaskConical, Palette, UserCheck, Banknote, Landmark, Headphones, ListChecks, PartyPopper, BellRing, Wine, Smartphone } from 'lucide-react';
 import { AdminLoginForm } from '@/components/admin/AdminLoginForm';
 import { OPEN_SECTION_EVENT } from '@/components/admin/studio/handoff';
 import { parseAdminDeepLink } from '@shared/adminDeepLink';
@@ -27,6 +27,7 @@ const CartaManager = lazy(() => import('@/components/admin/carta/CartaManager').
 const InsumosManager = lazy(() => import('@/components/admin/insumos/InsumosManager').then((m) => ({ default: m.InsumosManager })));
 const ContentPlanView = lazy(() => import('@/components/admin/ContentPlanView').then((m) => ({ default: m.ContentPlanView })));
 const ContestsView = lazy(() => import('@/components/admin/ContestsView').then((m) => ({ default: m.ContestsView })));
+const AppInstallsView = lazy(() => import('@/components/admin/push/AppInstallsView').then((m) => ({ default: m.AppInstallsView })));
 const CustomerPushView = lazy(() => import('@/components/admin/push/CustomerPushView').then((m) => ({ default: m.CustomerPushView })));
 const EventSurveyView = lazy(() => import('@/components/admin/EventSurveyView').then((m) => ({ default: m.EventSurveyView })));
 const ExpenseTerminal = lazy(() => import('@/components/admin/expenses/ExpenseTerminal').then((m) => ({ default: m.ExpenseTerminal })));
@@ -112,11 +113,6 @@ const ADMIN_SECTIONS = [
   { id: 'staff', label: 'Staff', hub: 'noche', icon: Users, render: () => <StaffManager /> },
   { id: 'caja', label: 'Caja', hub: 'noche', icon: Store, render: () => <CajaAdminView /> },
   { id: 'flash-promo', label: 'Promo Flash', hub: 'noche', icon: Zap, render: () => <FlashPromoCard /> },
-  { id: 'party-gifts', label: 'Tragos de la Fiesta', hub: 'noche', icon: Martini, render: () => <PartyGiftsView /> },
-  { id: 'denuncias', label: 'Denuncias', hub: 'noche', icon: ShieldAlert, render: () => <DenunciasView /> },
-  { id: 'mejor-disfraz', label: 'Mejor disfraz', hub: 'noche', icon: Trophy, render: () => <MejorDisfrazView /> },
-  { id: 'playmatch-test', label: 'Probar Playmatch', hub: 'noche', icon: FlaskConical, render: () => <PlaymatchTestView /> },
-  { id: 'cuenta-demo', label: 'Cuenta de prueba', hub: 'noche', icon: UserCheck, render: () => <CuentaDemoView /> },
 
   { id: 'orders-web', label: 'Ventas Web', hub: 'ventas', icon: Ticket, render: () => <OrdersView channel="web" /> },
   { id: 'orders-caja', label: 'Ventas Caja', hub: 'ventas', icon: ShoppingBag, render: () => <OrdersView channel="caja" /> },
@@ -137,15 +133,23 @@ const ADMIN_SECTIONS = [
   { id: 'leads', label: 'Leads', hub: 'clientes', icon: UserPlus, render: () => <LeadsView /> },
   { id: 'winback', label: 'Reactivar clientes', hub: 'clientes', icon: Users, render: () => <WinbackView /> },
   { id: 'birthdays', label: 'Cumpleañeros', hub: 'clientes', icon: Cake, render: () => <BirthdaysView /> },
-  { id: 'members', label: 'Socios', hub: 'clientes', icon: Crown, render: () => <MembersManager /> },
-  { id: 'solteros', label: 'Solteros', hub: 'clientes', icon: UserCheck, render: () => <SolterosManager /> },
   { id: 'blocked-customers', label: 'Bloqueo de Clientes', hub: 'clientes', icon: Ban, render: () => <BlockedManager /> },
+
+  // App Playroom: todo lo que se edita y se envía para la app, en un solo lugar (los ids no cambian).
+  { id: 'members', label: 'Cupones y pagos', hub: 'app', icon: Crown, render: () => <MembersManager /> },
+  { id: 'push-clientes', label: 'Notificaciones', hub: 'app', icon: BellRing, render: () => <CustomerPushView /> },
+  { id: 'app-clientes', label: 'Clientes con la app', hub: 'app', icon: Smartphone, render: () => <AppInstallsView /> },
+  { id: 'solteros', label: 'Solteros', hub: 'app', icon: UserCheck, render: () => <SolterosManager /> },
+  { id: 'denuncias', label: 'Denuncias Playmatch', hub: 'app', icon: ShieldAlert, render: () => <DenunciasView /> },
+  { id: 'playmatch-test', label: 'Probar Playmatch', hub: 'app', icon: FlaskConical, render: () => <PlaymatchTestView /> },
+  { id: 'mejor-disfraz', label: 'Mejor disfraz', hub: 'app', icon: Trophy, render: () => <MejorDisfrazView /> },
+  { id: 'party-gifts', label: 'Tragos de la Fiesta', hub: 'app', icon: Martini, render: () => <PartyGiftsView /> },
+  { id: 'cuenta-demo', label: 'Cuenta de prueba', hub: 'app', icon: UserCheck, render: () => <CuentaDemoView /> },
 
   { id: 'instagram', label: 'Instagram', hub: 'mensajes', icon: Instagram, render: () => <InstagramInbox /> },
   { id: 'whatsapp', label: 'WhatsApp', hub: 'mensajes', icon: MessageCircle, render: () => <WhatsAppInbox /> },
   { id: 'mailing', label: 'Mailing', hub: 'mensajes', icon: Mail, render: () => <MailingSection /> },
   { id: 'mailing-history', label: 'Historial de Mailing', hub: 'mensajes', icon: History, render: () => <MailingHistoryView /> },
-  { id: 'push-clientes', label: 'Notificaciones push', hub: 'mensajes', icon: BellRing, render: () => <CustomerPushView /> },
   { id: 'email-templates', label: 'Plantillas de correo', hub: 'mensajes', icon: Send, render: () => <EmailTemplatesManager /> },
 
   { id: 'content-plan', label: 'Plan de contenido', hub: 'contenido', icon: Calendar, render: () => <ContentPlanView /> },
