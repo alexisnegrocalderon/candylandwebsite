@@ -689,6 +689,9 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
 
   // Deslizar a los lados cambia de pestaña.
   const onTouchStart = (e: React.TouchEvent) => {
+    // Las pantallas que se abren encima (el QR, las hojas) viven en un portal: sus toques también suben por aquí
+    // en React, pero no son de esta pestaña. Sin esto, deslizar dentro del QR cambiaba de pestaña por debajo.
+    if (!e.currentTarget.contains(e.target as Node)) { touch.current = null; return; }
     // Dentro de un pager con varias páginas, deslizar de lado cambia de página, no de pestaña.
     if ((e.target as HTMLElement).closest('[data-pager="multi"]')) { touch.current = null; return; }
     const p = e.touches[0]; touch.current = { x: p.clientX, y: p.clientY };
