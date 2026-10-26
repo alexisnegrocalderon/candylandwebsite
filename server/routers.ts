@@ -26,6 +26,7 @@ import { canUseCaja, OPERATOR_ROLES, STAFF_SYSTEMS } from "../shared/cajaRoles";
 import { STAFF_CARGO_KEYS } from "../shared/staffCargos";
 import { applyInsumoSchema, applyManualSchema, applyStaffSchema, insumoSchemaStatus, manualSchemaStatus, staffSchemaStatus } from "./schemaUpdates";
 import * as insumoSvc from "./insumos";
+import { describirBotellas } from "../shared/insumos";
 import { alertConteoDescuadre } from "./caja/alerts";
 import * as staffManualSvc from "./staffManuals";
 import { recordDoorAlert } from "./caja/doorAlert";
@@ -6052,14 +6053,18 @@ export const appRouter = router({
     save: adminProcedure.input(z.object({
       id: z.number().optional(), name: z.string().trim().min(1).max(100), unit: z.enum(['ml', 'g', 'un']),
       containerSize: z.number().min(1).max(1_000_000), containerLabel: z.string().max(30),
+      sizes: z.array(z.number().int().min(1).max(1_000_000)).max(10).optional(),
       costPerContainer: z.number().min(0).nullable().optional(), alertDrinks: z.number().int().min(0).max(10_000), sortOrder: z.number().int().optional(),
       // Al crear: con cuánto parte (en envases cerrados + suelto en la unidad del insumo).
-      initialContainers: z.number().min(0).max(100_000).optional(), initialLoose: z.number().min(0).optional(),
+      initialBySize: z.array(z.object({ size: z.number().int().min(1), count: z.number().min(0).max(100_000) })).max(20).optional(), initialLoose: z.number().min(0).optional(),
     })).mutation(async ({ input }) => {
-      const { initialContainers, initialLoose, ...data } = input;
+      const { initialBySize, initialLoose, ...data } = input;
       const saved = await insumoSvc.saveInsumo(data);
-      const initial = (initialContainers ?? 0) * input.containerSize + (initialLoose ?? 0);
-      if (!input.id && initial > 0) await insumoSvc.addMovimiento({ insumoId: saved.id, kind: 'carga', amount: initial, note: 'Stock inicial' });
+      const bottles = (initialBySize ?? []).filter((b) => b.count > 0);
+      const initial = bottles.reduce((s, b) => s + b.size * b.count, 0) + (initialLoose ?? 0);
+      if (!input.id && initial > 0) {
+        await insumoSvc.addMovimiento({ insumoId: saved.id, kind: 'carga', amount: initial, note: `Stock inicial: ${describirBotellas(bottles, input.unit)}${initialLoose ? ` + ${initialLoose} ${input.unit}` : ''}` });
+      }
       return saved;
     }),
     setActive: adminProcedure.input(z.object({ id: z.number(), active: z.boolean() })).mutation(({ input }) => insumoSvc.setInsumoActive(input.id, input.active)),
@@ -6184,7 +6189,14 @@ export const appRouter = router({
     }),
     conteoBarra: operatorProcedure.input(z.object({
       eventId: z.number(), registerId: z.number().optional(), kind: z.enum(['apertura', 'cierre']),
-      lines: z.array(z.object({ insumoId: z.number(), closedContainers: z.number().int().min(0).max(10000), openFraction: z.number().min(0).max(1) })).min(1).max(500),
+      // Cada botella con su tamaño (750 / 1000 / 1500 ml…). closedContainers/openFraction es el formato
+      // anterior, por si una tablet quedó con la pantalla vieja abierta.
+      lines: z.array(z.object({
+        insumoId: z.number(),
+        closed: z.array(z.object({ size: z.number().int().min(1).max(1_000_000), count: z.number().int().min(0).max(10000) })).max(20).optional(),
+        open: z.array(z.object({ size: z.number().int().min(1).max(1_000_000), portions: z.number().min(0).max(10) })).max(50).optional(),
+        closedContainers: z.number().int().min(0).max(10000).optional(), openFraction: z.number().min(0).max(1).optional(),
+      })).min(1).max(500),
     })).mutation(async ({ input, ctx }) => {
       const shift = await db.getOpenShift(input.eventId, input.registerId);
       try {

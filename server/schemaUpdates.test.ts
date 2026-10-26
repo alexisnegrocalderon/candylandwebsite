@@ -82,14 +82,14 @@ describe("actualización de esquema del staff", () => {
 });
 
 describe("actualización de esquema de insumos", () => {
-  it("va aparte y hace lo mismo que la migración 0132", async () => {
+  it("va aparte y hace lo mismo que las migraciones 0132 y 0133", async () => {
     const fake = fakeDb([], []);
     vi.mocked(db.getDb).mockResolvedValue(fake as any);
     const { insumoSchemaStatus, applyInsumoSchema } = await load();
     expect((await insumoSchemaStatus()).ready).toBe(false);
     await applyInsumoSchema();
-    const file = readFileSync(new URL("../drizzle/0132_insumos_recetas.sql", import.meta.url), "utf8")
-      .split("--> statement-breakpoint").map((s) => s.trim().replace(/;$/, "").trim()).filter(Boolean);
+    const file = ["0132_insumos_recetas", "0133_insumos_tamanos"].flatMap((name) => readFileSync(new URL(`../drizzle/${name}.sql`, import.meta.url), "utf8")
+      .split("--> statement-breakpoint").map((s) => s.trim().replace(/;$/, "").trim()).filter(Boolean));
     expect(fake.ran.map((s) => s.trim())).toEqual(file);
   });
 
@@ -100,7 +100,7 @@ describe("actualización de esquema de insumos", () => {
       ["insumoMovimientos", "insumo_mov_op_idx"], ["insumoMovimientos", "insumo_mov_insumo_idx"], ["insumoMovimientos", "insumo_mov_event_idx"],
       ["insumoConteos", "insumo_conteos_event_idx"], ["insumoConteoLineas", "insumo_conteo_lineas_conteo_idx"],
     ];
-    vi.mocked(db.getDb).mockResolvedValue(fakeDb([], indexes, tables) as any);
+    vi.mocked(db.getDb).mockResolvedValue(fakeDb([["insumos", "sizes"], ["insumoConteoLineas", "detail"]], indexes, tables) as any);
     const { insumoSchemaStatus } = await load();
     expect(await insumoSchemaStatus()).toEqual({ ready: true, missing: [] });
   });

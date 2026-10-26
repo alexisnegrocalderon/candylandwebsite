@@ -132,6 +132,12 @@ const INSUMO_STEPS: Step[] = INSUMO_SQL.map((statement) => {
   return { label: `índice ${index}`, done: (h: Have) => h.indexes.has(col(on, index)), statement };
 });
 
+/** drizzle/0133_insumos_tamanos.sql: botellas de distintos tamaños. Se aplica junto con las tablas de insumos. */
+INSUMO_STEPS.push(
+  { label: 'insumos.sizes', done: (h) => h.columns.has(col('insumos', 'sizes')), statement: "ALTER TABLE `insumos` ADD `sizes` json" },
+  { label: 'insumoConteoLineas.detail', done: (h) => h.columns.has(col('insumoConteoLineas', 'detail')), statement: "ALTER TABLE `insumoConteoLineas` ADD `detail` json" },
+);
+
 /** Todo lo que el botón sabe aplicar, en orden. */
 export const SCHEMA_STEPS: Step[] = [...STAFF_STEPS, ...SOLTERO_STEPS];
 
@@ -140,7 +146,7 @@ const INSUMO_TABLES_SQL = ['insumos', 'insumoRecetas', 'insumoMovimientos', 'ins
 async function readHave(): Promise<Have | null> {
   const db = await getDb();
   if (!db) return null;
-  const [cols] = (await db.execute(sql`SELECT TABLE_NAME AS t, COLUMN_NAME AS c FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ('staffMembers', 'operators')`)) as unknown as [{ t: string; c: string }[]];
+  const [cols] = (await db.execute(sql`SELECT TABLE_NAME AS t, COLUMN_NAME AS c FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ('staffMembers', 'operators', 'insumos', 'insumoConteoLineas')`)) as unknown as [{ t: string; c: string }[]];
   const [idx] = (await db.execute(sql`SELECT TABLE_NAME AS t, INDEX_NAME AS i FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ('staffMembers', 'operators', 'solteroApprovals', 'staffManuals', 'staffManualAcceptances', ${sql.raw(INSUMO_TABLES_SQL)})`)) as unknown as [{ t: string; i: string }[]];
   const [tbl] = (await db.execute(sql`SELECT TABLE_NAME AS t FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ('solteroApprovals', 'staffManuals', 'staffManualAcceptances', ${sql.raw(INSUMO_TABLES_SQL)})`)) as unknown as [{ t: string }[]];
   return {

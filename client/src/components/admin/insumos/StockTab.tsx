@@ -8,7 +8,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { WriteButton } from '@/components/admin/WriteButton';
-import { formatCantidad } from '@shared/insumos';
+import { describirBotellas, formatCantidad, insumoSizes } from '@shared/insumos';
+import { SizeCounts } from './SizeCounts';
 import { LEVEL_STYLE, type BarraData, type BarraInsumo } from './types';
 import type { InsumoFormValue } from './InsumoDialog';
 
@@ -23,7 +24,7 @@ const ACTION_TEXT = {
 export function StockTab({ eventId, data, onEdit, onChanged }: {
   eventId: number;
   data: BarraData;
-  onEdit: (v: Omit<InsumoFormValue, 'initialContainers' | 'initialLoose'>) => void;
+  onEdit: (v: Omit<InsumoFormValue, 'initialBySize' | 'initialLoose'>) => void;
   onChanged: () => void;
 }) {
   const [action, setAction] = useState<Action>(null);
@@ -97,7 +98,7 @@ export function StockTab({ eventId, data, onEdit, onChanged }: {
                     <DropdownMenuItem onSelect={() => setAction({ kind: 'merma', insumo: i })}>Registrar merma</DropdownMenuItem>
                     <DropdownMenuItem onSelect={() => setAction({ kind: 'fijar', insumo: i })}>Fijar stock</DropdownMenuItem>
                     <DropdownMenuItem onSelect={() => onEdit({
-                      id: i.id, name: i.name, unit: i.unit, containerSize: i.containerSize, containerLabel: i.containerLabel,
+                      id: i.id, name: i.name, unit: i.unit, containerSize: i.containerSize, containerLabel: i.containerLabel, sizes: insumoSizes(i),
                       costPerContainer: i.costPerContainer ?? null, alertDrinks: i.alertDrinks,
                     })}>Editar</DropdownMenuItem>
                     <DropdownMenuSeparator />
@@ -118,24 +119,29 @@ export function StockTab({ eventId, data, onEdit, onChanged }: {
 }
 
 function MovimientoDialog({ eventId, action, onClose, onDone }: { eventId: number; action: Action; onClose: () => void; onDone: () => void }) {
-  const [containers, setContainers] = useState('');
+  const [bySize, setBySize] = useState<Record<number, number>>({});
   const [loose, setLoose] = useState('');
   const [note, setNote] = useState('');
   const movimiento = trpc.insumos.movimiento.useMutation();
   const setStock = trpc.insumos.setStock.useMutation();
-  const reset = () => { setContainers(''); setLoose(''); setNote(''); };
+  const reset = () => { setBySize({}); setLoose(''); setNote(''); };
   if (!action) return <Dialog open={false} />;
   const { insumo, kind } = action;
   const text = ACTION_TEXT[kind];
-  const amount = (Number(containers) || 0) * insumo.containerSize + (Number(loose) || 0);
+  const sizes = insumoSizes(insumo);
+  const bottles = sizes.map((size) => ({ size, count: bySize[size] ?? 0 }));
+  const amount = bottles.reduce((s, b) => s + b.size * b.count, 0) + (Number(loose) || 0);
+  // Cada botella queda anotada con su tamaño en la nota del movimiento.
+  const detail = [describirBotellas(bottles, insumo.unit), Number(loose) > 0 ? `+ ${loose} ${insumo.unit}` : ''].filter(Boolean).join(' ');
+  const fullNote = [detail, note.trim()].filter(Boolean).join(' · ') || undefined;
   const busy = movimiento.isPending || setStock.isPending;
 
   const submit = async () => {
     try {
-      if (kind === 'fijar') await setStock.mutateAsync({ insumoId: insumo.id, target: amount, eventId, note: note || undefined });
+      if (kind === 'fijar') await setStock.mutateAsync({ insumoId: insumo.id, target: amount, eventId, note: fullNote });
       else {
         if (amount <= 0) { toast.error('Pon una cantidad'); return; }
-        await movimiento.mutateAsync({ insumoId: insumo.id, kind, amount, eventId, note: note || undefined });
+        await movimiento.mutateAsync({ insumoId: insumo.id, kind, amount, eventId, note: fullNote });
       }
       toast.success(`${insumo.name}: listo`);
       reset();
@@ -152,10 +158,12 @@ function MovimientoDialog({ eventId, action, onClose, onDone }: { eventId: numbe
           <DialogTitle>{text.title}: {insumo.name}</DialogTitle>
           <DialogDescription>{text.help} Hoy hay {formatCantidad(insumo.stock, insumo)}.</DialogDescription>
         </DialogHeader>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-3">
           <div>
-            <Label htmlFor="mov-c">{insumo.containerSize > 1 ? `${insumo.containerLabel}s` : 'Cantidad'}</Label>
-            <Input id="mov-c" type="number" inputMode="numeric" min={0} value={containers} onChange={(e) => setContainers(e.target.value)} placeholder="0" autoFocus />
+            <Label>{insumo.containerSize > 1 ? `Cuántas ${insumo.containerLabel}s de cada tamaño` : 'Cantidad'}</Label>
+            <div className="mt-1">
+              <SizeCounts sizes={sizes} unit={insumo.unit} value={bySize} onChange={setBySize} idPrefix="mov" />
+            </div>
           </div>
           {insumo.containerSize > 1 && (
             <div>

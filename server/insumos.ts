@@ -16,8 +16,8 @@ import { getDb } from "./db";
 import { insumoSchemaStatus } from "./schemaUpdates";
 import { personasForTicket } from "../shared/mission300";
 import {
-  conteoATotal, consumoDeVenta, descuadre, nivelInsumo, normalizeName, proyeccionCompra, tragosDisponibles, tragosPorInsumo,
-  type Insumo, type InsumoUnit, type MovimientoKind, type RecetaLinea,
+  conteoATotal, consumoDeVenta, descuadre, detalleATotal, insumoSizes, nivelInsumo, normalizeName, proyeccionCompra, tragosDisponibles, tragosPorInsumo,
+  OPEN_PORTIONS, type ConteoDetalle, type Insumo, type InsumoUnit, type MovimientoKind, type RecetaLinea,
 } from "../shared/insumos";
 
 /** Evento de pruebas de la caja: sus ventas no son reales y no gastan botellas. */
@@ -28,6 +28,7 @@ const n = (v: unknown) => Number(v ?? 0);
 function toInsumo(r: any): Insumo & { active: boolean; sortOrder: number } {
   return {
     id: r.id, name: r.name, unit: r.unit as InsumoUnit, containerSize: n(r.containerSize), containerLabel: r.containerLabel,
+    sizes: Array.isArray(r.sizes) ? (r.sizes as unknown[]).map(Number).filter((s) => s > 0) : null,
     costPerContainer: r.costPerContainer != null ? n(r.costPerContainer) : null, alertDrinks: n(r.alertDrinks),
     active: n(r.active) === 1, sortOrder: n(r.sortOrder),
   };
@@ -154,13 +155,16 @@ export async function cajaInsumoSnapshot(eventId: number): Promise<{
 // --- Escrituras del admin ---
 
 export async function saveInsumo(data: {
-  id?: number; name: string; unit: InsumoUnit; containerSize: number; containerLabel: string;
+  id?: number; name: string; unit: InsumoUnit; containerSize: number; containerLabel: string; sizes?: number[];
   costPerContainer?: number | null; alertDrinks: number; sortOrder?: number;
 }) {
   const db = await dbOrThrow();
+  const containerSize = Math.max(1, Math.round(data.containerSize));
   const values = {
-    name: data.name.trim().slice(0, 100), unit: data.unit, containerSize: Math.max(1, Math.round(data.containerSize)),
+    name: data.name.trim().slice(0, 100), unit: data.unit, containerSize,
     containerLabel: (data.containerLabel.trim() || "botella").slice(0, 30),
+    // Los tamaños con que llega (750 / 1000 / 1500 ml…); el de compra siempre está.
+    sizes: insumoSizes({ containerSize, sizes: data.sizes }),
     costPerContainer: data.costPerContainer != null ? String(Math.round(data.costPerContainer)) : null,
     alertDrinks: Math.max(0, Math.round(data.alertDrinks)), sortOrder: data.sortOrder ?? 0,
   };
@@ -240,7 +244,7 @@ export async function listConteos(eventId: number) {
     lines: (lines as any[]).filter((l) => l.conteoId === h.id).map((l) => {
       const counted = n(l.countedTotal);
       const expected = n(l.expectedTotal);
-      return { insumoId: l.insumoId as number, closedContainers: n(l.closedContainers), openFraction: n(l.openFraction), counted, expected, ...descuadre(expected, counted) };
+      return { insumoId: l.insumoId as number, closedContainers: n(l.closedContainers), openFraction: n(l.openFraction), detail: (l.detail ?? null) as ConteoDetalle | null, counted, expected, ...descuadre(expected, counted) };
     }),
   }));
 }
@@ -360,7 +364,9 @@ export async function ultimoConteo(eventId: number, kind: "apertura" | "cierre")
 export async function crearConteo(params: {
   eventId: number; registerId?: number | null; shiftId?: number | null; kind: "apertura" | "cierre";
   operatorId: number; operatorName: string;
-  lines: { insumoId: number; closedContainers: number; openFraction: number }[];
+  /** Cada botella con su tamaño: `closed`/`open`. `closedContainers`/`openFraction` es el formato
+   * de antes (una tablet con la versión vieja abierta): se toma como botellas del tamaño de compra. */
+  lines: { insumoId: number; closed?: ConteoDetalle["closed"]; open?: ConteoDetalle["open"]; closedContainers?: number; openFraction?: number }[];
 }) {
   if (!(await ready())) throw new Error("El conteo de barra todavía no está activado (falta actualizar la base de datos).");
   const db = await dbOrThrow();
@@ -369,9 +375,15 @@ export async function crearConteo(params: {
   const byId = new Map(all.map((i) => [i.id, i]));
   const lines = params.lines.filter((l) => byId.has(l.insumoId)).map((l) => {
     const insumo = byId.get(l.insumoId)!;
-    const counted = conteoATotal(l.closedContainers, l.openFraction, insumo.containerSize);
+    const detail: ConteoDetalle = l.closed || l.open
+      ? { closed: l.closed ?? [], open: l.open ?? [] }
+      : {
+        closed: [{ size: insumo.containerSize, count: l.closedContainers ?? 0 }],
+        open: (l.openFraction ?? 0) > 0 ? [{ size: insumo.containerSize, portions: (l.openFraction ?? 0) * OPEN_PORTIONS }] : [],
+      };
+    const counted = l.closed || l.open ? detalleATotal(detail) : conteoATotal(l.closedContainers ?? 0, l.openFraction ?? 0, insumo.containerSize);
     const expected = stock.get(l.insumoId) ?? 0;
-    return { ...l, insumo, counted, expected };
+    return { insumoId: l.insumoId, detail, insumo, counted, expected };
   });
   if (lines.length === 0) throw new Error("El conteo no tiene insumos");
 
@@ -381,7 +393,9 @@ export async function crearConteo(params: {
   });
   const conteoId = (res as unknown as { insertId: number }).insertId;
   await db.insert(insumoConteoLineas).values(lines.map((l) => ({
-    conteoId, insumoId: l.insumoId, closedContainers: Math.max(0, Math.floor(l.closedContainers)), openFraction: String(l.openFraction),
+    conteoId, insumoId: l.insumoId, closedContainers: l.detail.closed.reduce((s, c) => s + Math.max(0, Math.floor(c.count || 0)), 0),
+    openFraction: String(Math.round(l.detail.open.reduce((s, o) => s + Math.min(OPEN_PORTIONS, Math.max(0, o.portions || 0)), 0)) / OPEN_PORTIONS),
+    detail: l.detail,
     countedTotal: String(l.counted), expectedTotal: String(l.expected),
   })));
   // En modo prueba se guarda el conteo (para practicar) pero no toca el stock real.

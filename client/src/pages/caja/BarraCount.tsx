@@ -1,21 +1,26 @@
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { Minus, Plus } from 'lucide-react';
+import { Minus, Plus, X } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
-import { OPEN_FRACTIONS, formatCantidad } from '@shared/insumos';
+import { OPEN_FRACTIONS, OPEN_PORTIONS, formatCantidad, formatSize, insumoSizes } from '@shared/insumos';
 
 type Kind = 'apertura' | 'cierre';
-type Line = { closed: number; fraction: number };
+/** Lo contado de un insumo: botellas cerradas por tamaño y cada abierta con su tamaño
+ * y cuántas porciones de 10 le quedan (`null` = todavía sin marcar). */
+type Line = { closed: Record<number, number>; open: { size: number; portions: number | null }[] };
 
-const draftKey = (eventId: number, kind: Kind) => `caja_conteo_${kind}_${eventId}`;
+const emptyLine = (): Line => ({ closed: {}, open: [] });
+// v2: el borrador de antes (sin tamaños de botella) no sirve.
+const draftKey = (eventId: number, kind: Kind) => `caja_conteo2_${kind}_${eventId}`;
 
 function loadDraft(eventId: number, kind: Kind): Record<number, Line> {
   try { return JSON.parse(localStorage.getItem(draftKey(eventId, kind)) ?? '{}'); } catch { return {}; }
 }
 
-/** Conteo de barra al abrir y al cerrar turno: una tarjeta por insumo con
- * botellas cerradas (−/+) y la abierta porcionada en 10 (5/10 = a la mitad).
+/** Conteo de barra al abrir y al cerrar turno: una tarjeta por insumo con las
+ * botellas cerradas de cada tamaño (750 ml, 1 L, 1,5 L…, −/+) y cada botella
+ * abierta con su tamaño y porcionada en 10 (5/10 = a la mitad).
  *
  * Es un conteo "a ciegas": no muestra lo que el sistema espera hasta después
  * de guardar, para que nadie cuente "lo que debería haber". Lo que no se toca
@@ -44,12 +49,20 @@ export function BarraCount({ eventId, registerId, kind, onDone, onSkip }: {
   }, [estado.data, onDone]);
 
   const touched = useMemo(() => insumos.filter((i) => lines[i.id] !== undefined).length, [insumos, lines]);
-  const set = (id: number, patch: Partial<Line>) => setLines((l) => ({ ...l, [id]: { ...(l[id] ?? { closed: 0, fraction: 0 }), ...patch } }));
+  const update = (id: number, fn: (l: Line) => Line) => setLines((all) => ({ ...all, [id]: fn(all[id] ?? emptyLine()) }));
+  const setClosed = (id: number, size: number, count: number) => update(id, (l) => ({ ...l, closed: { ...l.closed, [size]: Math.max(0, Math.floor(count || 0)) } }));
 
   const submit = async () => {
-    const toSend = insumos.filter((i) => lines[i.id] !== undefined).map((i) => ({ insumoId: i.id, closedContainers: lines[i.id].closed, openFraction: lines[i.id].fraction }));
-    if (toSend.length === 0) { toast.error('Todavía no contaste nada. Toca cada insumo o usa «Saltar».'); return; }
-    if (toSend.length < insumos.length && !window.confirm(`Faltan ${insumos.length - toSend.length} sin contar: esos quedan como estaban. ¿Guardar igual?`)) return;
+    const counted = insumos.filter((i) => lines[i.id] !== undefined);
+    if (counted.length === 0) { toast.error('Todavía no contaste nada. Toca cada insumo o usa «Saltar».'); return; }
+    const unmarked = counted.find((i) => lines[i.id].open.some((o) => o.portions === null));
+    if (unmarked) { toast.error(`${unmarked.name}: marca cuánto le queda a la botella abierta (o quítala).`); return; }
+    if (counted.length < insumos.length && !window.confirm(`Faltan ${insumos.length - counted.length} sin contar: esos quedan como estaban. ¿Guardar igual?`)) return;
+    const toSend = counted.map((i) => ({
+      insumoId: i.id,
+      closed: insumoSizes(i).map((size) => ({ size, count: lines[i.id].closed[size] ?? 0 })),
+      open: lines[i.id].open.map((o) => ({ size: o.size, portions: o.portions ?? 0 })),
+    }));
     try {
       const res = await save.mutateAsync({ eventId, registerId: registerId ?? undefined, kind, lines: toSend });
       try { localStorage.removeItem(draftKey(eventId, kind)); } catch { /* nada */ }
@@ -105,7 +118,7 @@ export function BarraCount({ eventId, registerId, kind, onDone, onSkip }: {
       <div className="shrink-0 p-4 pb-2 max-w-lg w-full mx-auto">
         <p className="text-white/60 text-xs uppercase tracking-wide">{kind === 'apertura' ? 'Inicio de turno' : 'Cierre de turno'}</p>
         <h1 className="text-xl font-bold">Conteo de barra</h1>
-        <p className="text-sm text-white/60">Cuenta lo que hay en la barra y en la bodega: botellas cerradas y cuánto le queda a la abierta.</p>
+        <p className="text-sm text-white/60">Cuenta lo que hay en la barra y en la bodega: las botellas cerradas de cada tamaño y, de las abiertas, cuántas porciones de 10 quedan.</p>
         {previous && (
           <p className="mt-1 text-xs text-amber-200/80">
             Ya se contó hoy ({previous.operatorName ?? 'alguien'}, {new Date(previous.createdAt).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}). Puedes saltarlo si nada cambió.
@@ -118,39 +131,59 @@ export function BarraCount({ eventId, registerId, kind, onDone, onSkip }: {
         {insumos.map((i) => {
           const line = lines[i.id];
           const onlyUnits = i.containerSize <= 1;
+          const sizes = onlyUnits ? [1] : insumoSizes(i);
+          const plural = `${i.containerLabel}s`;
           return (
             <div key={i.id} className={`p-4 rounded-3xl admin-clay admin-clay-sm space-y-3 ${line ? 'ring-1 ring-emerald-400/40' : ''}`}>
-              <div className="flex items-baseline justify-between gap-2">
-                <p className="font-semibold text-lg">{line ? '✓ ' : ''}{i.name}</p>
-                <p className="text-xs text-white/50">{onlyUnits ? i.unit : `${i.containerLabel} de ${i.containerSize.toLocaleString('es-CL')} ${i.unit}`}</p>
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="text-sm text-white/60 flex-1">{onlyUnits ? 'Cantidad' : `${i.containerLabel[0].toUpperCase()}${i.containerLabel.slice(1)}s cerradas`}</span>
-                <button type="button" aria-label="Una menos" onClick={() => set(i.id, { closed: Math.max(0, (line?.closed ?? 0) - 1) })}
-                  className="w-12 h-12 rounded-2xl bg-white/10 grid place-items-center active:scale-95"><Minus className="w-5 h-5" /></button>
-                <input
-                  type="number" inputMode="numeric" min={0} aria-label={`${i.name}: cerradas`}
-                  value={line ? line.closed : ''} placeholder="–"
-                  onChange={(e) => set(i.id, { closed: Math.max(0, Math.floor(Number(e.target.value) || 0)) })}
-                  className="w-16 h-12 text-center text-xl font-bold rounded-2xl bg-white/5 border border-white/10 focus:outline-none"
-                />
-                <button type="button" aria-label="Una más" onClick={() => set(i.id, { closed: (line?.closed ?? 0) + 1 })}
-                  className="w-12 h-12 rounded-2xl bg-white/10 grid place-items-center active:scale-95"><Plus className="w-5 h-5" /></button>
-              </div>
+              <p className="font-semibold text-lg">{line ? '✓ ' : ''}{i.name}</p>
+
+              {sizes.map((size) => (
+                <div key={size} className="flex items-center gap-3">
+                  <span className="text-sm text-white/60 flex-1">
+                    {onlyUnits ? 'Cantidad' : <>{`${plural[0].toUpperCase()}${plural.slice(1)} cerradas`} <strong className="text-white">{formatSize(size, i.unit)}</strong></>}
+                  </span>
+                  <button type="button" aria-label="Una menos" onClick={() => setClosed(i.id, size, (line?.closed[size] ?? 0) - 1)}
+                    className="w-12 h-12 rounded-2xl bg-white/10 grid place-items-center active:scale-95"><Minus className="w-5 h-5" /></button>
+                  <input
+                    type="number" inputMode="numeric" min={0} aria-label={`${i.name}: cerradas de ${formatSize(size, i.unit)}`}
+                    value={line ? (line.closed[size] ?? 0) : ''} placeholder="–"
+                    onChange={(e) => setClosed(i.id, size, Number(e.target.value))}
+                    className="w-16 h-12 text-center text-xl font-bold rounded-2xl bg-white/5 border border-white/10 focus:outline-none"
+                  />
+                  <button type="button" aria-label="Una más" onClick={() => setClosed(i.id, size, (line?.closed[size] ?? 0) + 1)}
+                    className="w-12 h-12 rounded-2xl bg-white/10 grid place-items-center active:scale-95"><Plus className="w-5 h-5" /></button>
+                </div>
+              ))}
+
               {!onlyUnits && (
-                <div>
-                  <p className="text-sm text-white/60 mb-2">La abierta (porciones de 10)</p>
-                  <div className="grid grid-cols-6 gap-2">
-                    {OPEN_FRACTIONS.map((f) => {
-                      const active = line?.fraction === f.value && line !== undefined;
-                      return (
-                        <button key={f.value} type="button" onClick={() => set(i.id, { fraction: f.value })}
-                          className={`h-11 rounded-xl text-sm font-semibold active:scale-95 ${active ? 'bg-primary text-white' : 'bg-white/10 text-white/70'}`}>
-                          {f.label}
-                        </button>
-                      );
-                    })}
-                  </div>
+                <div className="space-y-3">
+                  {(line?.open ?? []).map((o, idx) => (
+                    <div key={idx} className="rounded-2xl bg-white/5 p-3 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <p className="flex-1 text-sm text-white/60">Abierta {idx + 1} · {o.portions === null ? 'sin marcar' : `${o.portions}/${OPEN_PORTIONS}`}</p>
+                        {sizes.length > 1 && sizes.map((size) => (
+                          <button key={size} type="button" onClick={() => update(i.id, (l) => ({ ...l, open: l.open.map((x, j) => (j === idx ? { ...x, size } : x)) }))}
+                            className={`h-9 px-3 rounded-xl text-xs font-semibold active:scale-95 ${o.size === size ? 'bg-primary text-white' : 'bg-white/10 text-white/70'}`}>
+                            {formatSize(size, i.unit)}
+                          </button>
+                        ))}
+                        <button type="button" aria-label="Quitar esta botella" onClick={() => update(i.id, (l) => ({ ...l, open: l.open.filter((_, j) => j !== idx) }))}
+                          className="w-9 h-9 rounded-xl bg-white/10 grid place-items-center active:scale-95"><X className="w-4 h-4" /></button>
+                      </div>
+                      <div className="grid grid-cols-6 gap-2">
+                        {OPEN_FRACTIONS.map((f, k) => (
+                          <button key={f.label} type="button" onClick={() => update(i.id, (l) => ({ ...l, open: l.open.map((x, j) => (j === idx ? { ...x, portions: k } : x)) }))}
+                            className={`h-11 rounded-xl text-sm font-semibold active:scale-95 ${o.portions === k ? 'bg-primary text-white' : 'bg-white/10 text-white/70'}`}>
+                            {f.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                  <button type="button" onClick={() => update(i.id, (l) => ({ ...l, open: [...l.open, { size: i.containerSize, portions: null }] }))}
+                    className="w-full h-11 rounded-xl border border-dashed border-white/20 text-sm text-white/70 active:scale-95">
+                    + {(line?.open.length ?? 0) === 0 ? 'Hay una botella abierta' : 'Otra botella abierta'} (porciones de 10)
+                  </button>
                 </div>
               )}
             </div>

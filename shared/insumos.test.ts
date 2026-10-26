@@ -183,3 +183,28 @@ describe('alertas', () => {
     expect(descuadreAlerts([lines[1]], 55, 'Ana', 7)).toEqual([]);
   });
 });
+
+describe('botellas de distintos tamaños', () => {
+  it('los tamaños del insumo incluyen el de compra, ordenados', async () => {
+    const { insumoSizes } = await import('./insumos');
+    expect(insumoSizes({ containerSize: 750, sizes: [1500, 1000] })).toEqual([750, 1000, 1500]);
+    expect(insumoSizes({ containerSize: 750, sizes: null })).toEqual([750]);
+  });
+
+  it('el conteo suma cerradas por tamaño y abiertas con su propio tamaño', async () => {
+    const { detalleATotal } = await import('./insumos');
+    const total = detalleATotal({
+      closed: [{ size: 750, count: 2 }, { size: 1000, count: 1 }, { size: 1500, count: 3 }],
+      open: [{ size: 750, portions: 5 }, { size: 1500, portions: 2 }],
+    });
+    expect(total).toBe(1500 + 1000 + 4500 + 375 + 300);
+  });
+
+  it('formato y nota de compra', async () => {
+    const { formatSize, describirBotellas } = await import('./insumos');
+    expect(formatSize(750, 'ml')).toBe('750 ml');
+    expect(formatSize(1000, 'ml')).toBe('1 L');
+    expect(formatSize(1500, 'ml')).toBe('1,5 L');
+    expect(describirBotellas([{ size: 750, count: 2 }, { size: 1500, count: 0 }, { size: 1000, count: 1 }], 'ml')).toBe('2 × 750 ml, 1 × 1 L');
+  });
+});

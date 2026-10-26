@@ -70,7 +70,7 @@ export function InsumosManager() {
             {(events ?? []).map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}
           </SelectContent>
         </Select>
-        <WriteButton disabled={!ready} onClick={() => setDialog({ name: '', unit: 'ml', containerSize: 750, containerLabel: 'botella', costPerContainer: null, alertDrinks: 15, initialContainers: 0, initialLoose: 0 })} className="shrink-0 interactive">
+        <WriteButton disabled={!ready} onClick={() => setDialog({ name: '', unit: 'ml', containerSize: 750, containerLabel: 'botella', sizes: [750], costPerContainer: null, alertDrinks: 15, initialBySize: {}, initialLoose: 0 })} className="shrink-0 interactive">
           <Plus className="mr-1 h-4 w-4" /> Insumo
         </WriteButton>
       </div>
@@ -87,7 +87,7 @@ export function InsumosManager() {
       {ready && activeId && !data && <p className="text-sm text-muted-foreground">Cargando…</p>}
       {ready && activeId && data && (
         <>
-          {tab === 'stock' && <StockTab eventId={activeId} data={data} onEdit={(i) => setDialog({ ...i, initialContainers: 0, initialLoose: 0 })} onChanged={refresh} />}
+          {tab === 'stock' && <StockTab eventId={activeId} data={data} onEdit={(i) => setDialog({ ...i, initialBySize: {}, initialLoose: 0 })} onChanged={refresh} />}
           {tab === 'recetas' && <RecetasTab data={data} onChanged={refresh} />}
           {tab === 'compras' && <ComprasTab eventId={activeId} data={data} />}
           {tab === 'historial' && <HistorialTab eventId={activeId} data={data} />}
@@ -98,7 +98,10 @@ export function InsumosManager() {
         value={dialog}
         saving={save.isPending}
         onClose={() => setDialog(null)}
-        onSave={(v) => save.mutate({ ...v, costPerContainer: v.costPerContainer ?? null })}
+        onSave={({ initialBySize, ...v }) => save.mutate({
+          ...v, costPerContainer: v.costPerContainer ?? null,
+          initialBySize: Object.entries(initialBySize).map(([size, count]) => ({ size: Number(size), count })),
+        })}
       />
     </div>
   );

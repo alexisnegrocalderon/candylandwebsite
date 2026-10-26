@@ -24,6 +24,9 @@ export interface Insumo {
   containerSize: number;
   /** "botella", "lata", "bolsa", "pack"… */
   containerLabel: string;
+  /** Tamaños de envase con que llega este insumo (botellas de 750, 1000 y 1500 ml).
+   * `containerSize` es el de compra (lista de compras y costo); siempre está incluido. */
+  sizes?: number[] | null;
   costPerContainer?: number | null;
   /** Avisa cuando este insumo alcance para menos de esta cantidad de tragos. 0 = no avisa. */
   alertDrinks: number;
@@ -56,6 +59,41 @@ export const OPEN_FRACTIONS = Array.from({ length: OPEN_PORTIONS + 1 }, (_, k) =
   value: k / OPEN_PORTIONS,
   label: `${k}/${OPEN_PORTIONS}`,
 }));
+
+/** Tamaños de botella de siempre para los destilados: 750 ml, 1 L y 1,5 L. */
+export const COMMON_BOTTLE_SIZES = [750, 1000, 1500] as const;
+
+/** Tamaños de envase de un insumo, de menor a mayor (el de compra siempre está). */
+export function insumoSizes(i: Pick<Insumo, 'containerSize' | 'sizes'>): number[] {
+  const all = new Set<number>([...(i.sizes ?? []), i.containerSize].filter((s) => Number.isFinite(s) && s > 0));
+  return Array.from(all).sort((a, b) => a - b);
+}
+
+/** "750 ml", "1 L", "1,5 L" -- como se dice en la barra. */
+export function formatSize(size: number, unit: InsumoUnit): string {
+  if (unit === 'ml' && size >= 1000) return `${(size / 1000).toLocaleString('es-CL', { maximumFractionDigits: 2 })} L`;
+  if (unit === 'g' && size >= 1000) return `${(size / 1000).toLocaleString('es-CL', { maximumFractionDigits: 2 })} kg`;
+  return `${size.toLocaleString('es-CL')} ${unit}`;
+}
+
+/** Botellas contadas: cerradas por tamaño y abiertas (cada una con su tamaño
+ * y cuántas décimas le quedan, 0 a 10). */
+export interface ConteoDetalle {
+  closed: { size: number; count: number }[];
+  open: { size: number; portions: number }[];
+}
+
+/** Total de un conteo con botellas de distintos tamaños. */
+export function detalleATotal(d: ConteoDetalle): number {
+  const closed = d.closed.reduce((s, c) => s + Math.max(0, Math.floor(c.count || 0)) * Math.max(0, c.size || 0), 0);
+  const open = d.open.reduce((s, o) => s + (Math.min(OPEN_PORTIONS, Math.max(0, o.portions || 0)) / OPEN_PORTIONS) * Math.max(0, o.size || 0), 0);
+  return round(closed + open);
+}
+
+/** "2 × 750 ml, 1 × 1,5 L" para la nota de una compra o carga. */
+export function describirBotellas(items: { size: number; count: number }[], unit: InsumoUnit): string {
+  return items.filter((i) => i.count > 0).map((i) => `${i.count} × ${formatSize(i.size, unit)}`).join(', ');
+}
 
 /** Descuadre del conteo de cierre por sobre este % de lo esperado: se avisa. */
 export const DESCUADRE_PCT = 10;

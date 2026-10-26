@@ -3285,6 +3285,9 @@ export const insumos = mysqlTable("insumos", {
   // Cuánto trae un envase (750 ml, 2000 g, 24 un): es lo que cuenta la barra.
   containerSize: int("containerSize").default(750).notNull(),
   containerLabel: varchar("containerLabel", { length: 30 }).default("botella").notNull(),
+  // Tamaños de envase con que llega (botellas de 750, 1000 y 1500 ml): [750, 1000, 1500].
+  // `containerSize` es el de compra y siempre cuenta como uno de ellos.
+  sizes: json("sizes"),
   costPerContainer: decimal("costPerContainer", { precision: 10, scale: 0 }),
   // Avisa cuando alcance para menos de esta cantidad de tragos (0 = no avisa).
   alertDrinks: int("alertDrinks").default(15).notNull(),
@@ -3348,6 +3351,8 @@ export const insumoConteoLineas = mysqlTable("insumoConteoLineas", {
   insumoId: int("insumoId").notNull(),
   closedContainers: int("closedContainers").default(0).notNull(),
   openFraction: decimal("openFraction", { precision: 4, scale: 2 }).default("0").notNull(),
+  // Qué se contó: { closed: [{ size, count }], open: [{ size, portions }] } (porciones de 10).
+  detail: json("detail"),
   countedTotal: decimal("countedTotal", { precision: 12, scale: 2 }).notNull(),
   expectedTotal: decimal("expectedTotal", { precision: 12, scale: 2 }).notNull(),
 }, (t) => [
