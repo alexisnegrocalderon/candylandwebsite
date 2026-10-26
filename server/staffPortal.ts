@@ -8,11 +8,12 @@
 import { createHmac, timingSafeEqual } from 'crypto';
 import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 import QRCode from 'qrcode';
-import { contentDesigns, events, staffMembers, staffShifts } from '../drizzle/schema';
+import { contentDesigns, events, operators, staffMembers, staffShifts } from '../drizzle/schema';
 import { ENV } from './_core/env';
 import { getActiveEventForCaja, getDb, listOperatorsForStaff } from './db';
 import { hashPin } from './caja/auth';
-import { setStaffPinHash } from './staff';
+import { NO_PIN, setStaffPinHash } from './staff';
+import { isAdminEmail } from './adminEmail';
 import { cargoDef, cargoTitle, operatorRoleForCargo, pinProblem } from '../shared/staffCargos';
 import { staffSystemsFor } from '../shared/cajaRoles';
 import { buildStaffShiftEmail, buildStaffWelcomeEmail, sendEmail } from './email';
@@ -148,6 +149,32 @@ export async function notifyStaffShift(staffId: number, eventId: number): Promis
 }
 
 /** La persona del equipo (activa) dueña de ese correo, o null. */
+/** El dueño (correo en ADMIN_EMAILS) entra a caja, puerta, cocina y guardarropía desde su app: se le prepara una
+ * ficha de equipo («Administración», cargo supervisor) y un acceso de administrador en la noche activa. Entra con
+ * el PIN que crea en la app. Idempotente; con cualquier otro correo no hace nada. */
+export async function ensureAdminStaffAccess(email: string): Promise<void> {
+  if (!isAdminEmail(email)) return;
+  try {
+    const db = await getDb();
+    if (!db) return;
+    const key = normEmail(email);
+    let staff = await findStaffByEmail(key);
+    if (!staff) {
+      const [res] = await db.insert(staffMembers).values({ name: 'Administración', role: 'Administración', cargo: 'supervisor', email: key, defaultRateClp: 0, notes: 'Acceso del dueño a las pantallas de trabajo (creado desde la app).' }) as any;
+      staff = await findStaffByEmail(key) ?? { id: Number(res.insertId), name: 'Administración', pinHash: null } as any;
+    }
+    const event = await getActiveEventForCaja();
+    if (!event || !staff) return;
+    const pinHash = staff.pinHash ?? NO_PIN;
+    const values = { name: staff.name, email: key, role: 'admin' as const, pinHash, active: pinHash !== NO_PIN ? 1 : 0 };
+    const [mine] = await db.select({ id: operators.id }).from(operators).where(and(eq(operators.staffId, staff.id), eq(operators.eventId, event.id))).limit(1);
+    if (mine) await db.update(operators).set(values).where(eq(operators.id, mine.id));
+    else await db.insert(operators).values({ ...values, eventId: event.id, staffId: staff.id });
+  } catch (e) {
+    console.warn('[staff] no se pudo preparar el acceso del administrador', e);
+  }
+}
+
 export async function findStaffByEmail(email: string) {
   const key = normEmail(email);
   if (!key) return null;
@@ -171,6 +198,7 @@ async function findStaffRow(db: NonNullable<Awaited<ReturnType<typeof getDb>>>, 
 
 /** La persona del staff con sesión en la app crea o cambia su PIN de las pantallas de trabajo. */
 export async function setOwnStaffPin(email: string, pin: string) {
+  await ensureAdminStaffAccess(email);
   const staff = await findStaffByEmail(email);
   if (!staff) throw new Error('Tu correo no está en el equipo.');
   const problem = pinProblem(pin);
@@ -270,6 +298,7 @@ async function operatorSystems(staffId: number, email: string) {
 }
 
 export async function getStaffPortal(email: string, now: Date = new Date()) {
+  await ensureAdminStaffAccess(email);
   const staff = await findStaffByEmail(email);
   if (!staff) return null;
   const db = await need();

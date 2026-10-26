@@ -23,6 +23,11 @@ import { firstName } from '../shared/pushText';
 import { sortByKind, ticketKind, ticketKindLabel, type TicketKind } from '../shared/ticketKind';
 import { companionsFromCampos, knownCompanions, lastPurchaseFrom, type Companion } from '../shared/repurchase';
 import { DEMO_EVENT_SLUG } from '../shared/demoAccount';
+import { aliasTag } from '../shared/customerMerge';
+import { COUPON_BATCH_MAX, couponGiftError, couponPushText, defaultCouponTitle, type CouponAudience, type CouponGiftType } from '../shared/couponGift';
+import { PLACEHOLDER_BUYER_EMAILS } from '../shared/parking';
+import { customerWhere } from './customerFilters';
+import { appUserEmails } from './appDevices';
 
 type CustomerRow = typeof customers.$inferSelect;
 
@@ -34,8 +39,12 @@ export async function getMemberConfig(): Promise<MemberConfig> {
 export async function findCustomer(email: string): Promise<CustomerRow | null> {
   const db = await getDb();
   if (!db) return null;
-  const [c] = await db.select().from(customers).where(eq(customers.email, normalizeMemberEmail(email))).limit(1);
-  return c ?? null;
+  const key = normalizeMemberEmail(email);
+  const [c] = await db.select().from(customers).where(eq(customers.email, key)).limit(1);
+  if (c) return c;
+  // Un correo que se unió a otra ficha (Clientes → Unir) lleva a esa ficha.
+  const [alias] = await db.select().from(customers).where(sql`COALESCE(JSON_CONTAINS(${customers.tags}, ${JSON.stringify(aliasTag(key))}), 0) = 1`).limit(1);
+  return alias ?? null;
 }
 
 /** ¿Este correo ya entró alguna vez a su cuenta? */
@@ -163,10 +172,12 @@ export function maskMemberEmail(email: string): string {
 
 const isDup = (e: any) => (e?.code ?? e?.cause?.code) === 'ER_DUP_ENTRY';
 
-export interface GrantedCoupon { kind: string; title: string; percent: number; days: number; code: string }
+export interface GrantedCoupon { kind: string; title: string; percent: number; days: number; code: string; discountType: CouponGiftType; eventId: number | null }
 
 /** Regala un cupón de un solo uso. Idempotente por `grantKey`: devuelve null si ya se regaló. */
-async function grantCoupon(input: { email: string; kind: 'bienvenida' | 'nivel' | 'cumpleanos' | 'manual'; grantKey: string; title: string; percent: number; days: number }): Promise<GrantedCoupon | null> {
+/* `percent` es el valor del descuento: % o, con discountType 'fixed', pesos. Los automáticos son siempre %
+ * y sin evento; los regalados desde el panel pueden ser monto fijo y valer solo para una fiesta. */
+async function grantCoupon(input: { email: string; kind: 'bienvenida' | 'nivel' | 'cumpleanos' | 'manual'; grantKey: string; title: string; percent: number; days: number; discountType?: CouponGiftType; eventId?: number | null }): Promise<GrantedCoupon | null> {
   const db = await getDb();
   if (!db) return null;
   const [seen] = await db.select({ id: memberCoupons.id }).from(memberCoupons).where(eq(memberCoupons.grantKey, input.grantKey)).limit(1);
@@ -186,10 +197,11 @@ async function grantCoupon(input: { email: string; kind: 'bienvenida' | 'nivel' 
       const code = randomCouponCode();
       try {
         const [res] = await db.insert(discountCodes).values({
-          code, description: `Cupón de socio: ${input.title}`, discountType: 'percentage', discountValue: String(input.percent), maxUses: 1, validUntil, isActive: 1,
+          code, description: `Cupón de socio: ${input.title}`, discountType: input.discountType ?? 'percentage', discountValue: String(input.percent), maxUses: 1, validUntil, isActive: 1,
+          eventId: input.eventId ?? null,
         }) as any;
         await db.update(memberCoupons).set({ discountCodeId: Number(res.insertId) }).where(eq(memberCoupons.id, claimId));
-        return { kind: input.kind, title: input.title, percent: input.percent, days: input.days, code };
+        return { kind: input.kind, title: input.title, percent: input.percent, days: input.days, code, discountType: input.discountType ?? 'percentage', eventId: input.eventId ?? null };
       } catch (err) {
         if (!isDup(err)) throw err;
       }
@@ -295,8 +307,10 @@ export async function getMemberHome(email: string, now = new Date()) {
     db.select().from(playcoinsLedger).where(eq(playcoinsLedger.customerId, customer.id)).orderBy(desc(playcoinsLedger.createdAt)).limit(8),
     db.select({
       id: memberCoupons.id, kind: memberCoupons.kind, title: memberCoupons.title, createdAt: memberCoupons.createdAt,
-      code: discountCodes.code, percent: discountCodes.discountValue, validUntil: discountCodes.validUntil, usedCount: discountCodes.usedCount, maxUses: discountCodes.maxUses, isActive: discountCodes.isActive,
-    }).from(memberCoupons).innerJoin(discountCodes, eq(memberCoupons.discountCodeId, discountCodes.id)).where(eq(memberCoupons.email, key)).orderBy(desc(memberCoupons.createdAt)).limit(30),
+      code: discountCodes.code, percent: discountCodes.discountValue, discountType: discountCodes.discountType, validUntil: discountCodes.validUntil, usedCount: discountCodes.usedCount, maxUses: discountCodes.maxUses, isActive: discountCodes.isActive,
+      eventTitle: events.title,
+    }).from(memberCoupons).innerJoin(discountCodes, eq(memberCoupons.discountCodeId, discountCodes.id)).leftJoin(events, eq(discountCodes.eventId, events.id))
+      .where(eq(memberCoupons.email, key)).orderBy(desc(memberCoupons.createdAt)).limit(30),
     db.select({
       ticketCode: tickets.ticketCode, displayCode: tickets.displayCode, usedAt: tickets.usedAt, holderName: tickets.holderName, status: tickets.status, qrImageUrl: tickets.qrImageUrl,
       category: ticketTypes.category, typeName: ticketTypes.name,
@@ -377,7 +391,7 @@ export async function getMemberHome(email: string, now = new Date()) {
     // Accesos primero y los extras (estacionamiento, guardarropía…) después.
     events: Array.from(byEvent.values()).sort((a, b) => a.eventDate.getTime() - b.eventDate.getTime()).map((e) => ({ ...e, tickets: sortByKind(e.tickets) })),
     coupons: couponRows.map((c) => ({
-      id: c.id, kind: c.kind, title: c.title, code: c.code, percent: Number(c.percent), validUntil: c.validUntil,
+      id: c.id, kind: c.kind, title: c.title, code: c.code, percent: Number(c.percent), discountType: c.discountType, eventTitle: c.eventTitle ?? null, validUntil: c.validUntil,
       status: couponStatus({ usedCount: c.usedCount, maxUses: c.maxUses, validUntil: c.validUntil, isActive: c.isActive }, now),
     })),
     nextEvent: next ? { title: next.title, slug: next.slug, eventDate: next.eventDate, memberEarlyUntil: next.memberEarlyUntil } : null,
@@ -400,7 +414,7 @@ export async function memberStats() {
     db.select({ n: sql<number>`count(*)` }).from(customers).where(isNotNull(customers.memberSince)),
     db.select({
       id: memberCoupons.id, email: memberCoupons.email, kind: memberCoupons.kind, title: memberCoupons.title, createdAt: memberCoupons.createdAt,
-      code: discountCodes.code, usedCount: discountCodes.usedCount, maxUses: discountCodes.maxUses, validUntil: discountCodes.validUntil, isActive: discountCodes.isActive,
+      code: discountCodes.code, discountCodeId: discountCodes.id, usedCount: discountCodes.usedCount, maxUses: discountCodes.maxUses, validUntil: discountCodes.validUntil, isActive: discountCodes.isActive,
     }).from(memberCoupons).innerJoin(discountCodes, eq(memberCoupons.discountCodeId, discountCodes.id)).orderBy(desc(memberCoupons.createdAt)),
   ]);
   const byKind: Record<string, { granted: number; used: number }> = {};
@@ -415,17 +429,110 @@ export async function memberStats() {
     granted: coupons.length,
     used,
     byKind,
-    recent: coupons.slice(0, 25).map((c) => ({ id: c.id, email: c.email, kind: c.kind, title: c.title, code: c.code, createdAt: c.createdAt, status: couponStatus({ usedCount: c.usedCount, maxUses: c.maxUses, validUntil: c.validUntil, isActive: c.isActive }) })),
+    recent: coupons.slice(0, 100).map((c) => ({ id: c.id, discountCodeId: c.discountCodeId, email: c.email, kind: c.kind, title: c.title, code: c.code, createdAt: c.createdAt, status: couponStatus({ usedCount: c.usedCount, maxUses: c.maxUses, validUntil: c.validUntil, isActive: c.isActive }) })),
   };
 }
 
-/** Cupón a mano para un correo (el dueño regala uno desde el panel). */
-export async function grantManualCoupon(email: string, percent: number, days: number, title: string): Promise<GrantedCoupon> {
+/** Cifras de la portada de App: saldo PlayCard y Playcoins en circulación, y cupones del mes. */
+export async function appOverview(now = new Date()) {
+  const db = await getDb();
+  const empty = { prepaidTotal: 0, withBalance: 0, playcoinsTotal: 0, members: 0, couponsMonth: { granted: 0, used: 0, active: 0 } };
+  if (!db) return empty;
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const [[money], coupons] = await Promise.all([
+    db.select({
+      prepaid: sql<number>`coalesce(sum(${customers.prepaidBalance}), 0)`,
+      withBalance: sql<number>`sum(case when ${customers.prepaidBalance} > 0 then 1 else 0 end)`,
+      playcoins: sql<number>`coalesce(sum(${customers.playcoins}), 0)`,
+      members: sql<number>`sum(case when ${customers.memberSince} is null then 0 else 1 end)`,
+    }).from(customers),
+    db.select({ usedCount: discountCodes.usedCount, maxUses: discountCodes.maxUses, validUntil: discountCodes.validUntil, isActive: discountCodes.isActive })
+      .from(memberCoupons).innerJoin(discountCodes, eq(memberCoupons.discountCodeId, discountCodes.id)).where(gte(memberCoupons.createdAt, monthStart)),
+  ]);
+  const status = coupons.map((c) => couponStatus(c, now));
+  return {
+    prepaidTotal: Number(money?.prepaid ?? 0), withBalance: Number(money?.withBalance ?? 0), playcoinsTotal: Number(money?.playcoins ?? 0), members: Number(money?.members ?? 0),
+    couponsMonth: { granted: coupons.length, used: status.filter((x) => x === 'usado').length, active: status.filter((x) => x === 'disponible').length },
+  };
+}
+
+export interface CouponGiftInput { type: CouponGiftType; value: number; days: number; title?: string; eventId?: number | null; notify: boolean }
+
+async function eventTitleOf(eventId: number | null | undefined): Promise<string | null> {
+  if (!eventId) return null;
+  const db = await getDb();
+  if (!db) return null;
+  const [ev] = await db.select({ title: events.title }).from(events).where(eq(events.id, eventId)).limit(1);
+  if (!ev) throw new Error('Esa fiesta no existe.');
+  return ev.title;
+}
+
+async function giftOne(customer: { email: string; fullName: string | null }, gift: CouponGiftInput, grantKey: string, eventTitle: string | null) {
+  const title = gift.title?.trim().slice(0, 100) || defaultCouponTitle(gift.type, gift.value);
+  const g = await grantCoupon({ email: customer.email.toLowerCase(), kind: 'manual', grantKey, title, percent: gift.value, days: gift.days, discountType: gift.type, eventId: gift.eventId ?? null });
+  if (!g) return { coupon: null, notified: 0 };
+  const notified = gift.notify ? await pushToEmail(customer.email, { ...couponPushText({ name: firstName(customer.fullName), title, days: gift.days, eventTitle }), url: '/cuenta' }) : 0;
+  return { coupon: g, notified };
+}
+
+/** Cupón a mano para un correo (el dueño regala uno desde el panel), con aviso push opcional. */
+export async function grantManualCoupon(email: string, gift: CouponGiftInput): Promise<GrantedCoupon & { notified: number }> {
+  const err = couponGiftError(gift);
+  if (err) throw new Error(err);
   const customer = await findCustomer(email);
   if (!customer) throw new Error('Ese correo no es de ningún cliente.');
-  const g = await grantCoupon({ email: customer.email.toLowerCase(), kind: 'manual', grantKey: `manual:${Date.now()}:${customer.email.toLowerCase()}`, title: title.trim().slice(0, 100) || `${percent}% de regalo`, percent, days });
-  if (!g) throw new Error('No se pudo crear el cupón.');
-  return g;
+  const eventTitle = await eventTitleOf(gift.eventId);
+  const { coupon, notified } = await giftOne(customer, gift, `manual:${Date.now()}:${customer.email.toLowerCase()}`, eventTitle);
+  if (!coupon) throw new Error('No se pudo crear el cupón.');
+  return { ...coupon, notified };
+}
+
+/** Correos de clientes reales para un grupo (sin correos marcador), con el tope por envío. */
+export async function resolveCouponAudience(audience: CouponAudience): Promise<{ customers: { email: string; fullName: string | null }[]; notCustomers: string[]; overLimit: boolean }> {
+  const db = await getDb();
+  if (!db) throw new Error('Base de datos no disponible');
+  const cols = { email: customers.email, fullName: customers.fullName };
+  let rows: { email: string; fullName: string | null }[] = [];
+  let notCustomers: string[] = [];
+  if (audience.kind === 'emails') {
+    const wanted = Array.from(new Set(audience.emails.map((e) => e.trim().toLowerCase()).filter(Boolean)));
+    rows = wanted.length ? await db.select(cols).from(customers).where(inArray(sql`LOWER(${customers.email})`, wanted)) : [];
+    const found = new Set(rows.map((r) => r.email.toLowerCase()));
+    notCustomers = wanted.filter((e) => !found.has(e));
+  } else if (audience.kind === 'members') {
+    rows = await db.select(cols).from(customers).where(isNotNull(customers.memberSince)).limit(COUPON_BATCH_MAX + 1);
+  } else if (audience.kind === 'app') {
+    rows = await db.select(cols).from(customers).where(customerWhere({ hasApp: true }, new Date(), await appUserEmails())).limit(COUPON_BATCH_MAX + 1);
+  } else if (audience.kind === 'level') {
+    rows = await db.select(cols).from(customers).where(customerWhere({ level: audience.level }, new Date())).limit(COUPON_BATCH_MAX + 1);
+  } else {
+    rows = await db.select(cols).from(customers).where(customerWhere({ birthdayMonth: audience.month }, new Date())).limit(COUPON_BATCH_MAX + 1);
+  }
+  rows = rows.filter((r) => r.email && !PLACEHOLDER_BUYER_EMAILS.has(r.email.toLowerCase()));
+  return { customers: rows.slice(0, COUPON_BATCH_MAX), notCustomers, overLimit: rows.length > COUPON_BATCH_MAX };
+}
+
+/** El mismo cupón para varias personas. `batchId` (lo genera el panel) hace que reintentar no duplique. */
+export async function grantCouponBatch(audience: CouponAudience, gift: CouponGiftInput, batchId: string): Promise<{ granted: number; already: number; notCustomers: string[]; notified: number; overLimit: boolean }> {
+  const err = couponGiftError(gift);
+  if (err) throw new Error(err);
+  const eventTitle = await eventTitleOf(gift.eventId);
+  const { customers: list, notCustomers, overLimit } = await resolveCouponAudience(audience);
+  let granted = 0, already = 0, notified = 0;
+  for (const c of list) {
+    const r = await giftOne(c, gift, `manual-lote:${batchId}:${c.email.toLowerCase()}`, eventTitle);
+    if (r.coupon) { granted++; notified += r.notified; } else already++;
+  }
+  return { granted, already, notCustomers, notified, overLimit };
+}
+
+/** Anula un cupón regalado: el código deja de servir (queda en el historial como anulado). */
+export async function revokeMemberCoupon(memberCouponId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error('Base de datos no disponible');
+  const [row] = await db.select({ discountCodeId: memberCoupons.discountCodeId }).from(memberCoupons).where(eq(memberCoupons.id, memberCouponId)).limit(1);
+  if (!row?.discountCodeId) throw new Error('Cupón no encontrado');
+  await db.update(discountCodes).set({ isActive: 0 }).where(eq(discountCodes.id, row.discountCodeId));
 }
 
 /** «Tu entrada de siempre»: la última compra web que se puede repetir y las personas con las que ha

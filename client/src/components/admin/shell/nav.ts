@@ -1,5 +1,5 @@
 import {
-  Home, Radio, Ticket, Calendar, Users, MessagesSquare, Palette, Crown, Banknote, Handshake, Receipt,
+  Home, Radio, Ticket, Calendar, Users, MessagesSquare, Palette, Crown, Banknote, Handshake, Receipt, Smartphone,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -10,7 +10,7 @@ import {
 
 export type AdminHubId =
   | 'inicio' | 'noche' | 'ventas' | 'eventos' | 'clientes'
-  | 'mensajes' | 'contenido' | 'comunidad' | 'finanzas' | 'gastos' | 'coproduccion' | 'ajustes';
+  | 'app' | 'mensajes' | 'contenido' | 'comunidad' | 'finanzas' | 'gastos' | 'coproduccion' | 'ajustes';
 
 export interface AdminHub {
   id: AdminHubId;
@@ -28,7 +28,9 @@ export const ADMIN_HUBS: AdminHub[] = [
   { id: 'eventos', label: 'Eventos', icon: Calendar },
   { id: 'coproduccion', label: 'Playroom × Dalmore', icon: Handshake },
   { id: 'clientes', label: 'Clientes', icon: Users },
-  { id: 'mensajes', label: 'Mensajes', icon: MessagesSquare, mobile: true },
+  // Todo lo de la app Playroom junto: cupones, avisos push, quién la tiene, Playmatch y la cuenta de prueba.
+  { id: 'app', label: 'App', icon: Smartphone, mobile: true },
+  { id: 'mensajes', label: 'Mensajes', icon: MessagesSquare },
   { id: 'contenido', label: 'Contenido', icon: Palette },
   { id: 'comunidad', label: 'Comunidad', icon: Crown },
   { id: 'finanzas', label: 'Finanzas', icon: Banknote },
@@ -75,7 +77,9 @@ export const SECTION_KEYWORDS: Record<string, string> = {
   leads: 'interesados prospectos',
   winback: 'reactivar recuperar clientes inactivos',
   birthdays: 'cumpleaños cumpleañeros',
-  members: 'socios cuenta mi cuenta cupones preventa anticipada login beneficios',
+  members: 'socios cuenta mi cuenta cupones regalar cupon preventa anticipada login beneficios pagos tarjeta recarga app',
+  'app-resumen': 'app resumen playroom cupones saldo playcard playcoins instalaciones',
+  'app-clientes': 'app instalada quien tiene la app clientes correos telefonos instalar qr',
   'blocked-customers': 'bloqueo lista negra vetados',
   instagram: 'dm mensajes chat agente ig comentarios',
   whatsapp: 'wsp chat mensajes',

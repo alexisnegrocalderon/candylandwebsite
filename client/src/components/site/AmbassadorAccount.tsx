@@ -89,7 +89,12 @@ export function useBackClosable(open: boolean, onClose: () => void) {
     return () => {
       window.removeEventListener('popstate', onPop);
       // Cerrada con «Volver»: se saca la entrada que se agregó, así el «atrás» del teléfono no queda doble.
-      if (pushed.current) { pushed.current = false; window.history.back(); }
+      // Si la pantalla se cierra porque la persona navegó a otra página (por ejemplo, de Staff a /puerta), la entrada
+      // actual ya no es la nuestra: volver atrás la devolvería a «Mi cuenta».
+      if (pushed.current) {
+        pushed.current = false;
+        if (window.history.state?.accountScreen) window.history.back();
+      }
     };
   }, [open]);
 }

@@ -7,7 +7,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
 import { WriteButton } from '@/components/admin/WriteButton';
-import { describeRule, LEVELS, normalizeSegment, type PushRule, type PushSegment } from '@shared/pushSegments';
+import { Textarea } from '@/components/ui/textarea';
+import { parseEmailList } from '@shared/couponGift';
+import { describeRule, LEVELS, PUSH_EMAILS_MAX, normalizeSegment, type PushRule, type PushSegment } from '@shared/pushSegments';
 
 const MONTHS = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 const LEVEL_LABEL: Record<string, string> = { vip: 'VIP', recurrente: 'Recurrente', nuevo: 'Nuevo', inactivo: 'Inactivo', sin_compras: 'Sin compras' };
@@ -32,6 +34,7 @@ const GROUPS: { label: string; options: RuleOption[] }[] = [
     { id: 'hasBalance', label: 'Con saldo PlayCard', make: () => ({ type: 'hasBalance' }) },
     { id: 'ambassadors', label: 'Embajadores VIP', make: () => ({ type: 'ambassadors' }) },
     { id: 'member', label: 'Socios (tienen cuenta)', make: () => ({ type: 'member' }) },
+    { id: 'emails', label: 'Correos específicos…', make: () => ({ type: 'emails', emails: [] }) },
   ] },
   { label: 'App y avisos', options: [
     { id: 'appActive', label: 'Abrieron la app hace poco…', make: () => ({ type: 'app', mode: 'active', days: 30 }) },
@@ -40,6 +43,18 @@ const GROUPS: { label: string; options: RuleOption[] }[] = [
     { id: 'notClicked', label: 'NO tocaron un aviso anterior…', make: () => ({ type: 'notClicked', campaignId: 0 }) },
   ] },
 ];
+
+/** Correos pegados (uno por línea o separados por coma); el texto se guarda tal cual mientras se escribe. */
+function EmailsParam({ emails, onChange }: { emails: string[]; onChange: (emails: string[]) => void }) {
+  const [text, setText] = useState(() => emails.join('\n'));
+  return (
+    <span className="flex w-full flex-col gap-1">
+      <Textarea rows={3} className="text-xs" placeholder="Pega los correos" value={text}
+        onChange={(e) => { setText(e.target.value); onChange(parseEmailList(e.target.value).emails.slice(0, PUSH_EMAILS_MAX)); }} />
+      <span className="text-[11px] text-muted-foreground">{emails.length} correos</span>
+    </span>
+  );
+}
 
 /** Parámetros editables de una regla, en la misma fila. */
 function RuleParams({ rule, onChange }: { rule: PushRule; onChange: (r: PushRule) => void }) {
@@ -91,6 +106,8 @@ function RuleParams({ rule, onChange }: { rule: PushRule; onChange: (r: PushRule
           <SelectContent>{[['mujer', 'Mujeres'], ['hombre', 'Hombres'], ['pareja', 'Parejas'], ['otro', 'Otro']].map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}</SelectContent>
         </Select>
       );
+    case 'emails':
+      return <EmailsParam emails={rule.emails} onChange={(emails) => onChange({ ...rule, emails })} />;
     default:
       return null;
   }

@@ -35,7 +35,9 @@ export type PushRule =
   /** Tienen saldo PlayCard sin gastar. */
   | { type: 'hasBalance' }
   /** Socios: entraron a «Mi cuenta» alguna vez. */
-  | { type: 'member' };
+  | { type: 'member' }
+  /** Correos específicos (push a una persona desde su ficha, o una lista). */
+  | { type: 'emails'; emails: string[] };
 
 export interface PushSegment {
   type: 'combo';
@@ -45,8 +47,11 @@ export interface PushSegment {
 
 export const RULE_TYPES = [
   'event', 'nextEvent', 'nextEventNoTicket', 'neverBought', 'recentBuyers', 'ambassadors', 'level', 'birthdayMonth', 'birthdayToday',
-  'city', 'gender', 'app', 'clicked', 'notClicked', 'attended', 'dormant', 'hasBalance', 'member',
+  'city', 'gender', 'app', 'clicked', 'notClicked', 'attended', 'dormant', 'hasBalance', 'member', 'emails',
 ] as const;
+
+/** Tope de correos en la regla «emails». */
+export const PUSH_EMAILS_MAX = 500;
 
 export const LEVELS = ['vip', 'recurrente', 'nuevo', 'inactivo', 'sin_compras'] as const;
 
@@ -77,6 +82,12 @@ export function normalizeRule(raw: unknown): PushRule | null {
     case 'birthdayMonth': return Number.isInteger(r.month) && r.month >= 1 && r.month <= 12 ? { type: 'birthdayMonth', month: r.month } : null;
     case 'city': return typeof r.city === 'string' && r.city.trim() ? { type: 'city', city: r.city.trim().slice(0, 100) } : null;
     case 'gender': return typeof r.gender === 'string' && r.gender.trim() ? { type: 'gender', gender: r.gender.trim().slice(0, 20) } : null;
+    case 'emails': {
+      const list = (Array.isArray(r.emails) ? r.emails : []).filter((e: unknown): e is string => typeof e === 'string' && e.includes('@'))
+        .map((e: string) => e.trim().toLowerCase()).slice(0, PUSH_EMAILS_MAX);
+      // Vacía se conserva (no le llega a nadie): borrarla convertiría el aviso en «todos los suscritos».
+      return { type: 'emails', emails: Array.from(new Set<string>(list)) };
+    }
     case 'nextEvent': case 'nextEventNoTicket': case 'neverBought': case 'ambassadors': case 'birthdayToday': case 'hasBalance': case 'member': return { type: r.type };
     default: return null;
   }
@@ -167,6 +178,7 @@ export function describeRule(rule: PushRule, names?: { event?: (id: number) => s
     case 'notClicked': return `no tocaron «${names?.campaign?.(rule.campaignId) ?? `aviso #${rule.campaignId}`}»`;
     case 'hasBalance': return 'con saldo PlayCard';
     case 'member': return 'socios (tienen cuenta)';
+    case 'emails': return rule.emails.length === 1 ? rule.emails[0] : `${rule.emails.length} correos elegidos`;
   }
 }
 

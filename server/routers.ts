@@ -190,6 +190,8 @@ import { activatePlaymatchForTicket } from "./partyActivation";
 import * as staffPortal from "./staffPortal";
 import { ensureStaffSalesLink } from "./staffSales";
 import { pageCustomers, findCustomersForCaja } from "./customerFilters";
+import { COUPON_BATCH_MAX } from "../shared/couponGift";
+import { previewCustomerMerge, mergeCustomers } from "./customerMerge";
 import { getMemberHistory } from "./memberHistory";
 import { hasSalesLink } from "../shared/staffSales";
 import { autoPackFromDesign, deleteAmbassadorItem, ensureAmbassadorDrafts, getUpcomingContentEvents, listAmbassadorItems, notifyAmbassadorsNewContent, saveAmbassadorItem, sendStudioToAmbassadors, setAmbassadorItemStatus } from "./ambassadorContent";
@@ -893,10 +895,27 @@ function decorateCustomers(rows: any[], withApp: Set<string>, now: Date) {
 async function customerRows(input: z.infer<typeof customerFiltersInput>) {
   const now = new Date();
   const { hasApp, ...filters } = input;
-  const [all, withApp] = await Promise.all([db.listCustomers(filters), appDevices.appEmails()]);
+  const [all, withApp] = await Promise.all([db.listCustomers(filters), appDevices.appUserEmails()]);
   const rows = hasApp ? all.filter((c: any) => withApp.has(c.email.toLowerCase())) : all;
   return decorateCustomers(rows, withApp, now);
 }
+
+/** Regalo de cupón desde el panel (sección App): ver shared/couponGift.ts. */
+const couponGiftInput = {
+  type: z.enum(['percentage', 'fixed']),
+  value: z.number().int().min(1).max(1_000_000),
+  days: z.number().int().min(1).max(365),
+  title: z.string().max(100).optional(),
+  eventId: z.number().int().nullable().optional(),
+  notify: z.boolean(),
+};
+const couponAudienceInput = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('emails'), emails: z.array(z.string().max(200)).min(1).max(COUPON_BATCH_MAX) }),
+  z.object({ kind: z.literal('level'), level: z.enum(['vip', 'recurrente', 'nuevo', 'inactivo']) }),
+  z.object({ kind: z.literal('birthdayMonth'), month: z.number().int().min(1).max(12) }),
+  z.object({ kind: z.literal('app') }),
+  z.object({ kind: z.literal('members') }),
+]);
 
 export const appRouter = router({
   // Cuenta de prueba de la App (admin → Noche → «Cuenta de prueba»): server/demoAccount.ts.
@@ -4586,14 +4605,21 @@ export const appRouter = router({
       // Primera vez de alguien que nunca compró: su ficha nace acá, con el correo ya comprobado.
       const customer = (await members.findCustomer(email)) ?? (await members.createSignupCustomer(email));
       if (!customer) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'No pudimos crear tu cuenta. Intenta de nuevo.' });
-      setMemberSession(ctx.req, ctx.res, email);
-      const r = await members.completeLogin(email);
+      // Con un correo que se unió a otra ficha, la sesión queda con el correo de la ficha principal.
+      const sessionEmail = normalizeMemberEmail(customer.email);
+      setMemberSession(ctx.req, ctx.res, sessionEmail);
+      const r = await members.completeLogin(sessionEmail);
       return { ok: true as const, isNew: r.isNew, granted: r.granted.map((g) => ({ title: g.title, percent: g.percent, days: g.days })) };
     }),
     me: publicProcedure.query(async ({ ctx }) => {
       const email = getMemberEmail(ctx.req);
       if (!email) return null;
       const home = await members.getMemberHome(email);
+      // Sesión abierta con un correo que se unió a otra ficha: la cookie pasa al correo de la ficha principal.
+      if (home) {
+        const main = (await members.findCustomer(email))?.email;
+        if (main && normalizeMemberEmail(main) !== email) setMemberSession(ctx.req, ctx.res, normalizeMemberEmail(main));
+      }
       // `isAdmin`: el correo es del dueño (ADMIN_EMAILS) → la app muestra el acceso al panel.
       return home ? { ...home, isAdmin: isAdminEmail(email) } : home;
     }),
@@ -4798,13 +4824,32 @@ export const appRouter = router({
       await db.updateSiteSettings({ memberConfig: config });
       return config;
     }),
-    grantCoupon: adminProcedure.input(z.object({ email: z.string().email(), percent: z.number().int().min(1).max(100), days: z.number().int().min(1).max(365), title: z.string().max(100).optional() })).mutation(async ({ input }) => {
+    grantCoupon: adminProcedure.input(z.object({ email: z.string().email(), ...couponGiftInput })).mutation(async ({ input }) => {
+      const { email, ...gift } = input;
       try {
-        const g = await members.grantManualCoupon(input.email, input.percent, input.days, input.title ?? '');
-        return { code: g.code, percent: g.percent, days: g.days };
+        const g = await members.grantManualCoupon(email, gift);
+        return { code: g.code, title: g.title, days: g.days, notified: g.notified };
       } catch (err) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo crear el cupón' });
       }
+    }),
+    // A cuántos clientes le llegaría un regalo en lote (antes de confirmar).
+    adminOverview: adminReadProcedure.query(() => members.appOverview()),
+    previewCouponAudience: adminProcedure.input(couponAudienceInput).query(async ({ input }) => {
+      const r = await members.resolveCouponAudience(input);
+      return { count: r.customers.length, notCustomers: r.notCustomers, overLimit: r.overLimit, sample: r.customers.slice(0, 5).map((c) => c.fullName || c.email) };
+    }),
+    grantCouponBatch: adminProcedure.input(z.object({ audience: couponAudienceInput, batchId: z.string().min(6).max(40), ...couponGiftInput })).mutation(async ({ input }) => {
+      const { audience, batchId, ...gift } = input;
+      try {
+        return await members.grantCouponBatch(audience, gift, batchId);
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudieron crear los cupones' });
+      }
+    }),
+    revokeCoupon: adminProcedure.input(z.object({ id: z.number().int() })).mutation(async ({ input }) => {
+      await members.revokeMemberCoupon(input.id);
+      return { ok: true as const };
     }),
   }),
 
@@ -4868,8 +4913,8 @@ export const appRouter = router({
       ticketCode: z.string().max(64).optional(),
       // Dispositivo con avisos activos: suma la hora de apertura a su historial (mejor hora por persona).
       endpoint: z.string().url().max(512).optional(),
-    })).mutation(async ({ input }) => {
-      await appDevices.recordAppOpen(input);
+    })).mutation(async ({ input, ctx }) => {
+      await appDevices.recordAppOpen({ ...input, memberEmail: getMemberEmail(ctx.req) });
       return { success: true };
     }),
     appStats: adminReadProcedure.query(() => appDevices.appInstallStats()),
@@ -4906,6 +4951,15 @@ export const appRouter = router({
     sendTest: adminProcedure.input(pushCampaignSchema.pick({ title: true, body: true, url: true, imageUrl: true }).extend({ email: z.string().email() })).mutation(async ({ input }) => {
       try {
         return await customerPush.sendPushTest(input.email, { title: input.title, body: input.body, url: input.url, image: input.imageUrl });
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo enviar' });
+      }
+    }),
+    // Push a una persona (ficha del cliente / Clientes con la app): queda en el Historial.
+    devicesFor: adminReadProcedure.input(z.object({ email: z.string().email() })).query(({ input }) => customerPush.countPushForEmail(input.email)),
+    sendToCustomer: adminProcedure.input(pushCampaignSchema.pick({ title: true, body: true, url: true }).extend({ email: z.string().email() })).mutation(async ({ input, ctx }) => {
+      try {
+        return await customerPush.sendPushToCustomer({ ...input, createdBy: ctx.user?.name ?? ctx.user?.email ?? null });
       } catch (err) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo enviar' });
       }
@@ -6720,7 +6774,7 @@ export const appRouter = router({
       // lista en memoria de siempre: la tabla nunca queda sin datos por esto.
       try {
         const now = new Date();
-        const withApp = await appDevices.appEmails();
+        const withApp = await appDevices.appUserEmails();
         const result = await pageCustomers(filters, page, pageSize, { now, appEmails: withApp });
         return { ...result, rows: decorateCustomers(result.rows, withApp, now) };
       } catch (err) {
@@ -6735,7 +6789,7 @@ export const appRouter = router({
     detail: adminReadProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
       const profile = await getCustomerProfile(input.id);
       if (!profile) throw new TRPCError({ code: 'NOT_FOUND', message: 'No encontré a ese cliente.' });
-      return { ...profile, hasApp: (await appDevices.appEmails()).has(String(profile.customer.email).toLowerCase()) };
+      return { ...profile, hasApp: (await appDevices.appUserEmails()).has(String(profile.customer.email).toLowerCase()) };
     }),
     // Edición manual de la ficha. Lo que se toca queda protegido de las
     // compras nuevas (lockedFields) y se deja en la bitácora de admin.
@@ -6821,6 +6875,30 @@ export const appRouter = router({
     adjustPlaycoins: adminProcedure.input(z.object({ customerId: z.number(), delta: z.number().int(), note: z.string().optional() })).mutation(async ({ input }) => {
       await db.adjustPlaycoinsManually(input.customerId, input.delta, input.note ?? '');
       return { success: true } as const;
+    }),
+    // Unir dos fichas de la misma persona (compró con dos correos).
+    mergePreview: adminReadProcedure.input(z.object({ keepId: z.number().int(), fromId: z.number().int() })).query(async ({ input }) => {
+      try { return await previewCustomerMerge(input.keepId, input.fromId); }
+      catch (err) { throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo revisar' }); }
+    }),
+    merge: adminProcedure.input(z.object({ keepId: z.number().int(), fromId: z.number().int() })).mutation(async ({ input, ctx }) => {
+      try {
+        const r = await mergeCustomers(input.keepId, input.fromId);
+        await db.recordAdminAudit({ action: 'customers.merge', targetType: 'customer', targetId: input.keepId, payload: { unido: r.fromEmail, en: r.keepEmail, compras: r.orders }, ip: clientIp(ctx) });
+        return r;
+      } catch (err) { throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudieron unir' }); }
+    }),
+    // Saldo PlayCard y PIN de la tarjeta (sección App / ficha del cliente).
+    adjustPrepaid: adminProcedure.input(z.object({ customerId: z.number(), delta: z.number().int().min(-10_000_000).max(10_000_000).refine((n) => n !== 0), note: z.string().trim().min(3).max(500) })).mutation(async ({ input, ctx }) => {
+      const by = ctx.user?.name ?? ctx.user?.email ?? 'admin';
+      return db.adjustPrepaidManually(input.customerId, input.delta, `${input.note} (por ${by})`);
+    }),
+    resetCardPin: adminProcedure.input(z.object({ customerId: z.number(), notify: z.boolean().default(true) })).mutation(async ({ input }) => {
+      const email = await db.resetCardPin(input.customerId);
+      if (input.notify && email) {
+        await customerPush.pushToEmail(email, { title: '🔑 Tu PIN de la PlayCard se reinició', body: 'Crea uno nuevo la próxima vez que recargues saldo.', url: '/cuenta' });
+      }
+      return { ok: true as const };
     }),
   }),
 

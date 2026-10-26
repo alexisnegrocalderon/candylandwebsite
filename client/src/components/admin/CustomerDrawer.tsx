@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { Copy, Lock, MessageCircle, Instagram, Mail, ChevronLeft, ChevronRight, Sparkles, X, BellOff, Trash2 } from 'lucide-react';
+import { Copy, Lock, MessageCircle, Instagram, Mail, ChevronLeft, ChevronRight, Sparkles, X, BellOff, Trash2, Gift, BellRing, Merge } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,6 +12,9 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { WriteButton } from '@/components/admin/WriteButton';
 import { ConfirmDeleteButton } from '@/components/admin/ConfirmDeleteButton';
+import { GrantCouponDialog } from '@/components/admin/app/GrantCouponDialog';
+import { SendPushDialog } from '@/components/admin/app/SendPushDialog';
+import { MergeCustomerDialog } from '@/components/admin/app/MergeCustomerDialog';
 import { formatChileDate, formatChileDateTime } from '@shared/chileDate';
 import {
   CUSTOMER_LEVEL_META, GENDER_OPTIONS, SOURCE_OPTIONS, customerDeleteBlocker, formatBirthDate, normalizeCustomerEmail, whatsappUrl,
@@ -62,6 +65,11 @@ export function CustomerDrawer({ customerId, onClose, onPrev, onNext, onChanged,
   const [form, setForm] = useState<FormState | null>(null);
   const [initial, setInitial] = useState<FormState | null>(null);
   const [tab, setTab] = useState('datos');
+  const [giftOpen, setGiftOpen] = useState(false);
+  const [pushOpen, setPushOpen] = useState(false);
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [prepaidDelta, setPrepaidDelta] = useState('');
+  const [prepaidNote, setPrepaidNote] = useState('');
   const [newTag, setNewTag] = useState('');
   const [adjust, setAdjust] = useState('');
 
@@ -89,6 +97,14 @@ export function CustomerDrawer({ customerId, onClose, onPrev, onNext, onChanged,
   });
   const addTag = trpc.customers.addTag.useMutation({ onSuccess: refresh, onError: (e) => toast.error(e.message) });
   const removeTag = trpc.customers.removeTag.useMutation({ onSuccess: refresh, onError: (e) => toast.error(e.message) });
+  const adjustPrepaid = trpc.customers.adjustPrepaid.useMutation({
+    onSuccess: (r) => { toast.success(`Saldo ajustado: queda en $${r.balanceAfter.toLocaleString('es-CL')}`); setPrepaidDelta(''); setPrepaidNote(''); refresh(); },
+    onError: (e) => toast.error(e.message),
+  });
+  const resetPin = trpc.customers.resetCardPin.useMutation({
+    onSuccess: () => { toast.success('PIN reiniciado: creará uno nuevo en su próxima recarga'); refresh(); },
+    onError: (e) => toast.error(e.message),
+  });
   const adjustPlaycoins = trpc.customers.adjustPlaycoins.useMutation({
     onSuccess: () => { setAdjust(''); refresh(); },
     onError: (e) => toast.error(e.message),
@@ -192,7 +208,7 @@ export function CustomerDrawer({ customerId, onClose, onPrev, onNext, onChanged,
                     {(c.emailOptOut || c.whatsappOptOut) && (
                       <span className="text-xs px-2 py-0.5 rounded-full bg-destructive/10 text-destructive flex items-center gap-1"><BellOff className="w-3 h-3" /> No contactar</span>
                     )}
-                    {data?.hasApp && <span className="text-xs px-2 py-0.5 rounded-full bg-primary/15 text-primary" title="Abrió la app instalada en los últimos 60 días">📱 Tiene la app</span>}
+                    {data?.hasApp && <span className="text-xs px-2 py-0.5 rounded-full bg-primary/15 text-primary" title="Tiene cuenta en la app o la abrió instalada en los últimos 60 días">📱 Tiene la app</span>}
                   </div>
                   <p className="text-sm text-muted-foreground truncate">{c.email}</p>
                   <div className="flex flex-wrap gap-2 mt-2">
@@ -208,6 +224,18 @@ export function CustomerDrawer({ customerId, onClose, onPrev, onNext, onChanged,
                     <Button size="sm" variant="ghost" className="h-8 gap-1.5" onClick={() => { navigator.clipboard?.writeText(c.email); toast.success('Email copiado'); }}>
                       <Copy className="w-3.5 h-3.5" /> Copiar email
                     </Button>
+                    <WriteButton size="sm" variant="outline" className="h-8 gap-1.5" onClick={() => setGiftOpen(true)}>
+                      <Gift className="w-3.5 h-3.5" /> Regalar cupón
+                    </WriteButton>
+                    <GrantCouponDialog open={giftOpen} onClose={() => setGiftOpen(false)} email={c.email} name={c.fullName} />
+                    <WriteButton size="sm" variant="outline" className="h-8 gap-1.5" onClick={() => setPushOpen(true)}>
+                      <BellRing className="w-3.5 h-3.5" /> Enviar push
+                    </WriteButton>
+                    <SendPushDialog open={pushOpen} onClose={() => setPushOpen(false)} email={c.email} name={c.fullName} />
+                    <WriteButton size="sm" variant="outline" className="h-8 gap-1.5" onClick={() => setMergeOpen(true)}>
+                      <Merge className="w-3.5 h-3.5" /> Unir con otra ficha
+                    </WriteButton>
+                    <MergeCustomerDialog open={mergeOpen} onClose={() => setMergeOpen(false)} keepId={c.id} keepEmail={c.email} onMerged={() => { onChanged(); refresh(); }} />
                   </div>
                 </div>
               </div>
@@ -246,6 +274,31 @@ export function CustomerDrawer({ customerId, onClose, onPrev, onNext, onChanged,
 
                 {/* DATOS */}
                 <TabsContent value="datos" className="space-y-6 pt-4">
+                  <div className="rounded-xl border border-border/60 p-3">
+                    <p className="text-xs text-muted-foreground">Saldo PlayCard</p>
+                    <p className="text-2xl font-semibold">{money(c.prepaidBalance)}</p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <Input type="number" inputMode="numeric" value={prepaidDelta} onChange={(e) => setPrepaidDelta(e.target.value)} placeholder="+/- $" className="h-8 w-24 text-xs" aria-label="Monto del ajuste" />
+                      <Input value={prepaidNote} onChange={(e) => setPrepaidNote(e.target.value)} placeholder="Motivo (solo lo ves tú)" className="h-8 min-w-0 flex-1 text-xs" />
+                      <WriteButton size="sm" variant="outline" className="h-8" disabled={adjustPrepaid.isPending || !Number(prepaidDelta) || prepaidNote.trim().length < 3}
+                        onClick={() => {
+                          const delta = Math.round(Number(prepaidDelta));
+                          if (!window.confirm(`¿${delta > 0 ? 'Cargar' : 'Descontar'} $${Math.abs(delta).toLocaleString('es-CL')} ${delta > 0 ? 'a' : 'de'} la PlayCard de ${c.fullName || c.email}? En su app sale como «Ajuste».`)) return;
+                          adjustPrepaid.mutate({ customerId: c.id, delta, note: prepaidNote.trim() });
+                        }}>
+                        Ajustar
+                      </WriteButton>
+                    </div>
+                    <div className="mt-2 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                      <span>{c.cardPinSetAt ? `PIN creado el ${formatChileDate(c.cardPinSetAt)}` : 'Sin PIN'}</span>
+                      {c.cardPinSetAt && (
+                        <WriteButton size="sm" variant="ghost" className="h-7 px-2 text-xs" disabled={resetPin.isPending}
+                          onClick={() => { if (window.confirm('¿Reiniciar el PIN de la tarjeta? Creará uno nuevo en su próxima recarga y le llegará un aviso.')) resetPin.mutate({ customerId: c.id, notify: true }); }}>
+                          Reiniciar PIN
+                        </WriteButton>
+                      )}
+                    </div>
+                  </div>
                   <Section title="Contacto">
                     <Field label="Nombre completo" locked={locked.includes('fullName')}>
                       <Input value={form.fullName} onChange={(e) => set('fullName', e.target.value)} />
@@ -253,7 +306,7 @@ export function CustomerDrawer({ customerId, onClose, onPrev, onNext, onChanged,
                     <Field label="Email">
                       <Input value={form.email} onChange={(e) => set('email', e.target.value)} type="email" inputMode="email" autoCapitalize="none" autoCorrect="off" />
                       {form.email.trim().toLowerCase() !== c.email.toLowerCase() && (
-                        <p className="text-xs text-amber-600 mt-1">Al guardar, {data.kpis.totalOrders === 1 ? 'su compra pasa' : `sus ${data.kpis.totalOrders} compras pasan`} a este correo y entra a su app con él.</p>
+                        <p className="text-xs text-amber-600 mt-1">Al guardar, {data.kpis.totalOrders === 1 ? 'su compra pasa' : `sus ${data.kpis.totalOrders} compras pasan`} a este correo y entra a su app con él. Si ese correo ya es de otra ficha de la misma persona, usa «Unir con otra ficha».</p>
                       )}
                     </Field>
                     <Field label="Teléfono / WhatsApp" locked={locked.includes('phone')}>
@@ -450,7 +503,7 @@ export function CustomerDrawer({ customerId, onClose, onPrev, onNext, onChanged,
                       />
                     </div>
                   </div>
-                  <div className="grid sm:grid-cols-2 gap-4">
+                  <div className="grid gap-4">
                     <div className="rounded-xl border border-border/60 p-3">
                       <p className="text-xs text-muted-foreground">Playcoins</p>
                       <p className="text-2xl font-semibold">🪙 {c.playcoins}</p>
@@ -461,10 +514,6 @@ export function CustomerDrawer({ customerId, onClose, onPrev, onNext, onChanged,
                           Ajustar
                         </WriteButton>
                       </div>
-                    </div>
-                    <div className="rounded-xl border border-border/60 p-3">
-                      <p className="text-xs text-muted-foreground">Saldo prepagado</p>
-                      <p className="text-2xl font-semibold">{money(c.prepaidBalance)}</p>
                     </div>
                   </div>
                   {data.playcoinHistory.length > 0 && (
