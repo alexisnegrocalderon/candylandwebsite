@@ -6,7 +6,7 @@
  * Cualquier correo puede entrar (quien instala la app sin haber comprado también): el código se manda
  * siempre, y la ficha de cliente se crea recién al confirmar el código (createSignupCustomer), así un
  * correo mal escrito no deja fichas vacías. Los límites por correo e IP están en server/routers.ts. */
-import { and, desc, eq, gte, inArray, isNotNull, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNotNull, ne, or, sql } from 'drizzle-orm';
 import { getDb, getSiteSettings } from './db';
 import { sendEmail, buildMemberCodeEmail } from './email';
 import { pushToEmail } from './customerPush';
@@ -14,7 +14,8 @@ import { findAmbassadorByEmail } from './ambassadorProgram';
 import { findStaffByEmail } from './staffPortal';
 import { isAdminEmail } from './adminEmail';
 import { currentMemberCode, normalizeMemberEmail, randomCouponCode } from './memberAuth';
-import { customers, discountCodes, events, memberCoupons, orders, playcoinsLedger, prepaidLedger, tickets, ticketTypes } from '../drizzle/schema';
+import { cajaOpIsMine } from './memberCajaOps';
+import { customers, discountCodes, events, kitchenTickets, lockerItems, memberCoupons, orders, playcoinsLedger, prepaidLedger, tickets, ticketTypes } from '../drizzle/schema';
 import { computeCustomerLevel, daysUntilBirthday } from '../shared/customerInsights';
 import { couponStatus, normalizeMemberConfig, type CouponRule, type MemberConfig } from '../shared/memberConfig';
 import { chileParts } from '../shared/pushSchedule';
@@ -297,7 +298,7 @@ export async function getMemberHome(email: string, now = new Date()) {
       code: discountCodes.code, percent: discountCodes.discountValue, validUntil: discountCodes.validUntil, usedCount: discountCodes.usedCount, maxUses: discountCodes.maxUses, isActive: discountCodes.isActive,
     }).from(memberCoupons).innerJoin(discountCodes, eq(memberCoupons.discountCodeId, discountCodes.id)).where(eq(memberCoupons.email, key)).orderBy(desc(memberCoupons.createdAt)).limit(30),
     db.select({
-      ticketCode: tickets.ticketCode, holderName: tickets.holderName, status: tickets.status, qrImageUrl: tickets.qrImageUrl,
+      ticketCode: tickets.ticketCode, displayCode: tickets.displayCode, usedAt: tickets.usedAt, holderName: tickets.holderName, status: tickets.status, qrImageUrl: tickets.qrImageUrl,
       category: ticketTypes.category, typeName: ticketTypes.name,
       eventId: events.id, eventTitle: events.title, eventSlug: events.slug, eventDate: events.eventDate, venue: events.venue,
       doorsOpen: events.doorsOpen, eventEnd: events.eventEnd, attendeeData: orders.attendeeData,
@@ -315,17 +316,50 @@ export async function getMemberHome(email: string, now = new Date()) {
     ...points.map((r) => ({ type: 'points' as const, label: PLAYCOINS_LABEL[r.reason] ?? r.reason, delta: r.delta, createdAt: r.createdAt })),
   ].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()).slice(0, 8);
 
-  const byEvent = new Map<number, { eventId: number; eventTitle: string; eventSlug: string; eventDate: Date; venue: string | null; doorsOpen: Date | null; eventEnd: Date | null; tickets: { ticketCode: string; holderName: string | null; status: string; qrImageUrl: string | null; category: string; kind: TicketKind; kindLabel: string; companions: Companion[] }[] }>();
+  type EventGroup = {
+    eventId: number; eventTitle: string; eventSlug: string; eventDate: Date; venue: string | null; doorsOpen: Date | null; eventEnd: Date | null;
+    tickets: { ticketCode: string; displayCode: string | null; usedAt: Date | null; typeName: string; holderName: string | null; status: string; qrImageUrl: string | null; category: string; kind: TicketKind; kindLabel: string; companions: Companion[] }[];
+    /** Lo que la caja le guardó o preparó en la fiesta (se une por el correo de la venta). */
+    lockers: { tagNumber: string; status: string; receivedAt: Date | null; retrievedAt: Date | null }[];
+    kitchen: { ticketNumber: string; status: string; items: { name: string; quantity: number }[]; createdAt: Date; deliveredAt: Date | null }[];
+  };
+  const byEvent = new Map<number, EventGroup>();
   for (const t of ticketRows) {
-    const g = byEvent.get(t.eventId) ?? { eventId: t.eventId, eventTitle: t.eventTitle, eventSlug: t.eventSlug, eventDate: t.eventDate, venue: t.venue, doorsOpen: t.doorsOpen ?? null, eventEnd: t.eventEnd ?? null, tickets: [] };
+    const g: EventGroup = byEvent.get(t.eventId) ?? { eventId: t.eventId, eventTitle: t.eventTitle, eventSlug: t.eventSlug, eventDate: t.eventDate, venue: t.venue, doorsOpen: t.doorsOpen ?? null, eventEnd: t.eventEnd ?? null, tickets: [], lockers: [], kitchen: [] };
     const kind = ticketKind(t.category, t.typeName);
     // Los acompañantes (nombre y documento) que se anotaron al comprar: solo en el acceso, nunca en los extras.
     let companions: Companion[] = [];
     if (kind === 'acceso' && t.attendeeData) {
       try { companions = companionsFromCampos((JSON.parse(t.attendeeData) as { campos?: Record<string, unknown> })?.campos); } catch { /* datos viejos: sin acompañantes */ }
     }
-    g.tickets.push({ ticketCode: t.ticketCode, holderName: t.holderName, status: t.status, qrImageUrl: t.qrImageUrl ?? null, category: t.category, kind, kindLabel: ticketKindLabel(kind, t.typeName), companions });
+    g.tickets.push({ ticketCode: t.ticketCode, displayCode: t.displayCode ?? null, usedAt: t.usedAt ?? null, typeName: t.typeName, holderName: t.holderName, status: t.status, qrImageUrl: t.qrImageUrl ?? null, category: t.category, kind, kindLabel: ticketKindLabel(kind, t.typeName), companions });
     byEvent.set(t.eventId, g);
+  }
+
+  // Guardarropía y cocina de la caja de las fiestas vigentes: se unen por el correo de la venta.
+  const onSiteWhere = (opIdColumn: unknown) => and(or(sql`LOWER(${orders.buyerEmail}) = ${key}`, cajaOpIsMine(customer.id, opIdColumn)), gte(events.eventDate, new Date(now.getTime() - 12 * 3_600_000)), or(inArray(events.status, ['published', 'soldout']), eq(events.slug, DEMO_EVENT_SLUG)));
+  const eventCols = { eventId: events.id, eventTitle: events.title, eventSlug: events.slug, eventDate: events.eventDate, venue: events.venue, doorsOpen: events.doorsOpen, eventEnd: events.eventEnd };
+  const [lockerRows, kitchenRows] = await Promise.all([
+    db.select({ ...eventCols, tagNumber: lockerItems.tagNumber, status: lockerItems.status, receivedAt: lockerItems.receivedAt, retrievedAt: lockerItems.retrievedAt })
+      .from(lockerItems).innerJoin(orders, eq(lockerItems.orderId, orders.id)).innerJoin(events, eq(lockerItems.eventId, events.id))
+      .where(and(onSiteWhere(lockerItems.opId), ne(lockerItems.status, 'anulado'))).orderBy(lockerItems.chargedAt).limit(20),
+    db.select({ ...eventCols, ticketNumber: kitchenTickets.ticketNumber, status: kitchenTickets.status, items: kitchenTickets.items, createdAt: kitchenTickets.createdAt, deliveredAt: kitchenTickets.deliveredAt })
+      .from(kitchenTickets).innerJoin(orders, eq(kitchenTickets.orderId, orders.id)).innerJoin(events, eq(kitchenTickets.eventId, events.id))
+      .where(and(onSiteWhere(kitchenTickets.opId), ne(kitchenTickets.status, 'anulado'))).orderBy(kitchenTickets.createdAt).limit(20),
+  ]);
+  const groupFor = (r: typeof lockerRows[number] | typeof kitchenRows[number]): EventGroup => {
+    const g = byEvent.get(r.eventId) ?? { eventId: r.eventId, eventTitle: r.eventTitle, eventSlug: r.eventSlug, eventDate: r.eventDate, venue: r.venue, doorsOpen: r.doorsOpen ?? null, eventEnd: r.eventEnd ?? null, tickets: [], lockers: [], kitchen: [] };
+    byEvent.set(r.eventId, g);
+    return g;
+  };
+  for (const l of lockerRows) groupFor(l).lockers.push({ tagNumber: l.tagNumber, status: l.status, receivedAt: l.receivedAt ?? null, retrievedAt: l.retrievedAt ?? null });
+  for (const k of kitchenRows) {
+    let items: unknown = k.items;
+    if (typeof items === 'string') { try { items = JSON.parse(items); } catch { items = []; } }
+    groupFor(k).kitchen.push({
+      ticketNumber: k.ticketNumber, status: k.status, createdAt: k.createdAt, deliveredAt: k.deliveredAt ?? null,
+      items: Array.isArray(items) ? items.map((i: any) => ({ name: String(i?.name ?? ''), quantity: Number(i?.quantity) || 0 })) : [],
+    });
   }
 
   const config = await getMemberConfig();
@@ -341,7 +375,7 @@ export async function getMemberHome(email: string, now = new Date()) {
     memberSince: customer.memberSince,
     movements,
     // Accesos primero y los extras (estacionamiento, guardarropía…) después.
-    events: Array.from(byEvent.values()).map((e) => ({ ...e, tickets: sortByKind(e.tickets) })),
+    events: Array.from(byEvent.values()).sort((a, b) => a.eventDate.getTime() - b.eventDate.getTime()).map((e) => ({ ...e, tickets: sortByKind(e.tickets) })),
     coupons: couponRows.map((c) => ({
       id: c.id, kind: c.kind, title: c.title, code: c.code, percent: Number(c.percent), validUntil: c.validUntil,
       status: couponStatus({ usedCount: c.usedCount, maxUses: c.maxUses, validUntil: c.validUntil, isActive: c.isActive }, now),

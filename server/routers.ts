@@ -182,6 +182,7 @@ import { activatePlaymatchForTicket } from "./partyActivation";
 import * as staffPortal from "./staffPortal";
 import { ensureStaffSalesLink } from "./staffSales";
 import { pageCustomers } from "./customerFilters";
+import { getMemberHistory } from "./memberHistory";
 import { hasSalesLink } from "../shared/staffSales";
 import { autoPackFromDesign, deleteAmbassadorItem, ensureAmbassadorDrafts, getUpcomingContentEvents, listAmbassadorItems, notifyAmbassadorsNewContent, saveAmbassadorItem, sendStudioToAmbassadors, setAmbassadorItemStatus } from "./ambassadorContent";
 import { listContentDesigns, getContentDesign, saveContentDesign, deleteContentDesign, getContentVideo, saveContentVideo, listVideoStyles, saveVideoStyle, deleteVideoStyle } from "./contentStudio";
@@ -4568,6 +4569,17 @@ export const appRouter = router({
       const home = await members.getMemberHome(email);
       // `isAdmin`: el correo es del dueño (ADMIN_EMAILS) → la app muestra el acceso al panel.
       return home ? { ...home, isAdmin: isAdminEmail(email) } : home;
+    }),
+    // «Mis movimientos»: todo lo que hizo y gastó (compras, saldo, Playcoins, canjes, guardarropía y cocina), por
+    // página y con filtro. Solo lo del correo de la sesión (server/memberHistory.ts).
+    history: publicProcedure.input(z.object({
+      filter: z.enum(['todo', 'compras', 'saldo', 'playcoins', 'canjes']).default('todo'),
+      cursor: z.string().max(120).nullish(),
+      limit: z.number().int().min(5).max(60).optional(),
+    })).query(async ({ ctx, input }) => {
+      const email = getMemberEmail(ctx.req);
+      if (!email) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Entra a tu cuenta para ver tus movimientos.' });
+      return getMemberHistory(email, { filter: input.filter, cursor: input.cursor ?? null, limit: input.limit });
     }),
     // Tarjeta de sellos de la app: 1 de regalo + 1 por fiesta a la que entró; 6 = un Acceso Dúo gratis.
     stamps: publicProcedure.query(async ({ ctx }) => {
