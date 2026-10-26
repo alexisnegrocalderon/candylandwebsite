@@ -2,7 +2,7 @@ import { Component, Fragment, useEffect, useRef, useState, type ReactNode } from
 import { createPortal } from 'react-dom';
 import { AnimatePresence, MotionConfig, motion, useDragControls } from 'framer-motion';
 import { toast } from 'sonner';
-import { BadgeCheck, Calendar, Check, Copy, Crown, Gift, LogOut, Sparkles, Ticket as TicketIcon, ArrowRight, Download, Loader2, X, QrCode, CreditCard, Wallet, Plus, RefreshCw, Bell, ChevronLeft, ChevronRight, Heart, User, WifiOff, ScanFace, CircleHelp, Shirt, MessageCircle, FileText } from 'lucide-react';
+import { BadgeCheck, Calendar, Check, Copy, Crown, Gift, LogOut, Sparkles, Ticket as TicketIcon, ArrowRight, Loader2, QrCode, CreditCard, Wallet, Plus, RefreshCw, Bell, ChevronLeft, ChevronRight, Heart, User, WifiOff, ScanFace, CircleHelp, Shirt, MessageCircle, FileText } from 'lucide-react';
 import { Link } from 'wouter';
 import { trpc } from '@/lib/trpc';
 import type { inferRouterOutputs } from '@trpc/server';
@@ -16,7 +16,6 @@ import { canRedeem, PLAYCOINS_MIN_REDEEM_BALANCE } from '@shared/playcoins';
 import { CUSTOMER_LEVEL_META } from '@shared/customerInsights';
 import { isMemberEarlyAccess } from '@shared/memberConfig';
 import { WalletCard } from '@/components/wallet/WalletCard';
-import { saveTicketImage } from '@/lib/ticketImage';
 import { PushPrompt } from '@/components/site/PushPrompt';
 import { useDarkChrome } from '@/lib/darkChrome';
 import { Pager } from '@/components/site/Pager';
@@ -27,6 +26,8 @@ import { StampsTab } from '@/components/site/StampCard';
 import { SolteroAccess, solteroRowSub, useSolteroStatus } from '@/components/site/SolteroAccess';
 import { StaffAccount, StaffBanner, useStaffPortal } from '@/components/site/StaffAccount';
 import { PlaymatchTab } from '@/components/site/PlaymatchTab';
+import { PlayCardTab } from '@/components/site/PlayCardTab';
+import { QrViewer, tapHaptic, useCountdown, type MeEvent, type Movement } from '@/components/site/walletParts';
 import { canEnterParty } from '@shared/party';
 import { TICKET_KIND_META, type TicketKind } from '@shared/ticketKind';
 import { useCustomerPush } from '@/lib/customerPush';
@@ -87,9 +88,6 @@ function CouponCard({ c }: { c: { id: number; kind: string; title: string; code:
   );
 }
 
-/** Vibración leve al tocar (Android; Safari en iPhone no la permite a las páginas web). */
-const tapHaptic = () => { try { navigator.vibrate?.(8); } catch { /* sin vibración */ } };
-
 /** Números que cuentan hacia arriba al aparecer (saldo, Playcoins). */
 function useCountUp(value: number, ms = 700): number {
   const [shown, setShown] = useState(value);
@@ -108,79 +106,6 @@ function useCountUp(value: number, ms = 700): number {
     return () => cancelAnimationFrame(raf);
   }, [value, ms]);
   return shown;
-}
-
-/** «Faltan 8 días», «Faltan 5 h 20 min» o «¡Es hoy!». */
-function useCountdown(date: string | Date) {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => { const t = window.setInterval(() => setNow(Date.now()), 30_000); return () => window.clearInterval(t); }, []);
-  const ms = new Date(date).getTime() - now;
-  if (ms <= 0) return '¡Es hoy! 🎉';
-  const mins = Math.floor(ms / 60_000);
-  const days = Math.floor(mins / 1440);
-  if (days >= 2) return `Faltan ${days} días`;
-  const hours = Math.floor(mins / 60);
-  if (days === 1 && hours >= 24) return `Falta 1 día ${hours - 24} h`;
-  return `Faltan ${hours} h ${mins % 60} min`;
-}
-
-type MeEvent = { eventId: number; eventTitle: string; eventSlug: string; eventDate: string | Date; venue: string | null; doorsOpen?: string | Date | null; eventEnd?: string | Date | null; tickets: { ticketCode: string; holderName: string | null; status: string; qrImageUrl: string | null; category?: string; kind?: TicketKind; kindLabel?: string; companions?: { nombre: string; rut: string }[] }[] };
-
-type Movement = { type: 'money' | 'points'; label: string; delta: number; createdAt: string | Date };
-
-/** El QR a pantalla completa sobre blanco (máximo contraste para el lector de la puerta y de caja),
- * con la pantalla encendida mientras está abierto. Desde acá también se guarda en Fotos. */
-function QrViewer({ ev, t, holder, onClose }: { ev: MeEvent; t: MeEvent['tickets'][number]; holder: string; onClose: () => void }) {
-  const [saving, setSaving] = useState(false);
-  useEffect(() => {
-    let lock: { release: () => Promise<void> } | null = null;
-    const nav = navigator as Navigator & { wakeLock?: { request: (t: 'screen') => Promise<{ release: () => Promise<void> }> } };
-    nav.wakeLock?.request('screen').then((l) => { lock = l; }).catch(() => { /* sin wake lock */ });
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => { window.removeEventListener('keydown', onKey); void lock?.release().catch(() => {}); };
-  }, [onClose]);
-  const save = async () => {
-    if (!t.qrImageUrl || saving) return;
-    setSaving(true);
-    try {
-      const r = await saveTicketImage({ qrImageUrl: t.qrImageUrl, ticketCode: t.ticketCode, holderName: t.holderName || holder, eventTitle: ev.eventTitle, eventDateText: fmtDateTime(ev.eventDate), venue: ev.venue, companions: t.companions });
-      if (r === 'downloaded') toast.success('Listo: la imagen de tu entrada quedó descargada.');
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'No se pudo guardar la imagen');
-    } finally {
-      setSaving(false);
-    }
-  };
-  return (
-    <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }} transition={{ duration: 0.22 }} className="account-font fixed inset-0 z-[90] flex flex-col items-center gap-5 overflow-y-auto bg-white px-6 pb-[max(24px,env(safe-area-inset-bottom))] pt-[max(24px,env(safe-area-inset-top))] text-[#0d0712] [&>*:first-child]:shrink-0" role="dialog" aria-label="Código QR de tu entrada">
-      <button type="button" onClick={onClose} aria-label="Cerrar" className="absolute right-4 top-[max(16px,env(safe-area-inset-top))] grid h-11 w-11 place-items-center rounded-full bg-black/5"><X className="h-5 w-5" /></button>
-      {t.kind && (
-        <p className={`rounded-full px-4 py-1.5 text-center text-subhead font-bold ${t.kind === 'estacionamiento' ? 'bg-sky-100 text-sky-900' : t.kind === 'acceso' ? 'bg-pink-100 text-pink-900' : 'bg-violet-100 text-violet-900'}`}>
-          {TICKET_KIND_META[t.kind].emoji} {t.kindLabel ?? TICKET_KIND_META[t.kind].label}
-        </p>
-      )}
-      <p className="text-center text-title2 font-bold leading-tight tracking-tight">{ev.eventTitle}</p>
-      {t.kind && <p className="-mt-3 text-center text-footnote text-black/60">{TICKET_KIND_META[t.kind].where}</p>}
-      {t.qrImageUrl && <img src={t.qrImageUrl} alt="Código QR de tu entrada" className={`aspect-square [image-rendering:pixelated] ${t.companions && t.companions.length > 0 ? 'w-[min(80vw,40vh)]' : 'w-[min(86vw,58vh)]'}`} />}
-      <div className="text-center">
-        <p className="text-title3 font-semibold">{t.holderName || holder}</p>
-        <p className="font-mono text-subhead text-black/60">{t.ticketCode}</p>
-      </div>
-      {t.companions && t.companions.length > 0 && (
-        <div className="w-full max-w-sm rounded-2xl bg-black/[0.04] px-4 py-3 text-center">
-          <p className="text-caption2 font-semibold uppercase tracking-[0.18em] text-black/60">{t.companions.length > 1 ? 'Acompañantes' : 'Acompañante'}</p>
-          {t.companions.map((c) => (
-            <p key={c.rut} className="mt-1 text-subhead font-semibold leading-tight">{c.nombre} <span className="font-mono text-footnote font-normal text-black/60">· {c.rut}</span></p>
-          ))}
-        </div>
-      )}
-      <p className="text-center text-caption1 text-black/60">Sube el brillo de la pantalla. Muestra tu carnet en la entrada.</p>
-      <button type="button" onClick={() => { void save(); }} disabled={saving} className="inline-flex h-12 items-center justify-center gap-2 rounded-full bg-[#0d0712] px-6 text-subhead font-bold text-white interactive disabled:opacity-60">
-        {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} Guardar en Fotos
-      </button>
-    </motion.div>
-  );
 }
 
 /** Cómo se llama cada entrada en el selector: el primer nombre, y si se repite (varias a nombre de
@@ -205,7 +130,7 @@ function holderLabels(list: { holderName: string | null; kind?: TicketKind }[]):
 
 /** Lo primero que ve quien entra: su PlayCard con el QR de la entrada del próximo evento.
  * Tocar la tarjeta abre el QR a pantalla completa (y desde ahí se guarda en Fotos). */
-function TicketWallet({ ev, holder, prepaidBalance, playcoins, movements, compact = false, onTopup, onPayCaja, onPlaymatch }: { ev: MeEvent | null; holder: string; prepaidBalance: number; playcoins: number; movements: Movement[]; compact?: boolean; onTopup?: () => void; onPayCaja?: () => void; onPlaymatch?: () => void }) {
+function TicketWallet({ ev, holder, prepaidBalance, playcoins, movements, onTopup, onPayCaja, onPlaymatch }: { ev: MeEvent | null; holder: string; prepaidBalance: number; playcoins: number; movements: Movement[]; onTopup?: () => void; onPayCaja?: () => void; onPlaymatch?: () => void }) {
   const [i, setI] = useState(0);
   const [showQr, setShowQr] = useState(false);
   const t = ev ? ev.tickets[Math.min(i, ev.tickets.length - 1)] : null;
@@ -224,7 +149,6 @@ function TicketWallet({ ev, holder, prepaidBalance, playcoins, movements, compac
         playcoins={playcoins}
         movements={movements.map((m) => ({ ...m, createdAt: new Date(m.createdAt) })) as any}
         onCardClick={usable ? () => { tapHaptic(); setShowQr(true); } : undefined}
-        hideFlipHint={compact}
         flipSignal={flipSignal}
         kind={t?.kind ? { label: `${TICKET_KIND_META[t.kind].emoji} ${t.kindLabel ?? TICKET_KIND_META[t.kind].label}`, tone: t.kind === 'acceso' ? 'acceso' : t.kind === 'estacionamiento' ? 'auto' : 'extra' } : undefined}
       />
@@ -258,24 +182,13 @@ function TicketWallet({ ev, holder, prepaidBalance, playcoins, movements, compac
     onTopup ? { key: 'recarga', label: 'Recargar', icon: Plus, onClick: onTopup } : null,
   ].filter(Boolean) as { key: string; label: string; icon: typeof Wallet; href?: string; onClick?: () => void; primary?: boolean }[];
 
-  if (compact) {
-    return (
-      <WalletStack
-        ev={ev} t={t} holder={holder} prepaidBalance={prepaidBalance} playcoins={playcoins} movements={movements}
-        holderPills={holderPills || null} usable={usable} playmatch={actions.find((x) => x.key === 'playmatch') ?? null}
-        onShowQr={() => setShowQr(true)} onPayCaja={onPayCaja} onTopup={onTopup}
-        qrViewer={createPortal(<AnimatePresence>{showQr && ev && t && <QrViewer ev={ev} t={t} holder={holder} onClose={() => setShowQr(false)} />}</AnimatePresence>, document.body)}
-      />
-    );
-  }
-
   return (
     <div className="space-y-4">
       {ev && <EventStrip ev={ev} />}
-      <div className={`rounded-[28px] ${compact ? 'p-3' : 'p-5 md:p-8'}`} style={{ background: 'radial-gradient(120% 120% at 20% 0%, #241432, #0d0712 70%)' }}>
+      <div className="rounded-[28px] p-5 md:p-8" style={{ background: 'radial-gradient(120% 120% at 20% 0%, #241432, #0d0712 70%)' }}>
         {card}
         {ev && ev.tickets.length > 1 && (
-          <div className={`flex flex-wrap justify-center gap-2 ${compact ? 'mt-2' : 'mt-4'}`}>
+          <div className="mt-4 flex flex-wrap justify-center gap-2">
             {ev.tickets.map((x, n) => (
               <button key={x.ticketCode} type="button" onClick={() => setI(n)} className={`rounded-full border px-3.5 py-1.5 text-subhead font-semibold interactive ${n === i ? 'border-pink-400 bg-pink-500/20 text-white' : 'border-white/15 text-white/70'}`}>
                 {x.status === 'used' ? '✅ ' : '🎟️ '}{x.holderName ? x.holderName.split(' ')[0] : `Entrada ${n + 1}`}
@@ -308,184 +221,9 @@ function TicketWallet({ ev, holder, prepaidBalance, playcoins, movements, compac
           )}
         </div>
       )}
-      {usable && !compact && <p className="text-center text-caption1 text-white/60">Toca tu PlayCard para ver el QR en grande y guardarlo en Fotos: así entras aunque no tengas señal.</p>}
+      {usable && <p className="text-center text-caption1 text-white/60">Toca tu PlayCard para ver el QR en grande y guardarlo en Fotos: así entras aunque no tengas señal.</p>}
       {/* Portal: por encima de la barra de abajo y del resto de la pantalla. */}
       {createPortal(<AnimatePresence>{showQr && ev && t && <QrViewer ev={ev} t={t} holder={holder} onClose={() => setShowQr(false)} />}</AnimatePresence>, document.body)}
-    </div>
-  );
-}
-
-/** Un toque «de verdad»: tiene que empezar y terminar sobre el mismo botón, y no en el primer instante
- * de la pantalla. Al abrir la app, el toque con que se cierra la bienvenida (o se entra) caía sobre la
- * tarjeta de abajo y abría el QR solo. */
-function useRealTap(handler: () => void) {
-  const shownAt = useRef(Date.now());
-  const down = useRef(0);
-  return {
-    onPointerDown: () => { down.current = Date.now(); },
-    onClick: () => {
-      const now = Date.now();
-      const real = down.current > 0 && now - down.current < 1200 && now - shownAt.current > 700;
-      down.current = 0;
-      if (real) handler();
-    },
-  };
-}
-
-/** Cuánto asoma la tarjeta de atrás (su encabezado), como en Apple Wallet. */
-const STACK_PEEK = 58;
-
-/** La entrada del evento como un pase de Apple Wallet: evento, fecha, hora, lugar, titular y tipo de
- * acceso. Tocarla no hace nada: el QR se abre solo con el botón «Mostrar QR». */
-function EntradaPass({ ev, t, holder }: { ev: MeEvent; t: MeEvent['tickets'][number]; holder: string }) {
-  const countdown = useCountdown(ev.eventDate);
-  const kind = t.kind ?? 'acceso';
-  const meta = TICKET_KIND_META[kind];
-  const ring = kind === 'acceso' ? 'from-pink-500/80 via-fuchsia-500/40 to-sky-400/80' : kind === 'estacionamiento' ? 'from-sky-300/80 via-blue-500/40 to-cyan-300/80' : 'from-violet-400/80 via-fuchsia-400/40 to-pink-300/80';
-  const used = t.status === 'used';
-  const d = new Date(ev.eventDate);
-  const fecha = d.toLocaleDateString('es-CL', { weekday: 'short', day: 'numeric', month: 'short' }).replace(/\./g, '');
-  const hora = d.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hour12: false });
-  const field = (label: string, value: string, cls = '') => (
-    <div className={`min-w-0 ${cls}`}>
-      <p className="text-caption2 font-semibold uppercase tracking-[0.16em] text-white/60">{label}</p>
-      <p className="mt-0.5 truncate text-subhead font-semibold text-white">{value}</p>
-    </div>
-  );
-  return (
-    <div className={`rounded-[26px] bg-gradient-to-br p-[1.5px] shadow-[0_24px_60px_-22px_rgba(0,0,0,0.9)] ${ring}`}>
-      <div className="relative overflow-hidden rounded-[25px] bg-[#150a1e] px-5 pb-4 pt-3">
-        <div aria-hidden className="pointer-events-none absolute -right-20 -top-24 h-60 w-60 rounded-full bg-pink-500/25 blur-3xl" />
-        <div aria-hidden className="pointer-events-none absolute -bottom-28 -left-16 h-60 w-60 rounded-full bg-sky-500/20 blur-3xl" />
-        {/* Encabezado: es lo que asoma cuando la entrada queda detrás de la PlayCard. */}
-        <div className="relative flex h-[34px] items-center justify-between gap-2">
-          <span className="flex min-w-0 items-center gap-2">
-            <img src="/candyland/logo-isotipo-transparent.png" alt="" className="h-6 w-6 shrink-0" />
-            <span className="text-caption1 font-bold uppercase tracking-[0.2em] text-white/80">Entrada</span>
-          </span>
-          <span className="truncate rounded-full bg-amber-200/90 px-2.5 py-1 text-caption2 font-bold uppercase tracking-wider text-[#2a1a05]">{meta.emoji} {t.kindLabel ?? meta.label}</span>
-        </div>
-        <p className="relative mt-3 line-clamp-2 text-title1 font-bold leading-[1.08] tracking-tight [@media(max-height:700px)]:mt-1.5 [@media(max-height:700px)]:line-clamp-1 [@media(max-height:700px)]:text-title3">{ev.eventTitle}</p>
-        <div className="relative mt-3.5 grid grid-cols-[auto_auto_1fr] gap-x-5 [@media(max-height:700px)]:mt-2.5">
-          {field('Fecha', fecha)}
-          {field('Hora', hora)}
-          {field('Lugar', ev.venue || 'Mansión PlayRoom')}
-        </div>
-        <div className="relative mt-3 flex items-end justify-between gap-3 [@media(max-height:700px)]:mt-2">
-          {field('Titular', t.holderName || holder, 'flex-1')}
-          <span className={`shrink-0 rounded-full px-3 py-1 text-caption1 font-bold ${used ? 'bg-emerald-400/15 text-emerald-300' : 'bg-gradient-to-r from-pink-500 to-sky-400 text-white shadow-[0_0_16px_rgba(236,72,153,0.45)]'}`}>
-            {used ? '✓ Ya entraste' : countdown}
-          </span>
-        </div>
-        {/* Quienes vienen con el titular: nombre y documento, para no perder esos datos. */}
-        {(t.kind ?? 'acceso') === 'acceso' && t.companions && t.companions.length > 0 && (
-          <div className="relative mt-3 [@media(max-height:700px)]:mt-2">
-            <p className="text-caption2 font-semibold uppercase tracking-[0.16em] text-white/60">{t.companions.length > 1 ? 'Acompañantes' : 'Acompañante'}</p>
-            {t.companions.map((c) => (
-              <p key={c.rut} className="mt-0.5 flex items-baseline justify-between gap-3 text-subhead font-semibold text-white"><span className="min-w-0 truncate">{c.nombre}</span><span className="shrink-0 font-mono text-footnote font-normal text-white/60">{c.rut}</span></p>
-            ))}
-          </div>
-        )}
-        {/* Perforado de entrada. */}
-        <div aria-hidden className="relative -mx-5 my-3 flex items-center [@media(max-height:700px)]:hidden">
-          <span className="-ml-2 h-4 w-4 rounded-full bg-[#0b0612]" />
-          <span className="h-px flex-1 border-t border-dashed border-white/20" />
-          <span className="-mr-2 h-4 w-4 rounded-full bg-[#0b0612]" />
-        </div>
-        <div className="relative flex items-center justify-between gap-3 text-caption1 [@media(max-height:700px)]:hidden">
-          <span className="shrink-0 whitespace-nowrap font-mono tracking-wider text-white/60">{maskCode(t.ticketCode)}</span>
-          <span className="truncate text-white/60">{meta.where}</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function maskCode(code: string): string {
-  return code.length > 6 ? `${code.slice(0, 2)} •••• ${code.slice(-4)}` : code;
-}
-
-/** PlayCard al estilo Apple Wallet: la entrada del próximo evento adelante y la PlayCard (saldo y
- * Playcoins) detrás, asomando su encabezado. Tocar la de atrás la trae al frente. El QR se abre solo
- * con el botón grande, nunca tocando una tarjeta. */
-function WalletStack({ ev, t, holder, prepaidBalance, playcoins, movements, holderPills, usable, playmatch, onShowQr, onPayCaja, onTopup, qrViewer }: {
-  ev: MeEvent | null; t: MeEvent['tickets'][number] | null; holder: string; prepaidBalance: number; playcoins: number; movements: Movement[];
-  holderPills: ReactNode; usable: boolean; playmatch: { href?: string; onClick?: () => void } | null;
-  onShowQr: () => void; onPayCaja?: () => void; onTopup?: () => void; qrViewer: ReactNode;
-}) {
-  const hasPass = !!(ev && t);
-  const [front, setFront] = useState<'entrada' | 'playcard'>('entrada');
-  const shown = hasPass ? front : 'playcard';
-  const swap = useRealTap(() => { tapHaptic(); setFront((f) => (f === 'entrada' ? 'playcard' : 'entrada')); });
-  const qrTap = useRealTap(() => { tapHaptic(); onShowQr(); });
-  const playmatchTap = useRealTap(() => { tapHaptic(); playmatch?.onClick?.(); });
-
-  const playcard = (
-    <WalletCard
-      eventTitle="" eventDateShort="" holderName={holder} ticketCode={t?.ticketCode ?? null} qrImageUrl={null}
-      prepaidBalance={prepaidBalance} playcoins={playcoins}
-      movements={movements.map((m) => ({ ...m, createdAt: new Date(m.createdAt) })) as any}
-      hideFlipHint
-    />
-  );
-  const pass = hasPass ? <EntradaPass ev={ev!} t={t!} holder={holder} /> : null;
-  const frontNode = shown === 'entrada' ? pass : <TiltCard>{playcard}</TiltCard>;
-  const backNode = shown === 'entrada' ? playcard : pass;
-
-  return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain">
-    <div className="my-auto flex flex-col gap-3 [@media(max-height:700px)]:gap-2">
-      <div className="relative" style={{ paddingTop: hasPass ? STACK_PEEK : 0 }}>
-        {hasPass && (
-          <motion.button
-            key={`back-${shown}`}
-            type="button"
-            {...swap}
-            aria-label={shown === 'entrada' ? 'Ver mi PlayCard' : 'Ver mi entrada'}
-            // Solo asoma el encabezado: el resto se recorta, así no se transparenta detrás de la PlayCard (que es de vidrio).
-            className="absolute inset-x-0 top-0 z-0 block origin-top overflow-hidden rounded-t-[26px] text-left"
-            style={{ height: STACK_PEEK - 4 }}
-            initial={{ y: 24, opacity: 0 }}
-            animate={{ y: 0, scale: 0.94, opacity: 0.92 }}
-            transition={{ type: 'spring', damping: 28, stiffness: 280 }}
-          >
-            {backNode}
-          </motion.button>
-        )}
-        <motion.div
-          key={`front-${shown}`}
-          className="relative z-10"
-          initial={hasPass ? { y: -STACK_PEEK, scale: 0.94, opacity: 0.6 } : false}
-          animate={{ y: 0, scale: 1, opacity: 1 }}
-          transition={{ type: 'spring', damping: 26, stiffness: 260 }}
-        >
-          {frontNode}
-        </motion.div>
-      </div>
-      {shown === 'entrada' && holderPills && (
-        <div className="flex justify-center"><div className="flex min-w-0 items-center gap-1 rounded-full bg-white/[0.06] p-1">{holderPills}</div></div>
-      )}
-      {hasPass && (
-        <p className="-mt-1 text-center text-caption1 text-white/60 [@media(max-height:700px)]:hidden">{shown === 'entrada' ? 'Toca la tarjeta de atrás para ver tu PlayCard' : 'Toca la tarjeta de atrás para volver a tu entrada'}</p>
-      )}
-      {playmatch && (
-        playmatch.href
-          ? <Link href={playmatch.href} className="flex h-14 shrink-0 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-pink-500 via-fuchsia-500 to-sky-500 text-headline font-bold text-white shadow-[0_10px_28px_-8px_rgba(236,72,153,0.7)] interactive"><Heart className="h-5 w-5" /> Entrar a Playmatch</Link>
-          : <button type="button" {...playmatchTap} className="flex h-14 shrink-0 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-pink-500 via-fuchsia-500 to-sky-500 text-headline font-bold text-white shadow-[0_10px_28px_-8px_rgba(236,72,153,0.7)] interactive"><Heart className="h-5 w-5" /> Entrar a Playmatch</button>
-      )}
-      {usable && (
-        <button type="button" {...qrTap} className={`flex h-14 shrink-0 items-center justify-center gap-2 rounded-full text-headline font-bold text-white interactive [@media(max-height:700px)]:h-12 ${playmatch ? 'lg-pill' : 'bg-gradient-to-r from-pink-500 via-fuchsia-500 to-sky-500 shadow-[0_10px_28px_-8px_rgba(236,72,153,0.7),inset_0_1px_0_rgba(255,255,255,0.4)]'}`}>
-          <QrCode className="h-5 w-5" /> Mostrar QR
-        </button>
-      )}
-      {(onPayCaja || onTopup) && (
-        <div className={`grid shrink-0 gap-2 [@media(max-height:700px)]:hidden ${onPayCaja && onTopup ? 'grid-cols-2' : 'grid-cols-1'}`}>
-          {onPayCaja && <button type="button" onClick={() => { tapHaptic(); onPayCaja(); }} className="lg-pill flex h-11 items-center justify-center gap-2 rounded-full text-subhead font-semibold text-white interactive"><Wallet className="h-4 w-4 text-pink-300" /> Pagar</button>}
-          {onTopup && <button type="button" onClick={() => { tapHaptic(); onTopup(); }} className="lg-pill flex h-11 items-center justify-center gap-2 rounded-full text-subhead font-semibold text-white interactive"><Plus className="h-4 w-4 text-pink-300" /> Recargar</button>}
-        </div>
-      )}
-      {qrViewer}
-    </div>
     </div>
   );
 }
@@ -1027,8 +765,9 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
             <>
               <WelcomeBanner welcome={welcome} />
               {staff && <StaffBanner staff={staff} onOpen={() => { tapHaptic(); setSheet('staff'); }} />}
-              <TicketWallet compact ev={upcoming[0] ?? null} holder={me.fullName || me.email} prepaidBalance={me.prepaidBalance} playcoins={me.playcoins} movements={me.movements}
-                onTopup={pay.accountTopup ? () => setTopupOpen(true) : undefined} onPayCaja={pay.cajaPay ? () => setPayOpen(true) : undefined} onPlaymatch={() => go('playmatch')} />
+              <PlayCardTab events={upcoming} holder={me.fullName || me.email} prepaidBalance={me.prepaidBalance} playcoins={me.playcoins} movements={me.movements}
+                movementsPreview={<MovementsPreview me={me} onAll={() => setSheet('movimientos')} />}
+                onTopup={pay.accountTopup ? () => setTopupOpen(true) : undefined} onPayCaja={pay.cajaPay ? () => setPayOpen(true) : undefined} onPlaymatch={() => go('playmatch')} onNextTab={() => go('playmatch')} />
               <BuyNextCard me={me} />
             </>
           )}
