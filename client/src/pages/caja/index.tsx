@@ -24,6 +24,8 @@ import { formatChileDateTime } from '@shared/chileDate';
 import { getFavoriteIds, toggleFavorite } from './favorites';
 import { SalesHistory, SalesStrip } from './SalesHistory';
 import { RejectedOps } from './RejectedOps';
+import { ExtrasGroups } from './ExtrasGroups';
+import { undoSecondsLeft } from '@shared/cajaExtras';
 
 /* Módulo /caja (docs/ARQUITECTURA-CAJA.md Fase 3) -- offline-first: la
  * búsqueda, la ficha y el catálogo se leen siempre de IndexedDB (Dexie), no
@@ -676,7 +678,7 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
         }
       }
       if (rejected > 0) {
-        toast.error(`${rejected === 1 ? 'Una venta fue rechazada' : `${rejected} ventas fueron rechazadas`} al sincronizar -- revísalas en "Por rehacer".`, { duration: 10000 });
+        toast.error(`${rejected === 1 ? 'Una operación fue rechazada' : `${rejected} operaciones fueron rechazadas`} al sincronizar -- revísalas en "Por rehacer".`, { duration: 10000 });
       }
       await clearSyncedOps();
       refresh();
@@ -730,6 +732,45 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
     setSheetVersion((v) => v + 1);
     runSync();
   });
+
+  // Cobrar varios códigos de un mismo producto («3 × Trago»): cada uno es su propio canje, con su opId. Queda 60 s para
+  // deshacerlo (también sin señal: el deshacer va por la misma cola, en orden).
+  const [undo, setUndo] = useState<{ codes: string[]; label: string; at: number } | null>(null);
+  const [undoNow, setUndoNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!undo) return;
+    const t = window.setInterval(() => {
+      setUndoNow(Date.now());
+      if (undoSecondsLeft(undo.at, Date.now()) === 0) setUndo(null);
+    }, 500);
+    return () => window.clearInterval(t);
+  }, [undo]);
+
+  const doRedeemMany = (codes: string[], label: string) => once(`redeem-many:${codes.join(',').toUpperCase()}`, async () => {
+    if (codes.length === 0) return;
+    const at = (await correctedNow()).toISOString();
+    for (const displayCode of codes) await enqueueOp({ opId: newOpId(), type: 'redeem', displayCode, clientAt: at }, localEvent?.id);
+    toast.success(`${label} canjeado${codes.length > 1 ? 's' : ''} ✅`);
+    setUndoNow(Date.now());
+    setUndo({ codes, label, at: Date.now() });
+    refreshPending();
+    setSheetVersion((v) => v + 1);
+    runSync();
+  });
+
+  const doUndo = () => {
+    const u = undo;
+    if (!u) return;
+    setUndo(null);
+    void once(`undo:${u.at}`, async () => {
+      const at = (await correctedNow()).toISOString();
+      for (const displayCode of u.codes) await enqueueOp({ opId: newOpId(), type: 'undo_redeem', displayCode, clientAt: at }, localEvent?.id);
+      toast.success(`${u.label}: canje deshecho`);
+      refreshPending();
+      setSheetVersion((v) => v + 1);
+      runSync();
+    });
+  };
 
   // Marcar la entrada en la puerta. Va por la misma cola offline que el
   // canje, así que la fila avanza aunque la tablet esté sin señal.
@@ -968,12 +1009,21 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
             <CustomerSheet
               key={sheetVersion}
               orderId={selectedOrderId}
-              onRedeem={doRedeem}
+              onRedeemMany={doRedeemMany}
               onCheckIn={doCheckIn}
               canVoid={isSupervisor}
               onVoid={async (displayCode, reason) => voidCode.mutate({ opId: newOpId(), eventId: localEvent.id, registerId: registerId ?? undefined, displayCode, reason, clientAt: (await correctedNow()).toISOString() })}
               voiding={voidCode.isPending}
             />
+          </div>
+        )}
+
+        {undo && undoSecondsLeft(undo.at, undoNow) > 0 && (
+          <div className="fixed inset-x-0 bottom-0 z-50 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+            <div className="mx-auto flex max-w-lg items-center justify-between gap-3 rounded-2xl bg-zinc-900/95 px-4 py-3 shadow-2xl ring-1 ring-white/15 backdrop-blur">
+              <p className="min-w-0 truncate text-sm">✅ {undo.label} canjeado{undo.codes.length > 1 ? 's' : ''}</p>
+              <Button className="h-9 shrink-0 bg-white/15 hover:bg-white/25 text-white" onClick={doUndo}>Deshacer · {undoSecondsLeft(undo.at, undoNow)} s</Button>
+            </div>
           </div>
         )}
 
@@ -1140,29 +1190,19 @@ function statusBadge(status: string, kind: 'acceso' | 'extra' = 'extra') {
   return <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 shadow-[0_0_10px_-4px_rgba(16,185,129,0.7)]">Pendiente</span>;
 }
 
-function CustomerSheet({ orderId, onRedeem, onCheckIn, canVoid, onVoid, voiding }: {
+function CustomerSheet({ orderId, onRedeemMany, onCheckIn, canVoid, onVoid, voiding }: {
   orderId: number;
-  onRedeem: (code: string) => void;
+  onRedeemMany: (codes: string[], label: string) => void;
   onCheckIn: (ticketCode: string) => void;
   canVoid: boolean;
   onVoid: (displayCode: string, reason: string) => void;
   voiding: boolean;
 }) {
   const [sheet, setSheet] = useState<CajaAttendee | null | undefined>(undefined);
-  const [voidingCode, setVoidingCode] = useState<string | null>(null);
-  const [reason, setReason] = useState('');
-
   useEffect(() => { getLocalAttendee(orderId).then((a) => setSheet(a ?? null)); }, [orderId]);
 
   if (sheet === undefined) return <p className="text-white/50">Cargando…</p>;
   if (sheet === null) return <p className="text-white/50">No se encontró la orden.</p>;
-
-  const confirmVoid = () => {
-    if (!voidingCode || reason.trim().length < 3) return;
-    onVoid(voidingCode, reason.trim());
-    setVoidingCode(null);
-    setReason('');
-  };
 
   return (
     <div className="space-y-5">
@@ -1196,41 +1236,7 @@ function CustomerSheet({ orderId, onRedeem, onCheckIn, canVoid, onVoid, voiding 
       {sheet.extras.length > 0 && (
         <div>
           <p className="text-xs uppercase tracking-wide text-white/50 mb-2">Extras</p>
-          <div className="space-y-2">
-            {sheet.extras.map((e, i) => (
-              <div key={i} className="p-3 rounded-2xl admin-clay admin-clay-sm">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium">{e.typeName}</p>
-                    {e.displayCode && <p className="text-xs text-white/50 font-mono">{e.displayCode}</p>}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {e.status === 'valid' && (
-                      <Button size="sm" className="bg-primary hover:bg-primary/90 h-8" onClick={() => e.displayCode && onRedeem(e.displayCode)}>Canjear</Button>
-                    )}
-                    {statusBadge(e.status)}
-                    {canVoid && e.status !== 'cancelled' && e.displayCode && (
-                      <button className="text-xs text-red-400 underline" onClick={() => setVoidingCode(e.displayCode)}>Anular</button>
-                    )}
-                  </div>
-                </div>
-                {voidingCode === e.displayCode && (
-                  <div className="mt-3 pt-3 border-t border-white/10 space-y-2">
-                    <Input
-                      value={reason}
-                      onChange={(ev) => setReason(ev.target.value)}
-                      placeholder="Motivo de la anulación (obligatorio)"
-                      className="h-9 text-sm bg-white/10 border-white/15 text-white"
-                    />
-                    <div className="flex gap-2">
-                      <Button size="sm" variant="destructive" disabled={reason.trim().length < 3 || voiding} onClick={confirmVoid}>Confirmar anulación</Button>
-                      <Button size="sm" variant="outline" className="border-white/15 text-white" onClick={() => { setVoidingCode(null); setReason(''); }}>Cancelar</Button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
+          <ExtrasGroups extras={sheet.extras} canVoid={canVoid} voiding={voiding} onRedeemMany={onRedeemMany} onVoid={onVoid} />
         </div>
       )}
     </div>

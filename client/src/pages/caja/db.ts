@@ -90,6 +90,7 @@ export interface CajaStaffComp {
 
 export type QueuedOp =
   | { opId: string; type: 'redeem'; displayCode: string; clientAt: string }
+  | { opId: string; type: 'undo_redeem'; displayCode: string; clientAt: string }
   | { opId: string; type: 'checkin'; ticketCode: string; clientAt: string }
   | { opId: string; type: 'parking_paid'; ticketCode: string; paymentMethod: 'efectivo' | 'debito' | 'credito'; ticketTypeId?: number; clientAt: string }
   | {
@@ -382,6 +383,21 @@ async function applyOptimistic(op: QueuedOp) {
     // O un consumo gratis invitado a alguien del staff.
     const comp = await cajaDB.staffComps.get(code);
     if (comp) await cajaDB.staffComps.update(code, { status: 'used' });
+  }
+
+  // Deshacer el canje de hace instantes (el «Deshacer» de 60 s): el código vuelve a quedar por canjear.
+  if (op.type === 'undo_redeem') {
+    const code = op.displayCode.toUpperCase();
+    const idx = await cajaDB.codes.get(code);
+    if (idx) {
+      const attendee = await cajaDB.attendees.get(idx.orderId);
+      if (attendee) {
+        attendee.extras = attendee.extras.map((e) =>
+          e.displayCode?.toUpperCase() === code && e.status === 'used' ? { ...e, status: 'valid' } : e
+        );
+        await cajaDB.attendees.put(attendee);
+      }
+    }
   }
 
   if (op.type === 'checkin') {
