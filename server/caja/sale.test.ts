@@ -9,7 +9,9 @@ const validateDiscountCode = vi.fn(async (_code: string, _eventId: number) => ({
 const redeemPlaycoinsAuthoritative = vi.fn(async () => ({ ok: true as const, redeemed: 0, balanceAfter: 0 }));
 const verifyCardPin = vi.fn(async (_p: { email: string; pin: string }) => ({ ok: true as const, customerId: 1 }));
 const spendPrepaidAuthoritative = vi.fn(async (_p: { customerId: number; amountClp: number; reason: string; opId: string }) => ({ ok: true as const, balanceAfter: 0 }));
+const ensureCustomerIdForEmail = vi.fn(async (email?: string | null) => (email ? 7 : null));
 vi.mock("../db", () => ({
+  ensureCustomerIdForEmail: (...args: [string | null | undefined]) => ensureCustomerIdForEmail(...args),
   awardPlaycoins: vi.fn(async () => {}),
   redeemPlaycoinsAuthoritative: (...args: any[]) => redeemPlaycoinsAuthoritative(...(args as [])),
   validateDiscountCode: (...args: [string, number]) => validateDiscountCode(...args),
@@ -277,6 +279,19 @@ describe("createCajaSale", () => {
     expect(calls.kitchenInsert).toMatchObject({ customerName: "Camila" });
   });
 
+  it("la venta con correo queda ligada al cliente (orders.customerId)", async () => {
+    const { db, calls } = makeFakeDb({ products: [piscola] });
+    await createCajaSale(db, { ...baseParams, buyerEmail: "ana@test.cl", items: [{ ticketTypeId: 1, quantity: 1 }] });
+    expect(ensureCustomerIdForEmail).toHaveBeenCalledWith("ana@test.cl", expect.anything());
+    expect(calls.order).toMatchObject({ customerId: 7 });
+  });
+
+  it("sin correo, la venta queda sin cliente", async () => {
+    const { db, calls } = makeFakeDb({ products: [piscola] });
+    await createCajaSale(db, { ...baseParams, items: [{ ticketTypeId: 1, quantity: 1 }] });
+    expect(calls.order).toMatchObject({ customerId: null });
+  });
+
   it("sin customerName, la comanda queda con customerName null", async () => {
     const papas = { id: 4, name: "Papas fritas", price: "3000", costPrice: null, category: "consumo", totalStock: 50, soldCount: 0, toKitchen: 1 };
     const { db, calls } = makeFakeDb({ products: [papas] });
@@ -345,7 +360,7 @@ describe("createCajaSale", () => {
       expect(spendPrepaidAuthoritative).toHaveBeenCalledWith({
         customerId: 42, amountClp: 5000, reason: "spend_caja", opId: baseParams.opId,
       });
-      expect(calls.order).toMatchObject({ paymentMethod: "saldo", total: "5000" });
+      expect(calls.order).toMatchObject({ paymentMethod: "saldo", total: "5000", customerId: 42 });
     });
 
     it("rechaza sin email o sin PIN, sin llegar a verificar nada ni crear la orden", async () => {

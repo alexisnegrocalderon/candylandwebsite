@@ -40,7 +40,7 @@ export async function getMemberHistory(email: string, opts: { filter?: HistoryFi
   const upTo = cursor ? new Date(cursor.at) : null;
   const per = limit + 10;
   const src = sourcesFor(filter);
-  const mine = sql`LOWER(${orders.buyerEmail}) = ${key}`;
+  const mine = or(sql`LOWER(${orders.buyerEmail}) = ${key}`, eq(orders.customerId, customer.id))!;
   const sources: HistoryItem[][] = [];
 
   /** Ítems («2× Dúo») de un grupo de órdenes. */

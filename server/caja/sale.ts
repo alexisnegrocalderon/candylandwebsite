@@ -2,7 +2,7 @@ import { consumePayToken, releasePayToken } from '../memberPay';
 import { eq, sql, inArray, and, ne, desc } from "drizzle-orm";
 import { orders, orderItems, ticketTypes, discountCodes, lockerItems, kitchenTickets, customers } from "../../drizzle/schema";
 import { applyOp } from "./ops";
-import { awardPlaycoins, redeemPlaycoinsAuthoritative, validateDiscountCode, verifyCardPin, spendPrepaidAuthoritative } from "../db";
+import { ensureCustomerIdForEmail, awardPlaycoins, redeemPlaycoinsAuthoritative, validateDiscountCode, verifyCardPin, spendPrepaidAuthoritative } from "../db";
 import { isTopupProduct } from "../../shared/prepaid";
 import { computeCodeDiscount } from "../../shared/discountCode";
 
@@ -233,6 +233,7 @@ export async function createCajaSale(
       // si falla. Corre ANTES del canje de Playcoins porque son excluyentes:
       // no se mezclan los dos saldos en una misma venta.
       let redeemedAmount = 0;
+      let payCustomerId: number | null = null;
       let redeemConflictNote: string | undefined;
       if (params.paymentMethod === 'saldo') {
         if (!params.buyerEmail || (!params.cardPin && !params.payToken)) {
@@ -251,6 +252,7 @@ export async function createCajaSale(
           if (!pinCheck.ok) throw new Error(pinCheck.reason);
           customerId = pinCheck.customerId;
         }
+        payCustomerId = customerId;
         const spend = await spendPrepaidAuthoritative({
           customerId, amountClp: totalAfterDiscount,
           reason: 'spend_caja', opId: params.opId,
@@ -289,10 +291,14 @@ export async function createCajaSale(
         lockerCustomerName: params.lockerCustomerName,
       });
       const orderNumber = `CAJA-${Date.now().toString(36).toUpperCase()}`;
+      // Todo movimiento queda ligado al cliente: con saldo ya se sabe quién es;
+      // con QR/correo se resuelve (o crea) su ficha. Sin correo real, null.
+      const orderCustomerId = payCustomerId ?? await ensureCustomerIdForEmail(params.buyerEmail, buyerName);
       const [orderResult] = await db.insert(orders).values({
         orderNumber,
         buyerName,
         buyerEmail: params.buyerEmail?.trim().toLowerCase() || "caja@mansionplayroom.cl",
+        customerId: orderCustomerId,
         eventId: params.eventId,
         subtotal: String(total),
         discount: String(discountAmount + redeemedAmount),

@@ -305,7 +305,7 @@ export async function getMemberHome(email: string, now = new Date()) {
     }).from(tickets).innerJoin(orders, eq(tickets.orderId, orders.id)).innerJoin(events, eq(tickets.eventId, events.id))
       .innerJoin(ticketTypes, eq(tickets.ticketTypeId, ticketTypes.id))
       // El evento oculto de la cuenta de prueba (admin → Noche) también: solo lo compró ese correo.
-      .where(and(sql`LOWER(${orders.buyerEmail}) = ${key}`, eq(orders.paymentStatus, 'approved'), gte(events.eventDate, new Date(now.getTime() - 12 * 3_600_000)), or(inArray(events.status, ['published', 'soldout']), eq(events.slug, DEMO_EVENT_SLUG))))
+      .where(and(or(sql`LOWER(${orders.buyerEmail}) = ${key}`, eq(orders.customerId, customer.id)), eq(orders.paymentStatus, 'approved'), gte(events.eventDate, new Date(now.getTime() - 12 * 3_600_000)), or(inArray(events.status, ['published', 'soldout']), eq(events.slug, DEMO_EVENT_SLUG))))
       .orderBy(events.eventDate),
     db.select({ id: events.id, title: events.title, slug: events.slug, eventDate: events.eventDate, memberEarlyUntil: events.memberEarlyUntil }).from(events)
       .where(and(eq(events.status, 'published'), gte(events.eventDate, new Date(now.getTime() - 12 * 3_600_000)))).orderBy(events.eventDate).limit(1),
@@ -337,7 +337,7 @@ export async function getMemberHome(email: string, now = new Date()) {
   }
 
   // Guardarropía y cocina de la caja de las fiestas vigentes: se unen por el correo de la venta.
-  const onSiteWhere = (opIdColumn: unknown) => and(or(sql`LOWER(${orders.buyerEmail}) = ${key}`, cajaOpIsMine(customer.id, opIdColumn)), gte(events.eventDate, new Date(now.getTime() - 12 * 3_600_000)), or(inArray(events.status, ['published', 'soldout']), eq(events.slug, DEMO_EVENT_SLUG)));
+  const onSiteWhere = (opIdColumn: unknown) => and(or(sql`LOWER(${orders.buyerEmail}) = ${key}`, eq(orders.customerId, customer.id), cajaOpIsMine(customer.id, opIdColumn)), gte(events.eventDate, new Date(now.getTime() - 12 * 3_600_000)), or(inArray(events.status, ['published', 'soldout']), eq(events.slug, DEMO_EVENT_SLUG)));
   const eventCols = { eventId: events.id, eventTitle: events.title, eventSlug: events.slug, eventDate: events.eventDate, venue: events.venue, doorsOpen: events.doorsOpen, eventEnd: events.eventEnd };
   const [lockerRows, kitchenRows] = await Promise.all([
     db.select({ ...eventCols, tagNumber: lockerItems.tagNumber, status: lockerItems.status, receivedAt: lockerItems.receivedAt, retrievedAt: lockerItems.retrievedAt })
