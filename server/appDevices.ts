@@ -3,7 +3,7 @@
  * El navegador no informa instalaciones ni desinstalaciones, así que se mide
  * por aperturas: "activa" = la abrió en los últimos N días. El email sale de
  * la última entrada abierta en ese teléfono (resolveEmail de customerPush). */
-import { and, desc, gte, inArray, isNull, sql } from 'drizzle-orm';
+import { and, desc, gte, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import { getDb } from './db';
 import { recordSubscriptionOpen, resolveEmail } from './customerPush';
 import { appDevices, customerPushSubscriptions, customers } from '../drizzle/schema';
@@ -12,14 +12,29 @@ import { emailKey } from '../shared/blockedMatch';
 /** Ventana con la que se considera que alguien "tiene la app". */
 export const APP_ACTIVE_DAYS = 60;
 
-export async function recordAppOpen(input: { deviceId: string; platform: 'ios' | 'android' | 'desktop'; ticketCode?: string; endpoint?: string }): Promise<void> {
+export async function recordAppOpen(input: { deviceId: string; platform: 'ios' | 'android' | 'desktop'; ticketCode?: string; endpoint?: string; memberEmail?: string | null }): Promise<void> {
   const db = await getDb();
   if (!db) return;
   const who = input.ticketCode ? await resolveEmail({ ticketCode: input.ticketCode }) : null;
-  const link = who ? { email: who.email, emailNorm: emailKey(who.email) || null, orderId: who.orderId } : {};
+  // La cuenta con la que entró a «Mi cuenta» en ese teléfono también lo identifica (sin necesidad de abrir una entrada).
+  const memberKey = input.memberEmail ? emailKey(input.memberEmail) : '';
+  const link = who ? { email: who.email, emailNorm: emailKey(who.email) || null, orderId: who.orderId }
+    : memberKey ? { email: memberKey, emailNorm: memberKey } : {};
   await db.insert(appDevices).values({ deviceId: input.deviceId, platform: input.platform, ...link })
     .onDuplicateKeyUpdate({ set: { platform: input.platform, lastSeenAt: new Date(), opens: sql`${appDevices.opens} + 1`, ...link } });
   if (input.endpoint) await recordSubscriptionOpen(input.endpoint);
+}
+
+/** Emails con la app instalada O con cuenta en «Mi cuenta»: lo que significa «Tiene la app» en el panel. */
+export async function appUserEmails(): Promise<Set<string>> {
+  const out = await appEmails();
+  try {
+    const db = await getDb();
+    if (!db) return out;
+    const rows = await db.select({ e: customers.email }).from(customers).where(isNotNull(customers.memberSince));
+    for (const r of rows) if (r.e) out.add(r.e.toLowerCase());
+  } catch { /* sin tabla: se queda con lo que hay */ }
+  return out;
 }
 
 /** Emails con la app abierta en los últimos APP_ACTIVE_DAYS días. Si la tabla
@@ -38,7 +53,7 @@ export async function appEmails(days = APP_ACTIVE_DAYS): Promise<Set<string>> {
 
 export async function appInstallStats() {
   const db = await getDb();
-  const empty = { total: 0, active7: 0, active30: 0, ios: 0, android: 0, desktop: 0, identified: 0, withPush: 0, people: [] as AppPerson[] };
+  const empty = { accounts: [] as AppAccount[], totalAccounts: 0, total: 0, active7: 0, active30: 0, ios: 0, android: 0, desktop: 0, identified: 0, withPush: 0, people: [] as AppPerson[] };
   if (!db) return empty;
   const rows = await db.select().from(appDevices).orderBy(desc(appDevices.lastSeenAt));
   const now = Date.now();
@@ -73,7 +88,16 @@ export async function appInstallStats() {
     };
   });
 
+  // Quienes ya tienen cuenta en la app (entraron a «Mi cuenta») aunque ese teléfono no se haya identificado.
+  const identified = new Set(people.map((p) => p.email.toLowerCase()));
+  const accountRows = await db.select({ id: customers.id, email: customers.email, fullName: customers.fullName, memberSince: customers.memberSince })
+    .from(customers).where(isNotNull(customers.memberSince)).orderBy(desc(customers.memberSince));
+  const accounts: AppAccount[] = accountRows.filter((r) => !identified.has(r.email.toLowerCase()))
+    .map((r) => ({ customerId: r.id, email: r.email, name: r.fullName, memberSince: r.memberSince! }));
+
   return {
+    accounts,
+    totalAccounts: accountRows.length,
     total: rows.length,
     active7: since(7).length,
     active30: since(30).length,
@@ -85,6 +109,8 @@ export async function appInstallStats() {
     people,
   };
 }
+
+export interface AppAccount { customerId: number; email: string; name: string | null; memberSince: Date }
 
 export interface AppPerson {
   email: string;

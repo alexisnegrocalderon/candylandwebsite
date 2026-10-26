@@ -1,7 +1,7 @@
 import { formatChileDateTime } from '../shared/chileDate';
 import { formatBirthDate, parseBirthDateInput, GENDER_OPTIONS, SOURCE_OPTIONS } from '../shared/customerInsights';
 import { parseCustomerFilterParams } from '../shared/customerFilterParams';
-import { appEmails } from './appDevices';
+import { appUserEmails } from './appDevices';
 import type { Express, Request, Response } from "express";
 import { sdk } from "./_core/sdk";
 import * as db from "./db";
@@ -136,7 +136,7 @@ export function registerAdminRoutes(app: Express) {
     const { hasApp, ...filters } = parseCustomerFilterParams((k) => (typeof req.query[k] === 'string' ? (req.query[k] as string) : undefined));
     let rows = await db.listCustomers(filters);
     if (hasApp) {
-      const withApp = await appEmails();
+      const withApp = await appUserEmails();
       rows = rows.filter((c: any) => withApp.has(String(c.email).toLowerCase()));
     }
 
