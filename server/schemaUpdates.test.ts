@@ -80,3 +80,28 @@ describe("actualización de esquema del staff", () => {
     expect(fake.ran.map((s) => s.trim())).toEqual(file);
   });
 });
+
+describe("actualización de esquema de insumos", () => {
+  it("va aparte y hace lo mismo que la migración 0132", async () => {
+    const fake = fakeDb([], []);
+    vi.mocked(db.getDb).mockResolvedValue(fake as any);
+    const { insumoSchemaStatus, applyInsumoSchema } = await load();
+    expect((await insumoSchemaStatus()).ready).toBe(false);
+    await applyInsumoSchema();
+    const file = readFileSync(new URL("../drizzle/0132_insumos_recetas.sql", import.meta.url), "utf8")
+      .split("--> statement-breakpoint").map((s) => s.trim().replace(/;$/, "").trim()).filter(Boolean);
+    expect(fake.ran.map((s) => s.trim())).toEqual(file);
+  });
+
+  it("con las tablas e índices creados queda listo", async () => {
+    const tables = ["insumos", "insumoRecetas", "insumoMovimientos", "insumoConteos", "insumoConteoLineas"];
+    const indexes: [string, string][] = [
+      ["insumoRecetas", "insumo_recetas_tt_insumo_idx"], ["insumoRecetas", "insumo_recetas_insumo_idx"],
+      ["insumoMovimientos", "insumo_mov_op_idx"], ["insumoMovimientos", "insumo_mov_insumo_idx"], ["insumoMovimientos", "insumo_mov_event_idx"],
+      ["insumoConteos", "insumo_conteos_event_idx"], ["insumoConteoLineas", "insumo_conteo_lineas_conteo_idx"],
+    ];
+    vi.mocked(db.getDb).mockResolvedValue(fakeDb([], indexes, tables) as any);
+    const { insumoSchemaStatus } = await load();
+    expect(await insumoSchemaStatus()).toEqual({ ready: true, missing: [] });
+  });
+});

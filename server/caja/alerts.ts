@@ -19,6 +19,8 @@ import { isPartyWindowOpen, partyWindow } from "../../shared/party";
 import { invokeLLM, extractContent } from "../_core/llm";
 import { sendEmail } from "../email";
 import { ADMIN_NOTIFICATION_EMAIL } from "@shared/const";
+import { cambiosDeVenta, consumoReciente } from "../insumos";
+import { descuadreAlerts, insumoRitmoAlerts, insumoStockAlerts, RITMO_WINDOW_MIN, type Insumo } from "../../shared/insumos";
 
 export type CajaAlertSeverity = "info" | "warning" | "critical";
 export type CajaAlertDraft = { kind: string; severity: CajaAlertSeverity; title: string; body: string; dedupeKey: string };
@@ -180,6 +182,17 @@ export function idleRegisterAlerts(
     });
 }
 
+/** Conteo de cierre de barra que no cuadra con lo vendido (lo llama caja.conteoBarra). */
+export async function alertConteoDescuadre(eventId: number, conteoId: number, operatorName: string, lines: { insumo: Insumo; expected: number; counted: number }[]) {
+  try {
+    const config = await loadConfig();
+    if (!config.pushCajaAlerts) return;
+    await raiseAll(eventId, descuadreAlerts(lines, conteoId, operatorName, eventId));
+  } catch (err) {
+    console.error("[cajaAlerts] alertConteoDescuadre:", err);
+  }
+}
+
 /** Muchas anulaciones de la misma persona en el evento. */
 export function manyVoidsAlerts(voidsByOperator: { operatorId: number; operatorName: string; count: number; total: number }[], eventId: number): CajaAlertDraft[] {
   return voidsByOperator
@@ -218,6 +231,10 @@ export async function checkSaleAlerts(params: { eventId: number; opId: string; o
         total: Number(order.total), operatorName: params.operatorName, paymentMethod: order.paymentMethod ?? "—",
       }, config.cajaHighSaleClp),
     ]);
+
+    // Insumos de la barra: poco stock, agotado y bajo el 25 % / 10 % de la apertura.
+    const insumoChanges = await cambiosDeVenta(params.opId, params.eventId);
+    if (insumoChanges) await raiseAll(params.eventId, insumoStockAlerts(insumoChanges.changes, insumoChanges.recetas, params.eventId));
   } catch (err) {
     console.error("[cajaAlerts] checkSaleAlerts:", err);
   }
@@ -342,6 +359,10 @@ export async function runCajaWatch(now: Date = new Date()) {
         });
       }
       drafts.push(...idleRegisterAlerts(withActivity, now));
+
+      // Al ritmo de la última hora, ¿algún insumo se acaba antes del cierre?
+      const recent = await consumoReciente(eventId, new Date(now.getTime() - RITMO_WINDOW_MIN * 60_000)).catch(() => null);
+      if (recent) drafts.push(...insumoRitmoAlerts(recent, Math.floor((window.closesAt - now.getTime()) / 60_000), eventId, now));
 
       const voidOps = await db.select({ operatorId: ops.operatorId, payload: ops.payload }).from(ops)
         .where(and(eq(ops.eventId, eventId), eq(ops.type, "void_sale"), eq(ops.result, "applied")));

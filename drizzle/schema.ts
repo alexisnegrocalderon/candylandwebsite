@@ -3272,3 +3272,84 @@ export const memberPasskeys = mysqlTable("memberPasskeys", {
   emailIdx: index("member_passkeys_email_idx").on(table.email),
 }));
 export type MemberPasskey = typeof memberPasskeys.$inferSelect;
+
+// --- Stock de la barra por insumos (shared/insumos.ts, server/insumos.ts) ---
+// Un insumo (ron, vodka, jugo, hielo…) es GLOBAL, no de un evento: las
+// botellas que sobran pasan a la fiesta siguiente. Su stock no es una columna
+// sino la suma de `insumoMovimientos`, así nunca se pisa un número y siempre
+// se puede reconstruir por qué cambió.
+export const insumos = mysqlTable("insumos", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 100 }).notNull(),
+  unit: mysqlEnum("unit", ["ml", "g", "un"]).default("ml").notNull(),
+  // Cuánto trae un envase (750 ml, 2000 g, 24 un): es lo que cuenta la barra.
+  containerSize: int("containerSize").default(750).notNull(),
+  containerLabel: varchar("containerLabel", { length: 30 }).default("botella").notNull(),
+  costPerContainer: decimal("costPerContainer", { precision: 10, scale: 0 }),
+  // Avisa cuando alcance para menos de esta cantidad de tragos (0 = no avisa).
+  alertDrinks: int("alertDrinks").default(15).notNull(),
+  active: int("active").default(1).notNull(),
+  sortOrder: int("sortOrder").default(0).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type InsumoRow = typeof insumos.$inferSelect;
+
+// Receta de un trago de la carta: cuánto gasta de cada insumo (en su unidad).
+// Va por ticketTypeId porque cada fiesta tiene su carta; al copiar la carta
+// de la fiesta anterior se copian también las recetas (por nombre).
+export const insumoRecetas = mysqlTable("insumoRecetas", {
+  id: int("id").autoincrement().primaryKey(),
+  ticketTypeId: int("ticketTypeId").notNull(),
+  insumoId: int("insumoId").notNull(),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+}, (t) => [
+  uniqueIndex("insumo_recetas_tt_insumo_idx").on(t.ticketTypeId, t.insumoId),
+  index("insumo_recetas_insumo_idx").on(t.insumoId),
+]);
+
+// Libro append-only del stock de insumos. Las ventas y anulaciones de /caja
+// llevan su opId: el índice único (opId, insumoId, kind) hace que un
+// reintento de la cola offline nunca descuente dos veces.
+export const insumoMovimientos = mysqlTable("insumoMovimientos", {
+  id: int("id").autoincrement().primaryKey(),
+  insumoId: int("insumoId").notNull(),
+  eventId: int("eventId"),
+  kind: mysqlEnum("kind", ["carga", "compra", "venta", "anulacion", "conteo_ajuste", "merma", "ajuste"]).notNull(),
+  delta: decimal("delta", { precision: 12, scale: 2 }).notNull(),
+  opId: varchar("opId", { length: 64 }),
+  conteoId: int("conteoId"),
+  operatorId: int("operatorId"),
+  note: varchar("note", { length: 255 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex("insumo_mov_op_idx").on(t.opId, t.insumoId, t.kind),
+  index("insumo_mov_insumo_idx").on(t.insumoId),
+  index("insumo_mov_event_idx").on(t.eventId, t.createdAt),
+]);
+
+// Conteo físico de la barra al abrir y al cerrar turno (/caja).
+export const insumoConteos = mysqlTable("insumoConteos", {
+  id: int("id").autoincrement().primaryKey(),
+  eventId: int("eventId").notNull(),
+  registerId: int("registerId"),
+  shiftId: int("shiftId"),
+  kind: mysqlEnum("kind", ["apertura", "cierre"]).notNull(),
+  operatorId: int("operatorId"),
+  operatorName: varchar("operatorName", { length: 100 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => [
+  index("insumo_conteos_event_idx").on(t.eventId, t.createdAt),
+]);
+
+export const insumoConteoLineas = mysqlTable("insumoConteoLineas", {
+  id: int("id").autoincrement().primaryKey(),
+  conteoId: int("conteoId").notNull(),
+  insumoId: int("insumoId").notNull(),
+  closedContainers: int("closedContainers").default(0).notNull(),
+  openFraction: decimal("openFraction", { precision: 4, scale: 2 }).default("0").notNull(),
+  countedTotal: decimal("countedTotal", { precision: 12, scale: 2 }).notNull(),
+  expectedTotal: decimal("expectedTotal", { precision: 12, scale: 2 }).notNull(),
+}, (t) => [
+  index("insumo_conteo_lineas_conteo_idx").on(t.conteoId),
+]);

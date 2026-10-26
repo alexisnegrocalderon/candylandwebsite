@@ -33,8 +33,8 @@ export const MANUAL_DRAFTS: Record<ManualKey, { title: string; sections: ManualS
   barra: {
     title: 'Manual de Barra',
     sections: [
-      list('Apertura', ['Llegar a la hora de citación', 'Entrar a /caja con tu PIN', 'Revisar hielo, vasos, frutas y botellas del turno', 'Ordenar y limpiar la barra', 'Confirmar con el supervisor la carta del día y lo agotado']),
-      list('Cierre', ['Guardar y cerrar botellas', 'Limpiar y ordenar la barra', 'Avisar al supervisor lo que quedó bajo en stock', 'Cerrar tu sesión de caja']),
+      list('Apertura', ['Llegar a la hora de citación', 'Entrar a /caja con tu PIN', 'Revisar hielo, vasos, frutas y botellas del turno', 'Hacer el conteo de barra en /caja: botellas cerradas y cuánto le queda a la abierta', 'Ordenar y limpiar la barra', 'Confirmar con el supervisor la carta del día y lo agotado']),
+      list('Cierre', ['Guardar y cerrar botellas', 'Hacer el conteo de cierre en /caja (lo pide al cerrar turno)', 'Limpiar y ordenar la barra', 'Avisar al supervisor lo que quedó bajo en stock', 'Cerrar tu sesión de caja']),
       text('Servir y canjear', 'Antes de servir un trago canjeado, escanea el QR o ingresa el código del cliente y canjéalo en /caja. Si el cliente tiene varios, canjea solo los que pide en ese momento. Si te equivocas, usa «Deshacer» dentro de 60 segundos.'),
       text('Servicio responsable', 'No se sirve alcohol a personas ebrias ni a menores. No se regalan tragos: todo queda en la caja. Si alguien se descompensa, avisa a seguridad y al supervisor.'),
       text('Reglas', 'Sin consumo propio durante el turno [ajustar según lo acordado].\nCelular solo para tu tarea.\nLa barra queda siempre limpia y ordenada.'),

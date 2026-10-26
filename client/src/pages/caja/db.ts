@@ -3,6 +3,7 @@ import { formatKitchenTicketNumber } from '@shared/kitchen';
 import { formatLockerTagNumber } from '@shared/locker';
 import { personasForTicket } from '@shared/mission300';
 import { vipParkingCounts, type DoorParkingOption } from '@shared/parking';
+import { consumoDeVenta, type InsumoUnit, type RecetaLinea } from '@shared/insumos';
 
 /* Snapshot local + cola de operaciones para el modo offline de /caja
  * (docs/ARQUITECTURA-CAJA.md §6.2-§6.3). Todo lo que la tablet necesita para
@@ -180,6 +181,8 @@ export async function saveSnapshot(snapshot: {
   staff?: DoorStaff[];
   /** Solo la puerta lo trae: los contactos de la noche (para llamar si no hay señal). */
   contacts?: { label: string; phone: string }[];
+  /** Solo la caja lo trae: stock de la barra por insumos (`null` = no se usa). */
+  barra?: CajaBarra | null;
   serverTime: string;
 }) {
   await cajaDB.transaction('rw', [cajaDB.attendees, cajaDB.codes, cajaDB.catalog, cajaDB.gifts, cajaDB.staffComps, cajaDB.meta, cajaDB.opsQueue], async () => {
@@ -208,6 +211,7 @@ export async function saveSnapshot(snapshot: {
     if (snapshot.parking) await cajaDB.meta.put({ key: 'parking', value: snapshot.parking });
     if (snapshot.staff) await cajaDB.meta.put({ key: 'staff', value: { eventId: snapshot.event.id, list: snapshot.staff } });
     if (snapshot.contacts) await cajaDB.meta.put({ key: 'contacts', value: { eventId: snapshot.event.id, list: snapshot.contacts } });
+    if (snapshot.barra !== undefined) await cajaDB.meta.put({ key: 'barra', value: snapshot.barra });
 
     // El snapshot llega del servidor SIN lo que esta tablet todavía no
     // sincronizó: sin esto, un código recién canjeado volvía a "válido" (y se
@@ -237,6 +241,20 @@ export async function getLocalContacts(eventId: number): Promise<{ label: string
 }
 
 export interface DoorStaff { code: string; name: string; role: string | null }
+
+/** Stock de la barra por insumos (server/insumos.ts `cajaInsumoSnapshot`):
+ * con esto la grilla muestra "quedan ~N" también sin señal. */
+export interface CajaBarra {
+  insumos: { id: number; name: string; unit: InsumoUnit; containerSize: number; containerLabel: string; stock: number; alertDrinks: number }[];
+  recetas: RecetaLinea[];
+}
+
+/** `null` si el evento no usa insumos (o la base todavía no tiene las tablas). */
+export async function getLocalBarra(): Promise<CajaBarra | null> {
+  const row = await cajaDB.meta.get('barra');
+  const value = row?.value as CajaBarra | null | undefined;
+  return value && Array.isArray(value.insumos) && Array.isArray(value.recetas) ? value : null;
+}
 
 /** La persona del staff dueña de esa credencial, del último snapshot de la puerta
  * (sirve sin señal). `null` si no está o si el snapshot es de otro evento. */
@@ -453,6 +471,14 @@ async function applyOptimistic(op: QueuedOp) {
       const product = await cajaDB.catalog.get(item.ticketTypeId);
       if (product) {
         await cajaDB.catalog.update(item.ticketTypeId, { soldCount: product.soldCount + item.quantity });
+      }
+    }
+    // Y gasta los insumos de su receta: dos tragos con ron bajan el mismo ron.
+    const barra = await getLocalBarra();
+    if (barra) {
+      const used = new Map(consumoDeVenta(op.items, barra.recetas).map((c) => [c.insumoId, c.delta]));
+      if (used.size > 0) {
+        await cajaDB.meta.put({ key: 'barra', value: { ...barra, insumos: barra.insumos.map((i) => ({ ...i, stock: i.stock + (used.get(i.id) ?? 0) })) } });
       }
     }
   }

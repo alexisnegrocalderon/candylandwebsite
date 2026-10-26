@@ -383,6 +383,9 @@ export async function copyCartaBetweenEvents(fromEventId: number, toEventId: num
       stockPoolId: null,
     });
   }
+  // Las recetas (insumos que gasta cada trago) se copian con la carta, por
+  // nombre. Import dinámico: server/insumos.ts importa este archivo.
+  if (toCopy.length > 0) await (await import('./insumos')).copyRecetasBetweenEvents(fromEventId, toEventId);
   return toCopy.length;
 }
 

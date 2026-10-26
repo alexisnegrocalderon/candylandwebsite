@@ -107,15 +107,42 @@ const MANUAL_STEPS: Step[] = [
   },
 ];
 
+/** drizzle/0132_insumos_recetas.sql: stock de la barra por insumos (server/insumos.ts). Va aparte (INSUMO_STEPS):
+ * si falta, solo la pestaña de Insumos avisa y la caja vende como siempre, sin descontar insumos. */
+const INSUMO_SQL: string[] = [
+  "CREATE TABLE `insumos` (\n\t`id` int AUTO_INCREMENT NOT NULL,\n\t`name` varchar(100) NOT NULL,\n\t`unit` enum('ml','g','un') NOT NULL DEFAULT 'ml',\n\t`containerSize` int NOT NULL DEFAULT 750,\n\t`containerLabel` varchar(30) NOT NULL DEFAULT 'botella',\n\t`costPerContainer` decimal(10,0),\n\t`alertDrinks` int NOT NULL DEFAULT 15,\n\t`active` int NOT NULL DEFAULT 1,\n\t`sortOrder` int NOT NULL DEFAULT 0,\n\t`createdAt` timestamp NOT NULL DEFAULT (now()),\n\t`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,\n\tCONSTRAINT `insumos_id` PRIMARY KEY(`id`)\n)",
+  "CREATE TABLE `insumoRecetas` (\n\t`id` int AUTO_INCREMENT NOT NULL,\n\t`ticketTypeId` int NOT NULL,\n\t`insumoId` int NOT NULL,\n\t`amount` decimal(10,2) NOT NULL,\n\tCONSTRAINT `insumoRecetas_id` PRIMARY KEY(`id`)\n)",
+  "CREATE UNIQUE INDEX `insumo_recetas_tt_insumo_idx` ON `insumoRecetas` (`ticketTypeId`,`insumoId`)",
+  "CREATE INDEX `insumo_recetas_insumo_idx` ON `insumoRecetas` (`insumoId`)",
+  "CREATE TABLE `insumoMovimientos` (\n\t`id` int AUTO_INCREMENT NOT NULL,\n\t`insumoId` int NOT NULL,\n\t`eventId` int,\n\t`kind` enum('carga','compra','venta','anulacion','conteo_ajuste','merma','ajuste') NOT NULL,\n\t`delta` decimal(12,2) NOT NULL,\n\t`opId` varchar(64),\n\t`conteoId` int,\n\t`operatorId` int,\n\t`note` varchar(255),\n\t`createdAt` timestamp NOT NULL DEFAULT (now()),\n\tCONSTRAINT `insumoMovimientos_id` PRIMARY KEY(`id`)\n)",
+  "CREATE UNIQUE INDEX `insumo_mov_op_idx` ON `insumoMovimientos` (`opId`,`insumoId`,`kind`)",
+  "CREATE INDEX `insumo_mov_insumo_idx` ON `insumoMovimientos` (`insumoId`)",
+  "CREATE INDEX `insumo_mov_event_idx` ON `insumoMovimientos` (`eventId`,`createdAt`)",
+  "CREATE TABLE `insumoConteos` (\n\t`id` int AUTO_INCREMENT NOT NULL,\n\t`eventId` int NOT NULL,\n\t`registerId` int,\n\t`shiftId` int,\n\t`kind` enum('apertura','cierre') NOT NULL,\n\t`operatorId` int,\n\t`operatorName` varchar(100),\n\t`createdAt` timestamp NOT NULL DEFAULT (now()),\n\tCONSTRAINT `insumoConteos_id` PRIMARY KEY(`id`)\n)",
+  "CREATE INDEX `insumo_conteos_event_idx` ON `insumoConteos` (`eventId`,`createdAt`)",
+  "CREATE TABLE `insumoConteoLineas` (\n\t`id` int AUTO_INCREMENT NOT NULL,\n\t`conteoId` int NOT NULL,\n\t`insumoId` int NOT NULL,\n\t`closedContainers` int NOT NULL DEFAULT 0,\n\t`openFraction` decimal(4,2) NOT NULL DEFAULT '0',\n\t`countedTotal` decimal(12,2) NOT NULL,\n\t`expectedTotal` decimal(12,2) NOT NULL,\n\tCONSTRAINT `insumoConteoLineas_id` PRIMARY KEY(`id`)\n)",
+  "CREATE INDEX `insumo_conteo_lineas_conteo_idx` ON `insumoConteoLineas` (`conteoId`)",
+];
+
+/** Cada sentencia del archivo se vuelve un paso: un CREATE TABLE está hecho si la tabla existe; un CREATE INDEX, si el índice existe. */
+const INSUMO_STEPS: Step[] = INSUMO_SQL.map((statement) => {
+  const table = /CREATE TABLE `(\w+)`/.exec(statement)?.[1];
+  if (table) return { label: `tabla ${table}`, done: (h: Have) => h.tables.has(table), statement };
+  const [, index, on] = /CREATE (?:UNIQUE )?INDEX `(\w+)` ON `(\w+)`/.exec(statement) ?? [];
+  return { label: `índice ${index}`, done: (h: Have) => h.indexes.has(col(on, index)), statement };
+});
+
 /** Todo lo que el botón sabe aplicar, en orden. */
 export const SCHEMA_STEPS: Step[] = [...STAFF_STEPS, ...SOLTERO_STEPS];
+
+const INSUMO_TABLES_SQL = ['insumos', 'insumoRecetas', 'insumoMovimientos', 'insumoConteos', 'insumoConteoLineas'].map((t) => `'${t}'`).join(', ');
 
 async function readHave(): Promise<Have | null> {
   const db = await getDb();
   if (!db) return null;
   const [cols] = (await db.execute(sql`SELECT TABLE_NAME AS t, COLUMN_NAME AS c FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ('staffMembers', 'operators')`)) as unknown as [{ t: string; c: string }[]];
-  const [idx] = (await db.execute(sql`SELECT TABLE_NAME AS t, INDEX_NAME AS i FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ('staffMembers', 'operators', 'solteroApprovals', 'staffManuals', 'staffManualAcceptances')`)) as unknown as [{ t: string; i: string }[]];
-  const [tbl] = (await db.execute(sql`SELECT TABLE_NAME AS t FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ('solteroApprovals', 'staffManuals', 'staffManualAcceptances')`)) as unknown as [{ t: string }[]];
+  const [idx] = (await db.execute(sql`SELECT TABLE_NAME AS t, INDEX_NAME AS i FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ('staffMembers', 'operators', 'solteroApprovals', 'staffManuals', 'staffManualAcceptances', ${sql.raw(INSUMO_TABLES_SQL)})`)) as unknown as [{ t: string; i: string }[]];
+  const [tbl] = (await db.execute(sql`SELECT TABLE_NAME AS t FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ('solteroApprovals', 'staffManuals', 'staffManualAcceptances', ${sql.raw(INSUMO_TABLES_SQL)})`)) as unknown as [{ t: string }[]];
   return {
     tables: new Set(tbl.map((r) => r.t)),
     columns: new Set(cols.map((r) => col(r.t, r.c))),
@@ -174,5 +201,31 @@ export async function applyManualSchema(): Promise<{ applied: string[] }> {
     applied.push(step.label);
   }
   manualSchemaReady = false;
+  return { applied };
+}
+
+let insumoSchemaReady = false;
+
+/** ¿Existen las tablas del stock por insumos? */
+export async function insumoSchemaStatus(): Promise<{ ready: boolean; missing: string[] }> {
+  if (insumoSchemaReady) return { ready: true, missing: [] };
+  const have = await readHave();
+  if (!have) return { ready: true, missing: [] };
+  const missing = INSUMO_STEPS.filter((s) => !s.done(have)).map((s) => s.label);
+  insumoSchemaReady = missing.length === 0;
+  return { ready: insumoSchemaReady, missing };
+}
+
+export async function applyInsumoSchema(): Promise<{ applied: string[] }> {
+  const db = await getDb();
+  const have = await readHave();
+  if (!db || !have) throw new Error('No hay conexión con la base de datos.');
+  const applied: string[] = [];
+  for (const step of INSUMO_STEPS) {
+    if (step.done(have)) continue;
+    await db.execute(sql.raw(step.statement));
+    applied.push(step.label);
+  }
+  insumoSchemaReady = false;
   return { applied };
 }

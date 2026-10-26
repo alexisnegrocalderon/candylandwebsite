@@ -15,9 +15,11 @@ import { isPayQr, parseTicketCodeFromQr } from '@shared/qr';
 import {
   saveSnapshot, getLocalEvent, searchLocal, searchStaffCompsLocal, searchInsideAttendeesLocal, getLocalAttendee, getLocalCatalog,
   enqueueOp, pendingOpsCount, getPendingOps, markOpSynced, markOpRejected, getRejectedOps, discardOp, clearSyncedOps, correctedNow,
-  nextKitchenTicketNumber, nextLockerTagNumber,
-  type CajaAttendee, type CajaCatalogItem, type CajaStaffComp, type QueuedOp,
+  nextKitchenTicketNumber, nextLockerTagNumber, getLocalBarra,
+  type CajaAttendee, type CajaBarra, type CajaCatalogItem, type CajaStaffComp, type QueuedOp,
 } from './db';
+import { nivelInsumo, tragosDisponibles, tragosPorInsumo } from '@shared/insumos';
+import { BarraCount } from './BarraCount';
 import { forgetOffline, useOfflineFallback } from './offlineGate';
 import { canRedeem, clampRedeemAmount, PLAYCOINS_MIN_REDEEM_BALANCE } from '@shared/playcoins';
 import { formatChileDateTime } from '@shared/chileDate';
@@ -221,6 +223,8 @@ function ShiftGate({ operator }: { operator: { operatorId: number; name: string;
           { duration: 10000 },
         );
       }
+      // Turno nuevo: lo primero es el conteo de barra (CajaHome lo muestra una vez).
+      if (!opened.alreadyOpen) localStorage.setItem(BARRA_APERTURA_PENDING, '1');
       localStorage.setItem('caja_shift_opened', '1');
       setShiftStarted(true);
     } catch (err: any) {
@@ -286,6 +290,10 @@ function ShiftGate({ operator }: { operator: { operatorId: number; name: string;
     </div>
   );
 }
+
+/** "Falta el conteo de barra de inicio de este turno" -- se marca al abrir un
+ * turno nuevo y se borra al contar o saltarlo (sobrevive a un refresh). */
+const BARRA_APERTURA_PENDING = 'caja_barra_apertura_pendiente';
 
 /** Efectivo inicial del turno (cuadre de caja): se pide antes de vender
  * nada, para poder restarlo automáticamente del conteo final al cerrar. */
@@ -605,6 +613,13 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
   const [sheetVersion, setSheetVersion] = useState(0); // fuerza refresco de la ficha tras un canje local
   const [showCloseForm, setShowCloseForm] = useState(false);
   const [scanning, setScanning] = useState(false);
+  // Conteo de barra: al abrir un turno nuevo y antes del cuadre de cierre.
+  const [barraCount, setBarraCount] = useState<'apertura' | 'cierre' | null>(() => (localStorage.getItem(BARRA_APERTURA_PENDING) === '1' ? 'apertura' : null));
+  const finishBarraCount = useCallback(() => {
+    if (barraCount === 'apertura') localStorage.removeItem(BARRA_APERTURA_PENDING);
+    if (barraCount === 'cierre') setShowCloseForm(true);
+    setBarraCount(null);
+  }, [barraCount]);
 
   const refreshPending = useCallback(() => { pendingOpsCount().then(setPending); }, []);
 
@@ -832,7 +847,8 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
       setView('rejected');
       return;
     }
-    setShowCloseForm(true);
+    // Primero el conteo de barra (si el evento no usa insumos, se salta solo).
+    setBarraCount('cierre');
   };
 
   // `fixed inset-0` (no `min-h-screen`) a propósito en TODAS las pantallas de
@@ -887,6 +903,10 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
             Sirve el mismo código de la entrada -- abre la ficha para cobrar el extra.
           </p>
         </div>
+      )}
+
+      {barraCount && (
+        <BarraCount eventId={localEvent.id} registerId={registerId} kind={barraCount} onDone={finishBarraCount} onSkip={finishBarraCount} />
       )}
 
       {showCloseForm && (
@@ -1451,13 +1471,34 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
   // explícito del dueño: el número es difícil de memorizar para ir a buscarlo).
   const [customerName, setCustomerName] = useState('');
 
+  // Stock de la barra por insumos (ver `barraLeft` más abajo).
+  const [barra, setBarra] = useState<CajaBarra | null>(null);
   useEffect(() => {
     getLocalCatalog().then((c) => {
       const sorted = [...c].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
       setCatalog(sorted);
       if (sorted.length > 0) setTab((prev) => prev ?? (sorted[0].groupName || sorted[0].category));
     });
+    getLocalBarra().then(setBarra);
   }, [catalogVersion]);
+
+  // Stock de la barra por insumos: un trago con receta muestra cuántos quedan
+  // según el insumo que se acaba primero (no su stock por unidades).
+  const barraLeft = useMemo(() => {
+    const byProduct = new Map<number, { drinks: number; low: boolean }>();
+    if (!barra) return { byProduct, alerts: [] as { name: string; drinks: number }[] };
+    const stock = new Map(barra.insumos.map((i) => [i.id, i.stock]));
+    const alertOf = new Map(barra.insumos.map((i) => [i.id, i.alertDrinks]));
+    for (const p of catalog) {
+      const left = tragosDisponibles(barra.recetas.filter((r) => r.ticketTypeId === p.id), stock);
+      if (left) byProduct.set(p.id, { drinks: left.drinks, low: left.drinks < (alertOf.get(left.limitingInsumoId) ?? 0) });
+    }
+    const alerts = barra.insumos
+      .map((i) => ({ name: i.name, drinks: tragosPorInsumo(i.id, i.stock, barra.recetas), alertDrinks: i.alertDrinks }))
+      .filter((i): i is { name: string; drinks: number; alertDrinks: number } => i.drinks !== null && ['agotado', 'bajo'].includes(nivelInsumo(i.drinks, i.alertDrinks)))
+      .sort((a, b) => a.drinks - b.drinks);
+    return { byProduct, alerts };
+  }, [barra, catalog]);
 
   const total = catalog.reduce((sum, p) => sum + p.price * (cart[p.id] || 0), 0);
   const cartLines = catalog.filter((p) => (cart[p.id] || 0) > 0);
@@ -1496,7 +1537,8 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
   const productGrid = useMemo(() => (
             <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain grid grid-cols-2 sm:grid-cols-3 md:grid-cols-2 min-[900px]:grid-cols-3 xl:grid-cols-4 gap-3 content-start">
               {productsInTab.map((p) => {
-                const left = p.totalStock - p.soldCount;
+                const byInsumo = barraLeft.byProduct.get(p.id);
+                const left = byInsumo ? byInsumo.drinks : p.totalStock - p.soldCount;
                 const noStock = left <= 0;
                 const isFavorite = favorites.includes(p.id);
                 // Botón de emergencia de cocina (o el admin): bloqueo REAL, a
@@ -1547,6 +1589,11 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
                         Sin stock
                       </span>
                     )}
+                    {!editingFavorites && !soldOut && !noStock && byInsumo && !(cart[p.id] > 0) && (
+                      <span className={`absolute top-2 right-2 text-[10px] font-semibold px-2 py-0.5 rounded-full ${byInsumo.low ? 'bg-amber-500/90 text-black' : 'bg-white/10 text-white/60'}`}>
+                        quedan ~{left}
+                      </span>
+                    )}
                     {p.description && (
                       <span className="absolute bottom-2 right-2 text-[10px] text-white/50" aria-hidden>ⓘ</span>
                     )}
@@ -1572,7 +1619,7 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
               )}
             </div>
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  ), [productsInTab, cart, favorites, editingFavorites, flashPromoActive, flashPromo, tab]);
+  ), [productsInTab, cart, favorites, editingFavorites, flashPromoActive, flashPromo, tab, barraLeft]);
 
   const checkBalance = async () => {
     if (!buyerEmail.trim()) return;
@@ -1667,6 +1714,8 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
       const given = Number(cashGiven || 0);
       setLastSale({ total, method, change: method === 'efectivo' && given >= total ? given - total : null });
     }
+    // El stock local de insumos ya se descontó al encolar: se relee para el "quedan ~N".
+    getLocalBarra().then(setBarra);
     setCartOpen(false);
     setCart({});
     setBuyerEmail('');
@@ -1765,6 +1814,16 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
                 );
               })}
             </div>
+
+            {barraLeft.alerts.length > 0 && (
+              <div className="shrink-0 flex gap-2 overflow-x-auto pb-2 -mt-1" role="status">
+                {barraLeft.alerts.map((a) => (
+                  <span key={a.name} className={`shrink-0 text-xs font-semibold px-3 py-1 rounded-full ${a.drinks <= 0 ? 'bg-red-500/20 text-red-200' : 'bg-amber-500/20 text-amber-200'}`}>
+                    {a.drinks <= 0 ? `⛔ ${a.name}: se acabó` : `⚠️ ${a.name}: ~${a.drinks} tragos`}
+                  </span>
+                ))}
+              </div>
+            )}
 
             {/* Grilla de productos -- tocar suma una unidad; el stepper +/- ahora vive en el carrito, no acá (ver panel derecho). Ocupa TODO el espacio restante de la columna, con scroll propio si no caben todos, en vez de empujar "Ventas recientes" fuera de la pantalla. */}
             {productGrid}

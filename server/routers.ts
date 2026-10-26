@@ -24,7 +24,9 @@ import { MAX_TEST_GUESTS, MIN_TEST_GUESTS } from "../shared/playmatchTest";
 import { UNDO_EXPENSE_WINDOW_MS } from "../shared/expenses";
 import { canUseCaja, OPERATOR_ROLES, STAFF_SYSTEMS } from "../shared/cajaRoles";
 import { STAFF_CARGO_KEYS } from "../shared/staffCargos";
-import { applyManualSchema, applyStaffSchema, manualSchemaStatus, staffSchemaStatus } from "./schemaUpdates";
+import { applyInsumoSchema, applyManualSchema, applyStaffSchema, insumoSchemaStatus, manualSchemaStatus, staffSchemaStatus } from "./schemaUpdates";
+import * as insumoSvc from "./insumos";
+import { alertConteoDescuadre } from "./caja/alerts";
 import * as staffManualSvc from "./staffManuals";
 import { recordDoorAlert } from "./caja/doorAlert";
 import { DOOR_ALERT_COOLDOWN_MS, DOOR_ALERT_KEYS, DOOR_ALERT_NOTE_MAX } from "../shared/doorAlert";
@@ -6033,6 +6035,54 @@ export const appRouter = router({
     }),
   }),
 
+  // Stock de la barra por insumos (server/insumos.ts): insumos, recetas de
+  // cada trago, compras, conteos y la lista de compras proyectada.
+  insumos: router({
+    schema: adminProcedure.query(() => insumoSchemaStatus()),
+    schemaApply: adminPasswordProcedure.mutation(async ({ ctx }) => {
+      try {
+        const r = await applyInsumoSchema();
+        await db.recordAdminAudit({ action: 'system.insumoSchemaApply', targetType: 'schema', payload: r, ip: clientIp(ctx) });
+        return { ...r, ...(await insumoSchemaStatus()) };
+      } catch (e: any) {
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: `No se pudo actualizar la base: ${e?.message ?? 'error desconocido'}` });
+      }
+    }),
+    estado: adminProcedure.input(z.object({ eventId: z.number() })).query(({ input }) => insumoSvc.estadoBarra(input.eventId)),
+    save: adminProcedure.input(z.object({
+      id: z.number().optional(), name: z.string().trim().min(1).max(100), unit: z.enum(['ml', 'g', 'un']),
+      containerSize: z.number().min(1).max(1_000_000), containerLabel: z.string().max(30),
+      costPerContainer: z.number().min(0).nullable().optional(), alertDrinks: z.number().int().min(0).max(10_000), sortOrder: z.number().int().optional(),
+      // Al crear: con cuánto parte (en envases cerrados + suelto en la unidad del insumo).
+      initialContainers: z.number().min(0).max(100_000).optional(), initialLoose: z.number().min(0).optional(),
+    })).mutation(async ({ input }) => {
+      const { initialContainers, initialLoose, ...data } = input;
+      const saved = await insumoSvc.saveInsumo(data);
+      const initial = (initialContainers ?? 0) * input.containerSize + (initialLoose ?? 0);
+      if (!input.id && initial > 0) await insumoSvc.addMovimiento({ insumoId: saved.id, kind: 'carga', amount: initial, note: 'Stock inicial' });
+      return saved;
+    }),
+    setActive: adminProcedure.input(z.object({ id: z.number(), active: z.boolean() })).mutation(({ input }) => insumoSvc.setInsumoActive(input.id, input.active)),
+    setReceta: adminProcedure.input(z.object({
+      ticketTypeId: z.number(), lines: z.array(z.object({ insumoId: z.number(), amount: z.number().min(0).max(100_000) })).max(30),
+    })).mutation(({ input }) => insumoSvc.setReceta(input.ticketTypeId, input.lines)),
+    movimiento: adminProcedure.input(z.object({
+      insumoId: z.number(), kind: z.enum(['carga', 'compra', 'merma', 'ajuste']), amount: z.number().min(-10_000_000).max(10_000_000),
+      eventId: z.number().nullable().optional(), note: z.string().max(255).optional(),
+    })).mutation(({ input }) => insumoSvc.addMovimiento(input)),
+    setStock: adminProcedure.input(z.object({ insumoId: z.number(), target: z.number().min(0), eventId: z.number().nullable().optional(), note: z.string().max(255).optional() }))
+      .mutation(({ input }) => insumoSvc.setStockTo(input)),
+    movimientos: adminProcedure.input(z.object({ eventId: z.number().optional(), insumoId: z.number().optional(), limit: z.number().int().max(1000).optional() }))
+      .query(({ input }) => insumoSvc.listMovimientos(input)),
+    conteos: adminProcedure.input(z.object({ eventId: z.number() })).query(({ input }) => insumoSvc.listConteos(input.eventId)),
+    proyeccion: adminProcedure.input(z.object({
+      eventId: z.number(), personas: z.number().int().min(1).max(100_000), factor: z.number().min(0.1).max(5).optional(),
+      tragosPorPersona: z.number().min(0).max(50).nullable().optional(), overrides: z.record(z.string(), z.number().min(0)).optional(),
+    })).query(({ input }) => insumoSvc.proyeccion({
+      ...input, overrides: input.overrides ? Object.fromEntries(Object.entries(input.overrides).map(([k, v]) => [Number(k), v])) : undefined,
+    })),
+  }),
+
   // Módulo /caja — login por PIN de operadores (docs/ARQUITECTURA-CAJA.md
   // Fase 0). Sesión separada de auth.adminLogin: no toca `users` ni COOKIE_NAME.
   caja: router({
@@ -6117,7 +6167,36 @@ export const appRouter = router({
     // §6.2) -- la tablet la guarda en IndexedDB al abrir turno y la
     // refresca cada 60s cuando hay conexión.
     snapshot: operatorProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
-      return db.getCajaSnapshot(input.eventId);
+      const snapshot = await db.getCajaSnapshot(input.eventId);
+      // Stock de la barra por insumos: viaja con el snapshot para calcular
+      // "quedan ~N tragos" también sin señal.
+      return snapshot ? { ...snapshot, barra: await insumoSvc.cajaInsumoSnapshot(input.eventId) } : snapshot;
+    }),
+    // Conteo de barra al abrir y al cerrar turno: cualquiera de la barra lo
+    // hace desde su tablet o celular. Lo contado pasa a ser el stock real.
+    barraEstado: operatorProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
+      const estado = await insumoSvc.estadoBarra(input.eventId);
+      if (!estado.ready) return { ready: false as const, insumos: [], ultimaApertura: null, ultimoCierre: null };
+      const [ultimaApertura, ultimoCierre] = await Promise.all([
+        insumoSvc.ultimoConteo(input.eventId, 'apertura'), insumoSvc.ultimoConteo(input.eventId, 'cierre'),
+      ]);
+      return { ready: true as const, insumos: estado.insumos, ultimaApertura, ultimoCierre };
+    }),
+    conteoBarra: operatorProcedure.input(z.object({
+      eventId: z.number(), registerId: z.number().optional(), kind: z.enum(['apertura', 'cierre']),
+      lines: z.array(z.object({ insumoId: z.number(), closedContainers: z.number().int().min(0).max(10000), openFraction: z.number().min(0).max(1) })).min(1).max(500),
+    })).mutation(async ({ input, ctx }) => {
+      const shift = await db.getOpenShift(input.eventId, input.registerId);
+      try {
+        const result = await insumoSvc.crearConteo({
+          eventId: input.eventId, registerId: input.registerId ?? null, shiftId: shift?.id ?? null, kind: input.kind,
+          operatorId: ctx.operator.operatorId, operatorName: ctx.operator.name, lines: input.lines,
+        });
+        if (input.kind === 'cierre' && !result.test) await alertConteoDescuadre(input.eventId, result.conteoId, ctx.operator.name, result.forAlerts);
+        return { conteoId: result.conteoId, test: result.test, lines: result.lines };
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo guardar el conteo' });
+      }
     }),
     // Procesa un lote de operaciones encoladas offline (§7) -- reutiliza
     // exactamente la misma lógica idempotente (applyOp) que los endpoints

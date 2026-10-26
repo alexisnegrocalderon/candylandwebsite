@@ -19,6 +19,11 @@ vi.mock("../db", () => ({
   spendPrepaidAuthoritative: (...args: [{ customerId: number; amountClp: number; reason: string; opId: string }]) => spendPrepaidAuthoritative(...args),
 }));
 
+// El descuento de insumos tiene sus propias pruebas (shared/insumos.test.ts):
+// acá solo importa que la venta lo pida una vez, con su opId.
+const descontarVenta = vi.fn(async (_db: unknown, _p: { opId: string; eventId: number; operatorId: number; items: { ticketTypeId: number; quantity: number }[] }) => {});
+vi.mock("../insumos", () => ({ descontarVenta: (...args: [unknown, any]) => descontarVenta(...args) }));
+
 const { createCajaSale, resolveCajaBuyerName } = await import("./sale");
 
 /* Doble de la cadena de drizzle. El orden de consultas de `createCajaSale`
@@ -109,6 +114,20 @@ describe("createCajaSale", () => {
     expect(calls.order).toMatchObject({ subtotal: "15000", total: "15000", channel: "caja", paymentStatus: "approved" });
     expect(calls.items[0]).toMatchObject({ quantity: 3, unitPrice: "5000", totalPrice: "15000", unitCost: "1800" });
     expect(calls.soldCountUpdates).toBe(1);
+  });
+
+  it("descuenta los insumos de la barra una vez, ligado al opId de la venta", async () => {
+    descontarVenta.mockClear();
+    const { db } = makeFakeDb({ products: [piscola] });
+    await createCajaSale(db, { ...baseParams, items: [{ ticketTypeId: 1, quantity: 2 }] });
+    expect(descontarVenta).toHaveBeenCalledTimes(1);
+    expect(descontarVenta.mock.calls[0][1]).toMatchObject({ opId: "op-venta-1", eventId: 10, items: [{ ticketTypeId: 1, quantity: 2 }] });
+
+    // Reintento de la cola offline: la op ya existe, no se vuelve a descontar.
+    descontarVenta.mockClear();
+    const retry = makeFakeDb({ products: [piscola], existingOp: { result: "applied" } });
+    await createCajaSale(retry.db, { ...baseParams, items: [{ ticketTypeId: 1, quantity: 2 }] });
+    expect(descontarVenta).not.toHaveBeenCalled();
   });
 
   it("deja vender aunque no quede stock, y lo avisa en vez de bloquear", async () => {

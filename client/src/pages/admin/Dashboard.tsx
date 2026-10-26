@@ -9,7 +9,7 @@ import { StaffManager, requestNewStaff } from '@/components/admin/staff/StaffMan
 import { useHideSplashOnMount } from '@/lib/splash';
 import { useSeo } from '@/hooks/useSeo';
 import { useInstallableApp } from '@/hooks/useInstallableApp';
-import { Home, Calendar, DollarSign, Ticket, Users, Plus, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, Contact, Mail, History, Gift, MessageCircle, Crown, Martini, Instagram, UserPlus, Ban, Receipt, Compass, Sparkles, Car, Send, ShieldAlert, Zap, Cake, Calculator, Star, FlaskConical, Palette, UserCheck, Banknote, Landmark, Headphones, ListChecks, PartyPopper, BellRing } from 'lucide-react';
+import { Home, Calendar, DollarSign, Ticket, Users, Plus, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, Contact, Mail, History, Gift, MessageCircle, Crown, Martini, Instagram, UserPlus, Ban, Receipt, Compass, Sparkles, Car, Send, ShieldAlert, Zap, Cake, Calculator, Star, FlaskConical, Palette, UserCheck, Banknote, Landmark, Headphones, ListChecks, PartyPopper, BellRing, Wine } from 'lucide-react';
 import { AdminLoginForm } from '@/components/admin/AdminLoginForm';
 import { OPEN_SECTION_EVENT } from '@/components/admin/studio/handoff';
 import { parseAdminDeepLink } from '@shared/adminDeepLink';
@@ -24,6 +24,7 @@ import { AdminBackdropPage } from '@/components/admin/AdminBackdropPage';
 const SolterosManager = lazy(() => import('@/components/admin/solteros/SolterosManager').then((m) => ({ default: m.SolterosManager })));
 const BlockedManager = lazy(() => import('@/components/admin/blocked/BlockedManager').then((m) => ({ default: m.BlockedManager })));
 const CartaManager = lazy(() => import('@/components/admin/carta/CartaManager').then((m) => ({ default: m.CartaManager })));
+const InsumosManager = lazy(() => import('@/components/admin/insumos/InsumosManager').then((m) => ({ default: m.InsumosManager })));
 const ContentPlanView = lazy(() => import('@/components/admin/ContentPlanView').then((m) => ({ default: m.ContentPlanView })));
 const ContestsView = lazy(() => import('@/components/admin/ContestsView').then((m) => ({ default: m.ContestsView })));
 const CustomerPushView = lazy(() => import('@/components/admin/push/CustomerPushView').then((m) => ({ default: m.CustomerPushView })));
@@ -126,6 +127,7 @@ const ADMIN_SECTIONS = [
 
   { id: 'events', label: 'Eventos', hub: 'eventos', icon: Calendar, render: () => <EventsManager /> },
   { id: 'carta', label: 'Carta de la Fiesta', hub: 'eventos', icon: Martini, render: () => <CartaManager /> },
+  { id: 'insumos', label: 'Stock de Barra', hub: 'eventos', icon: Wine, render: () => <InsumosManager /> },
   { id: 'event-survey', label: 'Encuestas', hub: 'eventos', icon: Star, render: () => <EventSurveyView /> },
   { id: 'discounts', label: 'Descuentos', hub: 'eventos', icon: Percent, render: () => <DiscountsManager /> },
   { id: 'community', label: 'Códigos Comunidad', hub: 'eventos', icon: Users, render: () => <CommunityCodesManager /> },

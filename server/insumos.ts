@@ -1,0 +1,458 @@
+/* Stock de la barra por insumos (shared/insumos.ts tiene las reglas puras).
+ *
+ * - El stock de un insumo es la suma de `insumoMovimientos` (nunca se pisa).
+ * - Cada venta de /caja descuenta según la receta del trago (`descontarVenta`,
+ *   lo llama server/caja/sale.ts) y cada anulación lo devuelve.
+ * - El conteo de barra (apertura / cierre de turno) deja el stock igual a lo
+ *   contado con un movimiento `conteo_ajuste`, y guarda el descuadre.
+ *
+ * Nada de lo que llama la caja lanza: si las tablas todavía no existen
+ * (migración 0132 sin aplicar) la venta sigue como siempre, sin descontar. */
+import { and, desc, eq, gte, inArray, lt, ne, sql } from "drizzle-orm";
+import {
+  events, insumoConteoLineas, insumoConteos, insumoMovimientos, insumoRecetas, insumos, orderItems, orders, ticketTypes, tickets,
+} from "../drizzle/schema";
+import { getDb } from "./db";
+import { insumoSchemaStatus } from "./schemaUpdates";
+import { personasForTicket } from "../shared/mission300";
+import {
+  conteoATotal, consumoDeVenta, descuadre, nivelInsumo, normalizeName, proyeccionCompra, tragosDisponibles, tragosPorInsumo,
+  type Insumo, type InsumoUnit, type MovimientoKind, type RecetaLinea,
+} from "../shared/insumos";
+
+/** Evento de pruebas de la caja: sus ventas no son reales y no gastan botellas. */
+const TEST_EVENT_SLUG = "pruebas-caja";
+
+const n = (v: unknown) => Number(v ?? 0);
+
+function toInsumo(r: any): Insumo & { active: boolean; sortOrder: number } {
+  return {
+    id: r.id, name: r.name, unit: r.unit as InsumoUnit, containerSize: n(r.containerSize), containerLabel: r.containerLabel,
+    costPerContainer: r.costPerContainer != null ? n(r.costPerContainer) : null, alertDrinks: n(r.alertDrinks),
+    active: n(r.active) === 1, sortOrder: n(r.sortOrder),
+  };
+}
+
+// Mientras falte la migración, no se vuelve a preguntar a information_schema en cada venta.
+let notReadyUntil = 0;
+async function ready(): Promise<boolean> {
+  if (Date.now() < notReadyUntil) return false;
+  try {
+    const ok = (await insumoSchemaStatus()).ready;
+    if (!ok) notReadyUntil = Date.now() + 60_000;
+    return ok;
+  } catch { return false; }
+}
+
+async function dbOrThrow() {
+  const db = await getDb();
+  if (!db) throw new Error("Base de datos no disponible");
+  return db;
+}
+
+// --- Lecturas ---
+
+export async function listInsumos(includeInactive = false) {
+  const db = await dbOrThrow();
+  const rows = await db.select().from(insumos).orderBy(insumos.sortOrder, insumos.name);
+  return rows.map(toInsumo).filter((i) => includeInactive || i.active);
+}
+
+export async function stockMap(db?: any): Promise<Map<number, number>> {
+  const d = db ?? (await dbOrThrow());
+  const rows = await d.select({ insumoId: insumoMovimientos.insumoId, total: sql<string>`SUM(${insumoMovimientos.delta})` })
+    .from(insumoMovimientos).groupBy(insumoMovimientos.insumoId);
+  return new Map<number, number>(rows.map((r: any) => [r.insumoId, Math.round(n(r.total) * 100) / 100]));
+}
+
+/** Recetas de los productos de un evento. */
+export async function recetasDelEvento(eventId: number, db?: any): Promise<RecetaLinea[]> {
+  const d = db ?? (await dbOrThrow());
+  const rows = await d.select({ ticketTypeId: insumoRecetas.ticketTypeId, insumoId: insumoRecetas.insumoId, amount: insumoRecetas.amount })
+    .from(insumoRecetas).innerJoin(ticketTypes, eq(ticketTypes.id, insumoRecetas.ticketTypeId))
+    .where(eq(ticketTypes.eventId, eventId));
+  return rows.map((r: any) => ({ ticketTypeId: r.ticketTypeId, insumoId: r.insumoId, amount: n(r.amount) }));
+}
+
+/** Stock con que se abrió la noche: el último conteo de apertura del evento
+ * (si no hubo, el stock de antes del primer movimiento del evento). */
+async function referenciaApertura(db: any, eventId: number, stock: Map<number, number>): Promise<Map<number, number>> {
+  const [apertura] = await db.select({ id: insumoConteos.id }).from(insumoConteos)
+    .where(and(eq(insumoConteos.eventId, eventId), eq(insumoConteos.kind, "apertura")))
+    .orderBy(insumoConteos.createdAt).limit(1);
+  if (apertura) {
+    const lines = await db.select().from(insumoConteoLineas).where(eq(insumoConteoLineas.conteoId, apertura.id));
+    return new Map(lines.map((l: any) => [l.insumoId, n(l.countedTotal)]));
+  }
+  // Sin conteo: stock actual menos todo lo que se movió en este evento.
+  const moved = await db.select({ insumoId: insumoMovimientos.insumoId, total: sql<string>`SUM(${insumoMovimientos.delta})` })
+    .from(insumoMovimientos).where(eq(insumoMovimientos.eventId, eventId)).groupBy(insumoMovimientos.insumoId);
+  const ref = new Map(stock);
+  for (const m of moved as any[]) ref.set(m.insumoId, (ref.get(m.insumoId) ?? 0) - n(m.total));
+  return ref;
+}
+
+/** Foto completa de la barra para el admin y para /caja: cada insumo con su
+ * stock y para cuántos tragos alcanza, y cada trago con cuántos quedan. */
+export async function estadoBarra(eventId: number) {
+  if (!(await ready())) return { ready: false as const, insumos: [], productos: [] };
+  const db = await dbOrThrow();
+  const [all, stock, recetas, products] = await Promise.all([
+    listInsumos(),
+    stockMap(db),
+    recetasDelEvento(eventId, db),
+    db.select().from(ticketTypes).where(and(eq(ticketTypes.eventId, eventId), inArray(ticketTypes.category, ["consumo", "merch"]))),
+  ]);
+  const reference = await referenciaApertura(db, eventId, stock);
+  const usedBy = new Map<number, string[]>();
+  for (const r of recetas) {
+    const name = (products as any[]).find((p) => p.id === r.ticketTypeId)?.name;
+    if (name) usedBy.set(r.insumoId, [...(usedBy.get(r.insumoId) ?? []), name]);
+  }
+  return {
+    ready: true as const,
+    insumos: all.map((i) => {
+      const s = stock.get(i.id) ?? 0;
+      const drinks = tragosPorInsumo(i.id, s, recetas);
+      return {
+        ...i, stock: s, drinks, level: nivelInsumo(drinks, i.alertDrinks),
+        reference: reference.get(i.id) ?? null, usedBy: usedBy.get(i.id) ?? [],
+      };
+    }),
+    productos: (products as any[]).map((p) => {
+      const receta = recetas.filter((r) => r.ticketTypeId === p.id).map((r) => ({ insumoId: r.insumoId, amount: r.amount }));
+      const left = tragosDisponibles(receta, stock);
+      return {
+        id: p.id as number, name: p.name as string, groupName: (p.groupName as string | null) ?? null, emoji: (p.emoji as string | null) ?? null,
+        receta, drinks: left?.drinks ?? null, limitingInsumoId: left?.limitingInsumoId ?? null,
+      };
+    }),
+  };
+}
+
+/** Lo que viaja en el snapshot de /caja para calcular "quedan ~N" sin señal. */
+export async function cajaInsumoSnapshot(eventId: number): Promise<{
+  insumos: { id: number; name: string; unit: InsumoUnit; containerSize: number; containerLabel: string; stock: number; alertDrinks: number }[];
+  recetas: RecetaLinea[];
+} | null> {
+  try {
+    if (!(await ready())) return null;
+    const db = await dbOrThrow();
+    const [all, stock, recetas] = await Promise.all([listInsumos(), stockMap(db), recetasDelEvento(eventId, db)]);
+    return {
+      insumos: all.map((i) => ({
+        id: i.id, name: i.name, unit: i.unit, containerSize: i.containerSize, containerLabel: i.containerLabel, stock: stock.get(i.id) ?? 0, alertDrinks: i.alertDrinks,
+      })),
+      recetas,
+    };
+  } catch (err) {
+    console.error("[insumos] snapshot:", err);
+    return null;
+  }
+}
+
+// --- Escrituras del admin ---
+
+export async function saveInsumo(data: {
+  id?: number; name: string; unit: InsumoUnit; containerSize: number; containerLabel: string;
+  costPerContainer?: number | null; alertDrinks: number; sortOrder?: number;
+}) {
+  const db = await dbOrThrow();
+  const values = {
+    name: data.name.trim().slice(0, 100), unit: data.unit, containerSize: Math.max(1, Math.round(data.containerSize)),
+    containerLabel: (data.containerLabel.trim() || "botella").slice(0, 30),
+    costPerContainer: data.costPerContainer != null ? String(Math.round(data.costPerContainer)) : null,
+    alertDrinks: Math.max(0, Math.round(data.alertDrinks)), sortOrder: data.sortOrder ?? 0,
+  };
+  if (data.id) {
+    await db.update(insumos).set(values).where(eq(insumos.id, data.id));
+    return { id: data.id };
+  }
+  const [res] = await db.insert(insumos).values(values);
+  return { id: (res as unknown as { insertId: number }).insertId };
+}
+
+export async function setInsumoActive(id: number, active: boolean) {
+  const db = await dbOrThrow();
+  await db.update(insumos).set({ active: active ? 1 : 0 }).where(eq(insumos.id, id));
+  return { success: true } as const;
+}
+
+/** Reemplaza la receta completa de un trago. */
+export async function setReceta(ticketTypeId: number, lines: { insumoId: number; amount: number }[]) {
+  const db = await dbOrThrow();
+  await db.delete(insumoRecetas).where(eq(insumoRecetas.ticketTypeId, ticketTypeId));
+  const clean = new Map<number, number>();
+  for (const l of lines) if (l.amount > 0) clean.set(l.insumoId, (clean.get(l.insumoId) ?? 0) + l.amount);
+  if (clean.size > 0) {
+    await db.insert(insumoRecetas).values(Array.from(clean, ([insumoId, amount]) => ({ ticketTypeId, insumoId, amount: String(amount) })));
+  }
+  return { success: true } as const;
+}
+
+/** Compra, carga inicial, merma o ajuste a mano. `amount` en la unidad del
+ * insumo (positivo suma; la merma se guarda en negativo). */
+export async function addMovimiento(params: { insumoId: number; kind: Extract<MovimientoKind, "carga" | "compra" | "merma" | "ajuste">; amount: number; eventId?: number | null; note?: string }) {
+  const db = await dbOrThrow();
+  const delta = params.kind === "merma" ? -Math.abs(params.amount) : params.kind === "ajuste" ? params.amount : Math.abs(params.amount);
+  if (!delta) throw new Error("La cantidad no puede ser 0");
+  await db.insert(insumoMovimientos).values({
+    insumoId: params.insumoId, kind: params.kind, delta: String(delta), eventId: params.eventId ?? null, note: params.note?.slice(0, 255) ?? null,
+  });
+  return { success: true } as const;
+}
+
+/** Deja el stock de un insumo exactamente en `target` (ajuste por diferencia). */
+export async function setStockTo(params: { insumoId: number; target: number; eventId?: number | null; note?: string }) {
+  const db = await dbOrThrow();
+  const current = (await stockMap(db)).get(params.insumoId) ?? 0;
+  const delta = Math.round((params.target - current) * 100) / 100;
+  if (delta === 0) return { success: true, delta } as const;
+  await db.insert(insumoMovimientos).values({
+    insumoId: params.insumoId, kind: "ajuste", delta: String(delta), eventId: params.eventId ?? null, note: params.note?.slice(0, 255) ?? "Stock fijado a mano",
+  });
+  return { success: true, delta } as const;
+}
+
+export async function listMovimientos(params: { eventId?: number; insumoId?: number; limit?: number }) {
+  const db = await dbOrThrow();
+  const where = [
+    params.eventId ? eq(insumoMovimientos.eventId, params.eventId) : undefined,
+    params.insumoId ? eq(insumoMovimientos.insumoId, params.insumoId) : undefined,
+  ].filter(Boolean) as any[];
+  const rows = await db.select({
+    id: insumoMovimientos.id, insumoId: insumoMovimientos.insumoId, insumoName: insumos.name, kind: insumoMovimientos.kind,
+    delta: insumoMovimientos.delta, note: insumoMovimientos.note, eventId: insumoMovimientos.eventId, createdAt: insumoMovimientos.createdAt,
+  }).from(insumoMovimientos).leftJoin(insumos, eq(insumos.id, insumoMovimientos.insumoId))
+    .where(where.length ? and(...where) : undefined)
+    .orderBy(desc(insumoMovimientos.createdAt), desc(insumoMovimientos.id)).limit(Math.min(params.limit ?? 200, 1000));
+  return rows.map((r: any) => ({ ...r, delta: n(r.delta) }));
+}
+
+export async function listConteos(eventId: number) {
+  const db = await dbOrThrow();
+  const heads = await db.select().from(insumoConteos).where(eq(insumoConteos.eventId, eventId)).orderBy(desc(insumoConteos.createdAt)).limit(50);
+  if (heads.length === 0) return [];
+  const lines = await db.select().from(insumoConteoLineas).where(inArray(insumoConteoLineas.conteoId, heads.map((h: any) => h.id)));
+  return heads.map((h: any) => ({
+    id: h.id as number, kind: h.kind as "apertura" | "cierre", operatorName: (h.operatorName as string | null) ?? null, createdAt: h.createdAt as Date,
+    registerId: (h.registerId as number | null) ?? null,
+    lines: (lines as any[]).filter((l) => l.conteoId === h.id).map((l) => {
+      const counted = n(l.countedTotal);
+      const expected = n(l.expectedTotal);
+      return { insumoId: l.insumoId as number, closedContainers: n(l.closedContainers), openFraction: n(l.openFraction), counted, expected, ...descuadre(expected, counted) };
+    }),
+  }));
+}
+
+/** Copia las recetas de una carta a otra, emparejando los tragos por nombre
+ * (lo llama copyCartaBetweenEvents). Nunca lanza: copiar la carta importa más. */
+export async function copyRecetasBetweenEvents(fromEventId: number, toEventId: number): Promise<number> {
+  try {
+    if (!(await ready())) return 0;
+    const db = await dbOrThrow();
+    const recetas = await recetasDelEvento(fromEventId, db);
+    if (recetas.length === 0) return 0;
+    const [fromTypes, toTypes] = await Promise.all([
+      db.select({ id: ticketTypes.id, name: ticketTypes.name }).from(ticketTypes).where(eq(ticketTypes.eventId, fromEventId)),
+      db.select({ id: ticketTypes.id, name: ticketTypes.name }).from(ticketTypes).where(eq(ticketTypes.eventId, toEventId)),
+    ]);
+    const toByName = new Map((toTypes as any[]).map((t) => [normalizeName(t.name), t.id as number]));
+    const targetOf = new Map((fromTypes as any[]).map((t) => [t.id as number, toByName.get(normalizeName(t.name))]));
+    const toExisting = new Set((await recetasDelEvento(toEventId, db)).map((r) => r.ticketTypeId));
+    const values = recetas
+      .map((r) => ({ ticketTypeId: targetOf.get(r.ticketTypeId), insumoId: r.insumoId, amount: String(r.amount) }))
+      .filter((r): r is { ticketTypeId: number; insumoId: number; amount: string } => r.ticketTypeId !== undefined && !toExisting.has(r.ticketTypeId));
+    if (values.length) await db.insert(insumoRecetas).values(values);
+    return values.length;
+  } catch (err) {
+    console.error("[insumos] copyRecetasBetweenEvents:", err);
+    return 0;
+  }
+}
+
+// --- Caja: ventas, anulaciones y conteos ---
+
+async function isTestEvent(db: any, eventId: number): Promise<boolean> {
+  const [e] = await db.select({ slug: events.slug }).from(events).where(eq(events.id, eventId)).limit(1);
+  return e?.slug === TEST_EVENT_SLUG;
+}
+
+/** Descuenta los insumos de una venta. Idempotente por opId (índice único) y
+ * nunca lanza: un insumo mal cargado no puede frenar un cobro. */
+export async function descontarVenta(db: any, params: { opId: string; eventId: number; operatorId: number; items: { ticketTypeId: number; quantity: number }[] }) {
+  try {
+    if (!(await ready()) || (await isTestEvent(db, params.eventId))) return;
+    const ids = params.items.map((i) => i.ticketTypeId);
+    const rows = await db.select().from(insumoRecetas).where(inArray(insumoRecetas.ticketTypeId, ids));
+    const recetas: RecetaLinea[] = rows.map((r: any) => ({ ticketTypeId: r.ticketTypeId, insumoId: r.insumoId, amount: n(r.amount) }));
+    const consumo = consumoDeVenta(params.items, recetas);
+    if (consumo.length === 0) return;
+    await db.insert(insumoMovimientos).values(consumo.map((c) => ({
+      insumoId: c.insumoId, kind: "venta" as const, delta: String(c.delta), eventId: params.eventId, opId: params.opId, operatorId: params.operatorId,
+    })));
+  } catch (err: any) {
+    if (err?.code === "ER_DUP_ENTRY" || /duplicate entry/i.test(String(err?.message ?? ""))) return;
+    console.error("[insumos] descontarVenta:", err);
+  }
+}
+
+/** Devuelve al stock lo que gastó una venta anulada. */
+export async function devolverVenta(db: any, params: { saleOpId: string; voidOpId: string; eventId: number; operatorId: number }) {
+  try {
+    if (!(await ready())) return;
+    const rows = await db.select().from(insumoMovimientos).where(and(eq(insumoMovimientos.opId, params.saleOpId), eq(insumoMovimientos.kind, "venta")));
+    if (rows.length === 0) return;
+    await db.insert(insumoMovimientos).values(rows.map((r: any) => ({
+      insumoId: r.insumoId, kind: "anulacion" as const, delta: String(-n(r.delta)), eventId: params.eventId, opId: params.voidOpId, operatorId: params.operatorId,
+    })));
+  } catch (err: any) {
+    if (err?.code === "ER_DUP_ENTRY" || /duplicate entry/i.test(String(err?.message ?? ""))) return;
+    console.error("[insumos] devolverVenta:", err);
+  }
+}
+
+/** Antes/después de cada insumo que tocó una venta (para las alertas). */
+export async function cambiosDeVenta(opId: string, eventId: number) {
+  if (!(await ready())) return null;
+  const db = await dbOrThrow();
+  const rows = await db.select().from(insumoMovimientos).where(and(eq(insumoMovimientos.opId, opId), eq(insumoMovimientos.kind, "venta")));
+  if (rows.length === 0) return null;
+  const [all, stock, recetas] = await Promise.all([listInsumos(true), stockMap(db), recetasDelEvento(eventId, db)]);
+  const reference = await referenciaApertura(db, eventId, stock);
+  const byId = new Map(all.map((i) => [i.id, i]));
+  return {
+    recetas,
+    changes: (rows as any[]).flatMap((r) => {
+      const insumo = byId.get(r.insumoId);
+      if (!insumo) return [];
+      const after = stock.get(r.insumoId) ?? 0;
+      return [{ insumo, after, before: after - n(r.delta), reference: reference.get(r.insumoId) ?? null }];
+    }),
+  };
+}
+
+/** Consumo de la última ventana por insumo (para la alerta de ritmo). */
+export async function consumoReciente(eventId: number, since: Date) {
+  if (!(await ready())) return null;
+  const db = await dbOrThrow();
+  const rows = await db.select({ insumoId: insumoMovimientos.insumoId, total: sql<string>`SUM(${insumoMovimientos.delta})` })
+    .from(insumoMovimientos)
+    .where(and(eq(insumoMovimientos.eventId, eventId), inArray(insumoMovimientos.kind, ["venta", "anulacion"]), gte(insumoMovimientos.createdAt, since)))
+    .groupBy(insumoMovimientos.insumoId);
+  if (rows.length === 0) return null;
+  const [all, stock] = await Promise.all([listInsumos(), stockMap(db)]);
+  const used = new Map((rows as any[]).map((r) => [r.insumoId as number, -n(r.total)]));
+  return all.filter((i) => (used.get(i.id) ?? 0) > 0).map((insumo) => ({ insumo, stock: stock.get(insumo.id) ?? 0, usedLastWindow: used.get(insumo.id)! }));
+}
+
+/** Último conteo del evento (para no pedirle a la segunda caja que vuelva a contar). */
+export async function ultimoConteo(eventId: number, kind: "apertura" | "cierre") {
+  if (!(await ready())) return null;
+  const db = await dbOrThrow();
+  const [c] = await db.select().from(insumoConteos)
+    .where(and(eq(insumoConteos.eventId, eventId), eq(insumoConteos.kind, kind))).orderBy(desc(insumoConteos.createdAt)).limit(1);
+  return c ? { id: c.id as number, operatorName: (c.operatorName as string | null) ?? null, createdAt: c.createdAt as Date } : null;
+}
+
+/** Guarda un conteo de barra. El stock queda igual a lo contado (lo físico
+ * manda) y la diferencia queda registrada como `conteo_ajuste`. */
+export async function crearConteo(params: {
+  eventId: number; registerId?: number | null; shiftId?: number | null; kind: "apertura" | "cierre";
+  operatorId: number; operatorName: string;
+  lines: { insumoId: number; closedContainers: number; openFraction: number }[];
+}) {
+  if (!(await ready())) throw new Error("El conteo de barra todavía no está activado (falta actualizar la base de datos).");
+  const db = await dbOrThrow();
+  const test = await isTestEvent(db, params.eventId);
+  const [all, stock] = await Promise.all([listInsumos(), stockMap(db)]);
+  const byId = new Map(all.map((i) => [i.id, i]));
+  const lines = params.lines.filter((l) => byId.has(l.insumoId)).map((l) => {
+    const insumo = byId.get(l.insumoId)!;
+    const counted = conteoATotal(l.closedContainers, l.openFraction, insumo.containerSize);
+    const expected = stock.get(l.insumoId) ?? 0;
+    return { ...l, insumo, counted, expected };
+  });
+  if (lines.length === 0) throw new Error("El conteo no tiene insumos");
+
+  const [res] = await db.insert(insumoConteos).values({
+    eventId: params.eventId, registerId: params.registerId ?? null, shiftId: params.shiftId ?? null, kind: params.kind,
+    operatorId: params.operatorId, operatorName: params.operatorName.slice(0, 100),
+  });
+  const conteoId = (res as unknown as { insertId: number }).insertId;
+  await db.insert(insumoConteoLineas).values(lines.map((l) => ({
+    conteoId, insumoId: l.insumoId, closedContainers: Math.max(0, Math.floor(l.closedContainers)), openFraction: String(l.openFraction),
+    countedTotal: String(l.counted), expectedTotal: String(l.expected),
+  })));
+  // En modo prueba se guarda el conteo (para practicar) pero no toca el stock real.
+  if (!test) {
+    const adjustments = lines.map((l) => ({ l, delta: Math.round((l.counted - l.expected) * 100) / 100 })).filter((a) => a.delta !== 0);
+    if (adjustments.length) {
+      await db.insert(insumoMovimientos).values(adjustments.map(({ l, delta }) => ({
+        insumoId: l.insumoId, kind: "conteo_ajuste" as const, delta: String(delta), eventId: params.eventId, conteoId, operatorId: params.operatorId,
+        note: `Conteo de ${params.kind} de ${params.operatorName}`.slice(0, 255),
+      })));
+    }
+  }
+  return {
+    conteoId, test,
+    lines: lines.map((l) => ({ insumoId: l.insumoId, name: l.insumo.name, counted: l.counted, expected: l.expected, ...descuadre(l.expected, l.counted) })),
+    forAlerts: lines.map((l) => ({ insumo: l.insumo as Insumo, expected: l.expected, counted: l.counted })),
+  };
+}
+
+// --- Proyección de compra ---
+
+/** Personas de un evento: las que entraron (si ya pasó) o las que tienen entrada. */
+async function personasDelEvento(db: any, eventId: number): Promise<{ inside: number; expected: number }> {
+  const rows = await db.select({ accesoSlug: ticketTypes.accesoSlug, status: tickets.status, groupSize: tickets.groupSize })
+    .from(tickets).innerJoin(ticketTypes, eq(ticketTypes.id, tickets.ticketTypeId))
+    .where(and(eq(tickets.eventId, eventId), eq(ticketTypes.category, "acceso")));
+  let inside = 0;
+  let expected = 0;
+  for (const t of rows as any[]) {
+    if (t.status === "cancelled") continue;
+    const p = personasForTicket(t.groupSize, t.accesoSlug);
+    expected += p;
+    if (t.status === "used") inside += p;
+  }
+  return { inside, expected };
+}
+
+/** Lista de compras para `personas`, con el mix de las últimas fiestas. */
+export async function proyeccion(params: { eventId: number; personas: number; factor?: number; tragosPorPersona?: number | null; overrides?: Record<number, number>; historyEvents?: number }) {
+  const db = await dbOrThrow();
+  const [event] = await db.select().from(events).where(eq(events.id, params.eventId)).limit(1);
+  if (!event) throw new Error("Evento no encontrado");
+  const past = await db.select({ id: events.id, title: events.title, eventDate: events.eventDate }).from(events)
+    .where(and(lt(events.eventDate, event.eventDate), ne(events.slug, TEST_EVENT_SLUG)))
+    .orderBy(desc(events.eventDate)).limit(params.historyEvents ?? 5);
+
+  const historico: { personas: number; ventas: { name: string; quantity: number }[] }[] = [];
+  const fuentes: { title: string; personas: number; tragos: number }[] = [];
+  for (const e of past as any[]) {
+    const sales = await db.select({ name: ticketTypes.name, quantity: sql<string>`SUM(${orderItems.quantity})` })
+      .from(orderItems).innerJoin(orders, eq(orders.id, orderItems.orderId)).innerJoin(ticketTypes, eq(ticketTypes.id, orderItems.ticketTypeId))
+      .where(and(eq(orders.eventId, e.id), eq(orders.channel, "caja"), eq(orders.paymentStatus, "approved"), eq(ticketTypes.category, "consumo")))
+      .groupBy(ticketTypes.name);
+    const ventas = (sales as any[]).map((s) => ({ name: s.name as string, quantity: n(s.quantity) }));
+    const tragos = ventas.reduce((s, v) => s + v.quantity, 0);
+    const { inside, expected } = await personasDelEvento(db, e.id);
+    const personas = inside > 0 ? inside : expected;
+    // Una fiesta sin ventas de barra registradas o sin gente no dice nada del consumo.
+    if (tragos === 0 || personas === 0) continue;
+    historico.push({ personas, ventas });
+    fuentes.push({ title: e.title, personas, tragos });
+  }
+
+  const estado = await estadoBarra(params.eventId);
+  const allInsumos = estado.ready ? estado.insumos : [];
+  const stock = new Map(allInsumos.map((i) => [i.id, i.stock]));
+  const productos = estado.ready ? estado.productos.filter((p) => p.receta.length > 0) : [];
+  const result = proyeccionCompra({
+    historico, productos, insumos: allInsumos, stock, personasObjetivo: params.personas,
+    factor: params.factor, tragosPorPersona: params.tragosPorPersona, overrides: params.overrides,
+  });
+  const actuales = await personasDelEvento(db, params.eventId);
+  return { ...result, fuentes, personasConEntrada: actuales.expected, sinReceta: estado.ready ? estado.productos.filter((p) => p.receta.length === 0).map((p) => p.name) : [] };
+}

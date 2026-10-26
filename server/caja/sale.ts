@@ -5,6 +5,7 @@ import { applyOp } from "./ops";
 import { ensureCustomerIdForEmail, awardPlaycoins, redeemPlaycoinsAuthoritative, validateDiscountCode, verifyCardPin, spendPrepaidAuthoritative } from "../db";
 import { isTopupProduct } from "../../shared/prepaid";
 import { computeCodeDiscount } from "../../shared/discountCode";
+import { descontarVenta } from "../insumos";
 
 /** Venta presencial en caja (docs/ARQUITECTURA-CAJA.md §0.4, §3.1.5): se
  * cobra en el terminal externo (fuera del sistema) y acá solo se registra --
@@ -346,6 +347,10 @@ export async function createCajaSale(
         });
         await db.update(ticketTypes).set({ soldCount: sql`soldCount + ${item.quantity}` }).where(eq(ticketTypes.id, item.ticketTypeId));
       }
+
+      // Stock de la barra por insumos: cada trago gasta su receta (dos tragos
+      // con ron gastan del mismo ron). Nunca lanza ni bloquea el cobro.
+      await descontarVenta(db, { opId: params.opId, eventId: params.eventId, operatorId: params.operatorId, items: params.items });
 
       // Ganar Playcoins por esta venta (pedido explícito del usuario, si el
       // cajero capturó el email) -- sobre lo efectivamente pagado, no sobre

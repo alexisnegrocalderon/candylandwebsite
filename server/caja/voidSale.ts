@@ -2,6 +2,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { orders, orderItems, ticketTypes, discountCodes, kitchenTickets, lockerItems, ops, playcoinsLedger, prepaidLedger } from "../../drizzle/schema";
 import { applyOp } from "./ops";
 import { adjustPlaycoinsManually, refundPrepaidForVoidedSale } from "../db";
+import { devolverVenta } from "../insumos";
 
 /** Id del op de la venta original: `createCajaSale` guarda la orden con
  * `paymentId = CAJA-<opId>`, y Playcoins/saldo/descuento quedaron ligados a
@@ -80,6 +81,9 @@ export async function voidCajaSale(
       const note = `Venta ${orderNumber} anulada: ${params.reason.trim()}`.slice(0, 500);
       const saleOpId = saleOpIdFromPaymentId(order.paymentId);
       if (saleOpId) {
+        // Lo que la venta gastó de cada insumo vuelve al stock de la barra.
+        await devolverVenta(db, { saleOpId, voidOpId: params.opId, eventId: params.eventId, operatorId: params.operatorId });
+
         // Playcoins ganados (+) y canjeados (-) en esta venta: se invierte
         // cada movimiento con un ajuste nuevo, nunca se borra la fila.
         const playcoinRows = await db.select().from(playcoinsLedger).where(eq(playcoinsLedger.opId, saleOpId));
