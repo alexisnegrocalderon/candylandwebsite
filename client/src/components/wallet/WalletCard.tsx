@@ -282,7 +282,7 @@ export function WalletCard({
                   const amountText = isMoney ? `${sign}${formatCLP(Math.abs(m.delta))}` : `${sign}${Math.abs(m.delta)}`;
                   return (
                     <div className="wcard-mov" key={i}>
-                      <span><b>{m.label}</b></span>
+                      <span><b>{m.label}</b>{m.createdAt && <span style={{ display: 'block', fontSize: 10, opacity: 0.65 }}>{new Date(m.createdAt).toLocaleDateString('es-CL', { day: 'numeric', month: 'short' }).replace(/\./g, '')}</span>}</span>
                       <span className={`wcard-amt ${isMoney ? (m.delta >= 0 ? 'is-pos' : 'is-neg') : 'is-points'}`}>{amountText}</span>
                     </div>
                   );

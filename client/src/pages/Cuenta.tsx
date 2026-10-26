@@ -2,7 +2,7 @@ import { Component, Fragment, useEffect, useRef, useState, type ReactNode } from
 import { createPortal } from 'react-dom';
 import { AnimatePresence, MotionConfig, motion, useDragControls } from 'framer-motion';
 import { toast } from 'sonner';
-import { BadgeCheck, Calendar, Check, Copy, Crown, Gift, LogOut, Sparkles, Ticket as TicketIcon, ArrowRight, Loader2, QrCode, CreditCard, Wallet, Plus, RefreshCw, Bell, ChevronLeft, ChevronRight, Heart, User, WifiOff, ScanFace, CircleHelp, Shirt, MessageCircle, FileText } from 'lucide-react';
+import { BadgeCheck, Calendar, Check, Copy, Crown, Gift, LogOut, Sparkles, Ticket as TicketIcon, ArrowRight, Loader2, QrCode, CreditCard, Wallet, Plus, RefreshCw, Bell, ChevronLeft, ChevronRight, Heart, History, User, WifiOff, ScanFace, CircleHelp, Shirt, MessageCircle, FileText } from 'lucide-react';
 import { Link } from 'wouter';
 import { trpc } from '@/lib/trpc';
 import type { inferRouterOutputs } from '@trpc/server';
@@ -27,6 +27,7 @@ import { SolteroAccess, solteroRowSub, useSolteroStatus } from '@/components/sit
 import { StaffAccount, StaffBanner, useStaffPortal } from '@/components/site/StaffAccount';
 import { PlaymatchTab } from '@/components/site/PlaymatchTab';
 import { PlayCardTab } from '@/components/site/PlayCardTab';
+import { MovementsScreen } from '@/components/site/MovementsScreen';
 import { QrViewer, tapHaptic, useCountdown, type MeEvent, type Movement } from '@/components/site/walletParts';
 import { canEnterParty } from '@shared/party';
 import { TICKET_KIND_META, type TicketKind } from '@shared/ticketKind';
@@ -361,26 +362,6 @@ function PlaycoinsCard({ me }: { me: Me }) {
   );
 }
 
-function Movements({ me }: { me: Me }) {
-  return (
-    <div className={`${GLASS} p-4`}>
-      <p className="font-heading font-bold text-white">Últimos movimientos</p>
-      {me.movements.length === 0 ? <p className="mt-2 text-subhead text-white/60">Todavía no hay movimientos.</p> : (
-        <ul className="mt-2 divide-y divide-white/10 text-subhead">
-          {me.movements.map((m, i) => (
-            <li key={i} className="flex items-center justify-between gap-3 py-2">
-              <span className="min-w-0 truncate text-white/75">{m.label}<span className="block text-caption2 text-white/60">{fmtDate(m.createdAt)}</span></span>
-              <span className={`shrink-0 font-semibold ${m.type === 'money' ? (m.delta >= 0 ? 'text-emerald-300' : 'text-rose-300') : 'text-violet-300'}`}>
-                {m.delta >= 0 ? '+' : '−'}{m.type === 'money' ? `$${Math.abs(m.delta).toLocaleString('es-CL')}` : `${Math.abs(m.delta).toLocaleString('es-CL')} pc`}
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
-
 function TicketsList({ events, from = 0 }: { events: MeEvent[]; from?: number }) {
   const list = events.slice(from);
   if (list.length === 0) return <p className="account-glass rounded-2xl p-4 text-subhead text-white/60">No tienes entradas para próximos eventos. <Link href="/eventos" className="text-pink-300 underline">Ver eventos</Link></p>;
@@ -561,14 +542,14 @@ function CouponsPager({ me }: { me: Me }) {
   );
 }
 
-/** Movimientos: solo los 3 últimos; el resto en una hoja. */
+/** Los 3 últimos movimientos; todo el historial está en «Mis movimientos». */
 function MovementsPreview({ me, onAll }: { me: Me; onAll: () => void }) {
   const last = me.movements.slice(0, 3);
   return (
     <div className={`${GLASS} p-4`}>
       <div className="flex items-center justify-between">
         <p className="font-semibold text-white/80">Últimos movimientos</p>
-        {me.movements.length > 3 && <button type="button" onClick={onAll} className="text-caption1 font-semibold text-pink-300">Ver todos</button>}
+        <button type="button" onClick={onAll} className="text-caption1 font-semibold text-pink-300">Ver todos mis movimientos</button>
       </div>
       {last.length === 0 ? <p className="mt-2 text-subhead text-white/60">Todavía no hay movimientos.</p> : (
         <ul className="mt-1 divide-y divide-white/10 text-subhead">
@@ -848,6 +829,7 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
                 ...(passkeyOk ? [{ key: 'faceid', label: `Entrar con ${biometricName()}`, sub: passkeyUsedHere() ? `Activado en ${thisDeviceName()}` : 'Con un toque, sin esperar el código', icon: ScanFace, tint: 'bg-emerald-500', onClick: () => { setFaceIdOffer(false); setSheet('faceid'); } }] : []),
                 { key: 'avisos', label: 'Avisos', sub: pushPending ? 'Actívalos para no perderte nada' : 'Recordatorios, preventas y novedades', icon: Bell, tint: 'bg-rose-500', dot: pushPending, onClick: () => setSheet('avisos') },
                 { key: 'entradas', label: 'Mis entradas', sub: 'Las próximas y las de fiestas pasadas', icon: TicketIcon, tint: 'bg-fuchsia-500', onClick: () => setSheet('entradas') },
+                { key: 'movimientos', label: 'Mis movimientos y compras', sub: 'Todo lo que has hecho y gastado', icon: History, tint: 'bg-teal-500', onClick: () => setSheet('movimientos') },
                 { key: 'soltero', label: 'Acceso Soltero', sub: solteroRowSub(solteroStatus?.status), icon: BadgeCheck, tint: solteroStatus?.status === 'aprobado' ? 'bg-emerald-500' : 'bg-indigo-500', onClick: () => setSheet('soltero') },
                 ...(pay.savedCards ? [{ key: 'tarjetas', label: 'Mis tarjetas', sub: 'Tus tarjetas guardadas', icon: CreditCard, tint: 'bg-sky-500', onClick: () => setSheet('tarjetas') }] : []),
               ]} />
@@ -934,6 +916,7 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
                     // El correo del administrador tiene su acceso al panel acá también (además de la tarjeta de Perfil).
                     ...(me.isAdmin ? [{ key: 'admin', label: 'Panel admin', icon: Crown, href: '/admin' }] : []),
                     { key: 'entradas', label: 'Mis entradas', icon: TicketIcon, onClick: () => { setMore(false); setSheet('entradas'); } },
+                    { key: 'movimientos', label: 'Movimientos', icon: History, onClick: () => { setMore(false); setSheet('movimientos'); } },
                     ...(pay.cajaPay ? [{ key: 'caja', label: 'Pagar en caja', icon: Wallet, onClick: () => { setMore(false); setPayOpen(true); } }] : []),
                     ...(pay.accountTopup ? [{ key: 'recarga', label: 'Recargar saldo', icon: Plus, onClick: () => { setMore(false); setTopupOpen(true); } }] : []),
                     { key: 'beneficios', label: 'Beneficios', icon: Sparkles, onClick: () => { setMore(false); setSheet('beneficios'); } },
@@ -971,7 +954,7 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
       <AppScreen open={sheet === 'soltero'} title="Acceso Soltero" onClose={() => setSheet(null)}><SolteroAccess /></AppScreen>
       {ambassador && <AppScreen open={sheet === 'embajador'} title="Embajador" onClose={() => setSheet(null)}><AmbassadorAccount panel={ambassador} /></AppScreen>}
       <BottomSheet open={sheet === 'beneficios'} onClose={() => setSheet(null)} title="Beneficios"><PerksCard me={me} /></BottomSheet>
-      <BottomSheet open={sheet === 'movimientos'} onClose={() => setSheet(null)} title="Movimientos"><Movements me={me} /></BottomSheet>
+      <AppScreen open={sheet === 'movimientos'} title="Mis movimientos" onClose={() => setSheet(null)}><MovementsScreen prepaidBalance={me.prepaidBalance} playcoins={me.playcoins} /></AppScreen>
       {/* Todas las entradas de los próximos eventos (PlayCard muestra la de la próxima fiesta). */}
       <BottomSheet open={sheet === 'entradas'} onClose={() => setSheet(null)} title="Mis entradas"><div className="flex min-h-[260px] flex-col"><TicketsPager events={upcoming} holder={me.fullName || me.email} /></div></BottomSheet>
     </div>
