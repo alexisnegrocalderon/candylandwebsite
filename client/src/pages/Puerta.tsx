@@ -1280,10 +1280,6 @@ function IngresosPanel({ history, pendingIds, parking, venueFee }: {
             <span className="text-sm text-emerald-100">Efectivo a entregar</span>
             <span className="font-heading text-xl font-bold tabular-nums text-emerald-300">{money(resumen.cashToHandOver)}</span>
           </div>
-          <div className="flex items-center justify-between text-sm text-white/70">
-            <span>Del local ({resumen.cars} × {money(venueFee)})</span>
-            <span className="font-semibold tabular-nums text-white/90">{money(resumen.venueShare)}</span>
-          </div>
           {resumen.rejected > 0 && <p className="text-xs font-semibold text-red-300">{resumen.rejected} {resumen.rejected === 1 ? 'cobro no se registró y no está contado' : 'cobros no se registraron y no están contados'}.</p>}
         </div>
 
