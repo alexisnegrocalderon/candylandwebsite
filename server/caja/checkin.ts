@@ -15,7 +15,7 @@ import { applyOp } from "./ops";
  * significar algo. */
 export async function checkInTicket(
   db: any,
-  params: { opId: string; ticketCode: string; eventId: number; operatorId: number; registerId?: number | null; clientAt: Date }
+  params: { opId: string; ticketCode: string; eventId: number; operatorId: number; registerId?: number | null; clientAt: Date; /** La puerta confirmó haber comparado las cédulas. */ idVerified?: boolean }
 ) {
   const code = params.ticketCode.trim().toUpperCase();
 
@@ -29,7 +29,7 @@ export async function checkInTicket(
       registerId: params.registerId,
       targetType: "ticket",
       targetId: code,
-      payload: { ticketCode: code },
+      payload: params.idVerified ? { ticketCode: code, idVerified: true } : { ticketCode: code },
       clientAt: params.clientAt,
     },
     async () => {

@@ -11,6 +11,8 @@ import { useStaffSchema } from '@/components/admin/SchemaUpdateBanner';
 import { TableSkeleton } from '@/components/admin/TableSkeleton';
 import { STAFF_CARGOS, cargoDef, cargoTitle, type StaffCargo } from '@shared/staffCargos';
 import { OPERATOR_ROLE_LABELS } from '@shared/cajaRoles';
+import { ACCEPT_STATUS_LABEL, type AcceptStatus } from '@shared/staffManuals';
+import { ManualsEditor } from './ManualsEditor';
 
 /* La ficha única del staff (Admin → Noche → Staff): una persona, un cargo y su
  * correo. Con el correo le llega la invitación a su app, donde crea su propio
@@ -88,6 +90,12 @@ function StaffForm({ initial, id, onDone }: { initial: Form; id?: number; onDone
       </div>
     </div>
   );
+}
+
+function ManualBadge({ status }: { status: AcceptStatus | undefined }) {
+  if (!status || status === 'sin_manual') return null;
+  const ok = status === 'al_dia';
+  return <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${ok ? 'bg-emerald-500/15 text-emerald-700' : 'bg-amber-500/20 text-amber-800'}`}>{ok ? '✓ Manual aceptado' : ACCEPT_STATUS_LABEL[status]}</span>;
 }
 
 function PinBadge({ m }: { m: any }) {
@@ -190,6 +198,9 @@ export function StaffManager() {
     openNewOnMount = false;
     return 'new';
   });
+  const [tab, setTab] = useState<'equipo' | 'manuales'>('equipo');
+  const { data: overview } = trpc.finance.manualsOverview.useQuery(undefined, { retry: false });
+  const manualOf = (id: number) => (overview ?? []).find((o: any) => o.staffId === id)?.status as AcceptStatus | undefined;
   const [assigning, setAssigning] = useState<number | null>(null);
   const [filter, setFilter] = useState<StaffCargo | 'todos'>('todos');
   const [showArchived, setShowArchived] = useState(false);
@@ -233,6 +244,11 @@ export function StaffManager() {
         {pendingPin > 0 && <p className="text-xs font-semibold text-amber-700">{pendingPin} {pendingPin === 1 ? 'persona todavía no crea' : 'personas todavía no crean'} su PIN.</p>}
       </CardHeader>
       <CardContent className="space-y-4">
+        <div className="flex gap-1.5">
+          <button type="button" onClick={() => setTab('equipo')} className={`${pill} ${tab === 'equipo' ? pillOn : pillOff}`}>Equipo</button>
+          <button type="button" onClick={() => setTab('manuales')} className={`${pill} ${tab === 'manuales' ? pillOn : pillOff}`}>📜 Manuales</button>
+        </div>
+        {tab === 'manuales' ? <ManualsEditor team={all} /> : <>
         {editing === 'new' && <StaffForm initial={EMPTY} onDone={() => setEditing(null)} />}
 
         <div className="flex flex-wrap gap-1.5">
@@ -255,7 +271,7 @@ export function StaffManager() {
             <div key={m.id} className={`admin-clay-sm flex flex-wrap items-center gap-3 p-3 ${m.active ? '' : 'opacity-60'}`}>
               <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-black/5 text-xl" aria-hidden>{cargoDef(m.cargo)?.emoji ?? '👤'}</span>
               <div className="min-w-[10rem] flex-1">
-                <p className="flex flex-wrap items-center gap-2 font-medium">{m.name} <PinBadge m={m} /> {!m.active && <span className="text-xs text-[var(--admin-muted)]">(archivado)</span>}</p>
+                <p className="flex flex-wrap items-center gap-2 font-medium">{m.name} <PinBadge m={m} /> {m.active && <ManualBadge status={manualOf(m.id)} />} {!m.active && <span className="text-xs text-[var(--admin-muted)]">(archivado)</span>}</p>
                 <p className="text-xs text-[var(--admin-muted)]">
                   {[cargoTitle(m.cargo, m.role), m.defaultRateClp ? `tarifa ${money(m.defaultRateClp)}` : null, m.phone, m.email].filter(Boolean).join(' · ')}
                 </p>
@@ -294,6 +310,7 @@ export function StaffManager() {
         </div>
 
         <UnlinkedOperators team={all} />
+        </>}
       </CardContent>
     </Card>
   );

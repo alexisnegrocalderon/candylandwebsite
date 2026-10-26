@@ -68,4 +68,15 @@ describe("actualización de esquema del staff", () => {
       .split("--> statement-breakpoint").map((s) => s.trim().replace(/;$/, "").trim()).filter(Boolean));
     expect(fake.ran.map((s) => s.trim())).toEqual(file);
   });
+
+  it("el manual del staff va aparte y hace lo mismo que la migración 0131", async () => {
+    const fake = fakeDb([], []);
+    vi.mocked(db.getDb).mockResolvedValue(fake as any);
+    const { manualSchemaStatus, applyManualSchema } = await load();
+    expect((await manualSchemaStatus()).ready).toBe(false);
+    await applyManualSchema();
+    const file = readFileSync(new URL("../drizzle/0131_staff_manuals.sql", import.meta.url), "utf8")
+      .split("--> statement-breakpoint").map((s) => s.trim().replace(/;$/, "").trim()).filter(Boolean);
+    expect(fake.ran.map((s) => s.trim())).toEqual(file);
+  });
 });

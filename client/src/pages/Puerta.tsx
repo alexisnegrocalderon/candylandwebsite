@@ -1,7 +1,7 @@
 import '@/admin.css';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { AlertTriangle, Banknote, Camera, Car, Check, ChevronRight, CreditCard, Flashlight, ListChecks, LogOut, ScanLine, Search, ShoppingBag, Ticket, Users, Volume2, VolumeX, WifiOff, X } from 'lucide-react';
+import { AlertTriangle, BellRing, Banknote, Phone, Camera, Car, Check, ChevronRight, CreditCard, Flashlight, ListChecks, LogOut, ScanLine, Search, ShoppingBag, Ticket, Users, Volume2, VolumeX, WifiOff, X } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { useSeo } from '@/hooks/useSeo';
 import { useInstallableApp } from '@/hooks/useInstallableApp';
@@ -13,10 +13,11 @@ import { personasForTicket } from '@shared/mission300';
 import { cashChange, doorParkingScript, summarizeDoorParking, type DoorParkingCharge, type DoorParkingMethod, type DoorParkingOption } from '@shared/parking';
 import {
   saveSnapshot, getLocalEvent, searchLocal, enqueueOp, getPendingOps, findLocalStaff,
-  markOpSynced, clearSyncedOps, pendingOpsCount, correctedNow, countCheckedInPersonas, getLocalParking,
+  markOpSynced, clearSyncedOps, pendingOpsCount, correctedNow, countCheckedInPersonas, countVipParking, getLocalParking, getLocalContacts,
   type CajaAttendee, type DoorStaff,
 } from './caja/db';
-import { isStaffCode, parseStaffCode } from '@shared/staffPortal';
+import { dialable, isStaffCode, parseStaffCode } from '@shared/staffPortal';
+import { DOOR_ALERT_NOTE_MAX, DOOR_ALERT_REASONS, type DoorAlertReason } from '@shared/doorAlert';
 
 /* Pantalla de puerta: el anfitrión en la entrada del estacionamiento (se usa
  * desde su celular). Mismo vidrio oscuro que /caja, el panel admin y los
@@ -70,7 +71,7 @@ type ParkingRecord = DoorParkingCharge & {
 };
 
 type SyncOp =
-  | { type: 'checkin'; opId: string; ticketCode: string; clientAt: string }
+  | { type: 'checkin'; opId: string; ticketCode: string; clientAt: string; idVerified?: boolean }
   | { type: 'parking_paid'; opId: string; ticketCode: string; paymentMethod: DoorParkingMethod; ticketTypeId?: number; clientAt: string };
 
 type ParkingInfo = { options: DoorParkingOption[]; venueFeePerCarClp: number };
@@ -148,6 +149,7 @@ function Scanner({ operatorName, operatorRole }: { operatorName: string; operato
   const [pending, setPending] = useState(0);
   const [localEvent, setLocalEvent] = useState<{ id: number; title: string } | null>(null);
   const [counts, setCounts] = useState<{ entered: number; expected: number } | null>(null);
+  const [vip, setVip] = useState<{ reserved: number; arrived: number; pending: number } | null>(null);
   const [muted, setMuted] = useState(() => localStorage.getItem(SOUND_MUTED_KEY) === '1');
   const [torch, setTorch] = useState(false);
   const [torchSupported, setTorchSupported] = useState(false);
@@ -157,6 +159,9 @@ function Scanner({ operatorName, operatorRole }: { operatorName: string; operato
   const [parkingInfo, setParkingInfo] = useState<ParkingInfo | null>(null);
   const [parkingRecords, setParkingRecords] = useState<ParkingRecord[]>([]);
   const [reviewing, setReviewing] = useState(false);
+  // Aviso urgente a los organizadores: `ctx` es la ficha abierta (si hay), para que sepan de quién se trata.
+  const [alerting, setAlerting] = useState<{ ticketCode?: string; buyerName?: string } | null>(null);
+  const [contacts, setContacts] = useState<{ label: string; phone: string }[]>([]);
   const [staffScan, setStaffScan] = useState<{ code: string; staff: DoorStaff | null } | null>(null);
   const recentRef = useRef<{ code: string; until: number }>({ code: '', until: 0 });
   const eventIdRef = useRef<number | null>(null);
@@ -171,9 +176,10 @@ function Scanner({ operatorName, operatorRole }: { operatorName: string; operato
   const syncMutation = trpc.puerta.sync.useMutation();
   const logout = trpc.puerta.logout.useMutation({ onSuccess: () => utils.puerta.me.invalidate() });
 
-  const refreshCounts = useCallback(() => { countCheckedInPersonas().then(setCounts).catch(() => {}); }, []);
+  const refreshCounts = useCallback(() => { countCheckedInPersonas().then(setCounts).catch(() => {}); countVipParking().then(setVip).catch(() => {}); }, []);
 
   useEffect(() => { getLocalEvent().then((e) => e && setLocalEvent(e)); getLocalParking().then(setParkingInfo); }, []);
+  useEffect(() => { if (localEvent) getLocalContacts(localEvent.id).then(setContacts).catch(() => {}); }, [localEvent?.id, snapshotQuery.data]);
   useEffect(() => {
     if (snapshotQuery.data) saveSnapshot(snapshotQuery.data).then(() => { setLocalEvent(snapshotQuery.data!.event); refreshCounts(); getLocalParking().then(setParkingInfo); });
   }, [snapshotQuery.data, refreshCounts]);
@@ -322,7 +328,8 @@ function Scanner({ operatorName, operatorRole }: { operatorName: string; operato
   const darAcceso = async (f: Ficha) => {
     const opId = newOpId();
     const at = (await correctedNow()).toISOString();
-    await enqueueOp({ opId, type: 'checkin', ticketCode: f.ticketCode, clientAt: at });
+    // «Verifiqué las cédulas»: si había documentos que comparar, el toque de «dar acceso» deja ese respaldo.
+    await enqueueOp({ opId, type: 'checkin', ticketCode: f.ticketCode, clientAt: at, ...(f.attendees.some((p) => p.rut) ? { idVerified: true } : {}) });
     const personas = personasForTicket(f.groupSize, f.accesoSlug);
     const names = f.attendees.map((p) => p.name).filter(Boolean);
     // Historial de lo dado desde este celular (solo local).
@@ -400,6 +407,9 @@ function Scanner({ operatorName, operatorRole }: { operatorName: string; operato
             <p className="truncate font-heading text-lg leading-tight">{localEvent?.title ?? 'Puerta'}</p>
             <p className="truncate text-xs text-white/60">{operatorName} · {OPERATOR_ROLE_LABELS[operatorRole] ?? operatorRole}</p>
           </div>
+          <button onClick={() => setAlerting({})} className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-red-500/20 text-red-300 active:bg-red-500/35" aria-label="Avisar a los organizadores">
+            <BellRing className="h-5 w-5" />
+          </button>
           <button onClick={toggleMute} className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-white/70 active:bg-white/10" aria-label={muted ? 'Activar sonido' : 'Silenciar'}>
             {muted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
           </button>
@@ -418,6 +428,12 @@ function Scanner({ operatorName, operatorRole }: { operatorName: string; operato
             <Users className="h-4 w-4 text-emerald-300" />
             <span>Entraron <span className="font-bold tabular-nums text-emerald-300">{counts?.entered ?? '—'}</span>{counts ? <> de <span className="tabular-nums">{counts.expected}</span></> : null}</span>
           </span>
+          {vip && vip.reserved > 0 && (
+            <span className={`admin-glass-panel admin-glass-panel-sm inline-flex items-center gap-2 px-3.5 py-1.5 text-sm`}>
+              <span aria-hidden>⭐</span>
+              <span>VIP <span className="font-bold tabular-nums text-amber-300">{vip.reserved}</span> reservados · llegaron <span className="font-bold tabular-nums">{vip.arrived}</span> · <span className="font-bold text-amber-300">dejar {vip.pending} libres</span></span>
+            </span>
+          )}
           {!isOnline && (
             <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-3 py-1.5 text-xs text-amber-300">
               <WifiOff className="h-3 w-3" /> Sin señal
@@ -524,9 +540,14 @@ function Scanner({ operatorName, operatorRole }: { operatorName: string; operato
           ficha={ficha}
           onAceptar={() => darAcceso(ficha)}
           onCerrar={cerrar}
+          onAvisar={() => setAlerting({ ticketCode: ficha.ticketCode, buyerName: ficha.attendees[0]?.name || ficha.buyerName })}
           parkingInfo={parkingInfo}
           onCobrarEstacionamiento={(opcion, metodo) => cobrarEstacionamiento(ficha, opcion, metodo)}
         />
+      )}
+
+      {alerting && localEvent && (
+        <AlertSheet eventId={localEvent.id} ctx={alerting} isOnline={isOnline} contacts={contacts} onClose={() => setAlerting(null)} />
       )}
 
       {staffScan && localEvent && (
@@ -591,10 +612,11 @@ function StaffCredencial({ scan, eventId, isOnline, onCerrar }: { scan: { code: 
 
 /* --- Ficha de verificación ------------------------------------------------ */
 
-function FichaVerificacion({ ficha, onAceptar, onCerrar, parkingInfo, onCobrarEstacionamiento }: {
+function FichaVerificacion({ ficha, onAceptar, onCerrar, onAvisar, parkingInfo, onCobrarEstacionamiento }: {
   ficha: Ficha;
   onAceptar: () => void;
   onCerrar: () => void;
+  onAvisar: () => void;
   parkingInfo: ParkingInfo | null;
   onCobrarEstacionamiento: (opcion: DoorParkingOption | null, metodo: DoorParkingMethod) => Promise<ParkingRecord>;
 }) {
@@ -728,6 +750,7 @@ function FichaVerificacion({ ficha, onAceptar, onCerrar, parkingInfo, onCobrarEs
               {estacionamiento.map((e, i) => (
                 <p key={i} className={`text-lg font-bold ${esVip(e.typeName) ? 'text-amber-300' : ''}`}>
                   {esVip(e.typeName) ? '⭐' : '🅿️'} {e.typeName}
+                  {esVip(e.typeName) && <span className="block text-sm font-medium text-amber-200/90">Indícale un lugar VIP, junto a la escalera de ingreso</span>}
                 </p>
               ))}
             </div>
@@ -775,13 +798,16 @@ function FichaVerificacion({ ficha, onAceptar, onCerrar, parkingInfo, onCobrarEs
 
       <div className="mx-auto w-full max-w-lg shrink-0 space-y-2.5 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
         <p className="px-2 text-center text-sm font-semibold text-amber-200/90">
-          Revisa la cédula y compara con los nombres de arriba
+          Pide la cédula de cada persona y compárala con los nombres de arriba
         </p>
         <button onClick={onAceptar} className="h-16 w-full rounded-full bg-emerald-500 text-lg font-bold text-black shadow-[0_0_24px_-6px_rgba(16,185,129,0.9)] active:scale-[0.99]">
-          Coincide — dar acceso
+          Verifiqué las cédulas — dar acceso
         </button>
         <button onClick={onCerrar} className="admin-tile h-14 w-full rounded-full font-semibold text-white/90 active:scale-[0.99]">
           No coincide / cancelar
+        </button>
+        <button onClick={onAvisar} className="flex h-12 w-full items-center justify-center gap-2 rounded-full border border-red-400/40 bg-red-500/10 text-sm font-semibold text-red-200 active:scale-[0.99]">
+          <BellRing className="h-4 w-4" /> Avisar a los organizadores
         </button>
       </div>
 
@@ -793,6 +819,83 @@ function FichaVerificacion({ ficha, onAceptar, onCerrar, parkingInfo, onCobrarEs
           onClose={() => setCobrandoAbierto(false)}
         />
       )}
+    </div>
+  );
+}
+
+/* --- Aviso urgente a los organizadores ------------------------------------- */
+
+/** «Cualquier situación fuera del sistema se resuelve con los organizadores»: un motivo y una nota corta, y les llega un push
+ * al instante. Sin señal no puede salir: se muestran los contactos de la noche para llamar. */
+function AlertSheet({ eventId, ctx, isOnline, contacts, onClose }: {
+  eventId: number; ctx: { ticketCode?: string; buyerName?: string }; isOnline: boolean; contacts: { label: string; phone: string }[]; onClose: () => void;
+}) {
+  const [reason, setReason] = useState<DoorAlertReason | null>(null);
+  const [note, setNote] = useState('');
+  const [sent, setSent] = useState(false);
+  const alert = trpc.puerta.alert.useMutation({
+    onSuccess: () => { setSent(true); vibrateAlert(60); },
+    onError: (e) => toast.error(e.message || 'No se pudo avisar. Llámalos por teléfono.', { duration: 8000 }),
+  });
+  // Un solo opId por hoja: tocar dos veces no manda dos avisos.
+  const opId = useRef(newOpId());
+  const send = () => { if (reason) alert.mutate({ opId: opId.current, eventId, reason, note: note.trim() || null, ticketCode: ctx.ticketCode ?? null, buyerName: ctx.buyerName ?? null }); };
+
+  return (
+    <div role="dialog" aria-label="Avisar a los organizadores" className="fixed inset-0 z-[70] flex flex-col bg-black/70 backdrop-blur-sm" onClick={onClose}>
+      <div className="mt-auto max-h-[92dvh] overflow-y-auto overscroll-contain rounded-t-3xl bg-[#140c1f] p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]" onClick={(e) => e.stopPropagation()}>
+        <div className="mx-auto w-full max-w-lg">
+          <div className="mb-3 flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-xs uppercase tracking-widest text-white/50">Avisar a los organizadores</p>
+              {ctx.buyerName && <p className="truncate text-sm text-white/70">Sobre: {ctx.buyerName}</p>}
+            </div>
+            <button onClick={onClose} className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-white/70 active:bg-white/10" aria-label="Cerrar"><X className="h-6 w-6" /></button>
+          </div>
+
+          {sent ? (
+            <div className="py-6 text-center">
+              <span className="mx-auto mb-4 grid h-20 w-20 place-items-center rounded-full bg-emerald-400 text-black"><Check className="h-12 w-12" /></span>
+              <p className="font-heading text-2xl font-extrabold">Aviso enviado</p>
+              <p className="mt-2 text-white/70">Los organizadores ya recibieron la notificación. Si es urgente, llámalos igual.</p>
+              <button onClick={onClose} className="mt-6 h-14 w-full rounded-full bg-emerald-500 text-lg font-bold text-black active:scale-[0.99]">Listo</button>
+            </div>
+          ) : (
+            <>
+              {!isOnline && <p className="mb-3 rounded-2xl border border-amber-400/40 bg-amber-400/10 p-3 text-sm text-amber-100">Sin señal: el aviso no puede salir. Llama por teléfono a los organizadores.</p>}
+              <p className="mb-2 text-xs uppercase tracking-widest text-white/50">¿Qué pasa?</p>
+              <div className="mb-4 grid gap-2">
+                {DOOR_ALERT_REASONS.map((r) => (
+                  <button key={r.key} onClick={() => setReason(r.key)} aria-pressed={reason === r.key}
+                    className={`flex h-14 items-center gap-3 rounded-2xl border px-4 text-left text-lg font-bold active:scale-[0.99] ${reason === r.key ? 'border-red-400/70 bg-red-500/20' : 'border-white/10 bg-white/5'}`}>
+                    <span className="text-2xl" aria-hidden>{r.emoji}</span>{r.label}
+                  </button>
+                ))}
+              </div>
+              <input value={note} onChange={(e) => setNote(e.target.value.slice(0, DOOR_ALERT_NOTE_MAX))} placeholder="Detalle (opcional)" maxLength={DOOR_ALERT_NOTE_MAX} aria-label="Detalle del aviso"
+                className="mb-4 h-12 w-full rounded-2xl bg-white/10 px-4 text-base text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-primary/60" />
+              <button onClick={send} disabled={!reason || !isOnline || alert.isPending}
+                className="h-16 w-full rounded-full bg-red-500 text-lg font-bold text-white shadow-[0_0_24px_-6px_rgba(239,68,68,0.9)] active:scale-[0.99] disabled:opacity-35 disabled:shadow-none">
+                {alert.isPending ? 'Avisando…' : !reason ? 'Elige qué pasa' : 'Avisar ahora'}
+              </button>
+              {contacts.length > 0 && (
+                <div className="mt-5">
+                  <p className="mb-2 text-xs uppercase tracking-widest text-white/50">Llamar</p>
+                  <div className="grid gap-2">
+                    {contacts.map((c, i) => (
+                      <a key={i} href={`tel:${dialable(c.phone)}`} className="admin-tile flex h-14 items-center gap-3 rounded-2xl px-4 active:scale-[0.99]">
+                        <Phone className="h-5 w-5 shrink-0 text-emerald-300" />
+                        <span className="min-w-0 flex-1 truncate font-semibold">{c.label || c.phone}</span>
+                        {c.label && <span className="text-sm text-white/60">{c.phone}</span>}
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

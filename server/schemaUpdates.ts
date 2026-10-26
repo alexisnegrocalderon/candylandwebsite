@@ -75,6 +75,38 @@ const SOLTERO_STEPS: Step[] = [
   },
 ];
 
+/** drizzle/0131_staff_manuals.sql: manual del staff. Va aparte (MANUAL_STEPS): si falta, solo el manual avisa; la lista de staff sigue andando. */
+const MANUAL_STEPS: Step[] = [
+  {
+    label: 'tabla de manuales del staff', done: (h) => h.tables.has('staffManuals'),
+    statement: [
+      'CREATE TABLE `staffManuals` (', '\t`id` int AUTO_INCREMENT NOT NULL,', '\t`manualKey` varchar(24) NOT NULL,', '\t`version` int NOT NULL,',
+      '\t`title` varchar(120) NOT NULL,', '\t`sections` json NOT NULL,', '\t`changeNote` varchar(255),', '\t`publishedAt` timestamp NOT NULL DEFAULT (now()),',
+      '\tCONSTRAINT `staffManuals_id` PRIMARY KEY(`id`)', ')',
+    ].join('\n'),
+  },
+  {
+    label: 'índice de versiones del manual', done: (h) => h.indexes.has(col('staffManuals', 'staff_manuals_key_version_idx')),
+    statement: "CREATE UNIQUE INDEX `staff_manuals_key_version_idx` ON `staffManuals` (`manualKey`,`version`)",
+  },
+  {
+    label: 'tabla de aceptaciones del manual', done: (h) => h.tables.has('staffManualAcceptances'),
+    statement: [
+      'CREATE TABLE `staffManualAcceptances` (', '\t`id` int AUTO_INCREMENT NOT NULL,', '\t`staffId` int NOT NULL,', '\t`manualKey` varchar(24) NOT NULL,', '\t`version` int NOT NULL,',
+      '\t`fullName` varchar(120) NOT NULL,', '\t`rut` varchar(20),', '\t`userAgent` varchar(255),', '\t`ip` varchar(64),', '\t`acceptedAt` timestamp NOT NULL DEFAULT (now()),',
+      '\tCONSTRAINT `staffManualAcceptances_id` PRIMARY KEY(`id`)', ')',
+    ].join('\n'),
+  },
+  {
+    label: 'índice único de aceptaciones', done: (h) => h.indexes.has(col('staffManualAcceptances', 'staff_manual_accept_idx')),
+    statement: "CREATE UNIQUE INDEX `staff_manual_accept_idx` ON `staffManualAcceptances` (`staffId`,`manualKey`,`version`)",
+  },
+  {
+    label: 'índice de aceptaciones por persona', done: (h) => h.indexes.has(col('staffManualAcceptances', 'staff_manual_accept_staff_idx')),
+    statement: "CREATE INDEX `staff_manual_accept_staff_idx` ON `staffManualAcceptances` (`staffId`)",
+  },
+];
+
 /** Todo lo que el botón sabe aplicar, en orden. */
 export const SCHEMA_STEPS: Step[] = [...STAFF_STEPS, ...SOLTERO_STEPS];
 
@@ -82,8 +114,8 @@ async function readHave(): Promise<Have | null> {
   const db = await getDb();
   if (!db) return null;
   const [cols] = (await db.execute(sql`SELECT TABLE_NAME AS t, COLUMN_NAME AS c FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ('staffMembers', 'operators')`)) as unknown as [{ t: string; c: string }[]];
-  const [idx] = (await db.execute(sql`SELECT TABLE_NAME AS t, INDEX_NAME AS i FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ('staffMembers', 'operators', 'solteroApprovals')`)) as unknown as [{ t: string; i: string }[]];
-  const [tbl] = (await db.execute(sql`SELECT TABLE_NAME AS t FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ('solteroApprovals')`)) as unknown as [{ t: string }[]];
+  const [idx] = (await db.execute(sql`SELECT TABLE_NAME AS t, INDEX_NAME AS i FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ('staffMembers', 'operators', 'solteroApprovals', 'staffManuals', 'staffManualAcceptances')`)) as unknown as [{ t: string; i: string }[]];
+  const [tbl] = (await db.execute(sql`SELECT TABLE_NAME AS t FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ('solteroApprovals', 'staffManuals', 'staffManualAcceptances')`)) as unknown as [{ t: string }[]];
   return {
     tables: new Set(tbl.map((r) => r.t)),
     columns: new Set(cols.map((r) => col(r.t, r.c))),
@@ -116,5 +148,31 @@ export async function applyStaffSchema(): Promise<{ applied: string[] }> {
     applied.push(step.label);
   }
   staffSchemaReady = false; // se vuelve a comprobar en la próxima consulta
+  return { applied };
+}
+
+let manualSchemaReady = false;
+
+/** ¿Existen las tablas del manual del staff? */
+export async function manualSchemaStatus(): Promise<{ ready: boolean; missing: string[] }> {
+  if (manualSchemaReady) return { ready: true, missing: [] };
+  const have = await readHave();
+  if (!have) return { ready: true, missing: [] };
+  const missing = MANUAL_STEPS.filter((s) => !s.done(have)).map((s) => s.label);
+  manualSchemaReady = missing.length === 0;
+  return { ready: manualSchemaReady, missing };
+}
+
+export async function applyManualSchema(): Promise<{ applied: string[] }> {
+  const db = await getDb();
+  const have = await readHave();
+  if (!db || !have) throw new Error('No hay conexión con la base de datos.');
+  const applied: string[] = [];
+  for (const step of MANUAL_STEPS) {
+    if (step.done(have)) continue;
+    await db.execute(sql.raw(step.statement));
+    applied.push(step.label);
+  }
+  manualSchemaReady = false;
   return { applied };
 }
