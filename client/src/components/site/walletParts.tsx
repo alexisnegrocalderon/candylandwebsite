@@ -110,6 +110,14 @@ export function QrViewer({ ev, t, holder, onClose, onSelect }: { ev: MeEvent; t:
     const sw = horizontalSwipe(e.changedTouches[0].clientX - s.x, e.changedTouches[0].clientY - s.y);
     if (sw) stepCode(sw === 'left' ? 1 : -1);
   };
+  // La tira acompaña al código que se muestra: la píldora elegida se corre al centro (al deslizar o al cambiar con flechas).
+  const tabs = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = tabs.current?.querySelector<HTMLElement>('[aria-selected="true"]');
+    if (!el) return;
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    el.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', inline: 'center', block: 'nearest' });
+  }, [t.ticketCode, showStrip]);
   useEffect(() => {
     let lock: { release: () => Promise<void> } | null = null;
     const nav = navigator as Navigator & { wakeLock?: { request: (t: 'screen') => Promise<{ release: () => Promise<void> }> } };
@@ -138,7 +146,7 @@ export function QrViewer({ ev, t, holder, onClose, onSelect }: { ev: MeEvent; t:
     >
       <button type="button" onClick={onClose} aria-label="Cerrar" className="absolute right-4 top-[max(16px,env(safe-area-inset-top))] grid h-11 w-11 place-items-center rounded-full bg-white/10"><X className="h-5 w-5" /></button>
       {showStrip ? (
-        <div role="tablist" aria-label="Qué mostrar" className="-mx-6 flex max-w-[100vw] shrink-0 gap-1.5 overflow-x-auto px-6 pr-16 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div ref={tabs} role="tablist" aria-label="Qué mostrar" className="-mx-6 flex max-w-[100vw] shrink-0 gap-1.5 overflow-x-auto px-6 pr-16 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {groups.map((g) => {
             const on = g === current;
             return (
