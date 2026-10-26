@@ -241,3 +241,19 @@ describe('vaso de cada trago', () => {
     expect(glassInfo(null)?.id).toBe('vaso');
   });
 });
+
+describe('jigger', () => {
+  it('1 jigger son 30 ml y las recetas se guardan en ml', async () => {
+    const { JIGGER_ML, jiggersAMl, mlAJiggers, esJiggerExacto, formatPorcion } = await import('./insumos');
+    expect(JIGGER_ML).toBe(30);
+    expect(jiggersAMl(1.5)).toBe(45);
+    expect(jiggersAMl(0.25)).toBe(7.5);
+    expect(mlAJiggers(60)).toBe(2);
+    expect(esJiggerExacto(45)).toBe(true);
+    expect(esJiggerExacto(200)).toBe(false);
+    expect(formatPorcion(45, 'ml')).toBe('1,5 jiggers (45 ml)');
+    expect(formatPorcion(30, 'ml')).toBe('1 jigger (30 ml)');
+    expect(formatPorcion(200, 'ml')).toBe('200 ml');
+    expect(formatPorcion(2, 'un')).toBe('2 un');
+  });
+});

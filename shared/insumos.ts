@@ -72,6 +72,25 @@ export function recetasPrincipales<T extends { ticketTypeId: number; glass?: str
   return Array.from(new Set(recetas.map((r) => r.ticketTypeId))).flatMap((id) => recetaDe(recetas, id).lines);
 }
 
+/** El jigger de la barra: la medida con que se sirven los destilados (30 ml = 1 onza). */
+export const JIGGER_ML = 30;
+
+/** Las recetas se guardan siempre en ml; en la barra se piensan en jiggers (1,5 jigger = 45 ml). */
+export const jiggersAMl = (jiggers: number): number => Math.round(jiggers * JIGGER_ML * 100) / 100;
+export const mlAJiggers = (ml: number): number => Math.round((ml / JIGGER_ML) * 100) / 100;
+
+/** ¿Esta cantidad en ml se lee bien en jiggers? (múltiplo de ¼ de jigger: 7,5 ml). */
+export const esJiggerExacto = (ml: number): boolean => ml > 0 && Math.abs(ml / (JIGGER_ML / 4) - Math.round(ml / (JIGGER_ML / 4))) < 1e-6;
+
+/** "1,5 jigger (45 ml)" para los ml que se miden en jiggers; "200 ml" para el resto. */
+export function formatPorcion(amount: number, unit: InsumoUnit): string {
+  if (unit === 'ml' && esJiggerExacto(amount)) {
+    const j = mlAJiggers(amount);
+    return `${j.toLocaleString('es-CL')} ${j === 1 ? 'jigger' : 'jiggers'} (${amount.toLocaleString('es-CL')} ml)`;
+  }
+  return `${amount.toLocaleString('es-CL')} ${unit}`;
+}
+
 /** Cuánto líquido suma una receta (solo insumos en ml) frente a la capacidad del vaso. */
 export function mlDeReceta(lines: { insumoId: number; amount: number }[], unitOf: (insumoId: number) => InsumoUnit | undefined): number {
   return Math.round(lines.reduce((s, l) => s + (unitOf(l.insumoId) === 'ml' ? l.amount : 0), 0) * 100) / 100;
