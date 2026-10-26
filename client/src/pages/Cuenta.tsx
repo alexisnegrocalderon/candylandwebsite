@@ -63,7 +63,7 @@ function Section({ icon, title, children }: { icon: React.ReactNode; title: stri
   );
 }
 
-function CouponCard({ c }: { c: { id: number; kind: string; title: string; code: string; validUntil: string | Date | null; status: string } }) {
+function CouponCard({ c }: { c: { id: number; kind: string; title: string; code: string; validUntil: string | Date | null; status: string; eventTitle?: string | null } }) {
   const [copied, setCopied] = useState(false);
   const live = c.status === 'disponible';
   const copy = async () => {
@@ -75,6 +75,7 @@ function CouponCard({ c }: { c: { id: number; kind: string; title: string; code:
         <div className="min-w-0">
           <p className="text-caption2 uppercase tracking-wider text-white/60">{KIND_LABEL[c.kind] ?? 'Cupón'}</p>
           <p className="font-heading font-bold leading-snug text-white">{c.title}</p>
+          {c.eventTitle && <p className="text-caption1 font-semibold text-pink-300">Solo para {c.eventTitle}</p>}
           <p className="mt-0.5 text-caption1 text-white/60">
             {c.status === 'usado' ? 'Ya lo usaste' : c.status === 'vencido' ? 'Venció' : c.validUntil ? `Vale hasta el ${fmtDate(c.validUntil)}` : ''}
           </p>
@@ -507,6 +508,7 @@ function CouponsPager({ me }: { me: Me }) {
           <div key={c.id} className={`account-glass m-auto flex w-full flex-col items-center gap-4 rounded-[28px] p-6 text-center ${live ? '' : 'opacity-60'}`}>
             <p className="text-caption2 font-semibold uppercase tracking-[0.18em] text-pink-300">{KIND_LABEL[c.kind] ?? 'Cupón'}</p>
             <p className="font-heading text-title2 font-extrabold leading-tight">{c.title}</p>
+            {c.eventTitle && <p className="text-subhead font-semibold text-pink-300">Solo para {c.eventTitle}</p>}
             <p className="text-subhead text-white/60">{c.status === 'usado' ? 'Ya lo usaste' : c.status === 'vencido' ? 'Venció' : c.validUntil ? `Vale hasta el ${fmtDate(c.validUntil)}` : ''}</p>
             {live && (
               <>

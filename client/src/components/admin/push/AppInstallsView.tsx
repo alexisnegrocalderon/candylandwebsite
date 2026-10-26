@@ -1,5 +1,7 @@
 import { useState } from 'react';
-import { BellRing, Smartphone } from 'lucide-react';
+import { BellRing, Gift, Smartphone } from 'lucide-react';
+import { WriteButton } from '@/components/admin/WriteButton';
+import { GrantCouponDialog } from '@/components/admin/app/GrantCouponDialog';
 import { trpc } from '@/lib/trpc';
 import { Input } from '@/components/ui/input';
 import { foldText } from '@shared/igCustomerLink';
@@ -23,6 +25,7 @@ export function AppInstallsView() {
   const { data, refetch } = trpc.customerPush.appStats.useQuery();
   const [q, setQ] = useState('');
   const [openId, setOpenId] = useState<number | null>(null);
+  const [gift, setGift] = useState<{ email: string; name: string | null } | null>(null);
   const people = (data?.people ?? []).filter((p) => !q || foldText(`${p.name ?? ''} ${p.email}`).includes(foldText(q)));
   const anon = data ? data.ios + data.android + data.desktop - data.people.reduce((s, p) => s + p.devices, 0) : 0;
 
@@ -62,12 +65,12 @@ export function AppInstallsView() {
       )}
       <div className="space-y-2">
         {people.map((p) => (
+          <div key={p.email} className="rounded-2xl border border-border bg-card/60">
           <button
-            key={p.email}
             type="button"
             disabled={!p.customerId}
             onClick={() => setOpenId(p.customerId)}
-            className="flex w-full items-center gap-3 rounded-2xl border border-border bg-card/60 p-3 text-left disabled:cursor-default"
+            className="flex w-full items-center gap-3 p-3 text-left disabled:cursor-default"
           >
             <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-primary/15 text-primary"><Smartphone className="h-4 w-4" /></span>
             <div className="min-w-0 flex-1">
@@ -84,8 +87,17 @@ export function AppInstallsView() {
               <p className="text-muted-foreground">última {fmt(p.lastSeenAt)}</p>
             </div>
           </button>
+          {p.customerId && (
+            <div className="flex flex-wrap gap-2 border-t border-border px-3 py-2">
+              <WriteButton size="sm" variant="ghost" className="h-7 gap-1.5 px-2 text-xs" onClick={() => setGift({ email: p.email, name: p.name })}>
+                <Gift className="h-3.5 w-3.5" /> Regalar cupón
+              </WriteButton>
+            </div>
+          )}
+          </div>
         ))}
       </div>
+      <GrantCouponDialog open={!!gift} onClose={() => setGift(null)} email={gift?.email} name={gift?.name} />
       <CustomerDrawer customerId={openId} onClose={() => setOpenId(null)} onChanged={() => refetch()} onDeleted={() => setOpenId(null)} />
       {anon > 0 && <p className="text-xs text-muted-foreground">+ {anon} {anon === 1 ? 'teléfono' : 'teléfonos'} con la app sin identificar (nunca abrieron una entrada ahí).</p>}
     </div>
