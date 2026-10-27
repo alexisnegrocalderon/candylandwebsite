@@ -3298,6 +3298,15 @@ export const insumos = mysqlTable("insumos", {
 });
 export type InsumoRow = typeof insumos.$inferSelect;
 
+// Nombres con que un insumo aparece en las boletas de compra («RON BACARDI BCO 750CC» → Ron blanco): se aprenden
+// cuando alguien corrige un emparejamiento y hacen que la próxima boleta se reconozca sola.
+export const insumoAlias = mysqlTable("insumoAlias", {
+  id: int("id").autoincrement().primaryKey(),
+  insumoId: int("insumoId").notNull(),
+  alias: varchar("alias", { length: 160 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => [uniqueIndex("insumo_alias_alias_idx").on(t.alias)]);
+
 // Receta de un trago de la carta: cuánto gasta de cada insumo (en su unidad).
 // Va por ticketTypeId porque cada fiesta tiene su carta; al copiar la carta
 // de la fiesta anterior se copian también las recetas (por nombre).

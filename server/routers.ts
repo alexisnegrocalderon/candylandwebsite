@@ -38,6 +38,7 @@ import * as ambassadorProgram from "./ambassadorProgram";
 import { monthKeyFor } from "../shared/ambassadorProgram";
 import { checkAndAdvanceTandaIfNeeded } from "./tandaAutoAdvance";
 import { scanReceiptImage } from "./receiptScan";
+import * as comprasSvc from "./compras";
 import { generateCostumeIdeas, fallbackResult as fallbackCostumeResult } from "./costumeOracle";
 import { ORACLE_VIBES, ORACLE_COMPANY, ORACLE_LEVELS, ORACLE_SKIN, ORACLE_ITEMS, ORACLE_EXTRA_MAX } from "../shared/costumeOracle";
 import * as applications from "./ambassadorApplications";
@@ -6148,6 +6149,27 @@ export const appRouter = router({
       eventId: z.number(), insumoId: z.number(),
       usos: z.array(z.object({ ticketTypeId: z.number(), amount: z.number().min(0).max(100_000) })).max(500),
     })).mutation(({ input }) => insumoSvc.setUsoInsumo(input.eventId, input.insumoId, input.usos)),
+    // Compra desde la foto de una boleta: la IA solo lee y propone (nada se escribe); `comprasAplicar` carga lo que el admin confirmó.
+    comprasLeer: adminProcedure.input(z.object({ imageUrl: z.string().url() })).mutation(async ({ input }) => {
+      try {
+        return await comprasSvc.proponerCompra(input.imageUrl);
+      } catch (err) {
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'No se pudo leer la foto. Intenta con otra más nítida, o carga la compra a mano.', cause: err });
+      }
+    }),
+    comprasAplicar: adminProcedure.input(z.object({
+      opId: z.string().min(8).max(40), eventId: z.number(),
+      lineas: z.array(z.object({
+        insumoId: z.number(), agregar: z.number().positive().max(10_000_000), costoParaInsumo: z.number().min(0).max(100_000_000).nullable(),
+        alias: z.string().max(160).nullable(), detalle: z.string().max(120),
+      })).min(1).max(150),
+      actualizarCostos: z.boolean(), recordarNombres: z.boolean(),
+      gasto: z.object({
+        crear: z.boolean(), proveedor: z.string().max(160), rut: z.string().max(16), fecha: z.string().max(40),
+        documentType: z.enum(['boleta', 'factura', 'boleta_honorarios', 'sin_documento']), numero: z.string().max(32),
+        total: z.number().min(0).max(500_000_000), ivaExempt: z.boolean(), receiptUrl: z.string().url().nullable(),
+      }),
+    })).mutation(({ input, ctx }) => comprasSvc.aplicarCompra({ ...input, userId: ctx.user.id })),
     setTipoProducto: adminProcedure.input(z.object({ ticketTypeId: z.number(), tipo: z.enum(['trago', 'comida', 'cigarros', 'merch', 'otro']) }))
       .mutation(({ input }) => insumoSvc.setTipoProducto(input.ticketTypeId, input.tipo)),
     setProductoOculto: adminProcedure.input(z.object({ ticketTypeId: z.number(), oculto: z.boolean() }))

@@ -176,6 +176,21 @@ export async function cajaInsumoSnapshot(eventId: number): Promise<{
 
 // --- Escrituras del admin ---
 
+/** Recuerda con qué nombre aparece un insumo en las boletas (el texto se guarda normalizado y sin duplicados). */
+export async function addInsumoAliases(items: { insumoId: number; alias: string }[]) {
+  if (items.length === 0) return;
+  const db = await dbOrThrow();
+  for (const it of items) {
+    const alias = normalizeName(it.alias).replace(/\s+/g, " ").trim().slice(0, 160);
+    if (!alias) continue;
+    try {
+      await db.execute(sql`INSERT INTO \`insumoAlias\` (\`insumoId\`, \`alias\`) VALUES (${it.insumoId}, ${alias}) ON DUPLICATE KEY UPDATE \`insumoId\` = VALUES(\`insumoId\`)`);
+    } catch (err) {
+      console.error("[insumos] alias:", err);
+    }
+  }
+}
+
 export async function saveInsumo(data: {
   id?: number; name: string; unit: InsumoUnit; containerSize: number; containerLabel: string; sizes?: number[];
   costPerContainer?: number | null; alertDrinks: number; sortOrder?: number;
