@@ -2,6 +2,7 @@ import { Button } from "@/components/ui/button";
 import { AlertTriangle, RotateCcw } from "lucide-react";
 import { Component, ReactNode } from "react";
 import { hideSplash } from "@/lib/splash";
+import { isChunkLoadError, reloadForNewVersion } from "@/lib/staleChunk";
 
 interface Props {
   children: ReactNode;
@@ -29,6 +30,8 @@ class ErrorBoundary extends Component<Props, State> {
     // queda en la consola del navegador de quien lo sufre, para poder pedirle
     // que la revise si vuelve a pasar.
     console.error('[ErrorBoundary]', error, info.componentStack);
+    // Un archivo de una versión anterior del sitio ya no existe: se recarga sola una vez para bajar la nueva.
+    if (isChunkLoadError(error)) reloadForNewVersion();
     this.setState({ componentStack: info.componentStack });
     // Que el splash de apertura nunca tape el mensaje de error.
     hideSplash({ intro: false });
@@ -37,6 +40,18 @@ class ErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.hasError) {
       const { error, componentStack } = this.state;
+      if (isChunkLoadError(error)) {
+        return (
+          <div className="flex min-h-screen items-center justify-center bg-background p-8">
+            <div className="flex w-full max-w-md flex-col items-center gap-4 text-center">
+              <RotateCcw size={40} className="text-primary" />
+              <h2 className="text-xl">Hay una versión nueva</h2>
+              <p className="text-sm text-muted-foreground">Actualizamos la página mientras la tenías abierta. Recarga para verla: tus entradas y tu cuenta no se tocaron.</p>
+              <Button onClick={() => window.location.reload()}>Recargar</Button>
+            </div>
+          </div>
+        );
+      }
       const detail = [error ? `${error.name}: ${error.message}` : '', error?.stack?.split('\n').slice(0, 4).join('\n') ?? '', componentStack.split('\n').slice(0, 6).join('\n')].filter(Boolean).join('\n\n');
       return (
         <div className="flex items-center justify-center min-h-screen p-8 bg-background">
