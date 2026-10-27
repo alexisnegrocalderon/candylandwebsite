@@ -9,17 +9,17 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { WriteButton } from '@/components/admin/WriteButton';
 import { describirBotellas, formatCantidad, insumoSizes, stockCsv, stockTexto } from '@shared/insumos';
+import { ContarStock } from './ContarStock';
 import { SizeCounts } from './SizeCounts';
 import { UsoDialog } from './UsoDialog';
 import { LEVEL_STYLE, type BarraData, type BarraInsumo } from './types';
 import type { InsumoFormValue } from './InsumoDialog';
 
-type Action = { kind: 'compra' | 'merma' | 'fijar'; insumo: BarraInsumo } | null;
+type Action = { kind: 'compra' | 'merma'; insumo: BarraInsumo } | null;
 
 const ACTION_TEXT = {
   compra: { title: 'Registrar compra', help: 'Se suma al stock.', button: 'Sumar' },
   merma: { title: 'Registrar merma', help: 'Botella rota, derrame, cortesía sin registrar… Se resta del stock.', button: 'Restar' },
-  fijar: { title: 'Fijar stock', help: 'Deja el stock exactamente en lo que pongas (queda como ajuste en el historial).', button: 'Fijar' },
 } as const;
 
 export function StockTab({ eventId, data, onEdit, onChanged }: {
@@ -31,6 +31,7 @@ export function StockTab({ eventId, data, onEdit, onChanged }: {
   const [action, setAction] = useState<Action>(null);
   // Vista por botella base: el insumo cuyos tragos se están editando.
   const [uso, setUso] = useState<BarraInsumo | null>(null);
+  const [contar, setContar] = useState<BarraInsumo | null>(null);
   const setActive = trpc.insumos.setActive.useMutation({ onSuccess: onChanged, onError: (e) => toast.error(e.message) });
 
   const counts = {
@@ -111,6 +112,7 @@ export function StockTab({ eventId, data, onEdit, onChanged }: {
                     </div>
                   )}
                 </div>
+                <WriteButton size="sm" onClick={() => setContar(i)}>Contar</WriteButton>
                 <WriteButton size="sm" variant="outline" onClick={() => setAction({ kind: 'compra', insumo: i })}>+ Compra</WriteButton>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -119,7 +121,7 @@ export function StockTab({ eventId, data, onEdit, onChanged }: {
                   <DropdownMenuContent align="end">
                     <DropdownMenuItem onSelect={() => setUso(i)}>Tragos que lo usan</DropdownMenuItem>
                     <DropdownMenuItem onSelect={() => setAction({ kind: 'merma', insumo: i })}>Registrar merma</DropdownMenuItem>
-                    <DropdownMenuItem onSelect={() => setAction({ kind: 'fijar', insumo: i })}>Fijar stock</DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => setContar(i)}>Contar stock real</DropdownMenuItem>
                     <DropdownMenuItem onSelect={() => onEdit({
                       id: i.id, name: i.name, unit: i.unit, containerSize: i.containerSize, containerLabel: i.containerLabel, sizes: insumoSizes(i),
                       costPerContainer: i.costPerContainer ?? null, alertDrinks: i.alertDrinks,
@@ -137,6 +139,7 @@ export function StockTab({ eventId, data, onEdit, onChanged }: {
       </ul>
 
       <UsoDialog eventId={eventId} insumo={uso} data={data} onClose={() => setUso(null)} onSaved={() => { setUso(null); onChanged(); }} />
+      <ContarStock eventId={eventId} insumo={contar} onClose={() => setContar(null)} onDone={() => { setContar(null); onChanged(); }} />
       <MovimientoDialog eventId={eventId} action={action} onClose={() => setAction(null)} onDone={() => { setAction(null); onChanged(); }} />
     </div>
   );
@@ -147,7 +150,6 @@ function MovimientoDialog({ eventId, action, onClose, onDone }: { eventId: numbe
   const [loose, setLoose] = useState('');
   const [note, setNote] = useState('');
   const movimiento = trpc.insumos.movimiento.useMutation();
-  const setStock = trpc.insumos.setStock.useMutation();
   const reset = () => { setBySize({}); setLoose(''); setNote(''); };
   if (!action) return <Dialog open={false} />;
   const { insumo, kind } = action;
@@ -158,15 +160,12 @@ function MovimientoDialog({ eventId, action, onClose, onDone }: { eventId: numbe
   // Cada botella queda anotada con su tamaño en la nota del movimiento.
   const detail = [describirBotellas(bottles, insumo.unit), Number(loose) > 0 ? `+ ${loose} ${insumo.unit}` : ''].filter(Boolean).join(' ');
   const fullNote = [detail, note.trim()].filter(Boolean).join(' · ') || undefined;
-  const busy = movimiento.isPending || setStock.isPending;
+  const busy = movimiento.isPending;
 
   const submit = async () => {
     try {
-      if (kind === 'fijar') await setStock.mutateAsync({ insumoId: insumo.id, target: amount, eventId, note: fullNote });
-      else {
-        if (amount <= 0) { toast.error('Pon una cantidad'); return; }
-        await movimiento.mutateAsync({ insumoId: insumo.id, kind, amount, eventId, note: fullNote });
-      }
+      if (amount <= 0) { toast.error('Pon una cantidad'); return; }
+      await movimiento.mutateAsync({ insumoId: insumo.id, kind, amount, eventId, note: fullNote });
       toast.success(`${insumo.name}: listo`);
       reset();
       onDone();
