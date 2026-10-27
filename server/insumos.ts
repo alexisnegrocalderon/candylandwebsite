@@ -17,7 +17,7 @@ import { insumoSchemaStatus } from "./schemaUpdates";
 import { personasForTicket } from "../shared/mission300";
 import { DOSIER_INSUMOS, DOSIER_SUPUESTOS, planDosier } from "../shared/dosier";
 import {
-  DEFAULT_GLASS, aplicarUso, conteoATotal, consumoDeVenta, descuadre, detalleATotal, insumoSizes, recetaDe, nivelInsumo, normalizeName, proyeccionCompra, tragosDisponibles, tragosPorInsumo,
+  DEFAULT_GLASS, aplicarUso, conteoATotal, extrasDeMetadata, metadataConExtras, consumoDeVenta, descuadre, detalleATotal, insumoSizes, recetaDe, nivelInsumo, normalizeName, proyeccionCompra, tragosDisponibles, tragosPorInsumo,
   OPEN_PORTIONS, type ConteoDetalle, type Insumo, type InsumoUnit, type MovimientoKind, type RecetaLinea,
 } from "../shared/insumos";
 
@@ -130,6 +130,8 @@ export async function estadoBarra(eventId: number) {
       return {
         id: p.id as number, name: p.name as string, groupName: (p.groupName as string | null) ?? null, emoji: (p.emoji as string | null) ?? null,
         glass, receta, drinks: left?.drinks ?? null, limitingInsumoId: left?.limitingInsumoId ?? null,
+        // Lo que lleva sin medida (borde de Tajín, hielo frappé…): solo anotado en el producto.
+        extras: extrasDeMetadata(p.metadata),
       };
     }),
   };
@@ -188,8 +190,13 @@ export async function setInsumoActive(id: number, active: boolean) {
 
 /** Reemplaza la receta de un trago. El vaso es del producto (cada trago viene en el suyo):
  * se cambian todas las líneas juntas, así nunca quedan recetas de dos vasos. */
-export async function setReceta(ticketTypeId: number, glass: string, lines: { insumoId: number; amount: number }[]) {
+export async function setReceta(ticketTypeId: number, glass: string, lines: { insumoId: number; amount: number }[], extras?: string[]) {
   const db = await dbOrThrow();
+  // Los extras sin medida (Tajín, hielo…) van en el metadata del producto, sin tocar lo demás que tenga. Sin `extras` no se cambian.
+  if (extras !== undefined) {
+    const [row] = await db.select({ metadata: ticketTypes.metadata }).from(ticketTypes).where(eq(ticketTypes.id, ticketTypeId)).limit(1);
+    if (row) await db.update(ticketTypes).set({ metadata: metadataConExtras(row.metadata, extras) }).where(eq(ticketTypes.id, ticketTypeId));
+  }
   await db.delete(insumoRecetas).where(eq(insumoRecetas.ticketTypeId, ticketTypeId));
   const clean = new Map<number, number>();
   for (const l of lines) if (l.amount > 0) clean.set(l.insumoId, (clean.get(l.insumoId) ?? 0) + l.amount);
@@ -550,7 +557,7 @@ export async function dosierApply(params: {
       if (!product || done.has(productId)) continue;
       done.add(productId);
       if (product.tieneReceta && !params.reemplazarRecetas) { yaTenian++; continue; }
-      await setReceta(productId, def.glass, def.lines.map((l) => ({ insumoId: idByKey.get(l.insumo)!, amount: l.amount })));
+      await setReceta(productId, def.glass, def.lines.map((l) => ({ insumoId: idByKey.get(l.insumo)!, amount: l.amount })), def.extras.length ? def.extras : undefined);
       recetas++;
     }
   }

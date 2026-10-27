@@ -6150,7 +6150,9 @@ export const appRouter = router({
     })).mutation(({ input }) => insumoSvc.setUsoInsumo(input.eventId, input.insumoId, input.usos)),
     setReceta: adminProcedure.input(z.object({
       ticketTypeId: z.number(), glass: z.enum(['vaso', 'copa', 'shot', 'botella']), lines: z.array(z.object({ insumoId: z.number(), amount: z.number().min(0).max(100_000) })).max(30),
-    })).mutation(({ input }) => insumoSvc.setReceta(input.ticketTypeId, input.glass, input.lines)),
+      // Extras sin medida (borde de Tajín, hielo frappé…): solo anotados en el producto.
+      extras: z.array(z.string().trim().min(1).max(60)).max(20).optional(),
+    })).mutation(({ input }) => insumoSvc.setReceta(input.ticketTypeId, input.glass, input.lines, input.extras)),
     movimiento: adminProcedure.input(z.object({
       insumoId: z.number(), kind: z.enum(['carga', 'compra', 'merma', 'ajuste']), amount: z.number().min(-10_000_000).max(10_000_000),
       eventId: z.number().nullable().optional(), note: z.string().max(255).optional(),

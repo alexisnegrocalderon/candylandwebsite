@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { WriteButton } from '@/components/admin/WriteButton';
 import {
-  CATEGORIAS_INSUMO, GLASSES, JIGGERS_RAPIDOS, JIGGER_ML, ML_RAPIDOS, cantidadInicial, categoriaInsumo, esJiggerExacto, glassInfo, insumosParecidos, jiggersAMl, mlAJiggers,
+  CATEGORIAS_INSUMO, EXTRAS_SUGERIDOS, GLASSES, HIELOS, JIGGERS_RAPIDOS, JIGGER_ML, ML_RAPIDOS, cantidadInicial, categoriaInsumo, conHielo, esJiggerExacto, glassInfo, insumosParecidos, jiggersAMl, mlAJiggers,
   type CategoriaInsumo, type GlassId, type InsumoUnit,
 } from '@shared/insumos';
 import { NuevoInsumo } from './NuevoInsumo';
@@ -52,6 +52,10 @@ export function RecetaVisual({ producto, data, wide = false, onCancel, onSaved, 
   const [nuevoNombre, setNuevoNombre] = useState(producto.name);
   const [nuevoStock, setNuevoStock] = useState('');
   const [search, setSearch] = useState('');
+  // Extras sin medida (borde de Tajín, hielo frappé…): solo se anotan en el trago, no tienen stock ni descuento.
+  const extrasIniciales = producto.extras ?? [];
+  const [extras, setExtras] = useState<string[]>(extrasIniciales);
+  const [extraNuevo, setExtraNuevo] = useState('');
 
   const utils = trpc.useUtils();
   const crearInsumo = trpc.insumos.save.useMutation({
@@ -101,18 +105,30 @@ export function RecetaVisual({ producto, data, wide = false, onCancel, onSaved, 
   const tiles = data.insumos.filter((i) =>
     (cat === 'todos' || categoriaInsumo(i.name, i.unit) === cat) && (!q || i.name.toLowerCase().includes(q)));
 
+  const hielo = HIELOS.find((h) => extras.includes(h)) ?? null;
+  const setHielo = (h: (typeof HIELOS)[number] | null) => setExtras((es) => conHielo(es, h));
+  const otrosExtras = extras.filter((e) => !(HIELOS as readonly string[]).includes(e));
+  const opcionesExtras = Array.from(new Set([...EXTRAS_SUGERIDOS, ...data.productos.flatMap((p) => p.extras ?? []), ...otrosExtras]))
+    .filter((e) => !(HIELOS as readonly string[]).includes(e));
+  const toggleExtra = (e: string) => setExtras((es) => (es.includes(e) ? es.filter((x) => x !== e) : [...es, e]));
+  const addExtra = () => {
+    const t = extraNuevo.trim();
+    if (t && !extras.includes(t)) setExtras((es) => [...es, t]);
+    setExtraNuevo('');
+  };
+
   const hadRecipe = producto.receta.length > 0;
   const emptyNow = clean.length === 0;
 
   // ¿Hay cambios sin guardar? (comparado con la receta que viene del servidor)
-  const initialKey = JSON.stringify([producto.glass || 'vaso', producto.receta.map((r) => [r.insumoId, round2(r.amount)])]);
-  const nowKey = JSON.stringify([glass, clean.map((l) => [l.insumoId, round2(l.amount)])]);
-  const dirty = nowKey !== initialKey && !(emptyNow && !hadRecipe);
-  const latest = useRef({ glass, clean });
-  latest.current = { glass, clean };
+  const initialKey = JSON.stringify([producto.glass || 'vaso', producto.receta.map((r) => [r.insumoId, round2(r.amount)]), [...extrasIniciales].sort()]);
+  const nowKey = JSON.stringify([glass, clean.map((l) => [l.insumoId, round2(l.amount)]), [...extras].sort()]);
+  const dirty = nowKey !== initialKey && !(emptyNow && !hadRecipe && extras.length === 0 && extrasIniciales.length === 0);
+  const latest = useRef({ glass, clean, extras });
+  latest.current = { glass, clean, extras };
   useEffect(() => {
     if (!registerSave) return;
-    registerSave(dirty ? () => save.mutateAsync({ ticketTypeId: producto.id, glass: latest.current.glass, lines: latest.current.clean }) : null);
+    registerSave(dirty ? () => save.mutateAsync({ ticketTypeId: producto.id, glass: latest.current.glass, lines: latest.current.clean, extras: latest.current.extras }) : null);
     return () => registerSave(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dirty, registerSave, producto.id]);
@@ -243,6 +259,34 @@ export function RecetaVisual({ producto, data, wide = false, onCancel, onSaved, 
               </div>
             )}
           </section>
+
+          {/* Extras sin medida */}
+          <section>
+            <h3 className="mb-1 text-sm font-semibold">Extras (sin medida)</h3>
+            <p className="mb-2 text-xs text-muted-foreground">Solo se anotan en el trago: no tienen stock ni se descuentan.</p>
+            <div className="mb-2 flex flex-wrap gap-2" role="radiogroup" aria-label="Hielo">
+              {([['Sin hielo', null], ['🧊 Cubos', HIELOS[0]], ['❄️ Frappé', HIELOS[1]]] as const).map(([label, h]) => (
+                <button key={label} type="button" role="radio" aria-checked={hielo === h} onClick={() => setHielo(h)}
+                  className={`rounded-full border-2 px-4 py-2 text-sm font-medium active:scale-95 ${hielo === h ? 'border-primary bg-primary/10' : 'border-border bg-card/60 hover:bg-muted'}`}>{label}</button>
+              ))}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {opcionesExtras.map((e) => {
+                const on = extras.includes(e);
+                return (
+                  <button key={e} type="button" aria-pressed={on} onClick={() => toggleExtra(e)}
+                    className={`rounded-full border-2 px-3 py-1.5 text-sm active:scale-95 ${on ? 'border-primary bg-primary/10 font-medium' : 'border-border bg-card/60 hover:bg-muted'}`}>
+                    {on && <Check className="mr-1 inline h-3.5 w-3.5" />}{e}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="mt-2 flex gap-2">
+              <Input value={extraNuevo} onChange={(e) => setExtraNuevo(e.target.value)} placeholder="Otro extra (ej. Borde de Tajín)…"
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addExtra(); } }} />
+              <Button type="button" variant="outline" onClick={addExtra} disabled={!extraNuevo.trim()}><Plus className="h-4 w-4" /></Button>
+            </div>
+          </section>
         </div>
 
         {/* 3 · agregar */}
@@ -300,9 +344,9 @@ export function RecetaVisual({ producto, data, wide = false, onCancel, onSaved, 
       ) : (
       <div className="sticky bottom-0 -mx-1 flex items-center gap-2 border-t border-border bg-background/95 px-1 py-3 backdrop-blur">
         {onCancel && <Button type="button" variant="outline" onClick={onCancel} className="h-12 flex-1">Cancelar</Button>}
-        <WriteButton type="button" disabled={save.isPending || (emptyNow && !hadRecipe)} className="h-12 flex-[2] text-base"
-          onClick={() => save.mutate({ ticketTypeId: producto.id, glass, lines: clean })}>
-          {save.isPending ? 'Guardando…' : emptyNow && hadRecipe ? 'Quitar la receta' : 'Guardar receta'}
+        <WriteButton type="button" disabled={save.isPending || !dirty} className="h-12 flex-[2] text-base"
+          onClick={() => save.mutate({ ticketTypeId: producto.id, glass, lines: clean, extras })}>
+          {save.isPending ? 'Guardando…' : emptyNow && hadRecipe && extras.length === 0 ? 'Quitar la receta' : 'Guardar receta'}
         </WriteButton>
       </div>
       )}

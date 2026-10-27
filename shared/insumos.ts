@@ -135,6 +135,38 @@ export function cantidadInicial(name: string, unit: InsumoUnit): { jigger: boole
 export const JIGGERS_RAPIDOS = [0.25, 0.5, 1, 1.5, 2, 3] as const;
 export const ML_RAPIDOS = [60, 100, 120, 150, 200] as const;
 
+/** Extras de un trago que no se miden ni llevan stock: el borde de Tajín, el hielo, la hierbabuena… Van solo
+ * anotados en el producto (en `ticketTypes.metadata.extras`), así no entran al conteo de la barra ni generan avisos. */
+export const HIELOS = ['Hielo en cubos', 'Hielo frappé'] as const;
+export const EXTRAS_SUGERIDOS = [
+  'Borde de Tajín', 'Hierbabuena (5 hojas)', 'Rodaja de limón', 'Rodaja de naranja', 'Pepino (2 rebanadas)',
+  'Bitter de naranja (2 gotas)', 'Sal en el borde', 'Azúcar en el borde',
+] as const;
+
+/** Los extras guardados en el JSON `metadata` de un producto. */
+export function extrasDeMetadata(metadata: unknown): string[] {
+  let obj: unknown = metadata;
+  if (typeof obj === 'string') { try { obj = JSON.parse(obj); } catch { return []; } }
+  const raw = obj && typeof obj === 'object' && !Array.isArray(obj) ? (obj as { extras?: unknown }).extras : null;
+  return Array.isArray(raw) ? raw.filter((e): e is string => typeof e === 'string').map((e) => e.trim()).filter(Boolean).slice(0, 20) : [];
+}
+
+/** El `metadata` del producto con estos extras, sin tocar nada más de lo que ya tenga (`null` si queda vacío). */
+export function metadataConExtras(metadata: unknown, extras: string[]): Record<string, unknown> | null {
+  let obj: unknown = metadata;
+  if (typeof obj === 'string') { try { obj = JSON.parse(obj); } catch { obj = null; } }
+  const base: Record<string, unknown> = obj && typeof obj === 'object' && !Array.isArray(obj) ? { ...(obj as Record<string, unknown>) } : {};
+  const clean = Array.from(new Set(extras.map((e) => e.trim()).filter(Boolean))).slice(0, 20);
+  if (clean.length) base.extras = clean; else delete base.extras;
+  return Object.keys(base).length ? base : null;
+}
+
+/** Cambia el hielo de un trago: cubos o frappé (uno solo), o ninguno. */
+export function conHielo(extras: string[], hielo: (typeof HIELOS)[number] | null): string[] {
+  const sin = extras.filter((e) => !(HIELOS as readonly string[]).includes(e));
+  return hielo ? [hielo, ...sin] : sin;
+}
+
 /** Vista "por botella base": marcas qué tragos usan un insumo y cuánto. Devuelve las recetas que cambian
  * (con todas sus líneas, listas para guardar): se agrega o corrige el insumo en los tragos marcados, se quita
  * de los que ya no lo usan y no se toca nada más. Un trago sin receta parte con el vaso de siempre. */

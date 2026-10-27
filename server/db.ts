@@ -14,6 +14,7 @@ import { computeFans, FAN_WINDOW_DAYS } from "../shared/igEngagement";
 import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, partyPhotos, partySwipes, partyCostumeVotes, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog, eventSurveys, eventSurveySettings, accessCredits, type AccessCredit, igComments, type IgComment, igReferrals, type IgReferralRow, igLinkClicks, staffMembers, staffShifts, aiUsage, attendeeContacts } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
+import { extrasDeMetadata } from '../shared/insumos';
 import { isMissionActiveForEvent, missionDepositPrice, personasForAccesoSlug, personasForTicket } from '../shared/mission300';
 import { MAX_TOUCHES_PER_EVENT, MAX_COSTUME_VOTES_PER_EVENT, costumeVotesLeft, MAX_PARTY_PHOTOS, MAX_REWINDS_PER_EVENT, photoSlotFor, isMutualInterest, isSeenBy, parseLookingFor, PRESENCE_WINDOW_MS, SWIPE_DECK_SIZE, canSeePhotos, giftExpiresAt, isGiftExpired, canPayGift, canRespondToGift, orderedPair, type PartyGender, type PartyZone } from '../shared/party';
 import { playcoinsEarnedForPurchase, clampRedeemAmount } from '../shared/playcoins';
@@ -3437,7 +3438,9 @@ export async function getCajaSnapshot(eventId: number) {
       // Ingredientes/sabores especiales, para que la cajera pueda responder
       // preguntas del cliente sin ir a buscarlo -- reusa el campo de
       // descripción que ya existe, cargado desde la Carta de la Fiesta.
-      description: (t.description as string | null) ?? null,
+      // Lo que lleva sin medida (borde de Tajín, hielo frappé…) se suma a la descripción, así la barra lo ve
+      // al mantener presionada la tarjeta en /caja.
+      description: [(t.description as string | null) || null, extrasDeMetadata(t.metadata).length ? `Lleva: ${extrasDeMetadata(t.metadata).join(', ')}` : null].filter(Boolean).join('\n') || null,
       category: t.category as string,
       status: t.status as 'active' | 'soldout' | 'hidden',
       totalStock: Number(t.totalStock),

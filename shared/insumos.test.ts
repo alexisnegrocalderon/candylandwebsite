@@ -428,3 +428,24 @@ describe('cantidad inicial al agregar un insumo', () => {
     expect(cantidadInicial('Peroni', 'un')).toEqual({ jigger: false, value: 1 });
   });
 });
+
+describe('extras sin medida (Tajín, hielo…)', () => {
+  it('lee y guarda los extras sin pisar el resto del metadata', async () => {
+    const { extrasDeMetadata, metadataConExtras } = await import('./insumos');
+    expect(extrasDeMetadata(null)).toEqual([]);
+    expect(extrasDeMetadata('no es json')).toEqual([]);
+    expect(extrasDeMetadata({ extras: ['Borde de Tajín', ' ', 5, 'Hielo frappé'] })).toEqual(['Borde de Tajín', 'Hielo frappé']);
+    expect(extrasDeMetadata(JSON.stringify({ extras: ['Hielo en cubos'] }))).toEqual(['Hielo en cubos']);
+    expect(metadataConExtras({ talla: 'M' }, ['Borde de Tajín', 'Borde de Tajín', ' '])).toEqual({ talla: 'M', extras: ['Borde de Tajín'] });
+    expect(metadataConExtras({ talla: 'M', extras: ['x'] }, [])).toEqual({ talla: 'M' });
+    expect(metadataConExtras({ extras: ['x'] }, [])).toBeNull();
+    expect(metadataConExtras(null, ['Hielo frappé'])).toEqual({ extras: ['Hielo frappé'] });
+  });
+
+  it('el hielo es uno solo: cubos o frappé', async () => {
+    const { conHielo } = await import('./insumos');
+    expect(conHielo(['Borde de Tajín'], 'Hielo frappé')).toEqual(['Hielo frappé', 'Borde de Tajín']);
+    expect(conHielo(['Hielo frappé', 'Borde de Tajín'], 'Hielo en cubos')).toEqual(['Hielo en cubos', 'Borde de Tajín']);
+    expect(conHielo(['Hielo en cubos', 'Borde de Tajín'], null)).toEqual(['Borde de Tajín']);
+  });
+});

@@ -99,6 +99,7 @@ export function DosierDialog({ eventId, open, onClose, onDone }: { eventId: numb
             </p>
             <p className="text-xs text-muted-foreground">
               {r.lines.map((l) => `${nameOf(l.insumo)} ${formatPorcion(l.amount, unitOf(l.insumo)).replace(/ \(.*\)$/, '')}${l.estimated ? ' (estimado)' : ''}`).join(' · ')}
+              {r.extras.length > 0 && <span className="text-muted-foreground"> · + {r.extras.join(" · + ")}</span>}
             </p>
           </div>
           <Button type="button" variant="outline" size="sm" onClick={() => { setPicking(picking === r.product ? null : r.product); setSearch(''); }}>

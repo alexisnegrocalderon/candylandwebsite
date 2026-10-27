@@ -51,6 +51,8 @@ export interface DosierReceta {
   /** El dosier no dice el vaso: supuesto a confirmar. */
   glassAssumed?: boolean;
   lines: DosierLinea[];
+  /** Lo que lleva sin medida (hierbabuena, hielo frappé, pepino…): se anota en el producto, sin stock. */
+  extras?: string[];
 }
 
 const spirit = (key: string, name: string, stock?: DosierInsumo['stock'], sizes = [750, 1000]): DosierInsumo => ({
@@ -122,12 +124,13 @@ export const DOSIER_RECETAS: DosierReceta[] = [
   {
     product: 'PlayRoom', kind: 'preparacion', palabras: ['playroom'], excluir: ['aros', 'cover', 'cumplea', 'hand'], glass: 'copa',
     lines: [{ insumo: 'gin', amount: oz(2) }, { insumo: 'pulpa_hibiscus', amount: oz(2) }, { insumo: 'limon', amount: oz(1) }, { insumo: 'sprite', amount: 150, estimated: true }],
+    extras: ['Pepino (2 rebanadas)'],
   },
   // Los mojitos de la carta: la técnica del dosier (5 hojas de hierbabuena con ½ oz de goma y de limón, más 2 oz de ron),
   // completado con agua mineral o soda. Cada sabor es un producto aparte para que el stock de cada sirope salga exacto.
-  { product: 'Mojito Tradicional', kind: 'preparacion', palabras: ['mojito', 'tradicional'], glass: 'vaso', glassAssumed: true, lines: [{ insumo: 'ron', amount: oz(2) }, { insumo: 'limon', amount: oz(0.5) }, { insumo: 'goma', amount: oz(0.5) }, { insumo: 'agua', amount: 120, estimated: true }] },
-  { product: 'Mojito Maracuyá', kind: 'preparacion', aliases: ['Mojito Maracuya'], palabras: ['mojito', 'maracuya'], glass: 'vaso', glassAssumed: true, lines: [{ insumo: 'ron', amount: oz(2) }, { insumo: 'limon', amount: oz(0.5) }, { insumo: 'goma', amount: oz(0.5) }, { insumo: 'sirope_maracuya', amount: oz(1), estimated: true }, { insumo: 'agua', amount: 120, estimated: true }] },
-  { product: 'Mojito Arándanos', kind: 'preparacion', aliases: ['Mojito Arandanos'], palabras: ['mojito', 'arandano'], glass: 'vaso', glassAssumed: true, lines: [{ insumo: 'ron', amount: oz(2) }, { insumo: 'limon', amount: oz(0.5) }, { insumo: 'goma', amount: oz(0.5) }, { insumo: 'sirope_arandanos', amount: oz(1), estimated: true }, { insumo: 'agua', amount: 120, estimated: true }] },
+  { product: 'Mojito Tradicional', kind: 'preparacion', palabras: ['mojito', 'tradicional'], glass: 'vaso', glassAssumed: true, lines: [{ insumo: 'ron', amount: oz(2) }, { insumo: 'limon', amount: oz(0.5) }, { insumo: 'goma', amount: oz(0.5) }, { insumo: 'agua', amount: 120, estimated: true }], extras: ['Hierbabuena (5 hojas)', 'Hielo frappé'] },
+  { product: 'Mojito Maracuyá', kind: 'preparacion', aliases: ['Mojito Maracuya'], palabras: ['mojito', 'maracuya'], glass: 'vaso', glassAssumed: true, lines: [{ insumo: 'ron', amount: oz(2) }, { insumo: 'limon', amount: oz(0.5) }, { insumo: 'goma', amount: oz(0.5) }, { insumo: 'sirope_maracuya', amount: oz(1), estimated: true }, { insumo: 'agua', amount: 120, estimated: true }], extras: ['Hierbabuena (5 hojas)', 'Hielo frappé', 'Bitter de naranja (2 gotas)'] },
+  { product: 'Mojito Arándanos', kind: 'preparacion', aliases: ['Mojito Arandanos'], palabras: ['mojito', 'arandano'], glass: 'vaso', glassAssumed: true, lines: [{ insumo: 'ron', amount: oz(2) }, { insumo: 'limon', amount: oz(0.5) }, { insumo: 'goma', amount: oz(0.5) }, { insumo: 'sirope_arandanos', amount: oz(1), estimated: true }, { insumo: 'agua', amount: 120, estimated: true }], extras: ['Hierbabuena (5 hojas)', 'Hielo frappé', 'Bitter de naranja (2 gotas)'] },
   { product: 'Mocktail Candy', kind: 'preparacion', palabras: ['mocktail', 'candy'], glass: 'vaso', glassAssumed: true, lines: [{ insumo: 'pulpa_arandanos', amount: oz(2) }, { insumo: 'limon', amount: oz(1) }, { insumo: 'agua', amount: 200 }] },
   { product: 'Mocktail Toxic', kind: 'preparacion', palabras: ['mocktail', 'toxic'], glass: 'vaso', glassAssumed: true, lines: [{ insumo: 'pulpa_hibiscus', amount: oz(2) }, { insumo: 'limon', amount: oz(1) }, { insumo: 'agua', amount: 200 }] },
   // Lo que se vende tal cual: cada venta gasta 1 unidad del inventario.
@@ -149,7 +152,7 @@ export const DOSIER_SUPUESTOS: string[] = [
   'Los mojitos, Cuba Libre, Jack Daniels y los mocktails no dicen el vaso: puse vaso 500 ml.',
   'El dosier pide Ron Blanco Havana y en tu stock hay Bacardí blanco: conté el Bacardí blanco como «Ron blanco». José Cuervo dorado lo usé para el shot Reposado.',
   'Los tamaños de botella que no dijiste los supuse de 750 ml. «1 alto de litro» lo cargué como Pisco Alto de 1 L y «1 Disco» no sé qué es (queda como «Disco (¿qué es?)»).',
-  'No cargué la «promo Pink and Blue» (no sé qué incluye). No se descuentan hierbabuena, bitter, pepino ni hielo (sin medida de compra).',
+  'No cargué la «promo Pink and Blue» (no sé qué incluye). Hierbabuena, bitter, pepino y hielo no llevan stock: van anotados en cada trago (hielo frappé en los mojitos, pepino en PlayRoom; el bitter solo en los mojitos de sabores, como en el Candy).',
   'Los tragos que no están en el dosier (Té, Gin con Gin, Lucky Click, Piscola sin alcohol, Mocktail Sabores…) quedan sin receta: no gastan insumos hasta que les armes una en la pestaña Recetas.',
 ];
 
@@ -173,7 +176,7 @@ export function puntajeProducto(receta: DosierReceta, productName: string): numb
 export interface DosierPlan {
   insumos: { key: string; name: string; action: 'crear' | 'existe'; id: number | null; stock: { amount: number; from: string } | null; loadStock: boolean }[];
   recetas: {
-    product: string; kind: DosierReceta['kind']; glass: GlassId; glassAssumed: boolean; lines: DosierLinea[];
+    product: string; kind: DosierReceta['kind']; glass: GlassId; glassAssumed: boolean; lines: DosierLinea[]; extras: string[];
     /** Productos de la Carta a los que se la sugiero (cada producto, a una sola preparación). */
     sugeridos: number[];
   }[];
@@ -211,7 +214,7 @@ export function planDosier(input: {
       };
     }),
     recetas: DOSIER_RECETAS.map((r) => ({
-      product: r.product, kind: r.kind, glass: r.glass, glassAssumed: !!r.glassAssumed, lines: r.lines, sugeridos: suggested.get(r.product) ?? [],
+      product: r.product, kind: r.kind, glass: r.glass, glassAssumed: !!r.glassAssumed, lines: r.lines, extras: r.extras ?? [], sugeridos: suggested.get(r.product) ?? [],
     })),
     productos: input.productos.map((p) => ({ id: p.id, name: p.name, groupName: p.groupName ?? null, price: p.price ?? null, tieneReceta: input.productosConReceta.has(p.id) })),
   };
