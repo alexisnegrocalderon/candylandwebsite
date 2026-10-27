@@ -6,9 +6,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { WriteButton } from '@/components/admin/WriteButton';
 import {
-  CATEGORIAS_INSUMO, GLASSES, JIGGERS_RAPIDOS, JIGGER_ML, ML_RAPIDOS, categoriaInsumo, esJiggerExacto, glassInfo, insumosParecidos, jiggersAMl, mlAJiggers,
-  type CategoriaInsumo, type GlassId,
+  CATEGORIAS_INSUMO, GLASSES, JIGGERS_RAPIDOS, JIGGER_ML, ML_RAPIDOS, cantidadInicial, categoriaInsumo, esJiggerExacto, glassInfo, insumosParecidos, jiggersAMl, mlAJiggers,
+  type CategoriaInsumo, type GlassId, type InsumoUnit,
 } from '@shared/insumos';
+import { NuevoInsumo } from './NuevoInsumo';
 import type { BarraData, BarraProducto } from './types';
 
 /** Una línea de la receta: `value` está en jiggers (si `jigger`) o en la unidad del insumo (ml, un). Se guarda siempre en ml. */
@@ -31,7 +32,14 @@ export function RecetaVisual({ producto, data, wide = false, onCancel, onSaved, 
    * botón: entrega una función para guardar los insumos junto con lo demás (o `null` si no hay cambios). */
   registerSave?: (save: (() => Promise<unknown>) | null) => void;
 }) {
-  const insumoById = useMemo(() => new Map(data.insumos.map((i) => [i.id, i])), [data.insumos]);
+  // Los insumos recién creados aquí todavía no están en la lista del servidor: se usan igual mientras se actualiza.
+  const [creados, setCreados] = useState<{ id: number; name: string; unit: InsumoUnit }[]>([]);
+  const [nuevo, setNuevo] = useState<{ name: string } | null>(null);
+  const insumoById = useMemo(() => {
+    const m = new Map<number, { id: number; name: string; unit: InsumoUnit }>(data.insumos.map((i) => [i.id, i]));
+    for (const c of creados) if (!m.has(c.id)) m.set(c.id, c);
+    return m;
+  }, [data.insumos, creados]);
   const [glass, setGlass] = useState<GlassId>((glassInfo(producto.glass)?.id ?? 'vaso') as GlassId);
   const [lines, setLines] = useState<Line[]>(() => producto.receta.map((r) => {
     const ins = data.insumos.find((i) => i.id === r.insumoId);
@@ -83,13 +91,8 @@ export function RecetaVisual({ producto, data, wide = false, onCancel, onSaved, 
   const add = (id: number) => {
     const ins = insumoById.get(id);
     if (!ins || lines.some((l) => l.insumoId === id)) return;
-    const c = categoriaInsumo(ins.name, ins.unit);
     // Punto de partida razonable; después se ajusta con los botones.
-    const start: Omit<Line, 'insumoId'> = ins.unit !== 'ml' ? { jigger: false, value: 1 }
-      : c === 'licores' ? { jigger: true, value: 2 }
-        : c === 'jarabes' ? { jigger: true, value: 0.5 }
-          : { jigger: false, value: 120 };
-    setLines((ls) => [...ls, { insumoId: id, ...start }]);
+    setLines((ls) => [...ls, { insumoId: id, ...cantidadInicial(ins.name, ins.unit) }]);
   };
   const remove = (id: number) => setLines((ls) => ls.filter((l) => l.insumoId !== id));
 
@@ -244,7 +247,10 @@ export function RecetaVisual({ producto, data, wide = false, onCancel, onSaved, 
 
         {/* 3 · agregar */}
         <section>
-          <h3 className="mb-2 text-sm font-semibold">3 · Toca para agregar</h3>
+          <div className="mb-2 flex items-center gap-2">
+            <h3 className="flex-1 text-sm font-semibold">3 · Toca para agregar</h3>
+            <Button type="button" variant="outline" size="sm" onClick={() => setNuevo({ name: '' })}><Plus className="mr-1 h-4 w-4" /> Nuevo insumo</Button>
+          </div>
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar insumo…" className="pl-9" />
@@ -268,8 +274,22 @@ export function RecetaVisual({ producto, data, wide = false, onCancel, onSaved, 
                 </button>
               );
             })}
-            {tiles.length === 0 && <p className="col-span-full px-1 py-3 text-sm text-muted-foreground">Ningún insumo con ese nombre. Créalo en Stock de Barra → «+ Insumo».</p>}
+            {tiles.length === 0 && (
+              <div className="col-span-full space-y-2 px-1 py-3 text-sm text-muted-foreground">
+                <p>{q ? `No hay ningún insumo que se llame «${search.trim()}».` : 'No hay insumos en esta categoría.'}</p>
+                <Button type="button" onClick={() => setNuevo({ name: search.trim() })}><Plus className="mr-1 h-4 w-4" /> Crear {q ? `«${search.trim()}»` : 'un insumo nuevo'}</Button>
+              </div>
+            )}
           </div>
+          <NuevoInsumo
+            open={!!nuevo} defaultName={nuevo?.name ?? ''} defaultUnit={isBottle ? 'un' : 'ml'} onClose={() => setNuevo(null)}
+            onCreated={({ id, form }) => {
+              setCreados((cs) => [...cs, { id, name: form.name, unit: form.unit }]);
+              // Entra a la receta con una cantidad de partida razonable (se ajusta con +/−).
+              setLines((ls) => (ls.some((l) => l.insumoId === id) ? ls : [...ls, { insumoId: id, ...cantidadInicial(form.name, form.unit) }]));
+              setNuevo(null); setSearch(''); setCat('todos');
+            }}
+          />
         </section>
       </div>
 

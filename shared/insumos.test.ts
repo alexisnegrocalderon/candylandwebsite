@@ -415,3 +415,16 @@ describe('botella o lata: insumos que se parecen al producto', () => {
     expect(glassInfo('botella')).toMatchObject({ label: 'Botella o lata', ml: 0 });
   });
 });
+
+describe('cantidad inicial al agregar un insumo', () => {
+  it('licor 2 jiggers, jarabe y limón ½ jigger, bebida 120 ml, unidades 1', async () => {
+    const { cantidadInicial } = await import('./insumos');
+    expect(cantidadInicial('Vodka Absolut', 'ml')).toEqual({ jigger: true, value: 2 });
+    expect(cantidadInicial('Goma', 'ml')).toEqual({ jigger: true, value: 0.5 });
+    expect(cantidadInicial('Jugo de limón', 'ml')).toEqual({ jigger: true, value: 0.5 });
+    expect(cantidadInicial('Bitter de naranja', 'ml')).toEqual({ jigger: true, value: 0.5 });
+    expect(cantidadInicial('Agua mineral', 'ml')).toEqual({ jigger: false, value: 120 });
+    expect(cantidadInicial('Ginger Ale', 'ml')).toEqual({ jigger: false, value: 120 });
+    expect(cantidadInicial('Peroni', 'un')).toEqual({ jigger: false, value: 1 });
+  });
+});

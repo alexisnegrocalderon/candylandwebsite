@@ -120,6 +120,17 @@ export function categoriaInsumo(name: string, unit: InsumoUnit): CategoriaInsumo
   return 'mezclas';
 }
 
+/** Con cuánto parte un insumo al agregarlo a una receta (se ajusta con +/−): 2 jiggers de licor, ½ jigger de jarabe,
+ * limón o amargo, 120 ml de bebida o jugo y 1 unidad de lo que se cuenta por unidades. */
+export function cantidadInicial(name: string, unit: InsumoUnit): { jigger: boolean; value: number } {
+  if (unit !== 'ml') return { jigger: false, value: 1 };
+  const c = categoriaInsumo(name, unit);
+  if (c === 'licores') return { jigger: true, value: 2 };
+  const n = normalizeName(name);
+  if (c === 'jarabes' || /\b(limon|lima|bitter|amargo)\b/.test(n)) return { jigger: true, value: 0.5 };
+  return { jigger: false, value: 120 };
+}
+
 /** Cantidades rápidas para un insumo en ml, en jiggers (licores y jarabes) o en ml (bebidas y jugos). */
 export const JIGGERS_RAPIDOS = [0.25, 0.5, 1, 1.5, 2, 3] as const;
 export const ML_RAPIDOS = [60, 100, 120, 150, 200] as const;
