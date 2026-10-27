@@ -15,12 +15,14 @@ import { InsumoDialog, type InsumoFormValue } from './InsumoDialog';
 import { DosierDialog } from './DosierDialog';
 import { CompraBoletaDialog } from './CompraBoletaDialog';
 import { DosierPdfDialog } from './DosierPdfDialog';
+import { DosierTab } from './DosierTab';
 
-type Tab = 'stock' | 'recetas' | 'compras' | 'historial';
+type Tab = 'stock' | 'recetas' | 'compras' | 'dosier' | 'historial';
 const TABS: { id: Tab; label: string; help: string }[] = [
   { id: 'stock', label: 'Stock', help: 'Lo que hay de cada insumo. Baja solo con cada venta de /caja y se corrige con los conteos de la barra.' },
   { id: 'recetas', label: 'Recetas', help: 'Cuánto gasta cada trago de cada insumo. Dos tragos con la misma base gastan del mismo stock.' },
   { id: 'compras', label: 'Lista de compras', help: 'Lo que falta comprar para la cantidad de personas que esperas, con el consumo de las últimas fiestas.' },
+  { id: 'dosier', label: '📘 Dosier', help: 'El dosier de barra tal como lo ve el staff en su app: tocas un trago, ves su preparación y puedes editar su receta.' },
   { id: 'historial', label: 'Historial', help: 'Conteos de la barra (con sus descuadres) y todos los movimientos de stock.' },
 ];
 
@@ -106,6 +108,7 @@ export function InsumosManager() {
           {tab === 'stock' && <StockTab eventId={activeId} data={data} onEdit={(i) => setDialog({ ...i, initialBySize: {}, initialLoose: 0 })} onChanged={refresh} />}
           {tab === 'recetas' && <RecetasTab data={data} onChanged={refresh} />}
           {tab === 'compras' && <ComprasTab eventId={activeId} data={data} />}
+          {tab === 'dosier' && <DosierTab eventId={activeId} eventTitle={(events ?? []).find((e: any) => e.id === activeId)?.title ?? ''} data={data} onChanged={refresh} />}
           {tab === 'historial' && <HistorialTab eventId={activeId} data={data} />}
         </>
       )}

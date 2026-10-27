@@ -3,6 +3,7 @@ import { formatKitchenTicketNumber } from '@shared/kitchen';
 import { formatLockerTagNumber } from '@shared/locker';
 import { personasForTicket } from '@shared/mission300';
 import { vipParkingCounts, type DoorParkingOption } from '@shared/parking';
+import type { DosierFichas } from '@shared/dosierFicha';
 import { consumoDeVenta, type InsumoUnit, type OpcionGrupo, type RecetaLinea } from '@shared/insumos';
 
 /* Snapshot local + cola de operaciones para el modo offline de /caja
@@ -185,6 +186,8 @@ export async function saveSnapshot(snapshot: {
   contacts?: { label: string; phone: string }[];
   /** Solo la caja lo trae: stock de la barra por insumos (`null` = no se usa). */
   barra?: CajaBarra | null;
+  /** Solo la caja lo trae: las fichas del dosier de barra para abrirlas sin señal. */
+  dosier?: DosierFichas | null;
   serverTime: string;
 }) {
   await cajaDB.transaction('rw', [cajaDB.attendees, cajaDB.codes, cajaDB.catalog, cajaDB.gifts, cajaDB.staffComps, cajaDB.meta, cajaDB.opsQueue], async () => {
@@ -214,6 +217,7 @@ export async function saveSnapshot(snapshot: {
     if (snapshot.staff) await cajaDB.meta.put({ key: 'staff', value: { eventId: snapshot.event.id, list: snapshot.staff } });
     if (snapshot.contacts) await cajaDB.meta.put({ key: 'contacts', value: { eventId: snapshot.event.id, list: snapshot.contacts } });
     if (snapshot.barra !== undefined) await cajaDB.meta.put({ key: 'barra', value: snapshot.barra });
+    if (snapshot.dosier !== undefined) await cajaDB.meta.put({ key: 'dosier', value: snapshot.dosier });
 
     // El snapshot llega del servidor SIN lo que esta tablet todavía no
     // sincronizó: sin esto, un código recién canjeado volvía a "válido" (y se
@@ -251,6 +255,12 @@ export interface CajaBarra {
   recetas: RecetaLinea[];
   /** Opciones al vender por producto (con qué bebida va…): para el descuento local. */
   opciones?: Record<number, OpcionGrupo[]>;
+}
+
+/** El dosier de barra del último snapshot (`null` si todavía no se bajó). */
+export async function getLocalDosier(): Promise<DosierFichas | null> {
+  const row = await cajaDB.meta.get('dosier');
+  return (row?.value as DosierFichas | null | undefined) ?? null;
 }
 
 /** `null` si el evento no usa insumos (o la base todavía no tiene las tablas). */

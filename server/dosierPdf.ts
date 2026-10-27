@@ -6,6 +6,7 @@ import PDFDocument from "pdfkit";
 import { LOGO_PNG_BASE64 } from "./budgetReport/logo";
 import { ANTON_TTF_BASE64 } from "./budgetReport/fonts";
 import { safe } from "./budgetReport/draw";
+import { bordeDeFicha, capasDeFicha, colorDe, hieloDeFicha } from "../shared/dosierFicha";
 
 type Doc = PDFKit.PDFDocument;
 
@@ -102,27 +103,7 @@ function pill(doc: Doc, s: string, x: number, y: number, bg: string, color: stri
 
 /* ─── Colores de cada ingrediente ───────────────────────────── */
 
-const LIQUID: [RegExp, string][] = [
-  [/coca|cola\b/i, "#4A2416"],
-  [/ginger/i, "#E2B85C"],
-  [/sprite|soda|agua|t[oó]nica|mineral/i, "#BFE6F2"],
-  [/red ?bull|energ|score/i, "#F2C94C"],
-  [/aperol/i, "#F26A21"],
-  [/ramazzotti|amaro|j[aä]eger|fernet/i, "#7A2E12"],
-  [/whisk|jack|johnnie|bourbon|ron negro|ron dorado|dorado|reposado/i, "#C27C2C"],
-  [/espumante|champ|prosecco/i, "#F3E3A0"],
-  [/lim[oó]n|lima/i, "#E4F07A"],
-  [/goma|jarabe|almibar|az[uú]car/i, "#F6EBD3"],
-  [/ar[aá]ndano|berr|frutos rojos/i, "#8E1B4E"],
-  [/maracuy/i, "#F7B32B"],
-  [/hibisc|jamaica/i, "#C2185B"],
-  [/tropical|pulpa|mango|pi[nñ]a/i, "#FF9F1C"],
-  [/pisco|gin|vodka|ron|tequila|silver|blanco/i, "#D6E4EF"],
-];
-const FALLBACK = ["#F48FB1", "#81D4FA", "#CE93D8", "#FFCC80", "#A5D6A7"];
-export function colorDe(name: string, i = 0): string {
-  return LIQUID.find(([re]) => re.test(name))?.[1] ?? FALLBACK[i % FALLBACK.length];
-}
+export { colorDe };
 
 /* ─── Vasos ─────────────────────────────────────────────────── */
 
@@ -393,18 +374,9 @@ function ficha(doc: Doc, tr: DosierTrago, y: number): number {
   doc.save(); doc.rect(M + 175, y, 15, h).fill(C.faint).fillOpacity(0.55); doc.restore();
 
   // Vaso con capas.
-  const layers: Layer[] = [];
-  const colorIdx = { i: 0 };
-  for (const l of tr.lineas) {
-    if (l.unit === "ml" && l.amount > 0) layers.push({ ml: l.amount, color: colorDe(l.name, colorIdx.i++) });
-    // Una lata (Red Bull, bebida) se vierte entera: unos 250 ml.
-    else if (l.unit === "un" && /lata|red ?bull|energ|bebida|score/i.test(l.name)) layers.push({ ml: 250 * l.amount, color: colorDe(l.name, colorIdx.i++) });
-  }
-  for (const o of tr.opciones) if (o.ml > 0) layers.push({ ml: o.ml, color: colorDe(o.choices[0] ?? o.label, colorIdx.i++) });
-  // Las bebidas y rellenos van arriba; los destilados abajo (como se sirve).
-  layers.sort((a, b) => (isMixer(a.color) ? 1 : 0) - (isMixer(b.color) ? 1 : 0));
-  const ice = tr.extras.some((e) => /frapp/i.test(e)) ? "frappe" : tr.extras.some((e) => /cubos/i.test(e)) || tr.glass !== "shot" ? "cubos" : null;
-  const rim = tr.extras.find((e) => /borde/i.test(e)) ?? null;
+  const layers: Layer[] = capasDeFicha(tr);
+  const ice = hieloDeFicha(tr);
+  const rim = bordeDeFicha(tr);
   const gh = Math.min(h - 60, tr.glass === "shot" ? 70 : tr.glass === "copa_xl" ? 200 : 180);
   // Centrado en la columna, con espacio abajo para la etiqueta del vaso.
   drawGlass(doc, tr.glass, M + 95, y + (h - 30 + gh) / 2 + (tr.glass === "vaso" ? 6 : 0), gh, { capacity: tr.glassMl || 500, layers, ice: ice as any, rim, straw: tr.glass !== "shot" });
@@ -475,8 +447,6 @@ function ficha(doc: Doc, tr: DosierTrago, y: number): number {
   return y + h;
 }
 
-const MIXERS = new Set(["#4A2416", "#E2B85C", "#BFE6F2", "#F2C94C", "#F3E3A0"]);
-const isMixer = (c: string) => MIXERS.has(c);
 
 function sectionHeader(doc: Doc, name: string, y: number): number {
   doc.save(); doc.rect(M, y + 6, 4, 22).fill(C.pink); doc.restore();

@@ -40,6 +40,7 @@ import { checkAndAdvanceTandaIfNeeded } from "./tandaAutoAdvance";
 import { scanReceiptImage } from "./receiptScan";
 import * as comprasSvc from "./compras";
 import { firmarDosier, dosierPath, DOSIER_TTL_ADMIN, DOSIER_TTL_CAJA } from "./dosierLink";
+import { dosierFichas } from "./dosierData";
 import { generateCostumeIdeas, fallbackResult as fallbackCostumeResult } from "./costumeOracle";
 import { ORACLE_VIBES, ORACLE_COMPANY, ORACLE_LEVELS, ORACLE_SKIN, ORACLE_ITEMS, ORACLE_EXTRA_MAX } from "../shared/costumeOracle";
 import * as applications from "./ambassadorApplications";
@@ -6151,6 +6152,8 @@ export const appRouter = router({
       usos: z.array(z.object({ ticketTypeId: z.number(), amount: z.number().min(0).max(100_000) })).max(500),
     })).mutation(({ input }) => insumoSvc.setUsoInsumo(input.eventId, input.insumoId, input.usos)),
     // Compra desde la foto de una boleta: la IA solo lee y propone (nada se escribe); `comprasAplicar` carga lo que el admin confirmó.
+    // Las fichas del dosier para verlas en pantalla en el admin (con el botón de editar cada receta).
+    dosierFichas: adminProcedure.input(z.object({ eventId: z.number() })).query(({ input }) => dosierFichas(input.eventId)),
     // Dosier de barra en PDF: link firmado por 7 días (para descargar o mandar por WhatsApp al staff).
     dosierLink: adminProcedure.input(z.object({ eventId: z.number() })).mutation(({ input }) => {
       const { token, expiresAt } = firmarDosier(input.eventId, DOSIER_TTL_ADMIN);
@@ -6297,7 +6300,8 @@ export const appRouter = router({
       const snapshot = await db.getCajaSnapshot(input.eventId);
       // Stock de la barra por insumos: viaja con el snapshot para calcular
       // "quedan ~N tragos" también sin señal.
-      return snapshot ? { ...snapshot, barra: await insumoSvc.cajaInsumoSnapshot(input.eventId) } : snapshot;
+      // El dosier viaja con el snapshot para abrirlo en la tablet sin señal (fichas de preparación, sin precios ni costos).
+      return snapshot ? { ...snapshot, barra: await insumoSvc.cajaInsumoSnapshot(input.eventId), dosier: await dosierFichas(input.eventId).catch(() => null) } : snapshot;
     }),
     // Conteo de barra al abrir y al cerrar turno: cualquiera de la barra lo
     // hace desde su tablet o celular. Lo contado pasa a ser el stock real.
