@@ -61,3 +61,14 @@ describe('linkStaffTools', () => {
     expect(linkStaffTools([], [])).toEqual([]);
   });
 });
+
+describe('puedeVerDosier', () => {
+  it('barra, caja y quien coordina lo ven', async () => {
+    const { puedeVerDosier } = await import('./staffPortal');
+    expect(puedeVerDosier('barra', null)).toBe(true);
+    expect(puedeVerDosier('supervisor', 'Administración')).toBe(true);
+    expect(puedeVerDosier('otro', 'Bartender')).toBe(true);
+    expect(puedeVerDosier('puerta', 'Seguridad')).toBe(false);
+    expect(puedeVerDosier('dj', 'DJ')).toBe(false);
+  });
+});

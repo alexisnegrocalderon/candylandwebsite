@@ -2,7 +2,7 @@ import { Component, Fragment, useEffect, useRef, useState, type ReactNode } from
 import { createPortal } from 'react-dom';
 import { AnimatePresence, MotionConfig, motion, useDragControls } from 'framer-motion';
 import { toast } from 'sonner';
-import { BadgeCheck, Calendar, Check, Copy, Crown, Gift, LogOut, Sparkles, Ticket as TicketIcon, ArrowRight, Loader2, QrCode, CreditCard, Wallet, Plus, RefreshCw, Bell, ChevronLeft, ChevronRight, Heart, History, User, WifiOff, ScanFace, CircleHelp, Shirt, MessageCircle, FileText } from 'lucide-react';
+import { BadgeCheck, Calendar, Check, Copy, Crown, Gift, LogOut, Sparkles, Ticket as TicketIcon, ArrowRight, Loader2, QrCode, CreditCard, Wallet, Plus, RefreshCw, Bell, ChevronLeft, ChevronRight, Heart, History, User, WifiOff, ScanFace, CircleHelp, Shirt, MessageCircle, FileText, BookOpen } from 'lucide-react';
 import { Link } from 'wouter';
 import { trpc } from '@/lib/trpc';
 import type { inferRouterOutputs } from '@trpc/server';
@@ -25,6 +25,7 @@ import { AmbassadorAccount, AppScreen, useAmbassadorPanel } from '@/components/s
 import { StampsTab } from '@/components/site/StampCard';
 import { SolteroAccess, solteroRowSub, useSolteroStatus } from '@/components/site/SolteroAccess';
 import { StaffAccount, StaffBanner, useStaffPortal } from '@/components/site/StaffAccount';
+import { StaffDosier, useStaffDosier } from '@/components/site/StaffDosier';
 import { PlaymatchTab } from '@/components/site/PlaymatchTab';
 import { PlayCardStack } from '@/components/site/PlayCardStack';
 import { anyLive, type NightEvent } from '@shared/nightExtras';
@@ -642,6 +643,7 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
   const ambassador = ambassadorPanel && !ambassadorPanel.salesOnly ? ambassadorPanel : null;
   // Solo para quien entra con el correo de alguien del staff (Admin → Noche → Staff).
   const staff = useStaffPortal();
+  const dosier = useStaffDosier();
   const tabs = TABS;
   // El aviso de contenido nuevo (`?tab=embajador`) abre directo la pantalla Embajador, una sola vez.
   const openEmb = useRef(initial.open === 'embajador' && new URLSearchParams(window.location.search).get('tab') === 'embajador');
@@ -671,7 +673,7 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
   const touch = useRef<{ x: number; y: number } | null>(null);
   const [dir, setDir] = useState(1);
   // Sub-hojas de «Más» y de «Puntos» (cada tema grande abre la suya, para que ninguna pantalla crezca).
-  const [sheet, setSheet] = useState<null | 'tarjetas' | 'beneficios' | 'avisos' | 'movimientos' | 'entradas' | 'embajador' | 'staff' | 'faceid' | 'soltero'>(null);
+  const [sheet, setSheet] = useState<null | 'tarjetas' | 'beneficios' | 'avisos' | 'movimientos' | 'entradas' | 'embajador' | 'staff' | 'dosier' | 'faceid' | 'soltero'>(null);
   // Preguntas frecuentes, dress code, etc. en hojas de la app (antes había que ir al sitio).
   const [info, setInfo] = useState<InfoKind | null>(null);
   // Face ID: recién entró con el código y este teléfono puede → se le ofrece una vez, después de ver su app.
@@ -781,6 +783,19 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
                       <span className="block truncate text-footnote text-white/60">Tu credencial, tus turnos y la info del evento</span>
                     </span>
                     <ArrowRight className="h-5 w-5 shrink-0 text-violet-300" />
+                  </span>
+                </button>
+              )}
+              {/* El dosier de preparaciones: para quien trabaja en barra y para quien coordina (también el administrador). */}
+              {dosier && (
+                <button type="button" onClick={() => { tapHaptic(); setSheet('dosier'); }} className="block w-full rounded-[24px] bg-gradient-to-r from-pink-500/80 via-fuchsia-500/60 to-sky-500/70 p-[1.5px] text-left interactive">
+                  <span className="flex items-center gap-3 rounded-[23px] bg-[#0d0712] px-4 py-3.5">
+                    <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-pink-400/15 text-xl">📘</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-callout font-bold leading-tight">Dosier de barra</span>
+                      <span className="block truncate text-footnote text-white/60">Cada trago: vaso, medidas y preparación</span>
+                    </span>
+                    <ArrowRight className="h-5 w-5 shrink-0 text-pink-300" />
                   </span>
                 </button>
               )}
@@ -900,6 +915,7 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
                   {([
                     // El correo del administrador tiene su acceso al panel acá también (además de la tarjeta de Perfil).
                     ...(me.isAdmin ? [{ key: 'admin', label: 'Panel admin', icon: Crown, href: '/admin' }] : []),
+                    ...(dosier ? [{ key: 'dosier', label: 'Dosier', icon: BookOpen, onClick: () => { setMore(false); setSheet('dosier'); } }] : []),
                     { key: 'entradas', label: 'Mis entradas', icon: TicketIcon, onClick: () => { setMore(false); setSheet('entradas'); } },
                     { key: 'movimientos', label: 'Movimientos', icon: History, onClick: () => { setMore(false); setSheet('movimientos'); } },
                     ...(pay.cajaPay ? [{ key: 'caja', label: 'Pagar en caja', icon: Wallet, onClick: () => { setMore(false); setPayOpen(true); } }] : []),
@@ -935,6 +951,7 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
       <PasskeySheet open={sheet === 'faceid'} offer={faceIdOffer} onClose={() => setSheet(null)} />
       <InfoSheet kind={info} onClose={() => setInfo(null)} />
       <BottomSheet open={sheet === 'tarjetas'} onClose={() => setSheet(null)} title="Mis tarjetas"><SavedCardsSection /></BottomSheet>
+      {dosier && <AppScreen open={sheet === 'dosier'} title="Dosier de barra" onClose={() => setSheet(null)}><StaffDosier dosier={dosier} /></AppScreen>}
       {staff && <AppScreen open={sheet === 'staff'} title="Staff" onClose={() => setSheet(null)}><StaffAccount staff={staff} /></AppScreen>}
       <AppScreen open={sheet === 'soltero'} title="Acceso Soltero" onClose={() => setSheet(null)}><SolteroAccess /></AppScreen>
       {ambassador && <AppScreen open={sheet === 'embajador'} title="Embajador" onClose={() => setSheet(null)}><AmbassadorAccount panel={ambassador} /></AppScreen>}

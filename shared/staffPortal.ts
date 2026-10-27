@@ -46,6 +46,13 @@ export function staffToolsForRole(role: string | null | undefined): StaffTool[] 
   return out;
 }
 
+/** ¿Esta persona del equipo trabaja en la barra (o coordina)? Ve el dosier de preparaciones en su app: la gente de
+ * barra y caja, y quien coordina (supervisor, producción, administración). */
+export function puedeVerDosier(cargo: string | null | undefined, role: string | null | undefined): boolean {
+  if (cargo === 'caja' || cargo === 'barra' || cargo === 'supervisor') return true;
+  return staffToolsForRole(role).some((t) => t.key === 'caja');
+}
+
 /** Une las herramientas del rol (Finanzas → Equipo) con los sistemas en que la persona es operador del
  * evento activo (Admin → Operadores, `staffSystemsFor`). Cuando hay operador, el link lleva su id para
  * que el login de PIN abra con el nombre ya elegido (client/src/lib/staffLink.ts); `desde=app` muestra

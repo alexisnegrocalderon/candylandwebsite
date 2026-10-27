@@ -41,6 +41,7 @@ import { scanReceiptImage } from "./receiptScan";
 import * as comprasSvc from "./compras";
 import { firmarDosier, dosierPath, DOSIER_TTL_ADMIN, DOSIER_TTL_CAJA } from "./dosierLink";
 import { dosierFichas } from "./dosierData";
+import { puedeVerDosier } from "../shared/staffPortal";
 import { generateCostumeIdeas, fallbackResult as fallbackCostumeResult } from "./costumeOracle";
 import { ORACLE_VIBES, ORACLE_COMPANY, ORACLE_LEVELS, ORACLE_SKIN, ORACLE_ITEMS, ORACLE_EXTRA_MAX } from "../shared/costumeOracle";
 import * as applications from "./ambassadorApplications";
@@ -4698,6 +4699,20 @@ export const appRouter = router({
       const staff = await staffPortal.findStaffByEmail(email);
       if (!staff || !(await manualSchemaStatus()).ready) return null;
       return staffManualSvc.manualForStaff(staff);
+    }),
+    // Dosier de barra para la app del staff (y del administrador): las fichas de preparación del evento de su turno,
+    // solo para quien trabaja en barra/caja o coordina. Sin precios ni costos.
+    staffDosier: publicProcedure.query(async ({ ctx }) => {
+      const email = getMemberEmail(ctx.req);
+      if (!email) return null;
+      await staffPortal.ensureAdminStaffAccess(email);
+      const staff = await staffPortal.findStaffByEmail(email);
+      if (!staff || !puedeVerDosier(staff.cargo, staff.role)) return null;
+      const eventId = await staffPortal.staffDosierEventId(staff.id);
+      if (!eventId) return null;
+      const data = await dosierFichas(eventId).catch(() => null);
+      if (!data) return null;
+      return { eventId, data, pdfPath: dosierPath(firmarDosier(eventId, 24 * 3600 * 1000).token) };
     }),
     staffManualAccept: publicProcedure.mutation(async ({ ctx }) => {
       const email = getMemberEmail(ctx.req);

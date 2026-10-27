@@ -16,6 +16,7 @@ import { NO_PIN, setStaffPinHash } from './staff';
 import { isAdminEmail } from './adminEmail';
 import { cargoDef, cargoTitle, operatorRoleForCargo, pinProblem } from '../shared/staffCargos';
 import { staffSystemsFor } from '../shared/cajaRoles';
+import { puedeVerDosier } from '../shared/staffPortal';
 import { buildStaffShiftEmail, buildStaffWelcomeEmail, sendEmail } from './email';
 import { formatChileDate } from '../shared/chileDate';
 import { pushToEmail } from './customerPush';
@@ -295,6 +296,18 @@ async function operatorSystems(staffId: number, email: string) {
   } catch {
     return [];
   }
+}
+
+/** El evento cuyo dosier ve el staff: el de su próximo turno o, si no tiene, el de la noche activa. */
+export async function staffDosierEventId(staffId: number, now: Date = new Date()): Promise<number | null> {
+  const db = await need();
+  const rows = await db.select({ eventId: events.id, eventDate: events.eventDate }).from(staffShifts).innerJoin(events, eq(events.id, staffShifts.eventId))
+    .where(eq(staffShifts.staffId, staffId)).orderBy(desc(events.eventDate)).limit(20);
+  const cutoff = now.getTime() - 12 * 3_600_000;
+  const next = rows.filter((r) => r.eventDate && new Date(r.eventDate).getTime() >= cutoff)
+    .sort((a, b) => new Date(a.eventDate as any).getTime() - new Date(b.eventDate as any).getTime())[0];
+  if (next) return next.eventId;
+  return (await getActiveEventForCaja())?.id ?? null;
 }
 
 export async function getStaffPortal(email: string, now: Date = new Date()) {
