@@ -58,9 +58,10 @@ export function armarFichas(eventTitle: string, productos: Producto[], insumos: 
     if (p.glass === 'botella') { talCual.push({ name: p.name, section }); continue; }
     const g = glassInfo(p.glass);
     const reemplazadas = new Set(p.opciones.map((o) => o.reemplaza).filter((x): x is number => x != null));
-    const lineas = p.receta.filter((r) => !reemplazadas.has(r.insumoId)).map((r) => {
-      const i = insumo.get(r.insumoId);
-      return { insumoId: r.insumoId, name: i?.name ?? 'Insumo', unit: (i?.unit ?? 'ml') as InsumoUnit, amount: r.amount, texto: texto(r.amount, i?.unit ?? 'ml') };
+    // Sin insumos archivados o borrados: no se pueden nombrar y no son parte de lo que se sirve.
+    const lineas = p.receta.filter((r) => !reemplazadas.has(r.insumoId) && insumo.has(r.insumoId)).map((r) => {
+      const i = insumo.get(r.insumoId)!;
+      return { insumoId: r.insumoId, name: i.name, unit: i.unit as InsumoUnit, amount: r.amount, texto: texto(r.amount, i.unit) };
     });
     const pasos = p.pasos.length ? p.pasos : pasosSugeridos({ glass: p.glass, lineas, extras: p.extras, opciones: p.opciones });
     const base = {

@@ -35,6 +35,10 @@ describe('fichas del dosier', () => {
     expect(bordeDeFicha(f)).toBe('Borde de Tajín');
     expect(hieloDeFicha(f)).toBe('cubos');
   });
+  it('una línea de un insumo archivado no sale en la ficha', () => {
+    const f = armarFichas('F', [{ ...productos[0], receta: [{ insumoId: 1, amount: 90 }, { insumoId: 999, amount: 250 }] }], insumos).fichas[0];
+    expect(f.lineas.map((l) => l.name)).toEqual(['Pisco Mistral 35']);
+  });
   it('el hash cambia cuando cambia la receta y no si no', () => {
     const a = armarFichas('F', productos, insumos).fichas[0].hash;
     expect(armarFichas('F', productos, insumos).fichas[0].hash).toBe(a);

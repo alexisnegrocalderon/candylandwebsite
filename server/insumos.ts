@@ -106,6 +106,7 @@ export async function estadoBarra(eventId: number) {
     db.select().from(ticketTypes).where(and(eq(ticketTypes.eventId, eventId), inArray(ticketTypes.category, ["consumo", "merch"]))),
   ]);
   const reference = await referenciaApertura(db, eventId, stock);
+  const activos = new Set(all.map((i) => i.id));
   const usedBy = new Map<number, string[]>();
   for (const r of recetas) {
     const name = (products as any[]).find((p) => p.id === r.ticketTypeId)?.name;
@@ -125,7 +126,9 @@ export async function estadoBarra(eventId: number) {
     productos: (products as any[]).map((p) => {
       // Cada trago viene en su vaso (vaso, copa o shot) y tiene una sola receta.
       const { glass, lines } = recetaDe(recetas, p.id);
-      const receta = lines.map((r) => ({ insumoId: r.insumoId, amount: r.amount }));
+      // Una línea cuyo insumo se archivó ya no existe para la barra: no se muestra, no cuenta para «quedan» y se borra
+      // sola al guardar la receta.
+      const receta = lines.filter((r) => activos.has(r.insumoId)).map((r) => ({ insumoId: r.insumoId, amount: r.amount }));
       const opciones = opcionesDeMetadata(p.metadata);
       // «Quedan ~N» no cuenta lo que las opciones reemplazan (la bebida de mezcla genérica): la bebida la elige la cajera.
       const left = tragosDisponibles(receta.filter((l) => !opciones.some((g) => g.reemplaza === l.insumoId)), stock);
@@ -163,7 +166,8 @@ export async function cajaInsumoSnapshot(eventId: number): Promise<{
     const opciones: Record<number, OpcionGrupo[]> = {};
     for (const t of tipos as any[]) { const g = opcionesDeMetadata(t.metadata); if (g.length) opciones[t.id] = g; }
     // Lo que una opción reemplaza no entra al «quedan ~N» de la caja (la bebida la elige la cajera).
-    const recetas = todas.filter((r) => !opciones[r.ticketTypeId]?.some((g) => g.reemplaza === r.insumoId));
+    const activos = new Set(all.map((i) => i.id));
+    const recetas = todas.filter((r) => activos.has(r.insumoId) && !opciones[r.ticketTypeId]?.some((g) => g.reemplaza === r.insumoId));
     return {
       insumos: all.map((i) => ({
         id: i.id, name: i.name, unit: i.unit, containerSize: i.containerSize, containerLabel: i.containerLabel, stock: stock.get(i.id) ?? 0, alertDrinks: i.alertDrinks,
@@ -381,7 +385,9 @@ export async function descontarVenta(db: any, params: { opId: string; eventId: n
     if (!(await ready()) || (await isTestEvent(db, params.eventId))) return;
     const ids = params.items.map((i) => i.ticketTypeId);
     const rows = await db.select().from(insumoRecetas).where(inArray(insumoRecetas.ticketTypeId, ids));
-    const recetas: RecetaLinea[] = rows.map((r: any) => ({ ticketTypeId: r.ticketTypeId, insumoId: r.insumoId, amount: n(r.amount), glass: (r.glass as string) || DEFAULT_GLASS }));
+    // Los insumos archivados ya no se descuentan (siguen en la base, pero no cuentan para la barra).
+    const activos = new Set((await listInsumos()).map((i) => i.id));
+    const recetas: RecetaLinea[] = rows.filter((r: any) => activos.has(r.insumoId)).map((r: any) => ({ ticketTypeId: r.ticketTypeId, insumoId: r.insumoId, amount: n(r.amount), glass: (r.glass as string) || DEFAULT_GLASS }));
     const tipos = await db.select({ id: ticketTypes.id, metadata: ticketTypes.metadata }).from(ticketTypes).where(inArray(ticketTypes.id, ids));
     const opciones: Record<number, OpcionGrupo[]> = {};
     for (const t of tipos) { const g = opcionesDeMetadata(t.metadata); if (g.length) opciones[t.id] = g; }
