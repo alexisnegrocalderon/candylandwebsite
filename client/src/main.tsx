@@ -1,3 +1,4 @@
+import { reloadForNewVersion } from "./lib/staleChunk";
 import { trpc } from "@/lib/trpc";
 import { COOKIE_NAME, UNAUTHED_ERR_MSG } from '@shared/const';
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -34,6 +35,12 @@ if (analyticsEndpoint && analyticsWebsiteId) {
   script.dataset.websiteId = analyticsWebsiteId;
   document.body.appendChild(script);
 }
+
+// Un archivo con hash de una versión anterior ya no existe (se publicó mientras la página estaba abierta): vite avisa y
+// se recarga sola una vez para bajar la nueva, en vez de dejar «Importing a module script failed» en pantalla.
+window.addEventListener('vite:preloadError', (event) => {
+  if (reloadForNewVersion()) event.preventDefault();
+});
 
 // Adelanta la descarga del chunk de Home apenas arranca el script, en
 // paralelo con el resto del entry -- si no, el navegador recién descubre que
