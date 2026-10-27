@@ -50,7 +50,7 @@ export type ParkingOrigin = 'online' | 'puerta' | 'staff';
  *   que en la práctica casi siempre es compra web). */
 export function classifyParkingOrigin(row: { orderPaymentMethod: string; orderPaymentId: string | null }): ParkingOrigin {
   if (row.orderPaymentId?.startsWith('PUERTA-PARKING-')) return 'puerta';
-  if (row.orderPaymentMethod === 'Manual: Invitación') return 'staff';
+  if (row.orderPaymentMethod === 'Manual: Invitación' || row.orderPaymentMethod === 'Manual: Staff') return 'staff';
   return 'online';
 }
 

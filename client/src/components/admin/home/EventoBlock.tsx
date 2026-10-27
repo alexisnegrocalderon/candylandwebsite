@@ -29,7 +29,7 @@ export function EventoBlock({ data, loading, onOpen, onClose }: { data: EventoDa
         {!pulse && !caja ? <Unavailable /> : (
           <div className="space-y-4">
             {caja && (
-              <ProgressRow label="Gente adentro" right={`${inside} de ${expected}`} pct={insidePct} onClick={() => onOpen('overview')} />
+              <ProgressRow label="Gente adentro" right={`${inside} de ${expected}${caja.staffInside ? ` · ${caja.staffInside} staff` : ''}`} pct={insidePct} onClick={() => onOpen('overview')} />
             )}
             {pulse && (
               <div className="grid grid-cols-3 gap-3">

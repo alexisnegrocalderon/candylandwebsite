@@ -2357,6 +2357,7 @@ function CajaDashboard({ eventId }: { eventId: number }) {
             {data.insideCount}
             <span className="text-base font-normal text-white/60"> / {data.expectedCount}</span>
           </p>
+          {(data as any).staffInside > 0 && <p className="text-xs text-white/60">Incluye {(data as any).staffInside} del staff</p>}
           <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/10" aria-hidden="true">
             <div className="h-full rounded-full bg-primary" style={{ width: `${occupancy * 100}%` }} />
           </div>

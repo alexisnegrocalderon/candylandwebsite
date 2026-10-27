@@ -39,6 +39,7 @@ import { monthKeyFor } from "../shared/ambassadorProgram";
 import { checkAndAdvanceTandaIfNeeded } from "./tandaAutoAdvance";
 import { scanReceiptImage } from "./receiptScan";
 import * as comprasSvc from "./compras";
+import * as staffEntrySvc from "./staffEntry";
 import { firmarDosier, dosierPath, DOSIER_TTL_ADMIN, DOSIER_TTL_CAJA } from "./dosierLink";
 import { dosierFichas } from "./dosierData";
 import { puedeVerDosier } from "../shared/staffPortal";
@@ -1962,6 +1963,41 @@ export const appRouter = router({
       } catch (err) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo crear la invitación de consumo.' });
       }
+    }),
+    // Regalos a staff y anfitriones por correo (pedido del dueño): covers, entradas, estacionamiento y tragos de cortesía.
+    // Lo de acceso/extra va como invitación gratis (le llega el correo con QR); los tragos de la carta se crean con su
+    // código canjeable en la barra. A cada persona le llega un aviso al celular y todo aparece en su app al instante.
+    giftToStaff: adminProcedure.input(z.object({
+      eventId: z.number(),
+      emails: z.array(z.string().email()).min(1).max(40),
+      items: z.array(z.object({ ticketTypeId: z.number(), quantity: z.number().int().min(1).max(20) })).min(1).max(12),
+    })).mutation(async ({ input }) => {
+      const event = await db.getEventById(input.eventId);
+      if (!event) throw new TRPCError({ code: 'NOT_FOUND', message: 'Evento no encontrado' });
+      const types = await db.getTicketTypesByEventId(event.id);
+      const byId = new Map<number, any>((types as any[]).map((t) => [t.id, t]));
+      for (const it of input.items) if (!byId.has(it.ticketTypeId)) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Un producto ya no existe en este evento' });
+      const toOrder = input.items.filter((it) => ['acceso', 'extra'].includes(byId.get(it.ticketTypeId).category));
+      const comps = input.items.filter((it) => !['acceso', 'extra'].includes(byId.get(it.ticketTypeId).category));
+      const resumen = input.items.map((it) => `${it.quantity > 1 ? `${it.quantity} × ` : ''}${byId.get(it.ticketTypeId).name}`).join(', ');
+      const results: { email: string; ok: boolean; error?: string }[] = [];
+      for (const raw of input.emails) {
+        const email = raw.trim().toLowerCase();
+        try {
+          const staff = await staffPortal.findStaffByEmail(email);
+          const name = staff?.name ?? email.split('@')[0];
+          if (toOrder.length > 0) {
+            const r = await db.createManualOrder({ eventSlug: event.slug, buyerName: name, buyerEmail: email, items: toOrder, kind: 'invitation' });
+            await confirmFreeOrder(r.orderNumber);
+          }
+          for (const c of comps) await db.createStaffComp({ eventSlug: event.slug, ticketTypeId: c.ticketTypeId, quantity: c.quantity, staffName: name, buyerEmail: email });
+          void customerPush.pushToEmail(email, { title: '🎁 ¡Te regalaron algo!', body: `${resumen}. Míralo en tu app, en «Mis entradas».`, url: '/cuenta' });
+          results.push({ email, ok: true });
+        } catch (e) {
+          results.push({ email, ok: false, error: e instanceof Error ? e.message : 'No se pudo regalar' });
+        }
+      }
+      return { results, resumen };
     }),
     listStaffComps: adminReadProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
       return db.listStaffComps(input.eventId);
@@ -4699,6 +4735,27 @@ export const appRouter = router({
       const staff = await staffPortal.findStaffByEmail(email);
       if (!staff || !(await manualSchemaStatus()).ready) return null;
       return staffManualSvc.manualForStaff(staff);
+    }),
+    // «Llegué» desde la app del staff y del administrador (server/staffEntry.ts): la entrada oficial «Staff» queda usada,
+    // se cuenta en la fiesta, se abre Playmatch y, si vino en auto, se le da el estacionamiento sin cobro.
+    staffArrival: publicProcedure.query(async ({ ctx }) => {
+      const email = getMemberEmail(ctx.req);
+      if (!email) return null;
+      await staffPortal.ensureAdminStaffAccess(email);
+      return staffEntrySvc.staffArrivalState(email);
+    }),
+    staffCheckIn: publicProcedure.input(z.object({ enAuto: z.boolean() })).mutation(async ({ input, ctx }) => {
+      const email = getMemberEmail(ctx.req);
+      if (!email) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Entra a tu cuenta primero.' });
+      await staffPortal.ensureAdminStaffAccess(email);
+      try { return await staffEntrySvc.staffCheckIn(email, input.enAuto); }
+      catch (e) { throw new TRPCError({ code: 'BAD_REQUEST', message: e instanceof Error ? e.message : 'No se pudo marcar la llegada.' }); }
+    }),
+    staffUndoCheckIn: publicProcedure.mutation(async ({ ctx }) => {
+      const email = getMemberEmail(ctx.req);
+      if (!email) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Entra a tu cuenta primero.' });
+      try { return await staffEntrySvc.staffUndoCheckIn(email); }
+      catch (e) { throw new TRPCError({ code: 'BAD_REQUEST', message: e instanceof Error ? e.message : 'No se pudo deshacer.' }); }
     }),
     // Dosier de barra para la app del staff (y del administrador): las fichas de preparación del evento de su turno,
     // solo para quien trabaja en barra/caja o coordina. Sin precios ni costos.

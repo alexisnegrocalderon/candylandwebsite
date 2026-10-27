@@ -76,7 +76,7 @@ export async function getHomeEvento(eventId: number) {
   return {
     eventId, live,
     pulse: pulse ? { totals: pulse.totals, pace: pulse.pace, lastSaleAt: pulse.lastSaleAt, isLive: pulse.isLive, alerts: pulse.alerts } : null,
-    caja: caja ? { totalSales: caja.totalSales, salesCount: caja.salesCount, insideCount: caja.insideCount, expectedCount: caja.expectedCount, redeemedCount: caja.redeemedCount, topProducts: caja.topProducts, salesByHour: caja.salesByHour } : null,
+    caja: caja ? { totalSales: caja.totalSales, salesCount: caja.salesCount, insideCount: caja.insideCount, staffInside: caja.staffInside, expectedCount: caja.expectedCount, redeemedCount: caja.redeemedCount, topProducts: caja.topProducts, salesByHour: caja.salesByHour } : null,
     tickets, parking, manual, shifts, cajaAlerts: alerts,
   };
 }

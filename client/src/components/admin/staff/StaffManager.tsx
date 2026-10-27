@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { CalendarPlus, KeyRound, Link2, Mail, Pencil, Trash2, UserPlus, Users } from 'lucide-react';
+import { CalendarPlus, Gift, KeyRound, Link2, Mail, Pencil, Trash2, UserPlus, Users } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { useIsDemo, DEMO_TOOLTIP } from '@/lib/demoMode';
 import { Input } from '@/components/ui/input';
@@ -13,6 +13,7 @@ import { STAFF_CARGOS, cargoDef, cargoTitle, type StaffCargo } from '@shared/sta
 import { OPERATOR_ROLE_LABELS } from '@shared/cajaRoles';
 import { ACCEPT_STATUS_LABEL, type AcceptStatus } from '@shared/staffManuals';
 import { ManualsEditor } from './ManualsEditor';
+import { GiftDialog } from './GiftDialog';
 
 /* La ficha única del staff (Admin → Noche → Staff): una persona, un cargo y su
  * correo. Con el correo le llega la invitación a su app, donde crea su propio
@@ -202,6 +203,8 @@ export function StaffManager() {
   const { data: overview } = trpc.finance.manualsOverview.useQuery(undefined, { retry: false });
   const manualOf = (id: number) => (overview ?? []).find((o: any) => o.staffId === id)?.status as AcceptStatus | undefined;
   const [assigning, setAssigning] = useState<number | null>(null);
+  // Regalar covers, estacionamiento y tragos al equipo: la lista de quiénes parte con la persona que se tocó.
+  const [gifting, setGifting] = useState<number[] | null>(null);
   const [filter, setFilter] = useState<StaffCargo | 'todos'>('todos');
   const [showArchived, setShowArchived] = useState(false);
   const invite = trpc.finance.staffInvite.useMutation({ onSuccess: () => toast.success('Invitación enviada'), onError: onErr });
@@ -231,6 +234,9 @@ export function StaffManager() {
       <CardHeader className="space-y-1">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle className="flex items-center gap-2"><Users className="h-5 w-5" /> Staff</CardTitle>
+          <button type="button" disabled={isDemo} onClick={() => setGifting([])} className={`${pill} ${pillOff} flex items-center gap-1.5`} title="Covers, entradas, estacionamiento y tragos de cortesía para el equipo y los anfitriones">
+            <Gift className="h-4 w-4" /> Regalar
+          </button>
           {editing !== 'new' && (
             <button type="button" disabled={isDemo || !schemaReady} title={isDemo ? DEMO_TOOLTIP : !schemaReady ? 'Primero actualiza la base de datos (aviso de arriba)' : undefined} onClick={() => setEditing('new')} className={`${pill} ${pillOn} flex items-center gap-1.5 px-5 py-2`}>
               <UserPlus className="h-4 w-4" /> Agregar staff
@@ -282,6 +288,11 @@ export function StaffManager() {
                   <CalendarPlus className="h-3.5 w-3.5" /> Asignar
                 </button>
               )}
+              {m.email && m.active && (
+                <button type="button" disabled={isDemo} onClick={() => setGifting([m.id])} className={`${pill} ${pillOff} flex items-center gap-1`} title={`Regalarle algo a ${m.name}`}>
+                  <Gift className="h-3.5 w-3.5" /> Regalar
+                </button>
+              )}
               {m.sales?.link && m.active && (
                 <button type="button" className={`${pill} ${pillOff} flex items-center gap-1`} title={`Su código es ${m.sales.code}. Las compras con este link quedan a su nombre.`}
                   onClick={() => { void navigator.clipboard.writeText(m.sales!.link!).then(() => toast.success(`Link de ${m.name} copiado`)).catch(() => toast.error('No se pudo copiar')); }}>
@@ -310,6 +321,7 @@ export function StaffManager() {
         </div>
 
         <UnlinkedOperators team={all} />
+        <GiftDialog open={gifting !== null} onClose={() => setGifting(null)} team={all} initialIds={gifting ?? []} />
         </>}
       </CardContent>
     </Card>

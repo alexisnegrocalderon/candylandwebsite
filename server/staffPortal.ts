@@ -283,6 +283,16 @@ export async function recordStaffArrival(eventId: number, code: string) {
   return { ok: true as const, name: row.name, role: row.role, alreadyArrivedAt: before };
 }
 
+/** La llegada de una persona anotada desde su propia app (o quitada con «Deshacer»). Devuelve la hora guardada. */
+export async function setStaffArrival(eventId: number, staffId: number, arrivedAt: Date | null): Promise<string | null> {
+  const info = await getEventStaffInfo(eventId);
+  const arrivals = { ...info.arrivals };
+  const key = String(staffId);
+  if (arrivedAt) arrivals[key] = arrivals[key] ?? arrivedAt.toISOString(); else delete arrivals[key];
+  await writeRow(eventId, { ...info, arrivals });
+  return arrivals[key] ?? null;
+}
+
 /* --- Lo que ve la persona en su app --------------------------------------- */
 
 /** Los sistemas en que esta persona tiene acceso en el evento activo (Caja → Accesos). Sin evento o

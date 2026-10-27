@@ -9,6 +9,7 @@ import type { AppRouter } from '../../../../server/routers';
 import { formatChileDate, formatChileTime } from '@shared/chileDate';
 import { dialable } from '@shared/staffPortal';
 import { useAmbassadorPanel } from './AmbassadorAccount';
+import { StaffArrival } from './StaffArrival';
 
 /* La versión de la app para el staff: quien entra a «Mi cuenta» con el correo
  * que se cargó en Admin → Noche → Staff ve su credencial con QR (la puerta la
@@ -217,6 +218,8 @@ export function StaffAccount({ staff }: { staff: StaffPortal }) {
           )}
         </div>
       </div>
+
+      <StaffArrival />
 
       <StaffManualCard />
 

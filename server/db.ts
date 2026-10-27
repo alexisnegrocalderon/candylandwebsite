@@ -2192,8 +2192,10 @@ export async function createInstantInvite({ eventSlug, personas }: { eventSlug: 
  * funciona hoy con los extras comprados por la web. No se valida stock
  * (mismo criterio "nunca bloquear la venta" ya aplicado en la Carta de la
  * Fiesta, PR Y1). */
-export async function createStaffComp({ eventSlug, ticketTypeId, quantity, staffName }: {
+export async function createStaffComp({ eventSlug, ticketTypeId, quantity, staffName, buyerEmail }: {
   eventSlug: string; ticketTypeId: number; quantity: number; staffName: string;
+  /** Con el correo real de la persona, el consumo aparece en SU app (Mis entradas) con su código. */
+  buyerEmail?: string;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -2209,7 +2211,8 @@ export async function createStaffComp({ eventSlug, ticketTypeId, quantity, staff
   const [orderResult] = await db.insert(orders).values({
     orderNumber,
     buyerName: staffName,
-    buyerEmail: ADMIN_PLACEHOLDER_EMAIL,
+    buyerEmail: buyerEmail ? buyerEmail.trim().toLowerCase() : ADMIN_PLACEHOLDER_EMAIL,
+    customerId: buyerEmail ? await ensureCustomerIdForEmail(buyerEmail, staffName) : undefined,
     eventId: event.id,
     subtotal: '0',
     discount: '0',
@@ -3678,18 +3681,20 @@ export async function getCajaDashboard(eventId: number) {
   // Aforo en PERSONAS, no en entradas: un Duo son 2 personas y un Grupo 4.
   // Contar tickets daria un numero muy por debajo del real, y este numero
   // existe justamente para saber cuanta gente hay dentro del recinto.
-  const accesoTickets = await db.select({ accesoSlug: ticketTypes.accesoSlug, status: tickets.status, groupSize: tickets.groupSize })
+  const accesoTickets = await db.select({ accesoSlug: ticketTypes.accesoSlug, status: tickets.status, groupSize: tickets.groupSize, typeName: ticketTypes.name })
     .from(tickets)
     .innerJoin(ticketTypes, eq(ticketTypes.id, tickets.ticketTypeId))
     .where(and(eq(tickets.eventId, eventId), eq(ticketTypes.category, 'acceso')));
 
   let insideCount = 0;
   let expectedCount = 0;
+  // El staff (entrada oficial «Staff») cuenta en la fiesta igual que todos; acá se separa para mostrarlo aparte.
+  let staffInside = 0;
   for (const t of accesoTickets) {
     if (t.status === 'cancelled') continue;
     const personas = personasForTicket(t.groupSize, t.accesoSlug);
     expectedCount += personas;
-    if (t.status === 'used') insideCount += personas;
+    if (t.status === 'used') { insideCount += personas; if (t.typeName === 'Staff') staffInside += personas; }
   }
 
   // Abonos de Misión 300 ya aprobados cuyo ticket todavía no existe -- son
@@ -3721,6 +3726,7 @@ export async function getCajaDashboard(eventId: number) {
     salesCount: cajaOrders.length,
     redeemedCount,
     insideCount,
+    staffInside,
     expectedCount,
     topProducts,
     recentSales,
