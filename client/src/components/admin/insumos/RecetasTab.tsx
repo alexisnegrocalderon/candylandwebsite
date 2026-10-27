@@ -5,7 +5,7 @@ import { formatPorcion, glassInfo, mlDeReceta } from '@shared/insumos';
 import { RecetaDialog } from './RecetaDialog';
 import type { BarraData, BarraProducto } from './types';
 
-type Filtro = 'todos' | 'sin' | 'con';
+type Filtro = 'todos' | 'sin' | 'con' | 'solos' | 'ocultos';
 
 /** Los tragos de la carta como tarjetas: vaso, ingredientes con su porción y si ya tienen receta. Tocar uno abre
  * la ventana grande para armarla. */
@@ -16,14 +16,20 @@ export function RecetasTab({ data, onChanged }: { data: BarraData; onChanged: ()
   const [search, setSearch] = useState('');
   const insumoById = useMemo(() => new Map(data.insumos.map((i) => [i.id, i])), [data.insumos]);
 
-  const sin = data.productos.filter((p) => p.receta.length === 0).length;
+  // Los que se venden solos (cigarros, merch, comida…) y los ocultos no piden receta.
+  const activos = data.productos.filter((p) => !p.oculto);
+  const tragos = activos.filter((p) => !p.sinInsumos);
+  const solos = activos.filter((p) => p.sinInsumos).length;
+  const ocultos = data.productos.length - activos.length;
+  const sin = tragos.filter((p) => p.receta.length === 0).length;
   const sections = useMemo(() => Array.from(new Set(data.productos.map((p) => p.groupName || 'Sin sección'))), [data.productos]);
   const q = search.trim().toLowerCase();
   const list = useMemo(() => data.productos
-    .filter((p) => (filtro === 'todos' || (filtro === 'sin' ? p.receta.length === 0 : p.receta.length > 0))
+    .filter((p) => (filtro === 'ocultos' ? p.oculto : !p.oculto)
+      && (filtro === 'solos' ? p.sinInsumos : filtro === 'todos' || (!p.sinInsumos && (filtro === 'sin' ? p.receta.length === 0 : p.receta.length > 0)))
       && (section === 'todas' || (p.groupName || 'Sin sección') === section)
       && (!q || p.name.toLowerCase().includes(q)))
-    .sort((a, b) => Number(b.receta.length === 0) - Number(a.receta.length === 0) || a.name.localeCompare(b.name)), [data.productos, filtro, section, q]);
+    .sort((a, b) => Number(!b.sinInsumos && b.receta.length === 0) - Number(!a.sinInsumos && a.receta.length === 0) || a.name.localeCompare(b.name)), [data.productos, filtro, section, q]);
   const editingProducto: BarraProducto | null = data.productos.find((p) => p.id === editing) ?? null;
 
   if (data.productos.length === 0) {
@@ -42,9 +48,11 @@ export function RecetasTab({ data, onChanged }: { data: BarraData; onChanged: ()
         <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar un trago…" className="pl-9" />
       </div>
       <div className="flex gap-1.5 overflow-x-auto pb-1 [scrollbar-width:none]">
-        <button type="button" onClick={() => setFiltro('todos')} className={chip(filtro === 'todos')}>Todos {data.productos.length}</button>
+        <button type="button" onClick={() => setFiltro('todos')} className={chip(filtro === 'todos')}>Todos {activos.length}</button>
         <button type="button" onClick={() => setFiltro('sin')} className={chip(filtro === 'sin')}>Sin receta {sin}</button>
-        <button type="button" onClick={() => setFiltro('con')} className={chip(filtro === 'con')}>Con receta {data.productos.length - sin}</button>
+        <button type="button" onClick={() => setFiltro('con')} className={chip(filtro === 'con')}>Con receta {tragos.length - sin}</button>
+        <button type="button" onClick={() => setFiltro('solos')} className={chip(filtro === 'solos')}>Se venden solos {solos}</button>
+        {ocultos > 0 && <button type="button" onClick={() => setFiltro('ocultos')} className={chip(filtro === 'ocultos')}>Quitados {ocultos}</button>}
         {sections.length > 1 && <span className="mx-1 self-center text-muted-foreground">|</span>}
         {sections.length > 1 && ['todas', ...sections].map((s) => (
           <button key={s} type="button" onClick={() => setSection(s)} className={chip(section === s)}>{s === 'todas' ? 'Todas las secciones' : s}</button>
@@ -59,7 +67,7 @@ export function RecetasTab({ data, onChanged }: { data: BarraData; onChanged: ()
           return (
             <li key={p.id}>
               <button type="button" onClick={() => setEditing(p.id)}
-                className={`flex h-full w-full flex-col gap-2 rounded-2xl border-2 p-3 text-left transition active:scale-[0.98] ${p.receta.length === 0 ? 'border-dashed border-amber-500/50 bg-amber-500/5' : 'border-border bg-card/60 hover:bg-muted/60'}`}>
+                className={`flex h-full w-full flex-col gap-2 rounded-2xl border-2 p-3 text-left transition active:scale-[0.98] ${p.oculto ? 'border-border bg-card/30 opacity-60' : p.sinInsumos ? 'border-border bg-card/40' : p.receta.length === 0 ? 'border-dashed border-amber-500/50 bg-amber-500/5' : 'border-border bg-card/60 hover:bg-muted/60'}`}>
                 <span className="flex items-center gap-2">
                   <span className="text-3xl leading-none">{p.emoji || '🍸'}</span>
                   <span className="min-w-0 flex-1">
@@ -69,7 +77,9 @@ export function RecetasTab({ data, onChanged }: { data: BarraData; onChanged: ()
                   {p.drinks !== null && <span className="shrink-0 text-right text-sm tabular-nums"><span className="block font-semibold">~{p.drinks}</span><span className="block text-[11px] text-muted-foreground">quedan</span></span>}
                 </span>
 
-                {p.receta.length === 0
+                {p.sinInsumos
+                  ? <span className="rounded-xl bg-muted px-3 py-2 text-sm text-muted-foreground">{p.oculto ? 'Quitado de la carta' : 'Se vende solo · sin insumos'}</span>
+                  : p.receta.length === 0
                   ? <span className="rounded-xl bg-amber-500/15 px-3 py-2 text-sm font-medium text-amber-800 dark:text-amber-300">Sin receta · toca para armarla</span>
                   : (
                     <>
@@ -98,7 +108,7 @@ export function RecetasTab({ data, onChanged }: { data: BarraData; onChanged: ()
         {list.length === 0 && <li className="col-span-full text-sm text-muted-foreground">Ningún trago con ese filtro.</li>}
       </ul>
 
-      <RecetaDialog producto={editingProducto} data={data} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); onChanged(); }} />
+      <RecetaDialog producto={editingProducto} data={data} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); onChanged(); }} onChanged={onChanged} />
     </div>
   );
 }

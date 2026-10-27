@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  productoSinInsumos, metadataConSinInsumos,
   consumoDeVenta, conteoATotal, descuadre, descuadreAlerts, formatCantidad, insumoRitmoAlerts, insumoStockAlerts,
   listaComprasTexto, nivelInsumo, proyeccionCompra, stockActual, tragosDisponibles, tragosPorInsumo, type Insumo, type RecetaLinea,
 } from './insumos';
@@ -447,5 +448,19 @@ describe('extras sin medida (Tajín, hielo…)', () => {
     expect(conHielo(['Borde de Tajín'], 'Hielo frappé')).toEqual(['Hielo frappé', 'Borde de Tajín']);
     expect(conHielo(['Hielo frappé', 'Borde de Tajín'], 'Hielo en cubos')).toEqual(['Hielo en cubos', 'Borde de Tajín']);
     expect(conHielo(['Hielo en cubos', 'Borde de Tajín'], null)).toEqual(['Borde de Tajín']);
+  });
+});
+
+describe('productoSinInsumos', () => {
+  it('merch y secciones que se venden solas no llevan insumos', () => {
+    expect(productoSinInsumos('merch', null, null)).toBe(true);
+    expect(productoSinInsumos('consumo', 'Cigarros', null)).toBe(true);
+    expect(productoSinInsumos('consumo', 'Premios Cumpleañerxs', null)).toBe(true);
+    expect(productoSinInsumos('consumo', 'Gin', null)).toBe(false);
+  });
+  it('lo marcado a mano manda sobre la deducción', () => {
+    expect(productoSinInsumos('consumo', 'Gin', { sinInsumos: true })).toBe(true);
+    expect(productoSinInsumos('merch', 'Merch', '{"sinInsumos":false}')).toBe(false);
+    expect(metadataConSinInsumos({ extras: ['x'] }, true)).toEqual({ extras: ['x'], sinInsumos: true });
   });
 });

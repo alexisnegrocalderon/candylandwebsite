@@ -37,7 +37,7 @@ export function StockTab({ eventId, data, onEdit, onChanged }: {
     total: data.insumos.length,
     agotados: data.insumos.filter((i) => i.level === 'agotado').length,
     bajos: data.insumos.filter((i) => i.level === 'bajo').length,
-    sinReceta: data.productos.filter((p) => p.receta.length === 0).length,
+    sinReceta: data.productos.filter((p) => p.receta.length === 0 && !p.sinInsumos && !p.oculto).length,
   };
   const sorted = [...data.insumos].sort((a, b) => {
     const rank = { agotado: 0, bajo: 1, ok: 2, sin_uso: 3 } as const;

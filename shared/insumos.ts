@@ -161,6 +161,35 @@ export function metadataConExtras(metadata: unknown, extras: string[]): Record<s
   return Object.keys(base).length ? base : null;
 }
 
+/** Para qué sirve un producto de la carta: los que no son tragos (cigarros, merch, comida…) no llevan insumos. */
+export const TIPOS_PRODUCTO = [
+  { id: 'trago', label: 'Trago o bebida', emoji: '🍹', seccion: null, help: 'Lleva insumos: arma su receta.' },
+  { id: 'comida', label: 'Comida', emoji: '🍕', seccion: 'Comida', help: 'Se vende sola, sin insumos de barra.' },
+  { id: 'cigarros', label: 'Cigarros', emoji: '🚬', seccion: 'Cigarros', help: 'Se vende solo, sin insumos de barra.' },
+  { id: 'merch', label: 'Merch', emoji: '🎁', seccion: 'Merch', help: 'Recuerdos y accesorios: sin insumos.' },
+  { id: 'otro', label: 'Otro', emoji: '📦', seccion: null, help: 'Cualquier otra cosa que se vende sola.' },
+] as const;
+export type TipoProducto = (typeof TIPOS_PRODUCTO)[number]['id'];
+
+/** ¿Este producto se vende solo (sin receta ni insumos)? Lo marcado a mano manda; si no, se deduce de la categoría y la sección. */
+export function productoSinInsumos(category: string | null | undefined, groupName: string | null | undefined, metadata: unknown): boolean {
+  let obj: unknown = metadata;
+  if (typeof obj === 'string') { try { obj = JSON.parse(obj); } catch { obj = null; } }
+  const flag = obj && typeof obj === 'object' && !Array.isArray(obj) ? (obj as { sinInsumos?: unknown }).sinInsumos : undefined;
+  if (typeof flag === 'boolean') return flag;
+  if (category && category !== 'consumo') return true;
+  return /cigarr|merch|comida|premio|cumplea[ñn]er/i.test(groupName ?? '');
+}
+
+/** El `metadata` del producto con la marca «sin insumos» (`null` si queda vacío). */
+export function metadataConSinInsumos(metadata: unknown, sinInsumos: boolean): Record<string, unknown> | null {
+  let obj: unknown = metadata;
+  if (typeof obj === 'string') { try { obj = JSON.parse(obj); } catch { obj = null; } }
+  const base: Record<string, unknown> = obj && typeof obj === 'object' && !Array.isArray(obj) ? { ...(obj as Record<string, unknown>) } : {};
+  base.sinInsumos = sinInsumos;
+  return base;
+}
+
 /** Cambia el hielo de un trago: cubos o frappé (uno solo), o ninguno. */
 export function conHielo(extras: string[], hielo: (typeof HIELOS)[number] | null): string[] {
   const sin = extras.filter((e) => !(HIELOS as readonly string[]).includes(e));

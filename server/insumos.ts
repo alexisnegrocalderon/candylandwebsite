@@ -17,7 +17,7 @@ import { insumoSchemaStatus } from "./schemaUpdates";
 import { personasForTicket } from "../shared/mission300";
 import { DOSIER_INSUMOS, DOSIER_SUPUESTOS, planDosier } from "../shared/dosier";
 import {
-  DEFAULT_GLASS, aplicarUso, conteoATotal, extrasDeMetadata, metadataConExtras, consumoDeVenta, descuadre, detalleATotal, insumoSizes, recetaDe, nivelInsumo, normalizeName, proyeccionCompra, tragosDisponibles, tragosPorInsumo,
+  DEFAULT_GLASS, aplicarUso, conteoATotal, extrasDeMetadata, metadataConExtras, metadataConSinInsumos, productoSinInsumos, TIPOS_PRODUCTO, type TipoProducto, consumoDeVenta, descuadre, detalleATotal, insumoSizes, recetaDe, nivelInsumo, normalizeName, proyeccionCompra, tragosDisponibles, tragosPorInsumo,
   OPEN_PORTIONS, type ConteoDetalle, type Insumo, type InsumoUnit, type MovimientoKind, type RecetaLinea,
 } from "../shared/insumos";
 
@@ -132,6 +132,10 @@ export async function estadoBarra(eventId: number) {
         glass, receta, drinks: left?.drinks ?? null, limitingInsumoId: left?.limitingInsumoId ?? null,
         // Lo que lleva sin medida (borde de Tajín, hielo frappé…): solo anotado en el producto.
         extras: extrasDeMetadata(p.metadata),
+        // Cigarros, merch, comida…: se venden solos, no piden receta. «oculto» = ya no va en la carta.
+        sinInsumos: productoSinInsumos(p.category, p.groupName, p.metadata),
+        oculto: p.status === 'hidden',
+        category: p.category as string,
       };
     }),
   };
@@ -185,6 +189,30 @@ export async function saveInsumo(data: {
 export async function setInsumoActive(id: number, active: boolean) {
   const db = await dbOrThrow();
   await db.update(insumos).set({ active: active ? 1 : 0 }).where(eq(insumos.id, id));
+  return { success: true } as const;
+}
+
+/** Qué es el producto: un trago (lleva insumos) o algo que se vende solo (comida, cigarros, merch…). Lo que se vende solo
+ * queda sin receta y agrupado en su sección. */
+export async function setTipoProducto(ticketTypeId: number, tipo: TipoProducto) {
+  const db = await dbOrThrow();
+  const [row] = await db.select().from(ticketTypes).where(eq(ticketTypes.id, ticketTypeId)).limit(1);
+  if (!row) throw new Error('Producto no encontrado');
+  const def = TIPOS_PRODUCTO.find((t) => t.id === tipo)!;
+  const set: Record<string, unknown> = { metadata: metadataConSinInsumos(row.metadata, tipo !== 'trago') };
+  if (def.seccion) set.groupName = def.seccion;
+  // Merch se vende como merch; un trago que estaba como merch vuelve a «Tragos y comida».
+  if (tipo === 'merch') set.category = 'merch';
+  else if (row.category === 'merch') set.category = 'consumo';
+  await db.update(ticketTypes).set(set).where(eq(ticketTypes.id, ticketTypeId));
+  if (tipo !== 'trago') await db.delete(insumoRecetas).where(eq(insumoRecetas.ticketTypeId, ticketTypeId));
+  return { success: true } as const;
+}
+
+/** Quita un producto de la carta (queda oculto, con su historial de ventas) o lo vuelve a poner. */
+export async function setProductoOculto(ticketTypeId: number, oculto: boolean) {
+  const db = await dbOrThrow();
+  await db.update(ticketTypes).set({ status: oculto ? 'hidden' : 'active' }).where(eq(ticketTypes.id, ticketTypeId));
   return { success: true } as const;
 }
 
@@ -487,13 +515,13 @@ export async function proyeccion(params: { eventId: number; personas: number; fa
   const allInsumos = estado.ready ? estado.insumos : [];
   const stock = new Map(allInsumos.map((i) => [i.id, i.stock]));
   // Todos los tragos de la carta: los que no tienen receta no gastan insumos, pero sí tienen su parte de las ventas.
-  const productos = estado.ready ? estado.productos : [];
+  const productos = estado.ready ? estado.productos.filter((p) => !p.sinInsumos && !p.oculto) : [];
   const result = proyeccionCompra({
     historico, productos, insumos: allInsumos, stock, personasObjetivo: params.personas,
     factor: params.factor, tragosPorPersona: params.tragosPorPersona, overrides: params.overrides,
   });
   const actuales = await personasDelEvento(db, params.eventId);
-  return { ...result, fuentes, personasConEntrada: actuales.expected, sinReceta: estado.ready ? estado.productos.filter((p) => p.receta.length === 0).map((p) => p.name) : [] };
+  return { ...result, fuentes, personasConEntrada: actuales.expected, sinReceta: estado.ready ? estado.productos.filter((p) => p.receta.length === 0 && !p.sinInsumos && !p.oculto).map((p) => p.name) : [] };
 }
 
 // --- Carga del dosier (shared/dosier.ts) ---
@@ -507,11 +535,11 @@ export async function dosierPlan(eventId: number) {
     stockMap(db),
     recetasDelEvento(eventId, db),
     // Solo los tragos y comidas de la carta (no guardarropía ni merch).
-    db.select({ id: ticketTypes.id, name: ticketTypes.name, groupName: ticketTypes.groupName, price: ticketTypes.price }).from(ticketTypes)
+    db.select({ id: ticketTypes.id, name: ticketTypes.name, groupName: ticketTypes.groupName, price: ticketTypes.price, metadata: ticketTypes.metadata, status: ticketTypes.status }).from(ticketTypes)
       .where(and(eq(ticketTypes.eventId, eventId), eq(ticketTypes.category, "consumo"))),
   ]);
   const plan = planDosier({
-    insumos: all, productos: (products as any[]).map((p) => ({ id: p.id as number, name: p.name as string, groupName: (p.groupName as string | null) ?? null, price: p.price != null ? n(p.price) : null })),
+    insumos: all, productos: (products as any[]).filter((p) => p.status !== 'hidden' && !productoSinInsumos('consumo', p.groupName, p.metadata)).map((p) => ({ id: p.id as number, name: p.name as string, groupName: (p.groupName as string | null) ?? null, price: p.price != null ? n(p.price) : null })),
     insumosConMovimientos: new Set(stock.keys()), productosConReceta: new Set(recetas.map((r) => r.ticketTypeId)),
   });
   return { ...plan, supuestos: DOSIER_SUPUESTOS };

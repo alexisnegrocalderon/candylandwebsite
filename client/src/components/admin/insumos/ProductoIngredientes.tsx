@@ -15,6 +15,8 @@ export function ProductoIngredientes({ eventId, productId, registerSave }: { eve
   if (data.insumos.length === 0) return <p className="text-sm text-muted-foreground">Todavía no hay insumos: créalos en Eventos → Stock de Barra (o con «Cargar dosier»).</p>;
   if (!producto) return <p className="text-sm text-muted-foreground">Este producto no descuenta insumos (solo los tragos y la comida de la carta).</p>;
 
+  if (producto.sinInsumos) return <p className="text-sm text-muted-foreground">Este producto se vende solo (cigarros, merch, comida…): no lleva insumos. Si es un trago, cámbialo en Eventos → Stock de Barra → Recetas.</p>;
+
   return (
     <div className="space-y-2">
       <RecetaVisual key={`${producto.id}:${producto.glass}:${producto.receta.length}`} producto={producto} data={data} registerSave={registerSave} onSaved={() => { utils.insumos.estado.invalidate(); utils.insumos.proyeccion.invalidate(); }} />

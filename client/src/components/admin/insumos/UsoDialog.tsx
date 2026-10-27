@@ -45,7 +45,7 @@ export function UsoDialog({ eventId, insumo, data, onClose, onSaved }: { eventId
   };
 
   const q = search.trim().toLowerCase();
-  const list = useMemo(() => data.productos.filter((p) => !q || p.name.toLowerCase().includes(q)), [data.productos, q]);
+  const list = useMemo(() => data.productos.filter((p) => !p.sinInsumos && !p.oculto && (!q || p.name.toLowerCase().includes(q))), [data.productos, q]);
   const toMl = (v: string) => (inJigger ? jiggersAMl(Number(v)) : Number(v));
   const chosen = Object.entries(rows).filter(([, v]) => Number(v) > 0);
 
