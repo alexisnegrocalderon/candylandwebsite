@@ -500,11 +500,11 @@ export async function dosierPlan(eventId: number) {
     stockMap(db),
     recetasDelEvento(eventId, db),
     // Solo los tragos y comidas de la carta (no guardarropía ni merch).
-    db.select({ id: ticketTypes.id, name: ticketTypes.name, groupName: ticketTypes.groupName }).from(ticketTypes)
+    db.select({ id: ticketTypes.id, name: ticketTypes.name, groupName: ticketTypes.groupName, price: ticketTypes.price }).from(ticketTypes)
       .where(and(eq(ticketTypes.eventId, eventId), eq(ticketTypes.category, "consumo"))),
   ]);
   const plan = planDosier({
-    insumos: all, productos: products as { id: number; name: string; groupName: string | null }[],
+    insumos: all, productos: (products as any[]).map((p) => ({ id: p.id as number, name: p.name as string, groupName: (p.groupName as string | null) ?? null, price: p.price != null ? n(p.price) : null })),
     insumosConMovimientos: new Set(stock.keys()), productosConReceta: new Set(recetas.map((r) => r.ticketTypeId)),
   });
   return { ...plan, supuestos: DOSIER_SUPUESTOS };

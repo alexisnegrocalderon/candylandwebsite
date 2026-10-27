@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
@@ -33,10 +33,9 @@ function Block({ title, hint, defaultOpen = true, children }: { title: string; h
   );
 }
 
-/** Panel para crear o editar un producto de la carta: ordenado en bloques, con
- * margen en vivo, vista previa del botón de /caja y el botón Guardar siempre a
- * la vista. En celular ocupa la pantalla; en pantalla ancha, un panel lateral
- * que no mueve la lista. */
+/** Ventana para crear o editar un producto de la carta: grande y centrada, en dos columnas en pantalla ancha
+ * (a la izquierda sus datos, con margen en vivo y vista previa del botón de /caja; a la derecha los insumos que
+ * descuenta) y con el botón Guardar siempre a la vista. En celular ocupa la pantalla. */
 export function ProductSheet({ open, onOpenChange, mode, initial, sections, saving, onSave, eventId, productId }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -53,6 +52,9 @@ export function ProductSheet({ open, onOpenChange, mode, initial, sections, savi
   const [form, setForm] = useState<ProductForm>(initial);
   const [creatingSection, setCreatingSection] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Guardar los insumos junto con el producto: el editor de insumos entrega aquí su función cuando hay cambios.
+  const recetaSave = useRef<(() => Promise<unknown>) | null>(null);
+  const registerRecetaSave = useCallback((fn: (() => Promise<unknown>) | null) => { recetaSave.current = fn; }, []);
 
   // Cada vez que se abre (o cambia el producto) se parte de sus datos.
   useEffect(() => {
@@ -64,22 +66,29 @@ export function ProductSheet({ open, onOpenChange, mode, initial, sections, savi
   const sectionValue = creatingSection ? NEW_SECTION : form.groupName && sections.includes(form.groupName) ? form.groupName : form.groupName ? NEW_SECTION : NO_SECTION_VALUE;
   const showSectionInput = creatingSection || (!!form.groupName && !sections.includes(form.groupName));
 
-  const submit = () => {
+  // Tragos y comida de la carta descuentan insumos; guardarropía, merch y extras no.
+  const tieneInsumos = ['consumo', 'merch'].includes(form.category);
+
+  const submit = async () => {
     const problem = validateForm(form);
     if (problem) { setError(problem); return; }
     setError(null);
+    if (recetaSave.current) {
+      try { await recetaSave.current(); } catch { setError('No se pudieron guardar los insumos. Revisa la conexión e intenta de nuevo.'); return; }
+    }
     onSave(form);
   };
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full gap-0 p-0 sm:max-w-md">
-        <SheetHeader className="border-b border-border pr-12">
-          <SheetTitle>{mode === 'new' ? 'Nuevo producto' : 'Editar producto'}</SheetTitle>
-          <SheetDescription className="truncate">{form.name || 'Sin nombre todavía'}</SheetDescription>
-        </SheetHeader>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="flex max-h-[94vh] w-[96vw] max-w-[96vw] flex-col gap-0 overflow-hidden p-0 sm:max-w-5xl">
+        <DialogHeader className="border-b border-border px-5 py-4 pr-12">
+          <DialogTitle className="text-xl">{mode === 'new' ? 'Nuevo producto' : 'Editar producto'}</DialogTitle>
+          <DialogDescription className="truncate">{form.name || 'Sin nombre todavía'}</DialogDescription>
+        </DialogHeader>
 
-        <div className="flex-1 space-y-3 overflow-y-auto overscroll-contain p-4">
+        <div className={`grid flex-1 gap-4 overflow-y-auto overscroll-contain p-4 ${tieneInsumos ? 'lg:grid-cols-2' : ''}`}>
+         <div className="min-w-0 space-y-3">
           <Block title="Básico">
             <div>
               <Label>Nombre</Label>
@@ -130,15 +139,6 @@ export function ProductSheet({ open, onOpenChange, mode, initial, sections, savi
             </div>
             <p className="text-xs text-muted-foreground">El stock solo avisa: nunca impide vender.</p>
           </Block>
-
-          {/* Los insumos que descuenta (licor base, mezcladores, vaso): se arman acá mismo, sin ir a otra sección. */}
-          {['consumo', 'merch'].includes(form.category) && (
-            <Block title="Insumos que descuenta" hint="Licor base, mezcladores y vaso: se descuentan solos con cada venta">
-              {mode === 'edit' && eventId && productId
-                ? <ProductoIngredientes eventId={eventId} productId={productId} />
-                : <p className="text-sm text-muted-foreground">Guarda el producto y vuelve a abrirlo para agregarle sus insumos.</p>}
-            </Block>
-          )}
 
           <Block title="Aspecto" hint="Ícono y color del botón en /caja">
             <div>
@@ -218,9 +218,23 @@ export function ProductSheet({ open, onOpenChange, mode, initial, sections, savi
               </div>
             )}
           </Block>
+         </div>
+
+         {/* Derecha: los insumos que descuenta (licor base, mezcladores, vaso), armados tocando. */}
+         {tieneInsumos && (
+          <div className="min-w-0">
+            <section className="rounded-2xl border border-border bg-card/40 p-4">
+              <h2 className="text-base font-semibold">Insumos y porciones</h2>
+              <p className="mb-3 text-xs text-muted-foreground">Qué botellas e ingredientes gasta cada venta de este producto. Se descuentan solos.</p>
+              {mode === 'edit' && eventId && productId
+                ? <ProductoIngredientes eventId={eventId} productId={productId} registerSave={registerRecetaSave} />
+                : <p className="rounded-xl bg-muted/60 p-4 text-sm text-muted-foreground">Guarda el producto primero y vuelve a abrirlo: ahí aparecen los insumos para armarle la receta.</p>}
+            </section>
+          </div>
+         )}
         </div>
 
-        <div className="border-t border-border bg-background p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+        <div className="border-t border-border bg-background px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
           {error && <p className="mb-2 text-sm font-medium text-red-400" role="alert">{error}</p>}
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => onOpenChange(false)} className="flex-1">Cancelar</Button>
@@ -229,7 +243,7 @@ export function ProductSheet({ open, onOpenChange, mode, initial, sections, savi
             </WriteButton>
           </div>
         </div>
-      </SheetContent>
-    </Sheet>
+      </DialogContent>
+    </Dialog>
   );
 }

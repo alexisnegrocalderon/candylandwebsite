@@ -155,7 +155,7 @@ export const DOSIER_SUPUESTOS: string[] = [
 
 // --- Plan de carga ---
 
-export interface DosierProducto { id: number; name: string; groupName?: string | null }
+export interface DosierProducto { id: number; name: string; groupName?: string | null; price?: number | null }
 
 const stripGlass = (name: string) => normalizeName(name.replace(/\([^)]*\)/g, ''));
 
@@ -178,7 +178,7 @@ export interface DosierPlan {
     sugeridos: number[];
   }[];
   /** Los tragos de la Carta entre los que se puede elegir. */
-  productos: { id: number; name: string; groupName: string | null; tieneReceta: boolean }[];
+  productos: { id: number; name: string; groupName: string | null; price: number | null; tieneReceta: boolean }[];
 }
 
 /** Qué haría cargar el dosier en este evento. No toca nada: solo compara.
@@ -213,6 +213,6 @@ export function planDosier(input: {
     recetas: DOSIER_RECETAS.map((r) => ({
       product: r.product, kind: r.kind, glass: r.glass, glassAssumed: !!r.glassAssumed, lines: r.lines, sugeridos: suggested.get(r.product) ?? [],
     })),
-    productos: input.productos.map((p) => ({ id: p.id, name: p.name, groupName: p.groupName ?? null, tieneReceta: input.productosConReceta.has(p.id) })),
+    productos: input.productos.map((p) => ({ id: p.id, name: p.name, groupName: p.groupName ?? null, price: p.price ?? null, tieneReceta: input.productosConReceta.has(p.id) })),
   };
 }

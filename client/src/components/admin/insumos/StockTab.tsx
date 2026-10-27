@@ -59,7 +59,7 @@ export function StockTab({ eventId, data, onEdit, onChanged }: {
   if (data.insumos.length === 0) {
     return (
       <div className="rounded-2xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-        Todavía no hay insumos. Crea el primero con «+ Insumo» (ej. Ron, 750 ml por botella) y después arma las recetas de cada trago.
+        Todavía no hay insumos. Lo más rápido es «Cargar dosier» (arriba): deja los insumos, el stock y las recetas listos de una vez. También puedes crear uno con «+ Insumo».
       </div>
     );
   }

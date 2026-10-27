@@ -376,3 +376,20 @@ describe('merma de los conteos', () => {
     expect(r.costoTotal).toBe(5400);
   });
 });
+
+describe('categorías de insumo', () => {
+  it('agrupa por nombre y unidad', async () => {
+    const { categoriaInsumo } = await import('./insumos');
+    for (const n of ['Pisco Mistral 35 / Nobel', 'Ron blanco', 'Gin Beefeater', 'Whisky Johnnie Walker', 'Tequila Olmeca', 'Aperol', 'Espumante', 'Jack Daniels', 'José Cuervo dorado', 'Triple sec', 'Fireball / Jägermeister (shots)']) {
+      expect(categoriaInsumo(n, 'ml'), n).toBe('licores');
+    }
+    for (const n of ['Goma', 'Sirope de arándanos', 'Sirope o pulpa de maracuyá', 'Pulpa de hibiscus', 'Pulpa tropical (Tropical Gin)']) {
+      expect(categoriaInsumo(n, 'ml'), n).toBe('jarabes');
+    }
+    for (const n of ['Agua mineral', 'Ginger Ale', 'Sprite', 'Jugo de limón', 'Bebida de mezcla (cola, tónica…)']) {
+      expect(categoriaInsumo(n, 'ml'), n).toBe('mezclas');
+    }
+    expect(categoriaInsumo('Peroni', 'un')).toBe('unidades');
+    expect(categoriaInsumo('Red Bull Tropical (lata)', 'un')).toBe('unidades');
+  });
+});

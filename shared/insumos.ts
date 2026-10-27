@@ -91,6 +91,37 @@ export function formatPorcion(amount: number, unit: InsumoUnit): string {
   return `${amount.toLocaleString('es-CL')} ${unit}`;
 }
 
+/** Para elegir insumos tocando, se agrupan en categorías (sin tener que cargarlas a mano). */
+export type CategoriaInsumo = 'licores' | 'mezclas' | 'jarabes' | 'unidades';
+export const CATEGORIAS_INSUMO: { id: CategoriaInsumo; label: string; emoji: string }[] = [
+  { id: 'licores', label: 'Licores', emoji: '🥃' },
+  { id: 'mezclas', label: 'Bebidas y jugos', emoji: '🥤' },
+  { id: 'jarabes', label: 'Jarabes y pulpas', emoji: '🍓' },
+  { id: 'unidades', label: 'Unidades', emoji: '🥫' },
+];
+
+const LICORES = ['pisco', 'ron', 'gin', 'whisky', 'whiskey', 'tequila', 'aperol', 'ramazzotti', 'jack daniel', 'jager', 'fireball', 'vodka', 'triple sec', 'licor', 'bacardi', 'cuervo', 'johnnie', 'beefeater', 'espumante', 'champagne', 'campari', 'disco', 'cerveza', 'vino'];
+const JARABES = ['sirope', 'jarabe', 'goma', 'pulpa', 'miel', 'azucar', 'maracuy', 'arandan', 'hibiscus', 'frambuesa'];
+
+/** ¿El nombre trae esta palabra? Las cortas («gin», «ron») van completas para no confundir «ginger» con un licor. */
+function tienePalabra(name: string, word: string): boolean {
+  if (word.includes(' ')) return name.includes(word);
+  return name.split(/[^a-z0-9]+/).some((t) => (word.length <= 4 ? t === word : t.startsWith(word)));
+}
+
+/** En qué categoría cae un insumo según su nombre y su unidad. */
+export function categoriaInsumo(name: string, unit: InsumoUnit): CategoriaInsumo {
+  if (unit !== 'ml') return 'unidades';
+  const n = normalizeName(name);
+  if (JARABES.some((w) => tienePalabra(n, w))) return 'jarabes';
+  if (LICORES.some((w) => tienePalabra(n, w))) return 'licores';
+  return 'mezclas';
+}
+
+/** Cantidades rápidas para un insumo en ml, en jiggers (licores y jarabes) o en ml (bebidas y jugos). */
+export const JIGGERS_RAPIDOS = [0.25, 0.5, 1, 1.5, 2, 3] as const;
+export const ML_RAPIDOS = [60, 100, 120, 150, 200] as const;
+
 /** Vista "por botella base": marcas qué tragos usan un insumo y cuánto. Devuelve las recetas que cambian
  * (con todas sus líneas, listas para guardar): se agrega o corrige el insumo en los tragos marcados, se quita
  * de los que ya no lo usan y no se toca nada más. Un trago sin receta parte con el vaso de siempre. */
