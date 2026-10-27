@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
+import { trpc } from '@/lib/trpc';
 import { formatCantidad, nivelInsumo, tragosPorInsumo } from '@shared/insumos';
 import { getLocalBarra, type CajaBarra } from './db';
 
@@ -11,7 +13,20 @@ const LEVEL = {
 
 /** Stock de la barra en vivo, con semáforo: lo que queda de cada licor e insumo y para cuántos tragos alcanza.
  * Sale de lo descargado en la tablet y baja con cada venta, así que también sirve sin señal. */
-export function BarraStock({ version }: { version: number }) {
+export function BarraStock({ version, eventId, isOnline }: { version: number; eventId: number; isOnline: boolean }) {
+  const dosier = trpc.caja.dosierLink.useMutation();
+  // Se abre la pestaña antes de pedir el link: iOS bloquea las ventanas que se abren después de esperar la red.
+  const verDosier = async () => {
+    const w = window.open('about:blank', '_blank');
+    try {
+      const r = await dosier.mutateAsync({ eventId });
+      const url = `${window.location.origin}${r.path}`;
+      if (w) w.location.href = url; else window.location.href = url;
+    } catch (e: any) {
+      w?.close();
+      toast.error(e?.message ?? 'No se pudo abrir el dosier');
+    }
+  };
   const [barra, setBarra] = useState<CajaBarra | null | undefined>(undefined);
   useEffect(() => {
     let alive = true;
@@ -40,9 +55,15 @@ export function BarraStock({ version }: { version: number }) {
 
   return (
     <div className="space-y-3">
-      <div>
-        <h1 className="text-xl font-bold">Stock de barra</h1>
-        <p className="text-sm text-white/60">Baja solo con cada venta. Si no cuadra con lo que ves, avisa al supervisor.</p>
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <h1 className="text-xl font-bold">Stock de barra</h1>
+          <p className="text-sm text-white/60">Baja solo con cada venta. Si no cuadra con lo que ves, avisa al supervisor.</p>
+        </div>
+        <button type="button" onClick={verDosier} disabled={!isOnline || dosier.isPending}
+          className="shrink-0 rounded-2xl bg-primary px-4 py-3 text-sm font-bold text-white disabled:opacity-40">
+          {dosier.isPending ? 'Abriendo…' : '📘 Ver dosier'}
+        </button>
       </div>
       <div className="grid grid-cols-3 gap-2 text-center">
         {(['agotado', 'bajo', 'ok'] as const).map((l) => (

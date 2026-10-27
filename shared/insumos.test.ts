@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  pasosSugeridos, pasosDeMetadata, fotoDeMetadata, metadataConPreparacion,
   metadataConOpciones, opcionesDeMetadata,
   productoSinInsumos, metadataConSinInsumos,
   consumoDeVenta, conteoATotal, descuadre, descuadreAlerts, formatCantidad, insumoRitmoAlerts, insumoStockAlerts,
@@ -491,5 +492,38 @@ describe('opciones al vender', () => {
     const m = metadataConOpciones({ extras: ['x'] }, grupos[1] as any);
     expect(opcionesDeMetadata(m)).toEqual(grupos[1]);
     expect(opcionesDeMetadata({ opciones: [{ id: 'a', choices: [{ id: 'z' }] }] })).toEqual([]);
+  });
+});
+
+describe('pasos sugeridos', () => {
+  it('piscolón con bebida a elección', () => {
+    const p = pasosSugeridos({
+      glass: 'vaso', extras: ['Hielo en cubos'],
+      lineas: [{ insumoId: 1, name: 'Pisco', unit: 'ml', amount: 90 }, { insumoId: 2, name: 'Bebida de mezcla', unit: 'ml', amount: 200 }],
+      opciones: [{ id: 'g', label: 'Acompañante', reemplaza: 2, choices: [{ id: 'a', label: 'Coca Cola', insumoId: 3, amount: 200 }, { id: 'b', label: 'Sprite', insumoId: 4, amount: 200 }] }],
+    });
+    expect(p).toEqual([
+      'Llenar el vaso de 500 ml con hielo en cubos.',
+      'Servir 3 jiggers (90 ml) de Pisco.',
+      'Completar con la bebida que eligió el cliente (Coca Cola, Sprite), unos 200 ml.',
+      'Revolver suave con la bombilla.',
+    ]);
+  });
+  it('FireRoom: borde de Tajín y decoración', () => {
+    const p = pasosSugeridos({ glass: 'vaso', extras: ['Borde de Tajín', 'Rodaja de limón'], lineas: [{ insumoId: 1, name: 'Tequila', unit: 'ml', amount: 45 }], opciones: [] });
+    expect(p[0]).toBe('Escarchar el borde de el vaso de 500 ml con Tajín.'.replace('de el', 'del'));
+    expect(p).toContain('Servir 1½ jiggers (45 ml) de Tequila.');
+    expect(p.at(-1)).toBe('Decorar: rodaja de limón.');
+  });
+  it('mojito con frappé y hierbabuena; copa XL', () => {
+    const p = pasosSugeridos({ glass: 'copa_xl', extras: ['Hierbabuena (5 hojas)', 'Hielo frappé'], lineas: [{ insumoId: 1, name: 'Ron', unit: 'ml', amount: 60 }], opciones: [] });
+    expect(p[0]).toMatch(/^Machacar/);
+    expect(p[1]).toBe('Llenar la copa de 600 ml con hielo frappé.');
+  });
+  it('preparación en el metadata', () => {
+    const m = metadataConPreparacion({ extras: ['x'] }, ['Paso 1', ' '], 'https://blob/foto.jpg');
+    expect(pasosDeMetadata(m)).toEqual(['Paso 1']);
+    expect(fotoDeMetadata(m)).toBe('https://blob/foto.jpg');
+    expect(fotoDeMetadata(metadataConPreparacion(m, undefined, null))).toBeNull();
   });
 });

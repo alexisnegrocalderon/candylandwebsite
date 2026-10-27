@@ -17,9 +17,11 @@ import { useDemoProps } from '@/lib/demoMode';
  * - Expone `analyzing` (controlado por quien lo usa) para mostrar el paso
  *   "leyendo la foto…" después de que terminó de subir. */
 export function CameraCaptureField({
-  label, pathPrefix, onScanned, analyzing, buttonClassName, hidePreview,
+  label, pathPrefix, onScanned, analyzing, buttonClassName, hidePreview, maxSide,
 }: {
   label: string; pathPrefix: string; onScanned: (url: string) => void; analyzing?: boolean; buttonClassName?: string;
+  /** Si viene, la foto se achica en el navegador a este lado máximo (px) y se sube como JPEG liviano. */
+  maxSide?: number;
   /** Quien lo usa muestra su propia miniatura (ej. el terminal de gastos). */
   hidePreview?: boolean;
 }) {
@@ -38,7 +40,9 @@ export function CameraCaptureField({
     setUploading(true);
     try {
       const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '-');
-      const blob = await upload(`${pathPrefix}/${Date.now()}-${safeName}`, file, {
+      const body = maxSide ? await shrinkToJpeg(file, maxSide) : file;
+      const name = maxSide ? safeName.replace(/\.[a-z0-9]+$/i, '') + '.jpg' : safeName;
+      const blob = await upload(`${pathPrefix}/${Date.now()}-${name}`, body, {
         access: 'public',
         handleUploadUrl: '/api/admin/blob/upload',
       });
@@ -86,4 +90,21 @@ export function CameraCaptureField({
       )}
     </div>
   );
+}
+
+/** Achica una foto en el navegador (lado máximo `maxSide`) y la devuelve como JPEG: una foto de celular de 4 MB queda
+ * en ~100 KB, que es lo que necesita un PDF o una miniatura. Si el navegador no puede decodificarla, sube la original. */
+async function shrinkToJpeg(file: File, maxSide: number): Promise<Blob> {
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    canvas.getContext('2d')!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.82));
+    return blob ?? file;
+  } catch {
+    return file;
+  }
 }

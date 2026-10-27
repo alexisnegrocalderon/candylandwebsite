@@ -1106,7 +1106,7 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
 
         {view === 'stock' && (
           <div className="max-w-lg mx-auto">
-            <BarraStock version={snapshotQuery.dataUpdatedAt} />
+            <BarraStock version={snapshotQuery.dataUpdatedAt} eventId={localEvent.id} isOnline={isOnline} />
           </div>
         )}
 

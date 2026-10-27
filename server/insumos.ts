@@ -17,7 +17,7 @@ import { insumoSchemaStatus } from "./schemaUpdates";
 import { personasForTicket } from "../shared/mission300";
 import { DOSIER_INSUMOS, DOSIER_SUPUESTOS, planDosier } from "../shared/dosier";
 import {
-  DEFAULT_GLASS, aplicarUso, conteoATotal, extrasDeMetadata, metadataConExtras, metadataConOpciones, opcionesDeMetadata, recetaConOpciones, type OpcionGrupo, metadataConSinInsumos, productoSinInsumos, TIPOS_PRODUCTO, type TipoProducto, consumoDeVenta, descuadre, detalleATotal, insumoSizes, recetaDe, nivelInsumo, normalizeName, proyeccionCompra, tragosDisponibles, tragosPorInsumo,
+  DEFAULT_GLASS, aplicarUso, conteoATotal, extrasDeMetadata, metadataConExtras, metadataConOpciones, opcionesDeMetadata, metadataConPreparacion, pasosDeMetadata, fotoDeMetadata, recetaConOpciones, type OpcionGrupo, metadataConSinInsumos, productoSinInsumos, TIPOS_PRODUCTO, type TipoProducto, consumoDeVenta, descuadre, detalleATotal, insumoSizes, recetaDe, nivelInsumo, normalizeName, proyeccionCompra, tragosDisponibles, tragosPorInsumo,
   OPEN_PORTIONS, type ConteoDetalle, type Insumo, type InsumoUnit, type MovimientoKind, type RecetaLinea,
 } from "../shared/insumos";
 
@@ -135,6 +135,9 @@ export async function estadoBarra(eventId: number) {
         // Lo que lleva sin medida (borde de Tajín, hielo frappé…): solo anotado en el producto.
         extras: extrasDeMetadata(p.metadata),
         opciones,
+        // Preparación para el dosier: pasos guardados (vacío = sugeridos) y foto del trago.
+        pasos: pasosDeMetadata(p.metadata),
+        foto: fotoDeMetadata(p.metadata),
         // Cigarros, merch, comida…: se venden solos, no piden receta. «oculto» = ya no va en la carta.
         sinInsumos: productoSinInsumos(p.category, p.groupName, p.metadata),
         oculto: p.status === 'hidden',
@@ -245,12 +248,17 @@ export async function setProductoOculto(ticketTypeId: number, oculto: boolean) {
 
 /** Reemplaza la receta de un trago. El vaso es del producto (cada trago viene en el suyo):
  * se cambian todas las líneas juntas, así nunca quedan recetas de dos vasos. */
-export async function setReceta(ticketTypeId: number, glass: string, lines: { insumoId: number; amount: number }[], extras?: string[], opciones?: OpcionGrupo[]) {
+export async function setReceta(ticketTypeId: number, glass: string, lines: { insumoId: number; amount: number }[], extras?: string[], opciones?: OpcionGrupo[], preparacion?: { pasos?: string[]; foto?: string | null }) {
   const db = await dbOrThrow();
   // Los extras sin medida (Tajín, hielo…) van en el metadata del producto, sin tocar lo demás que tenga. Sin `extras` no se cambian.
   if (extras !== undefined) {
     const [row] = await db.select({ metadata: ticketTypes.metadata }).from(ticketTypes).where(eq(ticketTypes.id, ticketTypeId)).limit(1);
     if (row) await db.update(ticketTypes).set({ metadata: metadataConExtras(row.metadata, extras) }).where(eq(ticketTypes.id, ticketTypeId));
+  }
+  // Pasos de preparación y foto (para el dosier): también en el metadata. Sin `preparacion` no se cambian.
+  if (preparacion && (preparacion.pasos !== undefined || preparacion.foto !== undefined)) {
+    const [row] = await db.select({ metadata: ticketTypes.metadata }).from(ticketTypes).where(eq(ticketTypes.id, ticketTypeId)).limit(1);
+    if (row) await db.update(ticketTypes).set({ metadata: metadataConPreparacion(row.metadata, preparacion.pasos, preparacion.foto) }).where(eq(ticketTypes.id, ticketTypeId));
   }
   // Opciones al vender (con qué bebida va…): también en el metadata del producto. Sin `opciones` no se cambian.
   if (opciones !== undefined) {

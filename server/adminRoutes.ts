@@ -11,6 +11,9 @@ import { buildPnlReportPdf } from "./caja/pnlPdf";
 import { buildMovementsPdf } from "./caja/movementsPdf";
 import { comparisonCsv, comparisonPdf, loadSims, singleCsv, singlePdf, slug, realEventPdf } from "./budgetReport";
 import { buildAccountantCsv } from "./sii";
+import { verificarDosier } from "./dosierLink";
+import { dosierData } from "./dosierData";
+import { buildDosierPdf } from "./dosierPdf";
 
 /** Exportada para que otras rutas Express crudas (fuera de tRPC) reusen el
  * mismo chequeo -- ver server/blobUpload.ts. */
@@ -58,6 +61,26 @@ export function registerAdminRoutes(app: Express) {
       res.status(500).json({ error: "No se pudo generar el informe" });
     }
   };
+  // Dosier de barra: link firmado y con vencimiento (server/dosierLink.ts), sin sesión, para el admin, la tablet de
+  // la barra y el grupo de WhatsApp del staff. El token no se puede cambiar de evento ni alargar.
+  app.get("/api/dosier/:token", async (req: Request, res: Response) => {
+    const eventId = verificarDosier(String(req.params.token ?? ""));
+    if (!eventId) { res.status(403).type("text/plain; charset=utf-8").send("Este link del dosier venció o no es válido. Pide uno nuevo."); return; }
+    try {
+      const data = await dosierData(eventId);
+      if (!data) { res.status(404).type("text/plain; charset=utf-8").send("Evento no encontrado"); return; }
+      const pdf = await buildDosierPdf(data);
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Cache-Control", "private, no-store");
+      // inline: en el celular se abre para ver y desde ahí se guarda o comparte.
+      res.setHeader("Content-Disposition", `inline; filename="dosier-barra-${slug(data.eventTitle)}.pdf"`);
+      res.send(pdf);
+    } catch (e) {
+      console.error("[dosierPdf]", e);
+      res.status(500).type("text/plain; charset=utf-8").send("No se pudo generar el dosier");
+    }
+  });
+
   app.get("/api/admin/finanzas/informe.pdf", async (req: Request, res: Response) => {
     if (!(await requireAdmin(req, res))) return;
     try {

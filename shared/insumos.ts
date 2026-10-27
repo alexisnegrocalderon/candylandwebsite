@@ -43,10 +43,12 @@ export interface RecetaLinea {
 
 /** Vasos en que sale un trago. Cada trago viene en su vaso (unos en vaso, otros en copa, otros en shot)
  * y se define en su receta: no es una opción que elija el cliente al comprar. */
-export type GlassId = 'vaso' | 'copa' | 'shot' | 'botella';
+export type GlassId = 'vaso' | 'copa' | 'copa_xl' | 'shot' | 'botella';
 export const GLASSES: { id: GlassId; label: string; ml: number; emoji: string }[] = [
   { id: 'vaso', label: 'Vaso', ml: 500, emoji: '🥃' },
   { id: 'copa', label: 'Copa', ml: 400, emoji: '🍷' },
+  // La copa grande del Tropical Gin XL.
+  { id: 'copa_xl', label: 'Copa XL', ml: 600, emoji: '🍷' },
   { id: 'shot', label: 'Shot', ml: 30, emoji: '🥂' },
   // Lo que se vende tal cual, en su botella o lata (cerveza, bebida, energética): no se sirve en un vaso.
   { id: 'botella', label: 'Botella o lata', ml: 0, emoji: '🍺' },
@@ -188,6 +190,82 @@ export function metadataConSinInsumos(metadata: unknown, sinInsumos: boolean): R
   const base: Record<string, unknown> = obj && typeof obj === 'object' && !Array.isArray(obj) ? { ...(obj as Record<string, unknown>) } : {};
   base.sinInsumos = sinInsumos;
   return base;
+}
+
+/** Pasos de preparación guardados en el `metadata` del producto (vacío = se usan los sugeridos). */
+export function pasosDeMetadata(metadata: unknown): string[] {
+  let obj: unknown = metadata;
+  if (typeof obj === 'string') { try { obj = JSON.parse(obj); } catch { return []; } }
+  const raw = obj && typeof obj === 'object' && !Array.isArray(obj) ? (obj as { pasos?: unknown }).pasos : null;
+  return Array.isArray(raw) ? raw.filter((e): e is string => typeof e === 'string').map((e) => e.trim()).filter(Boolean).slice(0, 12) : [];
+}
+
+/** Foto del trago (URL), guardada en el `metadata` del producto. */
+export function fotoDeMetadata(metadata: unknown): string | null {
+  let obj: unknown = metadata;
+  if (typeof obj === 'string') { try { obj = JSON.parse(obj); } catch { return null; } }
+  const raw = obj && typeof obj === 'object' && !Array.isArray(obj) ? (obj as { foto?: unknown }).foto : null;
+  return typeof raw === 'string' && /^https:\/\//.test(raw) ? raw : null;
+}
+
+/** El `metadata` con pasos y foto (sin tocar lo demás). `undefined` = no cambiar ese campo. */
+export function metadataConPreparacion(metadata: unknown, pasos: string[] | undefined, foto: string | null | undefined): Record<string, unknown> | null {
+  let obj: unknown = metadata;
+  if (typeof obj === 'string') { try { obj = JSON.parse(obj); } catch { obj = null; } }
+  const base: Record<string, unknown> = obj && typeof obj === 'object' && !Array.isArray(obj) ? { ...(obj as Record<string, unknown>) } : {};
+  if (pasos !== undefined) {
+    const clean = pasos.map((p) => p.trim()).filter(Boolean).slice(0, 12).map((p) => p.slice(0, 160));
+    if (clean.length) base.pasos = clean; else delete base.pasos;
+  }
+  if (foto !== undefined) { if (foto) base.foto = foto; else delete base.foto; }
+  return Object.keys(base).length ? base : null;
+}
+
+/** Pasos de preparación armados desde la receta: hielo, borde, cada insumo en su medida, la bebida elegida y la
+ * decoración. Es el punto de partida; en el editor se pueden cambiar. */
+export function pasosSugeridos(input: {
+  glass: string;
+  lineas: { name: string; unit: InsumoUnit; amount: number; insumoId: number }[];
+  extras: string[];
+  opciones: OpcionGrupo[];
+}): string[] {
+  const g = glassInfo(input.glass);
+  if (input.glass === 'botella') return ['Entregar la botella o lata bien helada.'];
+  const pasos: string[] = [];
+  const hielo = HIELOS.find((h) => input.extras.includes(h));
+  const recipiente = input.glass === 'shot' ? 'el vaso de shot' : `${input.glass === 'vaso' ? 'el vaso' : 'la copa'}${g && g.ml ? ` de ${g.ml} ml` : ''}`;
+  const borde = input.extras.filter((e) => /borde/i.test(e));
+  for (const b of borde) pasos.push(`Escarchar el borde de ${recipiente} con ${b.replace(/^borde de /i, '').replace(/ en el borde$/i, '').toLowerCase().replace(/^taj[ií]n$/, 'Tajín')}.`.replace(' de el ', ' del '));
+  const machacar = input.extras.filter((e) => /hierbabuena|menta/i.test(e));
+  if (machacar.length) pasos.push(`Machacar suavemente ${machacar.join(' y ').toLowerCase()} en el fondo.`);
+  if (input.glass !== 'shot') pasos.push(hielo === 'Hielo frappé' ? `Llenar ${recipiente} con hielo frappé.` : `Llenar ${recipiente} con hielo${hielo ? ' en cubos' : ''}.`);
+  const reemplazadas = new Set(input.opciones.map((o) => o.reemplaza).filter((x): x is number => x != null));
+  const relleno = (l: { name: string }) => /bebida|agua|soda|t[oó]nica|ginger|sprite|coca|red ?bull|energ/i.test(l.name);
+  const medidas = input.lineas.filter((l) => !reemplazadas.has(l.insumoId) && !relleno(l));
+  const rellenos = input.lineas.filter((l) => !reemplazadas.has(l.insumoId) && relleno(l));
+  for (const l of medidas) {
+    if (l.unit === 'ml') pasos.push(`Servir ${esJiggerExacto(l.amount) ? `${formatJiggers(mlAJiggers(l.amount))} (${l.amount} ml)` : `${l.amount} ml`} de ${l.name}.`);
+    else pasos.push(`Agregar ${l.amount} ${l.unit === 'un' ? (l.amount === 1 ? 'unidad' : 'unidades') : l.unit} de ${l.name}.`);
+  }
+  for (const o of input.opciones) {
+    const nombres = o.choices.map((c) => c.label);
+    const ml = o.choices.find((c) => c.amount > 1)?.amount;
+    pasos.push(`Completar con la bebida que eligió el cliente (${nombres.join(', ')})${ml ? `, unos ${ml} ml` : ''}.`);
+  }
+  for (const l of rellenos) pasos.push(l.unit === 'ml' ? `Completar con ${l.amount} ml de ${l.name}.` : `Completar con ${l.amount === 1 ? '1 unidad' : `${l.amount} unidades`} de ${l.name}.`);
+  if (input.glass !== 'shot' && input.lineas.length > 1) pasos.push('Revolver suave con la bombilla.');
+  const deco = input.extras.filter((e) => !HIELOS.includes(e as (typeof HIELOS)[number]) && !/borde|hierbabuena|menta/i.test(e));
+  if (deco.length) pasos.push(`Decorar: ${deco.join(', ').toLowerCase()}.`);
+  return pasos;
+}
+
+/** «3 jiggers», «1½ jigger», «½ jigger». */
+export function formatJiggers(j: number): string {
+  const ent = Math.floor(j + 1e-9);
+  const frac = Math.round((j - ent) * 4) / 4;
+  const f = frac === 0.5 ? '½' : frac === 0.25 ? '¼' : frac === 0.75 ? '¾' : '';
+  const txt = `${ent > 0 ? ent : ''}${f}` || '0';
+  return `${txt} ${j > 1 ? 'jiggers' : 'jigger'}`;
 }
 
 /** Cambia el hielo de un trago: cubos o frappé (uno solo), o ninguno. */

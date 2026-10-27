@@ -5,6 +5,7 @@ import { trpc } from '@/lib/trpc';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AdminPasswordDialog } from '@/components/admin/AdminPasswordDialog';
 import { WriteButton } from '@/components/admin/WriteButton';
+import { Button } from '@/components/ui/button';
 import { useIsDemo } from '@/lib/demoMode';
 import { StockTab } from './StockTab';
 import { RecetasTab } from './RecetasTab';
@@ -13,6 +14,7 @@ import { HistorialTab } from './HistorialTab';
 import { InsumoDialog, type InsumoFormValue } from './InsumoDialog';
 import { DosierDialog } from './DosierDialog';
 import { CompraBoletaDialog } from './CompraBoletaDialog';
+import { DosierPdfDialog } from './DosierPdfDialog';
 
 type Tab = 'stock' | 'recetas' | 'compras' | 'historial';
 const TABS: { id: Tab; label: string; help: string }[] = [
@@ -40,6 +42,7 @@ export function InsumosManager() {
   const [dialog, setDialog] = useState<InsumoFormValue | null>(null);
   const [dosierOpen, setDosierOpen] = useState(false);
   const [compraOpen, setCompraOpen] = useState(false);
+  const [pdfOpen, setPdfOpen] = useState(false);
 
   const utils = trpc.useUtils();
   const schema = trpc.insumos.schema.useQuery(undefined, { enabled: !isDemo, retry: false, staleTime: 60_000 });
@@ -67,13 +70,16 @@ export function InsumosManager() {
 
       {!ready && <SchemaBanner missing={schema.data?.missing.length ?? 0} />}
 
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Select value={activeId ? String(activeId) : ''} onValueChange={(v) => setEventId(Number(v))}>
           <SelectTrigger className="min-w-0 flex-1 sm:max-w-xs"><SelectValue placeholder="Evento" /></SelectTrigger>
           <SelectContent>
             {(events ?? []).map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}
           </SelectContent>
         </Select>
+        <Button variant="outline" disabled={!ready || !activeId} onClick={() => setPdfOpen(true)} className="shrink-0 interactive">
+          📘 Dosier PDF
+        </Button>
         <WriteButton variant="outline" disabled={!ready || !activeId || !data} onClick={() => setCompraOpen(true)} className="shrink-0 interactive">
           📷 Cargar compra
         </WriteButton>
@@ -104,6 +110,7 @@ export function InsumosManager() {
         </>
       )}
 
+      {activeId && <DosierPdfDialog eventId={activeId} eventTitle={(events ?? []).find((e: any) => e.id === activeId)?.title ?? ''} open={pdfOpen} onClose={() => setPdfOpen(false)} />}
       {activeId && data && <CompraBoletaDialog eventId={activeId} data={data} open={compraOpen} onClose={() => setCompraOpen(false)} onDone={() => { setCompraOpen(false); refresh(); }} />}
       {activeId && <DosierDialog eventId={activeId} open={dosierOpen} onClose={() => setDosierOpen(false)} onDone={() => { setDosierOpen(false); refresh(); }} />}
 

@@ -39,6 +39,7 @@ import { monthKeyFor } from "../shared/ambassadorProgram";
 import { checkAndAdvanceTandaIfNeeded } from "./tandaAutoAdvance";
 import { scanReceiptImage } from "./receiptScan";
 import * as comprasSvc from "./compras";
+import { firmarDosier, dosierPath, DOSIER_TTL_ADMIN, DOSIER_TTL_CAJA } from "./dosierLink";
 import { generateCostumeIdeas, fallbackResult as fallbackCostumeResult } from "./costumeOracle";
 import { ORACLE_VIBES, ORACLE_COMPANY, ORACLE_LEVELS, ORACLE_SKIN, ORACLE_ITEMS, ORACLE_EXTRA_MAX } from "../shared/costumeOracle";
 import * as applications from "./ambassadorApplications";
@@ -6150,6 +6151,11 @@ export const appRouter = router({
       usos: z.array(z.object({ ticketTypeId: z.number(), amount: z.number().min(0).max(100_000) })).max(500),
     })).mutation(({ input }) => insumoSvc.setUsoInsumo(input.eventId, input.insumoId, input.usos)),
     // Compra desde la foto de una boleta: la IA solo lee y propone (nada se escribe); `comprasAplicar` carga lo que el admin confirmó.
+    // Dosier de barra en PDF: link firmado por 7 días (para descargar o mandar por WhatsApp al staff).
+    dosierLink: adminProcedure.input(z.object({ eventId: z.number() })).mutation(({ input }) => {
+      const { token, expiresAt } = firmarDosier(input.eventId, DOSIER_TTL_ADMIN);
+      return { path: dosierPath(token), expiresAt };
+    }),
     comprasLeer: adminProcedure.input(z.object({ imageUrl: z.string().url() })).mutation(async ({ input }) => {
       try {
         return await comprasSvc.proponerCompra(input.imageUrl);
@@ -6175,7 +6181,7 @@ export const appRouter = router({
     setProductoOculto: adminProcedure.input(z.object({ ticketTypeId: z.number(), oculto: z.boolean() }))
       .mutation(({ input }) => insumoSvc.setProductoOculto(input.ticketTypeId, input.oculto)),
     setReceta: adminProcedure.input(z.object({
-      ticketTypeId: z.number(), glass: z.enum(['vaso', 'copa', 'shot', 'botella']), lines: z.array(z.object({ insumoId: z.number(), amount: z.number().min(0).max(100_000) })).max(30),
+      ticketTypeId: z.number(), glass: z.enum(['vaso', 'copa', 'copa_xl', 'shot', 'botella']), lines: z.array(z.object({ insumoId: z.number(), amount: z.number().min(0).max(100_000) })).max(30),
       // Extras sin medida (borde de Tajín, hielo frappé…): solo anotados en el producto.
       extras: z.array(z.string().trim().min(1).max(60)).max(20).optional(),
       // Opciones que la cajera elige al vender (con qué bebida va, qué variante es).
@@ -6183,7 +6189,10 @@ export const appRouter = router({
         id: z.string().min(1).max(40), label: z.string().trim().min(1).max(40), reemplaza: z.number().nullable(),
         choices: z.array(z.object({ id: z.string().min(1).max(40), label: z.string().trim().min(1).max(40), insumoId: z.number(), amount: z.number().positive().max(100_000) })).min(1).max(12),
       })).max(5).optional(),
-    })).mutation(({ input }) => insumoSvc.setReceta(input.ticketTypeId, input.glass, input.lines, input.extras, input.opciones)),
+      // Para el dosier: pasos de preparación (vacío = los sugeridos) y foto del trago.
+      pasos: z.array(z.string().trim().max(160)).max(12).optional(),
+      foto: z.string().url().max(500).nullable().optional(),
+    })).mutation(({ input }) => insumoSvc.setReceta(input.ticketTypeId, input.glass, input.lines, input.extras, input.opciones, { pasos: input.pasos, foto: input.foto })),
     movimiento: adminProcedure.input(z.object({
       insumoId: z.number(), kind: z.enum(['carga', 'compra', 'merma', 'ajuste']), amount: z.number().min(-10_000_000).max(10_000_000),
       eventId: z.number().nullable().optional(), note: z.string().max(255).optional(),
@@ -6292,6 +6301,11 @@ export const appRouter = router({
     }),
     // Conteo de barra al abrir y al cerrar turno: cualquiera de la barra lo
     // hace desde su tablet o celular. Lo contado pasa a ser el stock real.
+    // Dosier de barra para los chicos de la barra: link firmado por 12 horas del evento de la caja.
+    dosierLink: operatorProcedure.input(z.object({ eventId: z.number() })).mutation(({ input }) => {
+      const { token, expiresAt } = firmarDosier(input.eventId, DOSIER_TTL_CAJA);
+      return { path: dosierPath(token), expiresAt };
+    }),
     barraEstado: operatorProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
       const estado = await insumoSvc.estadoBarra(input.eventId);
       if (!estado.ready) return { ready: false as const, insumos: [], ultimaApertura: null, ultimoCierre: null };

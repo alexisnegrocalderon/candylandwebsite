@@ -1,16 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { Check, Minus, Plus, Search, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, Check, Minus, Plus, Search, Trash2, X } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { WriteButton } from '@/components/admin/WriteButton';
 import {
-  CATEGORIAS_INSUMO, EXTRAS_SUGERIDOS, GLASSES, HIELOS, JIGGERS_RAPIDOS, JIGGER_ML, ML_RAPIDOS, cantidadInicial, categoriaInsumo, conHielo, esJiggerExacto, glassInfo, insumosParecidos, jiggersAMl, mlAJiggers,
+  CATEGORIAS_INSUMO, EXTRAS_SUGERIDOS, GLASSES, HIELOS, JIGGERS_RAPIDOS, JIGGER_ML, ML_RAPIDOS, cantidadInicial, categoriaInsumo, conHielo, pasosSugeridos, esJiggerExacto, glassInfo, insumosParecidos, jiggersAMl, mlAJiggers,
   type CategoriaInsumo, type GlassId, type InsumoUnit, type OpcionGrupo,
 } from '@shared/insumos';
 import { NuevoInsumo } from './NuevoInsumo';
 import { OpcionesEditor } from './OpcionesEditor';
+import { CameraCaptureField } from '@/components/admin/CameraCaptureField';
 import type { BarraData, BarraProducto } from './types';
 
 /** Una línea de la receta: `value` está en jiggers (si `jigger`) o en la unidad del insumo (ml, un). Se guarda siempre en ml. */
@@ -60,6 +61,11 @@ export function RecetaVisual({ producto, data, wide = false, onCancel, onSaved, 
   // Opciones al vender (con qué bebida va, qué variante es): la cajera elige en /caja y se descuenta el insumo elegido.
   const opcionesIniciales = producto.opciones ?? [];
   const [opciones, setOpciones] = useState<OpcionGrupo[]>(opcionesIniciales);
+  // Preparación para el dosier: pasos propios (vacío = los sugeridos) y foto del trago.
+  const pasosIniciales = producto.pasos ?? [];
+  const fotoInicial = producto.foto ?? null;
+  const [pasos, setPasos] = useState<string[]>(pasosIniciales);
+  const [foto, setFoto] = useState<string | null>(fotoInicial);
 
   const utils = trpc.useUtils();
   const crearInsumo = trpc.insumos.save.useMutation({
@@ -121,18 +127,23 @@ export function RecetaVisual({ producto, data, wide = false, onCancel, onSaved, 
     setExtraNuevo('');
   };
 
+  const sugeridos = pasosSugeridos({
+    glass, extras, opciones,
+    lineas: clean.flatMap((l) => { const i = insumoById.get(l.insumoId); return i ? [{ insumoId: l.insumoId, name: i.name, unit: i.unit, amount: l.amount }] : []; }),
+  });
+
   const hadRecipe = producto.receta.length > 0;
   const emptyNow = clean.length === 0;
 
   // ¿Hay cambios sin guardar? (comparado con la receta que viene del servidor)
-  const initialKey = JSON.stringify([producto.glass || 'vaso', producto.receta.map((r) => [r.insumoId, round2(r.amount)]), [...extrasIniciales].sort(), opcionesIniciales]);
-  const nowKey = JSON.stringify([glass, clean.map((l) => [l.insumoId, round2(l.amount)]), [...extras].sort(), opciones]);
-  const dirty = nowKey !== initialKey && !(emptyNow && !hadRecipe && extras.length === 0 && extrasIniciales.length === 0 && opciones.length === 0 && opcionesIniciales.length === 0);
-  const latest = useRef({ glass, clean, extras, opciones });
-  latest.current = { glass, clean, extras, opciones };
+  const initialKey = JSON.stringify([producto.glass || 'vaso', producto.receta.map((r) => [r.insumoId, round2(r.amount)]), [...extrasIniciales].sort(), opcionesIniciales, pasosIniciales, fotoInicial]);
+  const nowKey = JSON.stringify([glass, clean.map((l) => [l.insumoId, round2(l.amount)]), [...extras].sort(), opciones, pasos.map((p) => p.trim()).filter(Boolean), foto]);
+  const dirty = nowKey !== initialKey && !(emptyNow && !hadRecipe && extras.length === 0 && extrasIniciales.length === 0 && opciones.length === 0 && opcionesIniciales.length === 0 && pasos.length === 0 && !foto);
+  const latest = useRef({ glass, clean, extras, opciones, pasos, foto });
+  latest.current = { glass, clean, extras, opciones, pasos, foto };
   useEffect(() => {
     if (!registerSave) return;
-    registerSave(dirty ? () => save.mutateAsync({ ticketTypeId: producto.id, glass: latest.current.glass, lines: latest.current.clean, extras: latest.current.extras, opciones: latest.current.opciones.filter((g) => g.choices.length > 0) }) : null);
+    registerSave(dirty ? () => save.mutateAsync({ ticketTypeId: producto.id, glass: latest.current.glass, lines: latest.current.clean, extras: latest.current.extras, opciones: latest.current.opciones.filter((g) => g.choices.length > 0), pasos: latest.current.pasos.map((p) => p.trim()).filter(Boolean), foto: latest.current.foto }) : null);
     return () => registerSave(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dirty, registerSave, producto.id]);
@@ -144,7 +155,7 @@ export function RecetaVisual({ producto, data, wide = false, onCancel, onSaved, 
           {/* 1 · vaso */}
           <section>
             <h3 className="mb-2 text-sm font-semibold">1 · ¿En qué vaso sale, o se vende tal cual?</h3>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" role="radiogroup" aria-label="Vaso en que sale este trago">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-5" role="radiogroup" aria-label="Vaso en que sale este trago">
               {GLASSES.map((g) => (
                 <button key={g.id} type="button" role="radio" aria-checked={glass === g.id} onClick={() => { setGlass(g.id); if (g.id === 'botella') setCat('unidades'); }}
                   className={`rounded-2xl border-2 px-2 py-3 text-center transition active:scale-95 ${glass === g.id ? 'border-primary bg-primary/10' : 'border-border bg-card/60 hover:bg-muted'}`}>
@@ -255,7 +266,7 @@ export function RecetaVisual({ producto, data, wide = false, onCancel, onSaved, 
                 <p className="mt-1.5 text-sm tabular-nums">
                   {isShot
                     ? <><strong>{fmt(totalMl)} ml</strong> = {fmt(round2(totalMl / info.ml))} {round2(totalMl / info.ml) === 1 ? 'shot' : 'shots'} de {info.ml} ml</>
-                    : <><strong>{fmt(totalMl)} ml</strong> de líquido en {glass === 'copa' ? 'una' : 'un'} {info.label.toLowerCase()} de {info.ml} ml ({pct} %)</>}
+                    : <><strong>{fmt(totalMl)} ml</strong> de líquido en {glass.startsWith('copa') ? 'una' : 'un'} {info.label.toLowerCase()} de {info.ml} ml ({pct} %)</>}
                 </p>
                 {!isShot && <p className={`text-xs ${pct > 80 ? 'text-red-500' : pct > 62 ? 'text-amber-500' : 'text-muted-foreground'}`}>
                   {pct > 80 ? 'No cabe con hielo: baja alguna cantidad.' : pct > 62 ? 'Queda justo con hielo.' : 'El resto del vaso es hielo.'}
@@ -291,6 +302,47 @@ export function RecetaVisual({ producto, data, wide = false, onCancel, onSaved, 
               <Input value={extraNuevo} onChange={(e) => setExtraNuevo(e.target.value)} placeholder="Otro extra (ej. Borde de Tajín)…"
                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addExtra(); } }} />
               <Button type="button" variant="outline" onClick={addExtra} disabled={!extraNuevo.trim()}><Plus className="h-4 w-4" /></Button>
+            </div>
+          </section>
+
+          {/* Preparación y foto (para el dosier de barra) */}
+          <section>
+            <h3 className="mb-1 text-sm font-semibold">Preparación (sale en el dosier)</h3>
+            {pasos.length === 0 ? (
+              <>
+                <p className="mb-2 text-xs text-muted-foreground">Pasos sugeridos desde la receta. Se actualizan solos si cambias algo.</p>
+                <ol className="mb-2 list-decimal space-y-1 rounded-2xl bg-muted/50 py-2 pl-8 pr-3 text-sm">
+                  {sugeridos.map((p, i) => <li key={i}>{p}</li>)}
+                </ol>
+                <Button type="button" variant="outline" size="sm" onClick={() => setPasos(sugeridos.length ? sugeridos : [''])}>Editar estos pasos</Button>
+              </>
+            ) : (
+              <>
+                <ol className="space-y-1.5">
+                  {pasos.map((p, i) => (
+                    <li key={i} className="flex items-center gap-1.5">
+                      <span className="w-5 shrink-0 text-right text-sm font-bold text-muted-foreground">{i + 1}</span>
+                      <Input value={p} onChange={(e) => setPasos((ps) => ps.map((x, j) => (j === i ? e.target.value : x)))} className="h-10" aria-label={`Paso ${i + 1}`} />
+                      <Button type="button" variant="ghost" size="icon" aria-label="Subir" disabled={i === 0} onClick={() => setPasos((ps) => { const n = [...ps]; [n[i - 1], n[i]] = [n[i], n[i - 1]]; return n; })}><ArrowUp className="h-4 w-4" /></Button>
+                      <Button type="button" variant="ghost" size="icon" aria-label="Bajar" disabled={i === pasos.length - 1} onClick={() => setPasos((ps) => { const n = [...ps]; [n[i + 1], n[i]] = [n[i], n[i + 1]]; return n; })}><ArrowDown className="h-4 w-4" /></Button>
+                      <Button type="button" variant="ghost" size="icon" aria-label="Quitar paso" onClick={() => setPasos((ps) => ps.filter((_, j) => j !== i))}><X className="h-4 w-4" /></Button>
+                    </li>
+                  ))}
+                </ol>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Button type="button" variant="outline" size="sm" disabled={pasos.length >= 12} onClick={() => setPasos((ps) => [...ps, ''])}><Plus className="mr-1 h-4 w-4" /> Paso</Button>
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setPasos([])}>Volver a los sugeridos</Button>
+                </div>
+              </>
+            )}
+            <div className="mt-3 flex items-center gap-3">
+              {foto && (
+                <span className="relative">
+                  <img src={foto} alt={`Foto de ${producto.name}`} className="h-16 w-16 rounded-xl object-cover" />
+                  <button type="button" onClick={() => setFoto(null)} aria-label="Quitar la foto" className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full bg-background shadow"><X className="h-3.5 w-3.5" /></button>
+                </span>
+              )}
+              <CameraCaptureField label={foto ? 'Cambiar foto del trago' : 'Foto del trago'} pathPrefix="tragos" onScanned={setFoto} hidePreview maxSide={900} />
             </div>
           </section>
         </div>
@@ -351,7 +403,7 @@ export function RecetaVisual({ producto, data, wide = false, onCancel, onSaved, 
       <div className="sticky bottom-0 -mx-1 flex items-center gap-2 border-t border-border bg-background/95 px-1 py-3 backdrop-blur">
         {onCancel && <Button type="button" variant="outline" onClick={onCancel} className="h-12 flex-1">Cancelar</Button>}
         <WriteButton type="button" disabled={save.isPending || !dirty} className="h-12 flex-[2] text-base"
-          onClick={() => save.mutate({ ticketTypeId: producto.id, glass, lines: clean, extras, opciones: opciones.filter((g) => g.choices.length > 0) })}>
+          onClick={() => save.mutate({ ticketTypeId: producto.id, glass, lines: clean, extras, opciones: opciones.filter((g) => g.choices.length > 0), pasos: pasos.map((p) => p.trim()).filter(Boolean), foto })}>
           {save.isPending ? 'Guardando…' : emptyNow && hadRecipe && extras.length === 0 ? 'Quitar la receta' : 'Guardar receta'}
         </WriteButton>
       </div>
