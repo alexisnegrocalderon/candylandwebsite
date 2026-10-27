@@ -305,15 +305,72 @@ const round = (n: number) => Math.round(n * 100) / 100;
 
 // --- Consumo y stock ---
 
+/** Opciones que la cajera elige al vender un trago (con qué bebida va, qué variante es): cada opción gasta un insumo
+ * distinto, y `reemplaza` es la línea de la receta (p. ej. «bebida de mezcla») que deja de gastarse al elegirla. */
+export interface OpcionGrupo {
+  id: string;
+  label: string;
+  reemplaza: number | null;
+  choices: { id: string; label: string; insumoId: number; amount: number }[];
+}
+
+/** Las opciones guardadas en el JSON `metadata` de un producto (descarta lo mal formado). */
+export function opcionesDeMetadata(metadata: unknown): OpcionGrupo[] {
+  let obj: unknown = metadata;
+  if (typeof obj === 'string') { try { obj = JSON.parse(obj); } catch { return []; } }
+  const raw = obj && typeof obj === 'object' && !Array.isArray(obj) ? (obj as { opciones?: unknown }).opciones : null;
+  if (!Array.isArray(raw)) return [];
+  const out: OpcionGrupo[] = [];
+  for (const g of raw.slice(0, 5)) {
+    if (!g || typeof g !== 'object') continue;
+    const o = g as Record<string, any>;
+    const choices = (Array.isArray(o.choices) ? o.choices : []).slice(0, 12).flatMap((c: any) => (
+      c && typeof c.id === 'string' && typeof c.label === 'string' && Number.isFinite(Number(c.insumoId)) && Number(c.amount) > 0
+        ? [{ id: c.id.slice(0, 40), label: c.label.slice(0, 40), insumoId: Number(c.insumoId), amount: Number(c.amount) }] : []));
+    if (typeof o.id !== 'string' || choices.length === 0) continue;
+    out.push({ id: o.id.slice(0, 40), label: String(o.label ?? 'Opción').slice(0, 40), reemplaza: Number.isFinite(Number(o.reemplaza)) && o.reemplaza !== null ? Number(o.reemplaza) : null, choices });
+  }
+  return out;
+}
+
+/** El `metadata` del producto con estas opciones, sin tocar lo demás (`null` si queda vacío). */
+export function metadataConOpciones(metadata: unknown, opciones: OpcionGrupo[]): Record<string, unknown> | null {
+  let obj: unknown = metadata;
+  if (typeof obj === 'string') { try { obj = JSON.parse(obj); } catch { obj = null; } }
+  const base: Record<string, unknown> = obj && typeof obj === 'object' && !Array.isArray(obj) ? { ...(obj as Record<string, unknown>) } : {};
+  const clean = opcionesDeMetadata({ opciones });
+  if (clean.length) base.opciones = clean; else delete base.opciones;
+  return Object.keys(base).length ? base : null;
+}
+
+/** Receta de un trago con sus opciones ya elegidas: quita lo que reemplazan y suma lo elegido. Si no se eligió nada
+ * de un grupo, queda la receta base (así un trago sin elección igual descuenta algo). */
+export function recetaConOpciones(
+  lines: { insumoId: number; amount: number }[],
+  grupos: OpcionGrupo[] | undefined,
+  elegidas: string[] | undefined,
+): { insumoId: number; amount: number }[] {
+  if (!grupos?.length || !elegidas?.length) return lines;
+  let out = lines;
+  for (const g of grupos) {
+    const c = g.choices.find((x) => elegidas.includes(x.id));
+    if (!c) continue;
+    if (g.reemplaza != null) out = out.filter((l) => l.insumoId !== g.reemplaza);
+    out = [...out, { insumoId: c.insumoId, amount: c.amount }];
+  }
+  return out;
+}
+
 /** Lo que gasta una venta, sumado por insumo (dos tragos con ron = un solo
  * movimiento de ron). `delta` va negativo: es lo que sale del stock. */
 export function consumoDeVenta(
-  items: { ticketTypeId: number; quantity: number }[],
+  items: { ticketTypeId: number; quantity: number; opciones?: string[] }[],
   recetas: RecetaLinea[],
+  opciones?: Record<number, OpcionGrupo[]> | null,
 ): { insumoId: number; delta: number }[] {
   const byInsumo = new Map<number, number>();
   for (const item of items) {
-    for (const r of recetaDe(recetas, item.ticketTypeId).lines) {
+    for (const r of recetaConOpciones(recetaDe(recetas, item.ticketTypeId).lines, opciones?.[item.ticketTypeId], item.opciones)) {
       if (!(r.amount > 0)) continue;
       byInsumo.set(r.insumoId, (byInsumo.get(r.insumoId) ?? 0) + r.amount * item.quantity);
     }

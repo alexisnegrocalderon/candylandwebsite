@@ -89,6 +89,9 @@ export function RecetasTab({ data, onChanged }: { data: BarraData; onChanged: ()
                           return <span key={r.insumoId} className="rounded-full bg-muted px-2 py-0.5 text-xs">{ins?.name ?? '¿?'} <strong>{formatPorcion(r.amount, ins?.unit ?? 'ml').replace(/ \(.*\)$/, '')}</strong></span>;
                         })}
                       </span>
+                      {(p.opciones ?? []).map((g) => (
+                        <span key={g.id} className="rounded-xl bg-primary/10 px-2 py-1 text-xs"><strong>{g.label}:</strong> {g.choices.map((c) => c.label).join(' · ')}</span>
+                      ))}
                       {(p.extras ?? []).length > 0 && (
                         <span className="flex flex-wrap gap-1">
                           {(p.extras ?? []).map((e) => <span key={e} className="rounded-full border border-dashed border-border px-2 py-0.5 text-xs text-muted-foreground">+ {e}</span>)}

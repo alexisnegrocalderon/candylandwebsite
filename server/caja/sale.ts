@@ -58,7 +58,7 @@ export async function createCajaSale(
     eventId: number;
     operatorId: number;
     registerId?: number | null;
-    items: { ticketTypeId: number; quantity: number }[];
+    items: { ticketTypeId: number; quantity: number; opciones?: string[] }[];
     // 'saldo' (pedido explícito del dueño): cubre el 100% del total o
     // rechaza la venta ANTES de crearla -- nunca combinado con otro medio,
     // nunca parcial. Requiere buyerEmail+cardPin. A diferencia de los demás

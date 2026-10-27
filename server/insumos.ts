@@ -17,7 +17,7 @@ import { insumoSchemaStatus } from "./schemaUpdates";
 import { personasForTicket } from "../shared/mission300";
 import { DOSIER_INSUMOS, DOSIER_SUPUESTOS, planDosier } from "../shared/dosier";
 import {
-  DEFAULT_GLASS, aplicarUso, conteoATotal, extrasDeMetadata, metadataConExtras, metadataConSinInsumos, productoSinInsumos, TIPOS_PRODUCTO, type TipoProducto, consumoDeVenta, descuadre, detalleATotal, insumoSizes, recetaDe, nivelInsumo, normalizeName, proyeccionCompra, tragosDisponibles, tragosPorInsumo,
+  DEFAULT_GLASS, aplicarUso, conteoATotal, extrasDeMetadata, metadataConExtras, metadataConOpciones, opcionesDeMetadata, recetaConOpciones, type OpcionGrupo, metadataConSinInsumos, productoSinInsumos, TIPOS_PRODUCTO, type TipoProducto, consumoDeVenta, descuadre, detalleATotal, insumoSizes, recetaDe, nivelInsumo, normalizeName, proyeccionCompra, tragosDisponibles, tragosPorInsumo,
   OPEN_PORTIONS, type ConteoDetalle, type Insumo, type InsumoUnit, type MovimientoKind, type RecetaLinea,
 } from "../shared/insumos";
 
@@ -126,12 +126,15 @@ export async function estadoBarra(eventId: number) {
       // Cada trago viene en su vaso (vaso, copa o shot) y tiene una sola receta.
       const { glass, lines } = recetaDe(recetas, p.id);
       const receta = lines.map((r) => ({ insumoId: r.insumoId, amount: r.amount }));
-      const left = tragosDisponibles(receta, stock);
+      const opciones = opcionesDeMetadata(p.metadata);
+      // «Quedan ~N» no cuenta lo que las opciones reemplazan (la bebida de mezcla genérica): la bebida la elige la cajera.
+      const left = tragosDisponibles(receta.filter((l) => !opciones.some((g) => g.reemplaza === l.insumoId)), stock);
       return {
         id: p.id as number, name: p.name as string, groupName: (p.groupName as string | null) ?? null, emoji: (p.emoji as string | null) ?? null,
         glass, receta, drinks: left?.drinks ?? null, limitingInsumoId: left?.limitingInsumoId ?? null,
         // Lo que lleva sin medida (borde de Tajín, hielo frappé…): solo anotado en el producto.
         extras: extrasDeMetadata(p.metadata),
+        opciones,
         // Cigarros, merch, comida…: se venden solos, no piden receta. «oculto» = ya no va en la carta.
         sinInsumos: productoSinInsumos(p.category, p.groupName, p.metadata),
         oculto: p.status === 'hidden',
@@ -145,16 +148,25 @@ export async function estadoBarra(eventId: number) {
 export async function cajaInsumoSnapshot(eventId: number): Promise<{
   insumos: { id: number; name: string; unit: InsumoUnit; containerSize: number; containerLabel: string; stock: number; alertDrinks: number }[];
   recetas: RecetaLinea[];
+  opciones: Record<number, OpcionGrupo[]>;
 } | null> {
   try {
     if (!(await ready())) return null;
     const db = await dbOrThrow();
-    const [all, stock, recetas] = await Promise.all([listInsumos(), stockMap(db), recetasDelEvento(eventId, db)]);
+    const [all, stock, todas, tipos] = await Promise.all([
+      listInsumos(), stockMap(db), recetasDelEvento(eventId, db),
+      db.select({ id: ticketTypes.id, metadata: ticketTypes.metadata }).from(ticketTypes).where(eq(ticketTypes.eventId, eventId)),
+    ]);
+    const opciones: Record<number, OpcionGrupo[]> = {};
+    for (const t of tipos as any[]) { const g = opcionesDeMetadata(t.metadata); if (g.length) opciones[t.id] = g; }
+    // Lo que una opción reemplaza no entra al «quedan ~N» de la caja (la bebida la elige la cajera).
+    const recetas = todas.filter((r) => !opciones[r.ticketTypeId]?.some((g) => g.reemplaza === r.insumoId));
     return {
       insumos: all.map((i) => ({
         id: i.id, name: i.name, unit: i.unit, containerSize: i.containerSize, containerLabel: i.containerLabel, stock: stock.get(i.id) ?? 0, alertDrinks: i.alertDrinks,
       })),
       recetas,
+      opciones,
     };
   } catch (err) {
     console.error("[insumos] snapshot:", err);
@@ -218,12 +230,17 @@ export async function setProductoOculto(ticketTypeId: number, oculto: boolean) {
 
 /** Reemplaza la receta de un trago. El vaso es del producto (cada trago viene en el suyo):
  * se cambian todas las líneas juntas, así nunca quedan recetas de dos vasos. */
-export async function setReceta(ticketTypeId: number, glass: string, lines: { insumoId: number; amount: number }[], extras?: string[]) {
+export async function setReceta(ticketTypeId: number, glass: string, lines: { insumoId: number; amount: number }[], extras?: string[], opciones?: OpcionGrupo[]) {
   const db = await dbOrThrow();
   // Los extras sin medida (Tajín, hielo…) van en el metadata del producto, sin tocar lo demás que tenga. Sin `extras` no se cambian.
   if (extras !== undefined) {
     const [row] = await db.select({ metadata: ticketTypes.metadata }).from(ticketTypes).where(eq(ticketTypes.id, ticketTypeId)).limit(1);
     if (row) await db.update(ticketTypes).set({ metadata: metadataConExtras(row.metadata, extras) }).where(eq(ticketTypes.id, ticketTypeId));
+  }
+  // Opciones al vender (con qué bebida va…): también en el metadata del producto. Sin `opciones` no se cambian.
+  if (opciones !== undefined) {
+    const [row] = await db.select({ metadata: ticketTypes.metadata }).from(ticketTypes).where(eq(ticketTypes.id, ticketTypeId)).limit(1);
+    if (row) await db.update(ticketTypes).set({ metadata: metadataConOpciones(row.metadata, opciones) }).where(eq(ticketTypes.id, ticketTypeId));
   }
   await db.delete(insumoRecetas).where(eq(insumoRecetas.ticketTypeId, ticketTypeId));
   const clean = new Map<number, number>();
@@ -336,13 +353,16 @@ async function isTestEvent(db: any, eventId: number): Promise<boolean> {
 
 /** Descuenta los insumos de una venta. Idempotente por opId (índice único) y
  * nunca lanza: un insumo mal cargado no puede frenar un cobro. */
-export async function descontarVenta(db: any, params: { opId: string; eventId: number; operatorId: number; items: { ticketTypeId: number; quantity: number }[] }) {
+export async function descontarVenta(db: any, params: { opId: string; eventId: number; operatorId: number; items: { ticketTypeId: number; quantity: number; opciones?: string[] }[] }) {
   try {
     if (!(await ready()) || (await isTestEvent(db, params.eventId))) return;
     const ids = params.items.map((i) => i.ticketTypeId);
     const rows = await db.select().from(insumoRecetas).where(inArray(insumoRecetas.ticketTypeId, ids));
     const recetas: RecetaLinea[] = rows.map((r: any) => ({ ticketTypeId: r.ticketTypeId, insumoId: r.insumoId, amount: n(r.amount), glass: (r.glass as string) || DEFAULT_GLASS }));
-    const consumo = consumoDeVenta(params.items, recetas);
+    const tipos = await db.select({ id: ticketTypes.id, metadata: ticketTypes.metadata }).from(ticketTypes).where(inArray(ticketTypes.id, ids));
+    const opciones: Record<number, OpcionGrupo[]> = {};
+    for (const t of tipos) { const g = opcionesDeMetadata(t.metadata); if (g.length) opciones[t.id] = g; }
+    const consumo = consumoDeVenta(params.items, recetas, opciones);
     if (consumo.length === 0) return;
     await db.insert(insumoMovimientos).values(consumo.map((c) => ({
       insumoId: c.insumoId, kind: "venta" as const, delta: String(c.delta), eventId: params.eventId, opId: params.opId, operatorId: params.operatorId,

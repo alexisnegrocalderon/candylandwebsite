@@ -3,7 +3,7 @@ import { formatKitchenTicketNumber } from '@shared/kitchen';
 import { formatLockerTagNumber } from '@shared/locker';
 import { personasForTicket } from '@shared/mission300';
 import { vipParkingCounts, type DoorParkingOption } from '@shared/parking';
-import { consumoDeVenta, type InsumoUnit, type RecetaLinea } from '@shared/insumos';
+import { consumoDeVenta, type InsumoUnit, type OpcionGrupo, type RecetaLinea } from '@shared/insumos';
 
 /* Snapshot local + cola de operaciones para el modo offline de /caja
  * (docs/ARQUITECTURA-CAJA.md §6.2-§6.3). Todo lo que la tablet necesita para
@@ -49,6 +49,8 @@ export interface CajaCatalogItem {
    * carga el admin en la Carta de la Fiesta. */
   description: string | null;
   category: string;
+  /** Con qué va / qué variante es: se elige al vender y descuenta el insumo elegido. */
+  opciones?: OpcionGrupo[];
   /** 'soldout' = botón de emergencia de cocina o admin -- bloquea la venta
    * de verdad en la tarjeta, a diferencia del aviso suave de `totalStock -
    * soldCount <= 0`. 'hidden' no llega acá (getCajaSnapshot lo excluye). */
@@ -95,7 +97,7 @@ export type QueuedOp =
   | { opId: string; type: 'checkin'; ticketCode: string; clientAt: string; /** La puerta tocó «Verifiqué las cédulas» (queda en el ledger). */ idVerified?: boolean }
   | { opId: string; type: 'parking_paid'; ticketCode: string; paymentMethod: 'efectivo' | 'debito' | 'credito'; ticketTypeId?: number; clientAt: string }
   | {
-      opId: string; type: 'sale'; items: { ticketTypeId: number; quantity: number }[];
+      opId: string; type: 'sale'; items: { ticketTypeId: number; quantity: number; opciones?: string[] }[];
       paymentMethod: 'efectivo' | 'debito' | 'credito' | 'qr'; clientAt: string;
       // Playcoins (pedido explícito del usuario): captura opcional del email
       // del cliente para que la venta también gane puntos, y canje opcional
@@ -247,6 +249,8 @@ export interface DoorStaff { code: string; name: string; role: string | null }
 export interface CajaBarra {
   insumos: { id: number; name: string; unit: InsumoUnit; containerSize: number; containerLabel: string; stock: number; alertDrinks: number }[];
   recetas: RecetaLinea[];
+  /** Opciones al vender por producto (con qué bebida va…): para el descuento local. */
+  opciones?: Record<number, OpcionGrupo[]>;
 }
 
 /** `null` si el evento no usa insumos (o la base todavía no tiene las tablas). */
@@ -476,7 +480,7 @@ async function applyOptimistic(op: QueuedOp) {
     // Y gasta los insumos de su receta: dos tragos con ron bajan el mismo ron.
     const barra = await getLocalBarra();
     if (barra) {
-      const used = new Map(consumoDeVenta(op.items, barra.recetas).map((c) => [c.insumoId, c.delta]));
+      const used = new Map(consumoDeVenta(op.items, barra.recetas, barra.opciones).map((c) => [c.insumoId, c.delta]));
       if (used.size > 0) {
         await cajaDB.meta.put({ key: 'barra', value: { ...barra, insumos: barra.insumos.map((i) => ({ ...i, stock: i.stock + (used.get(i.id) ?? 0) })) } });
       }

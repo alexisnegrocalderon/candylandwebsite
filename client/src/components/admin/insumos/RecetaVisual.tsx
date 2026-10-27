@@ -7,9 +7,10 @@ import { Input } from '@/components/ui/input';
 import { WriteButton } from '@/components/admin/WriteButton';
 import {
   CATEGORIAS_INSUMO, EXTRAS_SUGERIDOS, GLASSES, HIELOS, JIGGERS_RAPIDOS, JIGGER_ML, ML_RAPIDOS, cantidadInicial, categoriaInsumo, conHielo, esJiggerExacto, glassInfo, insumosParecidos, jiggersAMl, mlAJiggers,
-  type CategoriaInsumo, type GlassId, type InsumoUnit,
+  type CategoriaInsumo, type GlassId, type InsumoUnit, type OpcionGrupo,
 } from '@shared/insumos';
 import { NuevoInsumo } from './NuevoInsumo';
+import { OpcionesEditor } from './OpcionesEditor';
 import type { BarraData, BarraProducto } from './types';
 
 /** Una línea de la receta: `value` está en jiggers (si `jigger`) o en la unidad del insumo (ml, un). Se guarda siempre en ml. */
@@ -56,6 +57,9 @@ export function RecetaVisual({ producto, data, wide = false, onCancel, onSaved, 
   const extrasIniciales = producto.extras ?? [];
   const [extras, setExtras] = useState<string[]>(extrasIniciales);
   const [extraNuevo, setExtraNuevo] = useState('');
+  // Opciones al vender (con qué bebida va, qué variante es): la cajera elige en /caja y se descuenta el insumo elegido.
+  const opcionesIniciales = producto.opciones ?? [];
+  const [opciones, setOpciones] = useState<OpcionGrupo[]>(opcionesIniciales);
 
   const utils = trpc.useUtils();
   const crearInsumo = trpc.insumos.save.useMutation({
@@ -121,14 +125,14 @@ export function RecetaVisual({ producto, data, wide = false, onCancel, onSaved, 
   const emptyNow = clean.length === 0;
 
   // ¿Hay cambios sin guardar? (comparado con la receta que viene del servidor)
-  const initialKey = JSON.stringify([producto.glass || 'vaso', producto.receta.map((r) => [r.insumoId, round2(r.amount)]), [...extrasIniciales].sort()]);
-  const nowKey = JSON.stringify([glass, clean.map((l) => [l.insumoId, round2(l.amount)]), [...extras].sort()]);
-  const dirty = nowKey !== initialKey && !(emptyNow && !hadRecipe && extras.length === 0 && extrasIniciales.length === 0);
-  const latest = useRef({ glass, clean, extras });
-  latest.current = { glass, clean, extras };
+  const initialKey = JSON.stringify([producto.glass || 'vaso', producto.receta.map((r) => [r.insumoId, round2(r.amount)]), [...extrasIniciales].sort(), opcionesIniciales]);
+  const nowKey = JSON.stringify([glass, clean.map((l) => [l.insumoId, round2(l.amount)]), [...extras].sort(), opciones]);
+  const dirty = nowKey !== initialKey && !(emptyNow && !hadRecipe && extras.length === 0 && extrasIniciales.length === 0 && opciones.length === 0 && opcionesIniciales.length === 0);
+  const latest = useRef({ glass, clean, extras, opciones });
+  latest.current = { glass, clean, extras, opciones };
   useEffect(() => {
     if (!registerSave) return;
-    registerSave(dirty ? () => save.mutateAsync({ ticketTypeId: producto.id, glass: latest.current.glass, lines: latest.current.clean, extras: latest.current.extras }) : null);
+    registerSave(dirty ? () => save.mutateAsync({ ticketTypeId: producto.id, glass: latest.current.glass, lines: latest.current.clean, extras: latest.current.extras, opciones: latest.current.opciones.filter((g) => g.choices.length > 0) }) : null);
     return () => registerSave(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dirty, registerSave, producto.id]);
@@ -260,6 +264,8 @@ export function RecetaVisual({ producto, data, wide = false, onCancel, onSaved, 
             )}
           </section>
 
+          <OpcionesEditor grupos={opciones} onChange={setOpciones} insumos={Array.from(insumoById.values())} lineas={clean} />
+
           {/* Extras sin medida */}
           <section>
             <h3 className="mb-1 text-sm font-semibold">Extras (sin medida)</h3>
@@ -345,7 +351,7 @@ export function RecetaVisual({ producto, data, wide = false, onCancel, onSaved, 
       <div className="sticky bottom-0 -mx-1 flex items-center gap-2 border-t border-border bg-background/95 px-1 py-3 backdrop-blur">
         {onCancel && <Button type="button" variant="outline" onClick={onCancel} className="h-12 flex-1">Cancelar</Button>}
         <WriteButton type="button" disabled={save.isPending || !dirty} className="h-12 flex-[2] text-base"
-          onClick={() => save.mutate({ ticketTypeId: producto.id, glass, lines: clean, extras })}>
+          onClick={() => save.mutate({ ticketTypeId: producto.id, glass, lines: clean, extras, opciones: opciones.filter((g) => g.choices.length > 0) })}>
           {save.isPending ? 'Guardando…' : emptyNow && hadRecipe && extras.length === 0 ? 'Quitar la receta' : 'Guardar receta'}
         </WriteButton>
       </div>

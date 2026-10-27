@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  metadataConOpciones, opcionesDeMetadata,
   productoSinInsumos, metadataConSinInsumos,
   consumoDeVenta, conteoATotal, descuadre, descuadreAlerts, formatCantidad, insumoRitmoAlerts, insumoStockAlerts,
   listaComprasTexto, nivelInsumo, proyeccionCompra, stockActual, tragosDisponibles, tragosPorInsumo, type Insumo, type RecetaLinea,
@@ -462,5 +463,33 @@ describe('productoSinInsumos', () => {
     expect(productoSinInsumos('consumo', 'Gin', { sinInsumos: true })).toBe(true);
     expect(productoSinInsumos('merch', 'Merch', '{"sinInsumos":false}')).toBe(false);
     expect(metadataConSinInsumos({ extras: ['x'] }, true)).toEqual({ extras: ['x'], sinInsumos: true });
+  });
+});
+
+describe('opciones al vender', () => {
+  const recetas = [
+    { ticketTypeId: 1, insumoId: 10, amount: 90 }, // pisco
+    { ticketTypeId: 1, insumoId: 20, amount: 200 }, // bebida de mezcla
+  ] as any;
+  const grupos = { 1: [{ id: 'g', label: 'Acompañante', reemplaza: 20, choices: [
+    { id: 'g-30', label: 'Coca Cola', insumoId: 30, amount: 200 }, { id: 'g-31', label: 'Sprite', insumoId: 31, amount: 200 },
+  ] }] };
+  it('la bebida elegida reemplaza a la de mezcla', () => {
+    const r = consumoDeVenta([{ ticketTypeId: 1, quantity: 2, opciones: ['g-31'] }], recetas, grupos);
+    expect(r).toEqual([{ insumoId: 10, delta: -180 }, { insumoId: 31, delta: -400 }]);
+  });
+  it('dos elecciones distintas del mismo trago descuentan cada una lo suyo', () => {
+    const r = consumoDeVenta([{ ticketTypeId: 1, quantity: 1, opciones: ['g-30'] }, { ticketTypeId: 1, quantity: 1, opciones: ['g-31'] }], recetas, grupos);
+    expect(r.find((x) => x.insumoId === 30)?.delta).toBe(-200);
+    expect(r.find((x) => x.insumoId === 31)?.delta).toBe(-200);
+    expect(r.find((x) => x.insumoId === 10)?.delta).toBe(-180);
+  });
+  it('sin elección queda la receta base', () => {
+    expect(consumoDeVenta([{ ticketTypeId: 1, quantity: 1 }], recetas, grupos).map((x) => x.insumoId)).toEqual([10, 20]);
+  });
+  it('el metadata guarda y descarta lo mal formado', () => {
+    const m = metadataConOpciones({ extras: ['x'] }, grupos[1] as any);
+    expect(opcionesDeMetadata(m)).toEqual(grupos[1]);
+    expect(opcionesDeMetadata({ opciones: [{ id: 'a', choices: [{ id: 'z' }] }] })).toEqual([]);
   });
 });

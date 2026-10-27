@@ -1295,7 +1295,7 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
   // no lo necesitan, se encolan igual offline.
   isOnline: boolean;
   onSale: (
-    items: { ticketTypeId: number; quantity: number }[],
+    items: { ticketTypeId: number; quantity: number; opciones?: string[] }[],
     paymentMethod: 'efectivo' | 'debito' | 'credito' | 'qr' | 'saldo',
     buyerEmail?: string,
     redeemPlaycoins?: number,
@@ -1310,6 +1310,10 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
 }) {
   const [catalog, setCatalog] = useState<CajaCatalogItem[]>([]);
   const [cart, setCart] = useState<Record<number, number>>({});
+  // Tragos con opciones (con qué bebida va…): cuántos van de cada elección, para descontar el insumo correcto.
+  const [combos, setCombos] = useState<Record<number, Record<string, number>>>({});
+  const [picking, setPicking] = useState<CajaCatalogItem | null>(null);
+  const [pickSel, setPickSel] = useState<Record<string, string>>({});
   // Arranca con el último medio usado en ESTA tablet (en barra se repite
   // casi siempre el mismo); 'saldo' nunca, porque exige datos del cliente.
   const [paymentMethod, setPaymentMethod] = useState<'efectivo' | 'debito' | 'credito' | 'qr' | 'saldo'>(() => {
@@ -1517,8 +1521,23 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
   const tooManyLockers = lockerQty > 1;
   const hasKitchenItems = cartLines.some((p) => p.toKitchen);
 
-  const add = (id: number) => setCart((c) => ({ ...c, [id]: (c[id] || 0) + 1 }));
+  const addPlain = (id: number) => setCart((c) => ({ ...c, [id]: (c[id] || 0) + 1 }));
+  // Un trago con opciones pregunta primero cuál (con qué bebida va, qué variante).
+  const add = (id: number) => {
+    const p = catalog.find((x) => x.id === id);
+    if (p?.opciones?.length) { setPickSel({}); setPicking(p); return; }
+    addPlain(id);
+  };
   const remove = (id: number) => setCart((c) => ({ ...c, [id]: Math.max(0, (c[id] || 0) - 1) }));
+  const addCombo = (id: number, key: string) => {
+    setCart((c) => ({ ...c, [id]: (c[id] || 0) + 1 }));
+    setCombos((m) => ({ ...m, [id]: { ...m[id], [key]: (m[id]?.[key] || 0) + 1 } }));
+  };
+  const removeCombo = (id: number, key: string) => {
+    setCart((c) => ({ ...c, [id]: Math.max(0, (c[id] || 0) - 1) }));
+    setCombos((m) => ({ ...m, [id]: { ...m[id], [key]: Math.max(0, (m[id]?.[key] || 0) - 1) } }));
+  };
+  const comboLabel = (p: CajaCatalogItem, key: string) => key.split('|').map((cid) => p.opciones?.flatMap((g) => g.choices).find((c) => c.id === cid)?.label).filter(Boolean).join(' + ');
   const onToggleFavorite = (id: number) => setFavorites(toggleFavorite(id));
 
   // Pestañas por sección (groupName), con la categoría como respaldo para
@@ -1685,7 +1704,13 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
   };
 
   const runConfirm = async (method: 'efectivo' | 'debito' | 'credito' | 'qr' | 'saldo' = paymentMethod) => {
-    const cartItems = Object.entries(cart).filter(([, q]) => q > 0).map(([ticketTypeId, quantity]) => ({ ticketTypeId: Number(ticketTypeId), quantity }));
+    // Un trago con opciones sale en una línea por elección (cada una descuenta su insumo).
+    const cartItems = Object.entries(cart).filter(([, q]) => q > 0).flatMap(([ticketTypeId, quantity]) => {
+      const byCombo = Object.entries(combos[Number(ticketTypeId)] ?? {}).filter(([, q]) => q > 0);
+      return byCombo.length > 0
+        ? byCombo.map(([key, q]) => ({ ticketTypeId: Number(ticketTypeId), quantity: q, opciones: key.split('|') }))
+        : [{ ticketTypeId: Number(ticketTypeId), quantity }];
+    });
     // Pagando con saldo no se combina con canje de Playcoins -- no se
     // mezclan los dos saldos en una misma venta (decisión explícita del
     // dueño).
@@ -1726,6 +1751,7 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
     getLocalBarra().then(setBarra);
     setCartOpen(false);
     setCart({});
+    setCombos({});
     setBuyerEmail('');
     setBalance(null);
     setRedeemInput('');
@@ -1778,8 +1804,48 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
     setRedeemInput('');
   };
 
+  const pickGroups = picking?.opciones ?? [];
+  const pickDone = pickGroups.length > 0 && pickGroups.every((g) => pickSel[g.id]);
+  const confirmPick = (sel: Record<string, string>) => {
+    if (!picking) return;
+    addCombo(picking.id, pickGroups.map((g) => sel[g.id]).filter(Boolean).sort().join('|'));
+    setPicking(null);
+  };
+
   return (
     <div className="h-full flex flex-col gap-5">
+      {picking && (
+        <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/70 p-3 backdrop-blur-sm sm:items-center" onClick={() => setPicking(null)}>
+          <div role="dialog" aria-label={`Elegir opción de ${picking.name}`} onClick={(e) => e.stopPropagation()}
+            className="admin-glass-sheet w-full max-w-lg space-y-4 rounded-3xl p-5 pb-[max(env(safe-area-inset-bottom),1.25rem)]">
+            <div className="flex items-center gap-2">
+              <span className="text-3xl">{picking.emoji || '🍹'}</span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-lg font-bold">{picking.name}</p>
+                <p className="text-sm text-white/60">${picking.price.toLocaleString('es-CL')}</p>
+              </div>
+              <button type="button" onClick={() => setPicking(null)} aria-label="Cancelar" className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10"><X className="h-5 w-5" /></button>
+            </div>
+            {pickGroups.map((g) => (
+              <div key={g.id}>
+                <p className="mb-2 text-sm font-semibold text-white/80">{g.label}</p>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {g.choices.map((c) => (
+                    <button key={c.id} type="button" aria-pressed={pickSel[g.id] === c.id}
+                      onClick={() => (pickGroups.length === 1 ? confirmPick({ [g.id]: c.id }) : setPickSel((m) => ({ ...m, [g.id]: c.id })))}
+                      className={`min-h-[3.5rem] rounded-2xl border-2 px-3 py-2 text-base font-semibold active:scale-95 ${pickSel[g.id] === c.id ? 'border-primary bg-primary/20' : 'border-white/15 bg-white/5'}`}>
+                      {c.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+            {pickGroups.length > 1 && (
+              <button type="button" disabled={!pickDone} onClick={() => confirmPick(pickSel)} className="h-12 w-full rounded-2xl bg-primary text-base font-bold text-white disabled:opacity-40">Agregar</button>
+            )}
+          </div>
+        </div>
+      )}
       <div className="shrink-0 flex items-center justify-between gap-3">
         <h2 className="text-xl font-bold">Nueva venta</h2>
         {catalog.length > 0 && (
@@ -2034,7 +2100,23 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
 
             {/* Líneas del carrito -- el stepper +/- vive acá, ya no en la tarjeta del producto. */}
             <div className="space-y-1.5 flex-1 min-h-24 overflow-y-auto overscroll-contain">
-              {hasItems ? cartLines.map((p) => (
+              {hasItems ? cartLines.flatMap((p): (CajaCatalogItem | { p: CajaCatalogItem; key: string; q: number })[] => {
+                const rows = Object.entries(combos[p.id] ?? {}).filter(([, q]) => q > 0);
+                if (rows.length === 0) return [p];
+                return rows.map(([key, q]) => ({ p, key, q }));
+              }).map((row) => { if ('key' in row) return (
+                <div key={`${row.p.id}:${row.key}`} className="flex items-center justify-between gap-2 text-sm">
+                  <div className="min-w-0">
+                    <p className="truncate">{row.p.emoji ? `${row.p.emoji} ` : ''}{row.p.name}</p>
+                    <p className="text-xs text-amber-300 truncate">con {comboLabel(row.p, row.key)} · ${(row.p.price * row.q).toLocaleString('es-CL')}</p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button onClick={() => removeCombo(row.p.id, row.key)} aria-label={`Quitar un ${row.p.name} con ${comboLabel(row.p, row.key)}`} className="admin-tile w-11 h-11 rounded-full text-xl leading-none">−</button>
+                    <span className="font-bold w-6 text-center tabular-nums">{row.q}</span>
+                    <button onClick={() => addCombo(row.p.id, row.key)} aria-label={`Agregar otro ${row.p.name} con ${comboLabel(row.p, row.key)}`} className="admin-tile w-11 h-11 rounded-full text-xl leading-none">+</button>
+                  </div>
+                </div>
+              ); const p = row; return (
                 <div key={p.id} className="flex items-center justify-between gap-2 text-sm">
                   <div className="min-w-0">
                     <p className="truncate">{p.emoji ? `${p.emoji} ` : ''}{p.name}</p>
@@ -2046,7 +2128,7 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
                     <button onClick={() => add(p.id)} aria-label={`Agregar un ${p.name}`} className="admin-tile w-11 h-11 rounded-full text-xl leading-none">+</button>
                   </div>
                 </div>
-              )) : (
+              ); }) : (
                 <p className="text-sm text-white/60 text-center py-3">Carrito vacío -- toca un producto para agregarlo.</p>
               )}
             </div>

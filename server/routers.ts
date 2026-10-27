@@ -6156,7 +6156,12 @@ export const appRouter = router({
       ticketTypeId: z.number(), glass: z.enum(['vaso', 'copa', 'shot', 'botella']), lines: z.array(z.object({ insumoId: z.number(), amount: z.number().min(0).max(100_000) })).max(30),
       // Extras sin medida (borde de Tajín, hielo frappé…): solo anotados en el producto.
       extras: z.array(z.string().trim().min(1).max(60)).max(20).optional(),
-    })).mutation(({ input }) => insumoSvc.setReceta(input.ticketTypeId, input.glass, input.lines, input.extras)),
+      // Opciones que la cajera elige al vender (con qué bebida va, qué variante es).
+      opciones: z.array(z.object({
+        id: z.string().min(1).max(40), label: z.string().trim().min(1).max(40), reemplaza: z.number().nullable(),
+        choices: z.array(z.object({ id: z.string().min(1).max(40), label: z.string().trim().min(1).max(40), insumoId: z.number(), amount: z.number().positive().max(100_000) })).min(1).max(12),
+      })).max(5).optional(),
+    })).mutation(({ input }) => insumoSvc.setReceta(input.ticketTypeId, input.glass, input.lines, input.extras, input.opciones)),
     movimiento: adminProcedure.input(z.object({
       insumoId: z.number(), kind: z.enum(['carga', 'compra', 'merma', 'ajuste']), amount: z.number().min(-10_000_000).max(10_000_000),
       eventId: z.number().nullable().optional(), note: z.string().max(255).optional(),
@@ -6309,7 +6314,7 @@ export const appRouter = router({
         z.object({ type: z.literal('checkin'), opId: z.string(), ticketCode: z.string(), clientAt: z.string() }),
         z.object({
           type: z.literal('sale'), opId: z.string(),
-          items: z.array(z.object({ ticketTypeId: z.number(), quantity: z.number().min(1) })).min(1),
+          items: z.array(z.object({ ticketTypeId: z.number(), quantity: z.number().min(1), opciones: z.array(z.string().max(40)).max(5).optional() })).min(1),
           paymentMethod: z.enum(['efectivo', 'debito', 'credito', 'qr']),
           buyerEmail: z.string().email().optional(),
           redeemPlaycoins: z.number().int().min(0).optional(),
@@ -6631,7 +6636,7 @@ export const appRouter = router({
     sale: operatorProcedure.input(z.object({
       opId: z.string(),
       eventId: z.number(),
-      items: z.array(z.object({ ticketTypeId: z.number(), quantity: z.number().min(1) })).min(1),
+      items: z.array(z.object({ ticketTypeId: z.number(), quantity: z.number().min(1), opciones: z.array(z.string().max(40)).max(5).optional() })).min(1),
       paymentMethod: z.enum(['efectivo', 'debito', 'credito', 'qr', 'saldo']),
       registerId: z.number().optional(),
       buyerEmail: z.string().email().optional(),
