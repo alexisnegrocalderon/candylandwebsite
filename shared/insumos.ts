@@ -43,11 +43,13 @@ export interface RecetaLinea {
 
 /** Vasos en que sale un trago. Cada trago viene en su vaso (unos en vaso, otros en copa, otros en shot)
  * y se define en su receta: no es una opción que elija el cliente al comprar. */
-export type GlassId = 'vaso' | 'copa' | 'shot';
+export type GlassId = 'vaso' | 'copa' | 'shot' | 'botella';
 export const GLASSES: { id: GlassId; label: string; ml: number; emoji: string }[] = [
   { id: 'vaso', label: 'Vaso', ml: 500, emoji: '🥃' },
   { id: 'copa', label: 'Copa', ml: 400, emoji: '🍷' },
   { id: 'shot', label: 'Shot', ml: 30, emoji: '🥂' },
+  // Lo que se vende tal cual, en su botella o lata (cerveza, bebida, energética): no se sirve en un vaso.
+  { id: 'botella', label: 'Botella o lata', ml: 0, emoji: '🍺' },
 ];
 export const DEFAULT_GLASS: GlassId = 'vaso';
 
@@ -142,6 +144,19 @@ export function aplicarUso(
     changes.push({ ticketTypeId, glass: lines.length ? glass : DEFAULT_GLASS, lines: after !== undefined ? [...others, { insumoId, amount: after }] : others });
   }
   return changes;
+}
+
+/** Insumos cuyo nombre se parece al de un producto: para los que se venden en su botella o lata, el insumo
+ * suele llamarse igual que el producto (Kunstmann Torobayo). Los de unidades van primero si empatan. */
+export function insumosParecidos<T extends { id: number; name: string; unit: InsumoUnit }>(productName: string, insumos: T[], max = 3): T[] {
+  const ignorar = new Set(['sin', 'con', 'del', 'los', 'las', 'una', 'vaso', 'shot', 'botella', 'lata']);
+  const palabras = (s: string) => normalizeName(s).split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !ignorar.has(w));
+  const objetivo = new Set(palabras(productName));
+  return insumos
+    .map((i) => ({ i, comunes: palabras(i.name).filter((w) => objetivo.has(w)).length }))
+    .filter((x) => x.comunes >= 1)
+    .sort((a, b) => b.comunes - a.comunes || Number(b.i.unit === 'un') - Number(a.i.unit === 'un') || a.i.name.localeCompare(b.i.name))
+    .slice(0, max).map((x) => x.i);
 }
 
 /** Cuánto líquido suma una receta (solo insumos en ml) frente a la capacidad del vaso. */

@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { WriteButton } from '@/components/admin/WriteButton';
 import {
-  CATEGORIAS_INSUMO, GLASSES, JIGGERS_RAPIDOS, JIGGER_ML, ML_RAPIDOS, categoriaInsumo, esJiggerExacto, glassInfo, jiggersAMl, mlAJiggers,
+  CATEGORIAS_INSUMO, GLASSES, JIGGERS_RAPIDOS, JIGGER_ML, ML_RAPIDOS, categoriaInsumo, esJiggerExacto, glassInfo, insumosParecidos, jiggersAMl, mlAJiggers,
   type CategoriaInsumo, type GlassId,
 } from '@shared/insumos';
 import type { BarraData, BarraProducto } from './types';
@@ -39,7 +39,22 @@ export function RecetaVisual({ producto, data, wide = false, onCancel, onSaved, 
     return { insumoId: r.insumoId, jigger, value: jigger ? mlAJiggers(r.amount) : r.amount };
   }));
   const [cat, setCat] = useState<CategoriaInsumo | 'todos'>('todos');
+  // Para lo que se vende tal cual: crear el insumo (con el nombre del producto) sin salir de aquí.
+  const [creando, setCreando] = useState(false);
+  const [nuevoNombre, setNuevoNombre] = useState(producto.name);
+  const [nuevoStock, setNuevoStock] = useState('');
   const [search, setSearch] = useState('');
+
+  const utils = trpc.useUtils();
+  const crearInsumo = trpc.insumos.save.useMutation({
+    onSuccess: (r) => {
+      utils.insumos.estado.invalidate();
+      setLines((ls) => (ls.some((l) => l.insumoId === r.id) ? ls : [...ls, { insumoId: r.id, jigger: false, value: 1 }]));
+      setCreando(false);
+      toast.success(`«${nuevoNombre.trim()}» creado: cada venta gasta 1 unidad`);
+    },
+    onError: (e) => toast.error(e.message),
+  });
 
   const save = trpc.insumos.setReceta.useMutation({
     onSuccess: () => { toast.success(`Receta de ${producto.name} guardada`); onSaved(); },
@@ -52,6 +67,9 @@ export function RecetaVisual({ producto, data, wide = false, onCancel, onSaved, 
 
   const info = glassInfo(glass)!;
   const isShot = glass === 'shot';
+  // Lo que se vende tal cual (botella o lata) no se sirve en un vaso: no hay nada que llenar.
+  const isBottle = glass === 'botella';
+  const parecidos = isBottle ? insumosParecidos(producto.name, data.insumos.filter((i) => !lines.some((l) => l.insumoId === i.id))) : [];
   const pct = Math.round((totalMl / info.ml) * 100);
   // Con hielo, el líquido debería ocupar cerca de la mitad del vaso.
   const meter = isShot ? 'bg-sky-500' : pct > 80 ? 'bg-red-500' : pct > 62 ? 'bg-amber-500' : 'bg-emerald-500';
@@ -102,14 +120,14 @@ export function RecetaVisual({ producto, data, wide = false, onCancel, onSaved, 
         <div className="space-y-5">
           {/* 1 · vaso */}
           <section>
-            <h3 className="mb-2 text-sm font-semibold">1 · ¿En qué vaso sale?</h3>
-            <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Vaso en que sale este trago">
+            <h3 className="mb-2 text-sm font-semibold">1 · ¿En qué vaso sale, o se vende tal cual?</h3>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" role="radiogroup" aria-label="Vaso en que sale este trago">
               {GLASSES.map((g) => (
-                <button key={g.id} type="button" role="radio" aria-checked={glass === g.id} onClick={() => setGlass(g.id)}
+                <button key={g.id} type="button" role="radio" aria-checked={glass === g.id} onClick={() => { setGlass(g.id); if (g.id === 'botella') setCat('unidades'); }}
                   className={`rounded-2xl border-2 px-2 py-3 text-center transition active:scale-95 ${glass === g.id ? 'border-primary bg-primary/10' : 'border-border bg-card/60 hover:bg-muted'}`}>
                   <span className="block text-3xl leading-none">{g.emoji}</span>
                   <span className="mt-1 block text-sm font-semibold">{g.label}</span>
-                  <span className="block text-xs text-muted-foreground">{g.ml} ml</span>
+                  <span className="block text-xs text-muted-foreground">{g.id === 'botella' ? 'se vende tal cual' : `${g.ml} ml`}</span>
                 </button>
               ))}
             </div>
@@ -118,6 +136,39 @@ export function RecetaVisual({ producto, data, wide = false, onCancel, onSaved, 
           {/* 2 · ingredientes */}
           <section>
             <h3 className="mb-2 text-sm font-semibold">2 · Ingredientes {lines.length > 0 && <span className="font-normal text-muted-foreground">({lines.length})</span>}</h3>
+
+            {isBottle && (
+              <div className="mb-2 space-y-2 rounded-2xl border border-primary/40 bg-primary/5 p-3">
+                <p className="text-sm font-semibold">Se vende tal cual: cada venta gasta 1 unidad.</p>
+                {parecidos.length > 0 && (
+                  <div className="space-y-1.5">
+                    <p className="text-xs text-muted-foreground">¿Es alguno de estos? Toca para usarlo:</p>
+                    {parecidos.map((i) => (
+                      <button key={i.id} type="button" onClick={() => add(i.id)}
+                        className="flex min-h-12 w-full items-center gap-2 rounded-xl border-2 border-primary/50 bg-background px-3 text-left text-sm font-semibold active:scale-95">
+                        <Plus className="h-4 w-4 text-primary" /> {i.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {!creando ? (
+                  <button type="button" onClick={() => setCreando(true)} className="text-xs underline underline-offset-2 text-muted-foreground">
+                    ¿No está en la lista? Crear «{producto.name}» como insumo
+                  </button>
+                ) : (
+                  <div className="space-y-2 rounded-xl bg-background p-2">
+                    <Input value={nuevoNombre} onChange={(e) => setNuevoNombre(e.target.value)} aria-label="Nombre del insumo" placeholder="Nombre" />
+                    <div className="flex items-center gap-2">
+                      <Input type="number" inputMode="numeric" min={0} value={nuevoStock} onChange={(e) => setNuevoStock(e.target.value)} aria-label="Cuántas hay ahora" placeholder="Cuántas hay ahora" className="flex-1" />
+                      <WriteButton type="button" disabled={crearInsumo.isPending || !nuevoNombre.trim()}
+                        onClick={() => crearInsumo.mutate({ name: nuevoNombre.trim(), unit: 'un', containerSize: 1, containerLabel: 'botella', alertDrinks: 10, initialLoose: Number(nuevoStock) || 0 })}>
+                        {crearInsumo.isPending ? 'Creando…' : 'Crear y usar'}
+                      </WriteButton>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {lines.length === 0 && (
               <p className="rounded-2xl border border-dashed border-border p-4 text-center text-sm text-muted-foreground">
@@ -173,7 +224,7 @@ export function RecetaVisual({ producto, data, wide = false, onCancel, onSaved, 
             </ul>
 
             {/* Cuánto llena el vaso */}
-            {totalMl > 0 && (
+            {totalMl > 0 && !isBottle && (
               <div className="mt-3 rounded-2xl bg-muted/50 p-3">
                 <div className="h-3 overflow-hidden rounded-full bg-muted" aria-hidden>
                   <div className={`h-full rounded-full transition-all ${meter}`} style={{ width: `${Math.min(100, isShot ? Math.min(100, (totalMl / (info.ml * 3)) * 100) : pct)}%` }} />

@@ -55,7 +55,7 @@ export function RecetasTab({ data, onChanged }: { data: BarraData; onChanged: ()
         {list.map((p) => {
           const glass = glassInfo(p.glass);
           const ml = mlDeReceta(p.receta, (id) => insumoById.get(id)?.unit);
-          const pct = glass && p.glass !== 'shot' ? Math.round((ml / glass.ml) * 100) : null;
+          const pct = glass && glass.ml > 0 && p.glass !== 'shot' ? Math.round((ml / glass.ml) * 100) : null;
           return (
             <li key={p.id}>
               <button type="button" onClick={() => setEditing(p.id)}
@@ -64,7 +64,7 @@ export function RecetasTab({ data, onChanged }: { data: BarraData; onChanged: ()
                   <span className="text-3xl leading-none">{p.emoji || '🍸'}</span>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-semibold">{p.name}</span>
-                    <span className="block truncate text-xs text-muted-foreground">{p.groupName ?? 'Sin sección'}{p.receta.length > 0 && glass ? ` · ${glass.label.toLowerCase()} ${glass.ml} ml` : ''}</span>
+                    <span className="block truncate text-xs text-muted-foreground">{p.groupName ?? 'Sin sección'}{p.receta.length > 0 && glass ? ` · ${glass.label.toLowerCase()}${glass.ml > 0 ? ` ${glass.ml} ml` : ''}` : ''}</span>
                   </span>
                   {p.drinks !== null && <span className="shrink-0 text-right text-sm tabular-nums"><span className="block font-semibold">~{p.drinks}</span><span className="block text-[11px] text-muted-foreground">quedan</span></span>}
                 </span>

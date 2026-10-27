@@ -393,3 +393,25 @@ describe('categorías de insumo', () => {
     expect(categoriaInsumo('Red Bull Tropical (lata)', 'un')).toBe('unidades');
   });
 });
+
+describe('botella o lata: insumos que se parecen al producto', () => {
+  const insumos = [
+    { id: 1, name: 'Kunstmann Torobayo', unit: 'un' as const }, { id: 2, name: 'Peroni', unit: 'un' as const },
+    { id: 3, name: 'Peroni Sin Alcohol', unit: 'un' as const }, { id: 4, name: 'Energética Score', unit: 'un' as const },
+    { id: 5, name: 'Pisco Mistral 35 / Nobel', unit: 'ml' as const }, { id: 6, name: 'Agua mineral', unit: 'ml' as const },
+  ];
+
+  it('encuentra el insumo con el mismo nombre del producto, el más parecido primero', async () => {
+    const { insumosParecidos } = await import('./insumos');
+    expect(insumosParecidos('Kunstmann Torobayo', insumos).map((i) => i.id)).toEqual([1]);
+    expect(insumosParecidos('Peroni Sin Alcohol', insumos).map((i) => i.id)).toEqual([3, 2]);
+    expect(insumosParecidos('Peroni', insumos).map((i) => i.id)).toEqual([2, 3]);
+    expect(insumosParecidos('Score', insumos).map((i) => i.id)).toEqual([4]);
+    expect(insumosParecidos('Cerveza Royal Guard', insumos)).toEqual([]);
+  });
+
+  it('«Botella o lata» es un vaso más: no tiene capacidad y no se mide contra un vaso', async () => {
+    const { glassInfo } = await import('./insumos');
+    expect(glassInfo('botella')).toMatchObject({ label: 'Botella o lata', ml: 0 });
+  });
+});

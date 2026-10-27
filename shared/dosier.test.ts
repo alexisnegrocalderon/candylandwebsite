@@ -47,7 +47,7 @@ describe('dosier del aniversario', () => {
 
   it('el líquido de cada receta cabe en su vaso (los shots pueden ser varios, como el Trío)', () => {
     const unit = (key: string) => DOSIER_INSUMOS.find((i) => i.key === key)?.unit;
-    for (const r of DOSIER_RECETAS.filter((x) => x.glass !== 'shot')) {
+    for (const r of DOSIER_RECETAS.filter((x) => x.glass !== 'shot' && x.glass !== 'botella')) {
       const ml = mlDeReceta(r.lines.map((l, i) => ({ insumoId: i, amount: l.amount })), (i) => unit(r.lines[i].insumo));
       expect(ml, r.product).toBeLessThanOrEqual(glassInfo(r.glass)!.ml);
     }

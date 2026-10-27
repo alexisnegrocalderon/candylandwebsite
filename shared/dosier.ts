@@ -131,11 +131,11 @@ export const DOSIER_RECETAS: DosierReceta[] = [
   { product: 'Mocktail Candy', kind: 'preparacion', palabras: ['mocktail', 'candy'], glass: 'vaso', glassAssumed: true, lines: [{ insumo: 'pulpa_arandanos', amount: oz(2) }, { insumo: 'limon', amount: oz(1) }, { insumo: 'agua', amount: 200 }] },
   { product: 'Mocktail Toxic', kind: 'preparacion', palabras: ['mocktail', 'toxic'], glass: 'vaso', glassAssumed: true, lines: [{ insumo: 'pulpa_hibiscus', amount: oz(2) }, { insumo: 'limon', amount: oz(1) }, { insumo: 'agua', amount: 200 }] },
   // Lo que se vende tal cual: cada venta gasta 1 unidad del inventario.
-  { product: 'Peroni', kind: 'tal_cual', palabras: ['peroni'], excluir: ['sin alcohol', 'zero'], glass: 'vaso', lines: [{ insumo: 'peroni', amount: 1 }] },
-  { product: 'Peroni Sin Alcohol', kind: 'tal_cual', palabras: ['peroni', 'sin alcohol'], glass: 'vaso', lines: [{ insumo: 'peroni_zero', amount: 1 }] },
-  { product: 'Energética Score', kind: 'tal_cual', palabras: ['score'], glass: 'vaso', lines: [{ insumo: 'score', amount: 1 }] },
-  { product: 'Kunstmann Torobayo', kind: 'tal_cual', palabras: ['torobayo'], glass: 'vaso', lines: [{ insumo: 'torobayo', amount: 1 }] },
-  { product: 'Gatorlite Isotónica', kind: 'tal_cual', palabras: ['gatorlite'], glass: 'vaso', lines: [{ insumo: 'gatorlite', amount: 1 }] },
+  { product: 'Peroni', kind: 'tal_cual', palabras: ['peroni'], excluir: ['sin alcohol', 'zero'], glass: 'botella', lines: [{ insumo: 'peroni', amount: 1 }] },
+  { product: 'Peroni Sin Alcohol', kind: 'tal_cual', palabras: ['peroni', 'sin alcohol'], glass: 'botella', lines: [{ insumo: 'peroni_zero', amount: 1 }] },
+  { product: 'Energética Score', kind: 'tal_cual', palabras: ['score'], glass: 'botella', lines: [{ insumo: 'score', amount: 1 }] },
+  { product: 'Kunstmann Torobayo', kind: 'tal_cual', palabras: ['torobayo'], glass: 'botella', lines: [{ insumo: 'torobayo', amount: 1 }] },
+  { product: 'Gatorlite Isotónica', kind: 'tal_cual', palabras: ['gatorlite'], glass: 'botella', lines: [{ insumo: 'gatorlite', amount: 1 }] },
 ];
 
 /** Lo que hay que confirmar o que no se pudo cargar: se muestra antes de aplicar. */
