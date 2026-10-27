@@ -44,11 +44,24 @@ export const ZONE_LABELS: Record<PartyZone, string> = {
   barra: 'Barra',
 };
 
-export const PARTY_GENDERS = ['hombre', 'mujer', 'pareja'] as const;
+export const PARTY_GENDERS = ['mujer', 'hombre', 'no_binario', 'pareja'] as const;
 export type PartyGender = (typeof PARTY_GENDERS)[number];
 
-/** 4 avatares por género, dibujados en SVG (client/src/components/party). */
-export const AVATARS_PER_GENDER = 4;
+export const GENDER_LABELS: Record<PartyGender, string> = { mujer: 'Mujer', hombre: 'Hombre', no_binario: 'No binario', pareja: 'Pareja' };
+
+/** Una pareja dice de quiénes está formada: así una pareja de chicas no le aparece a quien busca «chica + chico». */
+export const PAIR_TYPES = ['mixta', 'chicas', 'chicos'] as const;
+export type PairType = (typeof PAIR_TYPES)[number];
+export const PAIR_LABELS: Record<PairType, string> = { mixta: 'Chica + chico', chicas: 'Dos chicas', chicos: 'Dos chicos' };
+
+/** Cómo se lee el «Soy» en la tarjeta: «Mujer», «Pareja · Dos chicas». */
+export function identityLabel(p: { gender: string; pairType?: string | null }): string {
+  if (p.gender === 'pareja') return p.pairType && p.pairType in PAIR_LABELS ? `Pareja · ${PAIR_LABELS[p.pairType as PairType]}` : 'Pareja';
+  return GENDER_LABELS[p.gender as PartyGender] ?? 'Persona';
+}
+
+/** Colores de la «ficha» (avatar) de cada perfil, en client/src/components/party/Avatar.tsx. */
+export const AVATARS_PER_GENDER = 6;
 
 // --- Ventana horaria ---
 
@@ -337,27 +350,127 @@ export const SWIPE_REPORT_REASONS = [
 // --- Busco (filtro mutuo del swipe) ----------------------------------------
 //
 // Cada perfil dice a quién quiere conocer. En el swipe solo aparece alguien si
-// los dos se buscan: yo busco su género y la otra persona busca el mío (como en
-// las apps de citas). Se guarda como texto «hombre,mujer,pareja».
+// los dos se buscan: yo busco lo que la otra persona es, y ella busca lo que soy
+// yo (como en las apps de citas). Se guarda como texto «mujer,hombre,pareja_mixta».
 
-export const DEFAULT_LOOKING_FOR: PartyGender[] = [...PARTY_GENDERS];
+export const LOOKING_FOR_KEYS = ['mujer', 'hombre', 'no_binario', 'pareja_mixta', 'pareja_chicas', 'pareja_chicos'] as const;
+export type LookingKey = (typeof LOOKING_FOR_KEYS)[number];
+export const LOOKING_LABELS: Record<LookingKey, string> = {
+  mujer: 'Mujeres', hombre: 'Hombres', no_binario: 'Personas no binarias',
+  pareja_mixta: 'Parejas chica + chico', pareja_chicas: 'Parejas de chicas', pareja_chicos: 'Parejas de chicos',
+};
+const PAREJAS: LookingKey[] = ['pareja_mixta', 'pareja_chicas', 'pareja_chicos'];
 
-export function parseLookingFor(raw: string | null | undefined): PartyGender[] {
-  const list = (raw ?? '').split(',').map((x) => x.trim()).filter((x): x is PartyGender => (PARTY_GENDERS as readonly string[]).includes(x));
-  return list.length > 0 ? Array.from(new Set(list)) : [...DEFAULT_LOOKING_FOR];
+export const DEFAULT_LOOKING_FOR: LookingKey[] = [...LOOKING_FOR_KEYS];
+
+/** Lo guardado → la lista. Lo de antes sigue valiendo: «pareja» = las tres parejas, y la lista completa vieja
+ * («hombre,mujer,pareja», el valor por defecto) era «todos», así que también incluye a las personas no binarias. */
+export function parseLookingFor(raw: string | null | undefined): LookingKey[] {
+  const tokens = (raw ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+  const legacyAll = ['hombre', 'mujer', 'pareja'].every((t) => tokens.includes(t));
+  const out = new Set<LookingKey>(legacyAll ? LOOKING_FOR_KEYS : []);
+  for (const t of tokens) {
+    if (t === 'pareja') PAREJAS.forEach((k) => out.add(k));
+    else if ((LOOKING_FOR_KEYS as readonly string[]).includes(t)) out.add(t as LookingKey);
+  }
+  return out.size > 0 ? LOOKING_FOR_KEYS.filter((k) => out.has(k)) : [...DEFAULT_LOOKING_FOR];
 }
 
-export function serializeLookingFor(list: readonly PartyGender[]): string {
-  const clean = PARTY_GENDERS.filter((g) => list.includes(g));
-  return (clean.length > 0 ? clean : DEFAULT_LOOKING_FOR).join(',');
+export function serializeLookingFor(list: readonly string[]): string {
+  return parseLookingFor(list.join(',')).join(',');
 }
 
-export function isMutualInterest(
-  viewer: { gender: PartyGender | string; lookingFor: string | null | undefined },
-  target: { gender: PartyGender | string; lookingFor: string | null | undefined },
-): boolean {
-  return parseLookingFor(viewer.lookingFor).includes(target.gender as PartyGender)
-    && parseLookingFor(target.lookingFor).includes(viewer.gender as PartyGender);
+/** Lo que alguien «es» para el filtro. Una pareja de antes (sin tipo) cuenta como cualquier pareja. */
+export function identitiesOf(p: { gender: string; pairType?: string | null }): LookingKey[] {
+  if (p.gender === 'pareja') return p.pairType && (PAIR_TYPES as readonly string[]).includes(p.pairType) ? [`pareja_${p.pairType}` as LookingKey] : PAREJAS;
+  return (LOOKING_FOR_KEYS as readonly string[]).includes(p.gender) ? [p.gender as LookingKey] : [];
+}
+
+type Seeker = { gender: string; pairType?: string | null; lookingFor: string | null | undefined };
+
+/** ¿`viewer` busca a alguien como `target`? */
+export function wants(viewer: { lookingFor: string | null | undefined }, target: { gender: string; pairType?: string | null }): boolean {
+  const mine = parseLookingFor(viewer.lookingFor);
+  return identitiesOf(target).some((k) => mine.includes(k));
+}
+
+export function isMutualInterest(viewer: Seeker, target: Seeker): boolean {
+  return wants(viewer, target) && wants(target, viewer);
+}
+
+// --- Orientación, cómo me relaciono y qué busco esta noche -------------------
+//
+// Todo opcional («Prefiero no decir» = no se guarda y no se muestra). Lo ven solo quienes ya entraron a la
+// fiesta, igual que las fotos, y se borra con el perfil al cerrar la fiesta.
+
+export const ORIENTATIONS = ['hetero', 'bi', 'gay', 'lesbiana', 'pan', 'curioso'] as const;
+export type Orientation = (typeof ORIENTATIONS)[number];
+export const ORIENTATION_LABELS: Record<Orientation, string> = { hetero: 'Hetero', bi: 'Bi', gay: 'Gay', lesbiana: 'Lesbiana', pan: 'Pansexual', curioso: 'Curiosidad' };
+
+export const RELATION_STYLES = ['monogamia', 'abierta', 'no_monogamia', 'poliamor', 'explorando'] as const;
+export type RelationStyle = (typeof RELATION_STYLES)[number];
+export const RELATION_LABELS: Record<RelationStyle, string> = {
+  monogamia: 'Monogamia', abierta: 'Pareja abierta', no_monogamia: 'No monogamia', poliamor: 'Poliamor', explorando: 'Explorando',
+};
+
+export const INTENTS = ['amistad', 'conversar', 'bailar', 'coquetear', 'cita', 'casual', 'fantasia', 'explorar'] as const;
+export type Intent = (typeof INTENTS)[number];
+export const INTENT_LABELS: Record<Intent, string> = {
+  amistad: 'Amistad', conversar: 'Conversar', bailar: 'Bailar', coquetear: 'Coquetear',
+  cita: 'Una cita', casual: 'Algo casual', fantasia: 'Cumplir una fantasía', explorar: 'Explorar algo nuevo',
+};
+export const INTENT_EMOJI: Record<Intent, string> = {
+  amistad: '🤝', conversar: '💬', bailar: '💃', coquetear: '😏', cita: '🌙', casual: '🔥', fantasia: '✨', explorar: '🧭',
+};
+export const MAX_INTENTS = 4;
+
+export function cleanOrientation(v: unknown): Orientation | null {
+  return typeof v === 'string' && (ORIENTATIONS as readonly string[]).includes(v) ? (v as Orientation) : null;
+}
+export function cleanRelationStyle(v: unknown): RelationStyle | null {
+  return typeof v === 'string' && (RELATION_STYLES as readonly string[]).includes(v) ? (v as RelationStyle) : null;
+}
+export function cleanPairType(v: unknown): PairType | null {
+  return typeof v === 'string' && (PAIR_TYPES as readonly string[]).includes(v) ? (v as PairType) : null;
+}
+/** Texto guardado o lista → intenciones válidas, sin repetir, en el orden de la lista y hasta 4. */
+export function parseIntents(raw: string | readonly string[] | null | undefined): Intent[] {
+  const list = typeof raw === 'string' ? raw.split(',') : (raw ?? []);
+  const set = new Set(list.map((x) => x.trim()));
+  return INTENTS.filter((i) => set.has(i)).slice(0, MAX_INTENTS);
+}
+export function serializeIntents(list: readonly string[]): string | null {
+  const clean = parseIntents(list);
+  return clean.length ? clean.join(',') : null;
+}
+
+const OPEN_STYLES: RelationStyle[] = ['abierta', 'no_monogamia', 'poliamor'];
+
+type Vibe = { relationStyle?: string | null; intents?: string | null };
+
+/** Qué tan compatibles son dos perfiles y qué tienen «en común» (lo que se destaca en la tarjeta). Ordena el mazo:
+ * nunca saca a nadie (eso lo hace «Busco conocer»). */
+export function compatibility(a: Vibe, b: Vibe): { score: number; common: string[] } {
+  const ia = parseIntents(a.intents);
+  const ib = parseIntents(b.intents);
+  const common: string[] = [];
+  let score = 0;
+  for (const i of ia) if (ib.includes(i)) { score += 2; common.push(INTENT_LABELS[i]); }
+
+  const ra = cleanRelationStyle(a.relationStyle);
+  const rb = cleanRelationStyle(b.relationStyle);
+  if (ra && rb) {
+    if (ra === rb && ra !== 'explorando') { score += 2; common.push(RELATION_LABELS[ra]); }
+    else if (OPEN_STYLES.includes(ra) && OPEN_STYLES.includes(rb)) { score += 2; common.push('Relaciones abiertas'); }
+    else if (ra === 'explorando' || rb === 'explorando') score += 1;
+    else score -= 2; // monogamia frente a una relación abierta
+  }
+
+  // Quien solo busca amistad, mejor con quien también la busca.
+  const onlyFriends = (x: Intent[]) => x.length === 1 && x[0] === 'amistad';
+  if ((onlyFriends(ia) && !ib.includes('amistad')) || (onlyFriends(ib) && !ia.includes('amistad'))) score -= 3;
+
+  return { score, common };
 }
 
 // --- Mi disfraz -------------------------------------------------------------

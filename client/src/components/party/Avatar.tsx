@@ -1,193 +1,124 @@
-import { useId } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { PartyGender } from '@shared/party';
 
-/* Los 4 avatares por género de "Caramelo". Dibujados en SVG y no como
- * imágenes: pesan casi nada, se ven nítidos en cualquier pantalla y el
- * dueño los puede recolorear cambiando la paleta de abajo.
+/* La «ficha PlayRoom» de cada perfil (cuando no hay foto): un círculo de vidrio oscuro con aura neón, las orejas de
+ * conejo del logo arriba y el símbolo de quien es — ♀ rosa, ♂ azul, el símbolo no binario violeta; una pareja lleva
+ * los dos símbolos entrelazados, como el logo. `avatarId` elige el color del aura. En Halloween (.pm-halloween) se
+ * pinta naranja y morado.
  *
- * Todos llevan antifaz. Es la firma visual de Candyland y, sobre todo, es
- * coherente con la promesa de la función: acá nadie muestra la cara. */
+ * Colores en hex y no con variables CSS: var() no resuelve dentro de atributos SVG como stop-color. */
 
-const DEEP = '#2a1526';
+const AURAS = ['#ec4899', '#a855f7', '#3b82f6', '#22d3ee', '#d946ef', '#fb7185'];
+const HALLOWEEN_AURAS = ['#ff7a1a', '#7c3aed', '#ff7a1a', '#7c3aed', '#ff7a1a', '#7c3aed'];
+const PINK = '#ff4fa8';
+const BLUE = '#2f8bff';
+const VIOLET = '#b07cff';
+const SKY = '#5fd4ff';
+const ORANGE = '#ff8a2a';
+const PURPLE = '#9b5cff';
 
-// Cada variante tiene un fondo claramente distinto: a 48px en una pantalla
-// a oscuras, la gente distingue el color mucho antes que el peinado.
-//
-// En hex y no con las variables CSS de la paleta a propósito: var() no
-// resuelve dentro de atributos SVG como stop-color, así que con variables
-// los cuatro salían del mismo color. De paso, esto deja los avatares
-// utilizables en un email, donde no hay hoja de estilos.
-const PALETTES = [
-  { bg: '#e35da2', mask: '#fdf4e3' }, // rosa Candyland
-  { bg: '#9a86e8', mask: '#fdf4e3' }, // violeta eléctrico
-  { bg: '#f0906a', mask: '#fdf4e3' }, // cereza
-  { bg: '#6fb2e0', mask: '#fdf4e3' }, // azul caramelo
-];
+type Sym = { kind: 'f' | 'm' | 'nb'; x: number; y: number; r: number; color: string };
 
-// Cuatro tonos de piel: los avatares se distinguen por algo más que el
-// color de fondo, y la fiesta se parece un poco más a la fiesta.
-const SKINS = ['#f2cdaa', '#d9a173', '#a86f47', '#75462c'];
-const HAIR = ['#211018', '#5e3722', '#120b12', '#8a4a52'];
-
-function clampIndex(avatarId: number) {
-  return Math.min(3, Math.max(0, avatarId - 1));
-}
-
-/** Antifaz con los ojos calados de verdad (fillRule evenodd): por los
- * huecos se ve la piel, que es lo que lo hace leer como máscara y no como
- * una venda. */
-function Mask({ fill, cx = 50, cy = 40, s = 1 }: { fill: string; cx?: number; cy?: number; s?: number }) {
+/** Un símbolo en trazo grueso y redondeado (se lee bien a 32 px). */
+function Symbol({ kind, x, y, r, color }: Sym) {
+  const w = r * 0.42;
+  const common = { stroke: color, strokeWidth: w, strokeLinecap: 'round' as const, fill: 'none' };
+  if (kind === 'f') {
+    const y1 = y + r, y2 = y + r * 2.1, cross = y + r * 1.6;
+    return (
+      <g {...common}>
+        <circle cx={x} cy={y} r={r} />
+        <line x1={x} y1={y1} x2={x} y2={y2} />
+        <line x1={x - r * 0.55} y1={cross} x2={x + r * 0.55} y2={cross} />
+      </g>
+    );
+  }
+  if (kind === 'm') {
+    const d = r / Math.SQRT2;
+    const sx = x + d, sy = y - d, ex = x + d + r * 0.95, ey = y - d - r * 0.95;
+    return (
+      <g {...common} strokeLinejoin="round">
+        <circle cx={x} cy={y} r={r} />
+        <line x1={sx} y1={sy} x2={ex} y2={ey} />
+        <polyline points={`${ex - r * 0.7},${ey} ${ex},${ey} ${ex},${ey + r * 0.7}`} />
+      </g>
+    );
+  }
+  // No binario: círculo con un trazo hacia arriba y un asterisco en la punta.
+  const top = y - r * 2.05;
+  const a = r * 0.5;
   return (
-    <g transform={`translate(${cx} ${cy}) scale(${s})`}>
-      <path
-        fillRule="evenodd"
-        fill={fill}
-        d="
-          M-16 -3 q0 -6 6 -7 q10 -1.5 20 0 q6 1 6 7 q0 7 -6 9 q-5 1.5 -8 -1.5
-          q-1.5 -1.5 -2 -3.5 q-0.5 2 -2 3.5 q-3 3 -8 1.5 q-6 -2 -6 -9 z
-          M-12 -1 a4.5 3.5 0 1 0 9 0 a4.5 3.5 0 1 0 -9 0 z
-          M3 -1 a4.5 3.5 0 1 0 9 0 a4.5 3.5 0 1 0 -9 0 z
-        "
-      />
-      <circle cx="-7.5" cy="-1" r="2" fill={DEEP} />
-      <circle cx="7.5" cy="-1" r="2" fill={DEEP} />
+    <g {...common}>
+      <circle cx={x} cy={y + r * 0.35} r={r} />
+      <line x1={x} y1={y - r * 0.65} x2={x} y2={top} />
+      <line x1={x - a} y1={top - a * 0.6} x2={x + a} y2={top + a * 0.6} />
+      <line x1={x + a} y1={top - a * 0.6} x2={x - a} y2={top + a * 0.6} />
     </g>
   );
 }
 
-/** Una boca chica: sin ella la cara queda incompleta y el avatar se lee
- * como un objeto en vez de como una persona. */
-function Mouth({ cx = 50, cy = 53, s = 1 }: { cx?: number; cy?: number; s?: number }) {
-  return (
-    <path
-      d="M-4 0 q4 4 8 0"
-      transform={`translate(${cx} ${cy}) scale(${s})`}
-      fill="none"
-      stroke={DEEP}
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      opacity="0.6"
-    />
-  );
+function symbolsFor(gender: PartyGender, pairType: string | null | undefined, halloween: boolean): Sym[] {
+  const f1 = halloween ? ORANGE : PINK;
+  const m1 = halloween ? PURPLE : BLUE;
+  if (gender === 'mujer') return [{ kind: 'f', x: 50, y: 54, r: 14, color: f1 }];
+  if (gender === 'hombre') return [{ kind: 'm', x: 45, y: 63, r: 14, color: m1 }];
+  if (gender === 'no_binario') return [{ kind: 'nb', x: 50, y: 64, r: 12, color: halloween ? ORANGE : VIOLET }];
+  // Pareja: entrelazados como el logo.
+  if (pairType === 'chicas') return [{ kind: 'f', x: 39, y: 54, r: 11.5, color: f1 }, { kind: 'f', x: 61, y: 54, r: 11.5, color: halloween ? PURPLE : VIOLET }];
+  if (pairType === 'chicos') return [{ kind: 'm', x: 30, y: 66, r: 10.5, color: m1 }, { kind: 'm', x: 55, y: 68, r: 10.5, color: halloween ? ORANGE : SKY }];
+  return [{ kind: 'f', x: 39, y: 54, r: 11.5, color: f1 }, { kind: 'm', x: 58, y: 60, r: 11.5, color: m1 }];
 }
 
-function Bust({ hair }: { hair: string }) {
-  return <path d="M50 66 q-26 3 -30 34 h60 q-4 -31 -30 -34 z" fill={hair} opacity="0.55" />;
+/** ¿Está dentro del tema Halloween? Se mira una vez montado (la clase la pone la pantalla de la fiesta). */
+function useHalloween(ref: React.RefObject<SVGSVGElement | null>) {
+  const [on, setOn] = useState(false);
+  useEffect(() => { setOn(!!ref.current?.closest('.pm-halloween')); }, [ref]);
+  return on;
 }
 
-function Hombre({ i, skin, hair, mask }: { i: number; skin: string; hair: string; mask: string }) {
-  return (
-    <>
-      {/* Pelo de atrás / volumen, distinto en cada variante. */}
-      {i === 1 && <ellipse cx="50" cy="30" rx="21" ry="15" fill={hair} />}
-      {i === 2 && <circle cx="50" cy="17" r="7" fill={hair} />}
-      {i === 3 && <ellipse cx="50" cy="26" rx="23" ry="17" fill={hair} />}
-
-      <Bust hair={hair} />
-      <ellipse cx="50" cy="42" rx="18" ry="20" fill={skin} />
-
-      {/* Pelo de adelante. */}
-      {i === 0 && <path d="M32 34 q3 -16 18 -16 q15 0 18 16 q-6 -7 -18 -7 q-12 0 -18 7 z" fill={hair} />}
-      {i === 1 && <path d="M32 33 q4 -18 18 -18 q14 0 18 18 q-7 -9 -18 -9 q-11 0 -18 9 z" fill={hair} />}
-      {i === 2 && <path d="M32 32 q5 -14 18 -14 q13 0 18 14 q-7 -6 -18 -6 q-11 0 -18 6 z" fill={hair} />}
-      {i === 3 && <path d="M31 34 q2 -19 19 -19 q17 0 19 19 q-8 -10 -19 -10 q-11 0 -19 10 z" fill={hair} />}
-
-      <Mask fill={mask} />
-      <Mouth />
-    </>
-  );
-}
-
-function Mujer({ i, skin, hair, mask }: { i: number; skin: string; hair: string; mask: string }) {
-  return (
-    <>
-      {/* Melena: la silueta de atrás es lo que más distingue una de otra. */}
-      {i === 0 && <path d="M26 88 q-6 -58 24 -58 q30 0 24 58 q-9 -16 -24 -16 q-15 0 -24 16 z" fill={hair} />}
-      {i === 1 && <path d="M29 58 q-3 -30 21 -30 q24 0 21 30 q-8 -9 -21 -9 q-13 0 -21 9 z" fill={hair} />}
-      {i === 2 && (
-        <>
-          <ellipse cx="50" cy="20" rx="11" ry="9" fill={hair} />
-          <path d="M31 46 q-2 -28 19 -28 q21 0 19 28 q-8 -12 -19 -12 q-11 0 -19 12 z" fill={hair} />
-        </>
-      )}
-      {i === 3 && <ellipse cx="50" cy="38" rx="27" ry="26" fill={hair} />}
-
-      <Bust hair={hair} />
-      <ellipse cx="50" cy="42" rx="17" ry="19" fill={skin} />
-
-      {/* Pelo de adelante. */}
-      {i === 0 && <path d="M33 33 q4 -15 17 -15 q13 0 17 15 q-7 -7 -17 -7 q-10 0 -17 7 z" fill={hair} />}
-      {i === 1 && <path d="M33 34 q1 -17 17 -17 q16 0 17 17 q-5 -10 -17 -10 q-12 0 -17 10 z" fill={hair} />}
-      {i === 2 && <path d="M33 32 q6 -13 17 -13 q11 0 17 13 q-7 -6 -17 -6 q-10 0 -17 6 z" fill={hair} />}
-      {i === 3 && <path d="M33 33 q5 -14 17 -14 q12 0 17 14 q-7 -7 -17 -7 q-10 0 -17 7 z" fill={hair} />}
-
-      {/* Un detalle de color que la diferencia del resto. */}
-      {i === 1 && <circle cx="69" cy="34" r="4.5" fill="#fdf4e3" />}
-
-      <Mask fill={mask} />
-      <Mouth />
-    </>
-  );
-}
-
-function Pareja({ i, skin, hair, mask }: { i: number; skin: string; hair: string; mask: string }) {
-  const skin2 = SKINS[(i + 2) % SKINS.length];
-  const hair2 = HAIR[(i + 1) % HAIR.length];
-
-  return (
-    <>
-      {/* Dos siluetas juntas: se lee "pareja" de un vistazo, aunque el
-          avatar se vea a 48px en la mansión. */}
-      <path d="M70 60 q-19 2 -22 40 h44 q-3 -38 -22 -40 z" fill={hair2} opacity="0.5" />
-      {i % 2 === 0
-        ? <path d="M55 52 q-3 -26 15 -26 q18 0 15 26 q-7 -10 -15 -10 q-8 0 -15 10 z" fill={hair2} />
-        : <ellipse cx="70" cy="38" rx="17" ry="14" fill={hair2} />}
-      <ellipse cx="70" cy="44" rx="14" ry="15" fill={skin2} />
-      <path d="M56 38 q4 -12 14 -12 q10 0 14 12 q-6 -6 -14 -6 q-8 0 -14 6 z" fill={hair2} />
-      <Mask fill={mask} cx={70} cy={43} s={0.62} />
-      <Mouth cx={70} cy={51} s={0.62} />
-
-      <path d="M34 62 q-21 2 -24 39 h48 q-3 -37 -24 -39 z" fill={hair} opacity="0.55" />
-      {i < 2
-        ? <path d="M18 50 q-3 -26 16 -26 q19 0 16 26 q-7 -10 -16 -10 q-9 0 -16 10 z" fill={hair} />
-        : <ellipse cx="34" cy="42" rx="20" ry="18" fill={hair} />}
-      <ellipse cx="34" cy="46" rx="15" ry="16" fill={skin} />
-      <path d="M19 40 q4 -13 15 -13 q11 0 15 13 q-7 -6 -15 -6 q-8 0 -15 6 z" fill={hair} />
-      <Mask fill={mask} cx={34} cy={45} s={0.66} />
-      <Mouth cx={34} cy={54} s={0.66} />
-    </>
-  );
-}
-
-export function PartyAvatar({ gender, avatarId, className = '' }: {
+export function PartyAvatar({ gender, avatarId, pairType, className = '' }: {
   gender: PartyGender;
   avatarId: number;
+  pairType?: string | null;
   className?: string;
 }) {
   const uid = useId().replace(/:/g, '');
-  const i = clampIndex(avatarId);
-  const palette = PALETTES[i];
-  const skin = SKINS[i];
-  const hair = HAIR[i];
+  const ref = useRef<SVGSVGElement>(null);
+  const halloween = useHalloween(ref);
+  const idx = Math.min(AURAS.length - 1, Math.max(0, (avatarId || 1) - 1));
+  const aura = (halloween ? HALLOWEEN_AURAS : AURAS)[idx];
+  const earOuter = halloween ? ORANGE : PINK;
+  const earInner = halloween ? PURPLE : BLUE;
 
   return (
-    <svg viewBox="0 0 100 100" className={className} role="img" aria-label={`Avatar ${gender}`}>
+    <svg ref={ref} viewBox="0 0 100 100" className={className} role="img" aria-label="Ficha PlayRoom">
       <defs>
-        <linearGradient id={`bg${uid}`} x1="0" y1="0" x2="0.4" y2="1">
-          <stop offset="0%" stopColor={palette.bg} />
-          <stop offset="58%" stopColor={palette.bg} />
-          <stop offset="100%" stopColor={DEEP} />
+        <radialGradient id={`aura${uid}`} cx="50%" cy="78%" r="75%">
+          <stop offset="0%" stopColor={aura} stopOpacity="0.75" />
+          <stop offset="55%" stopColor={aura} stopOpacity="0.18" />
+          <stop offset="100%" stopColor="#120a1c" stopOpacity="0" />
+        </radialGradient>
+        <linearGradient id={`ring${uid}`} x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor={earOuter} />
+          <stop offset="100%" stopColor={aura} />
         </linearGradient>
-        <clipPath id={`clip${uid}`}>
-          <circle cx="50" cy="50" r="50" />
-        </clipPath>
+        <clipPath id={`clip${uid}`}><circle cx="50" cy="50" r="48" /></clipPath>
       </defs>
+      <circle cx="50" cy="50" r="48" fill="#120a1c" />
       <g clipPath={`url(#clip${uid})`}>
-        <circle cx="50" cy="50" r="50" fill={`url(#bg${uid})`} />
-        {gender === 'hombre' && <Hombre i={i} skin={skin} hair={hair} mask={palette.mask} />}
-        {gender === 'mujer' && <Mujer i={i} skin={skin} hair={hair} mask={palette.mask} />}
-        {gender === 'pareja' && <Pareja i={i} skin={skin} hair={hair} mask={palette.mask} />}
+        <circle cx="50" cy="50" r="48" fill={`url(#aura${uid})`} />
+        {/* Orejas de conejo del logo: rosa por fuera, azul por dentro. */}
+        <g>
+          <ellipse cx="39" cy="17" rx="6" ry="13" transform="rotate(-20 39 17)" fill={earOuter} />
+          <ellipse cx="39.5" cy="18.2" rx="2.9" ry="8.5" transform="rotate(-20 39.5 18.2)" fill={earInner} />
+          <ellipse cx="61" cy="17" rx="6" ry="13" transform="rotate(20 61 17)" fill={earOuter} />
+          <ellipse cx="60.5" cy="18.2" rx="2.9" ry="8.5" transform="rotate(20 60.5 18.2)" fill={earInner} />
+        </g>
+        {symbolsFor(gender, pairType, halloween).map((s, i) => <Symbol key={i} {...s} />)}
+        {/* Brillo de vidrio. */}
+        <ellipse cx="50" cy="12" rx="34" ry="10" fill="#ffffff" opacity="0.06" />
       </g>
+      <circle cx="50" cy="50" r="47" fill="none" stroke={`url(#ring${uid})`} strokeWidth="2.5" opacity="0.9" />
     </svg>
   );
 }

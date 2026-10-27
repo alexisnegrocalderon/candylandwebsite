@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { isMutualInterest, parseLookingFor, photoSlotFor, sanitizeCostume, serializeLookingFor } from './party';
+import {
+  LOOKING_FOR_KEYS, MAX_INTENTS, cleanOrientation, cleanRelationStyle, compatibility, identitiesOf, identityLabel, isMutualInterest,
+  parseIntents, parseLookingFor, photoSlotFor, sanitizeCostume, serializeIntents, serializeLookingFor, wants,
+} from './party';
 
 describe('fotos de Playmatch (hasta 3)', () => {
   it('sin posición se agrega al final, y no pasa de 3', () => {
@@ -17,10 +20,16 @@ describe('fotos de Playmatch (hasta 3)', () => {
 
 describe('Busco (filtro mutuo)', () => {
   it('lee y guarda la lista, con todos por defecto', () => {
-    expect(parseLookingFor(null)).toEqual(['hombre', 'mujer', 'pareja']);
-    expect(parseLookingFor('mujer, pareja,cualquiera')).toEqual(['mujer', 'pareja']);
-    expect(serializeLookingFor(['pareja', 'hombre'])).toBe('hombre,pareja');
-    expect(serializeLookingFor([])).toBe('hombre,mujer,pareja');
+    expect(parseLookingFor(null)).toEqual([...LOOKING_FOR_KEYS]);
+    expect(parseLookingFor('mujer, pareja_chicas,cualquiera')).toEqual(['mujer', 'pareja_chicas']);
+    expect(serializeLookingFor(['pareja_chicos', 'hombre'])).toBe('hombre,pareja_chicos');
+    expect(serializeLookingFor([])).toBe(LOOKING_FOR_KEYS.join(','));
+  });
+  it('lo guardado antes sigue valiendo', () => {
+    // «pareja» eran todas las parejas.
+    expect(parseLookingFor('mujer,pareja')).toEqual(['mujer', 'pareja_mixta', 'pareja_chicas', 'pareja_chicos']);
+    // La lista completa vieja (el valor por defecto) era «todos»: incluye a las personas no binarias.
+    expect(parseLookingFor('hombre,mujer,pareja')).toEqual([...LOOKING_FOR_KEYS]);
   });
   it('solo aparece si los dos se buscan', () => {
     const ella = { gender: 'mujer', lookingFor: 'hombre' };
@@ -32,6 +41,53 @@ describe('Busco (filtro mutuo)', () => {
     expect(isMutualInterest(el, pareja)).toBe(false);
     // La pareja busca mujeres, pero ella solo busca hombres.
     expect(isMutualInterest(pareja, ella)).toBe(false);
+  });
+  it('las parejas se buscan por tipo', () => {
+    const chicas = { gender: 'pareja', pairType: 'chicas', lookingFor: 'mujer' };
+    const mixtaBuscadora = { gender: 'mujer', lookingFor: 'pareja_mixta' };
+    const chicasBuscadora = { gender: 'mujer', lookingFor: 'pareja_chicas' };
+    expect(wants(mixtaBuscadora, chicas)).toBe(false);
+    expect(isMutualInterest(chicasBuscadora, chicas)).toBe(true);
+    // Una pareja de antes (sin tipo) le aparece a quien busque cualquier pareja.
+    expect(wants(mixtaBuscadora, { gender: 'pareja' })).toBe(true);
+  });
+  it('no binario', () => {
+    const nb = { gender: 'no_binario', lookingFor: 'mujer,no_binario' };
+    expect(isMutualInterest(nb, { gender: 'mujer', lookingFor: 'no_binario' })).toBe(true);
+    expect(isMutualInterest(nb, { gender: 'mujer', lookingFor: 'hombre' })).toBe(false);
+    expect(identitiesOf({ gender: 'no_binario' })).toEqual(['no_binario']);
+  });
+  it('cómo se lee el Soy', () => {
+    expect(identityLabel({ gender: 'pareja', pairType: 'chicos' })).toBe('Pareja · Dos chicos');
+    expect(identityLabel({ gender: 'pareja' })).toBe('Pareja');
+    expect(identityLabel({ gender: 'no_binario' })).toBe('No binario');
+  });
+});
+
+describe('orientación, cómo me relaciono y qué busco', () => {
+  it('solo valores conocidos; lo demás es «prefiero no decir»', () => {
+    expect(cleanOrientation('bi')).toBe('bi');
+    expect(cleanOrientation('x')).toBeNull();
+    expect(cleanRelationStyle('poliamor')).toBe('poliamor');
+    expect(cleanRelationStyle(null)).toBeNull();
+  });
+  it('intenciones: sin repetir, en orden y hasta 4', () => {
+    expect(parseIntents('fantasia,amistad,amistad,nada')).toEqual(['amistad', 'fantasia']);
+    expect(parseIntents(['explorar', 'fantasia', 'casual', 'cita', 'bailar'])).toHaveLength(MAX_INTENTS);
+    expect(serializeIntents([])).toBeNull();
+  });
+  it('compatibilidad y lo que tienen en común', () => {
+    const a = { intents: 'fantasia,bailar', relationStyle: 'poliamor' };
+    const b = { intents: 'fantasia,conversar', relationStyle: 'no_monogamia' };
+    expect(compatibility(a, b)).toEqual({ score: 4, common: ['Cumplir una fantasía', 'Relaciones abiertas'] });
+    expect(compatibility({ relationStyle: 'monogamia' }, { relationStyle: 'abierta' }).score).toBe(-2);
+    expect(compatibility({ relationStyle: 'monogamia' }, { relationStyle: 'monogamia' }).common).toEqual(['Monogamia']);
+    expect(compatibility({ relationStyle: 'explorando' }, { relationStyle: 'monogamia' }).score).toBe(1);
+  });
+  it('quien solo busca amistad baja frente a quien no la busca', () => {
+    expect(compatibility({ intents: 'amistad' }, { intents: 'casual' }).score).toBe(-3);
+    expect(compatibility({ intents: 'amistad' }, { intents: 'amistad,bailar' }).score).toBe(2);
+    expect(compatibility({}, {})).toEqual({ score: 0, common: [] });
   });
 });
 

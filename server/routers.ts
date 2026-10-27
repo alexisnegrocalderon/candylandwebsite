@@ -30,7 +30,7 @@ import { recordDoorAlert } from "./caja/doorAlert";
 import { DOOR_ALERT_COOLDOWN_MS, DOOR_ALERT_KEYS, DOOR_ALERT_NOTE_MAX } from "../shared/doorAlert";
 import { MANUAL_LIMITS, isManualKey } from "../shared/staffManuals";
 import * as solteros from "./solteros";
-import { AVATARS_PER_GENDER, DEFAULT_LOOKING_FOR, MAX_PARTY_PHOTOS, MAX_REWINDS_PER_EVENT, PARTY_GENDERS, PARTY_ZONES, parseLookingFor, sanitizeCostume, serializeLookingFor, canPreRegister, partyEntryDenial, sanitizeAlias, sanitizeGiftMessage, sanitizeMessage, isPartyWindowOpen, validatePhotoBytes } from "../shared/party";
+import { AVATARS_PER_GENDER, DEFAULT_LOOKING_FOR, LOOKING_FOR_KEYS, PAIR_TYPES, ORIENTATIONS, RELATION_STYLES, INTENTS, MAX_INTENTS, serializeIntents, parseIntents, MAX_PARTY_PHOTOS, MAX_REWINDS_PER_EVENT, PARTY_GENDERS, PARTY_ZONES, parseLookingFor, sanitizeCostume, serializeLookingFor, canPreRegister, partyEntryDenial, sanitizeAlias, sanitizeGiftMessage, sanitizeMessage, isPartyWindowOpen, validatePhotoBytes } from "../shared/party";
 import * as ambassadorProgram from "./ambassadorProgram";
 import { monthKeyFor } from "../shared/ambassadorProgram";
 import { checkAndAdvanceTandaIfNeeded } from "./tandaAutoAdvance";
@@ -2328,6 +2328,7 @@ export const appRouter = router({
             return {
               id: p.id, alias: p.alias, gender: p.gender, avatarId: p.avatarId, zone: p.zone, swipeEnabled: !!p.swipeEnabled,
               hasPhoto: photoCount > 0, photoCount, lookingFor: parseLookingFor(p.lookingFor), costume: p.costume ?? null,
+              pairType: p.pairType ?? null, orientation: p.orientation ?? null, relationStyle: p.relationStyle ?? null, intents: parseIntents(p.intents),
             };
           })(actor.profile)
           : null,
@@ -2340,7 +2341,12 @@ export const appRouter = router({
       gender: z.enum(PARTY_GENDERS),
       avatarId: z.number().int().min(1).max(AVATARS_PER_GENDER),
       zone: z.enum(PARTY_ZONES),
-      lookingFor: z.array(z.enum(PARTY_GENDERS)).min(1).max(3).optional(),
+      lookingFor: z.array(z.enum([...LOOKING_FOR_KEYS, 'pareja'])).min(1).max(7).optional(),
+      // Opcionales (null = «Prefiero no decir»).
+      pairType: z.enum(PAIR_TYPES).nullish(),
+      orientation: z.enum(ORIENTATIONS).nullish(),
+      relationStyle: z.enum(RELATION_STYLES).nullish(),
+      intents: z.array(z.enum(INTENTS)).max(MAX_INTENTS).optional(),
       costume: z.string().max(80).optional(),
       acceptedRules: z.literal(true, { message: 'Para entrar tienes que aceptar las reglas de la casa' }),
     })).mutation(async ({ input }) => {
@@ -2364,6 +2370,10 @@ export const appRouter = router({
         active: actor.inside ? 1 : 0,
         lookingFor: serializeLookingFor(input.lookingFor ?? DEFAULT_LOOKING_FOR),
         costume: costume.costume,
+        pairType: input.gender === 'pareja' ? input.pairType ?? null : null,
+        orientation: input.orientation ?? null,
+        relationStyle: input.relationStyle ?? null,
+        intents: serializeIntents(input.intents ?? []),
       });
       return { id: profile!.id };
     }),
@@ -2374,7 +2384,12 @@ export const appRouter = router({
       alias: z.string(),
       gender: z.enum(PARTY_GENDERS),
       avatarId: z.number().int().min(1).max(AVATARS_PER_GENDER),
-      lookingFor: z.array(z.enum(PARTY_GENDERS)).min(1).max(3).optional(),
+      lookingFor: z.array(z.enum([...LOOKING_FOR_KEYS, 'pareja'])).min(1).max(7).optional(),
+      // Opcionales (null = «Prefiero no decir»).
+      pairType: z.enum(PAIR_TYPES).nullish(),
+      orientation: z.enum(ORIENTATIONS).nullish(),
+      relationStyle: z.enum(RELATION_STYLES).nullish(),
+      intents: z.array(z.enum(INTENTS)).max(MAX_INTENTS).optional(),
       costume: z.string().max(80).optional(),
     })).mutation(async ({ input }) => {
       const actor = await requirePartyRegistrant(input.ticketCode);
@@ -2387,6 +2402,11 @@ export const appRouter = router({
         alias: check.alias, gender: input.gender, avatarId: input.avatarId,
         ...(input.lookingFor ? { lookingFor: serializeLookingFor(input.lookingFor) } : {}),
         ...(input.costume !== undefined ? { costume: costume.costume } : {}),
+        // Las apps viejas no mandan estos campos: solo se tocan si vienen.
+        ...(input.pairType !== undefined || input.gender !== 'pareja' ? { pairType: input.gender === 'pareja' ? input.pairType ?? null : null } : {}),
+        ...(input.orientation !== undefined ? { orientation: input.orientation } : {}),
+        ...(input.relationStyle !== undefined ? { relationStyle: input.relationStyle } : {}),
+        ...(input.intents !== undefined ? { intents: serializeIntents(input.intents) } : {}),
       });
       return { ok: true as const };
     }),

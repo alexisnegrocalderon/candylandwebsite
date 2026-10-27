@@ -3,8 +3,10 @@ import { toast } from 'sonner';
 import { trpc } from '@/lib/trpc';
 import { PartyAvatar } from '@/components/party/Avatar';
 import {
-  AVATARS_PER_GENDER, DEFAULT_LOOKING_FOR, MAX_ALIAS_LENGTH, MAX_COSTUME_LENGTH, PARTY_GENDERS, PARTY_ZONES,
-  ZONE_LABELS, sanitizeAlias, sanitizeCostume, type PartyGender, type PartyZone,
+  AVATARS_PER_GENDER, DEFAULT_LOOKING_FOR, GENDER_LABELS, INTENTS, INTENT_EMOJI, INTENT_LABELS, LOOKING_FOR_KEYS, LOOKING_LABELS,
+  MAX_ALIAS_LENGTH, MAX_COSTUME_LENGTH, MAX_INTENTS, ORIENTATIONS, ORIENTATION_LABELS, PAIR_LABELS, PAIR_TYPES, PARTY_GENDERS,
+  PARTY_ZONES, RELATION_LABELS, RELATION_STYLES, ZONE_LABELS, parseLookingFor, sanitizeAlias, sanitizeCostume,
+  type Intent, type LookingKey, type Orientation, type PairType, type PartyGender, type PartyZone, type RelationStyle,
 } from '@shared/party';
 
 /* El formulario del perfil de Playmatch. Vive acá (y no en pages/Party.tsx)
@@ -16,13 +18,10 @@ const LABEL = 'mb-2 block text-footnote font-semibold uppercase tracking-wide te
 const SELECTED = 'border-pink-400/70 bg-pink-500/20 text-white';
 const IDLE = 'border-white/15 bg-white/[0.04] text-white/70';
 
-const LOOKING_LABELS: Record<PartyGender, string> = { hombre: 'Hombres', mujer: 'Mujeres', pareja: 'Parejas' };
+const PILL = 'min-h-11 rounded-full border px-3 py-2 text-subhead font-semibold leading-tight transition-colors';
+const OPTIONAL = <span className="normal-case tracking-normal text-white/60">· opcional</span>;
 
-export const GENDER_LABELS: Record<PartyGender, string> = {
-  hombre: 'Hombre',
-  mujer: 'Mujer',
-  pareja: 'Pareja',
-};
+export { GENDER_LABELS };
 
 /** El perfil de Playmatch. `inside`: recién entró a la fiesta. `pre`: inscripción anticipada desde la
  * app (queda invisible hasta que escaneen su entrada). `edit`: cambiar alias, género o avatar.
@@ -31,16 +30,24 @@ export function CreateProfile({ ticketCode, onCreated, mode = 'inside', initial,
   ticketCode: string;
   onCreated: () => void;
   mode?: 'inside' | 'pre' | 'edit';
-  initial?: { alias: string; gender: PartyGender; avatarId: number; lookingFor?: PartyGender[]; costume?: string | null };
+  initial?: {
+    alias: string; gender: PartyGender; avatarId: number; lookingFor?: readonly string[]; costume?: string | null;
+    pairType?: string | null; orientation?: string | null; relationStyle?: string | null; intents?: readonly string[];
+  };
   embedded?: boolean;
 }) {
   const [alias, setAlias] = useState(initial?.alias ?? '');
   const [gender, setGender] = useState<PartyGender>(initial?.gender ?? 'mujer');
   const [avatarId, setAvatarId] = useState(initial?.avatarId ?? 1);
   const [zone, setZone] = useState<PartyZone>('living');
-  const [lookingFor, setLookingFor] = useState<PartyGender[]>(initial?.lookingFor ?? [...DEFAULT_LOOKING_FOR]);
+  const [pairType, setPairType] = useState<PairType>((initial?.pairType as PairType) ?? 'mixta');
+  const [lookingFor, setLookingFor] = useState<LookingKey[]>(initial?.lookingFor ? parseLookingFor(initial.lookingFor.join(',')) : [...DEFAULT_LOOKING_FOR]);
   const [costume, setCostume] = useState(initial?.costume ?? '');
-  const toggleLooking = (g: PartyGender) => setLookingFor((list) => (list.includes(g) ? (list.length > 1 ? list.filter((x) => x !== g) : list) : [...list, g]));
+  const [orientation, setOrientation] = useState<Orientation | null>((initial?.orientation as Orientation) ?? null);
+  const [relationStyle, setRelationStyle] = useState<RelationStyle | null>((initial?.relationStyle as RelationStyle) ?? null);
+  const [intents, setIntents] = useState<Intent[]>((initial?.intents as Intent[]) ?? []);
+  const toggleLooking = (g: LookingKey) => setLookingFor((list) => (list.includes(g) ? (list.length > 1 ? list.filter((x) => x !== g) : list) : [...list, g]));
+  const toggleIntent = (i: Intent) => setIntents((list) => (list.includes(i) ? list.filter((x) => x !== i) : list.length < MAX_INTENTS ? [...list, i] : list));
   const [rules, setRules] = useState(mode === 'edit');
 
   const create = trpc.party.createProfile.useMutation({
@@ -59,7 +66,10 @@ export function CreateProfile({ ticketCode, onCreated, mode = 'inside', initial,
   const costumeError = !costumeCheck.ok ? costumeCheck.reason : null;
   const submit = () => {
     if (!check.ok || !costumeCheck.ok || !rules) return;
-    const extra = { lookingFor, costume: costumeCheck.costume ?? '' };
+    const extra = {
+      lookingFor, costume: costumeCheck.costume ?? '',
+      pairType: gender === 'pareja' ? pairType : null, orientation, relationStyle, intents,
+    };
     if (mode === 'edit') update.mutate({ ticketCode, alias: check.alias, gender, avatarId, ...extra });
     else create.mutate({ ticketCode, alias: check.alias, gender, avatarId, zone, acceptedRules: true, ...extra });
   };
@@ -89,29 +99,66 @@ export function CreateProfile({ ticketCode, onCreated, mode = 'inside', initial,
           {aliasError ?? `${alias.length}/${MAX_ALIAS_LENGTH} · sin redes ni teléfonos`}
         </p>
 
-        <p className={LABEL}>Vengo como</p>
-        <div className="grid grid-cols-3 gap-2 mb-6">
+        <p className={LABEL}>Soy</p>
+        <div className={`grid grid-cols-2 gap-2 ${gender === 'pareja' ? 'mb-2' : 'mb-6'}`}>
           {PARTY_GENDERS.map((g) => (
-            <button
-              key={g}
-              onClick={() => setGender(g)}
-              className={`h-11 rounded-full border text-subhead font-semibold transition-colors ${gender === g ? SELECTED : IDLE}`}
-            >
+            <button key={g} type="button" aria-pressed={gender === g} onClick={() => setGender(g)} className={`${PILL} ${gender === g ? SELECTED : IDLE}`}>
               {GENDER_LABELS[g]}
             </button>
           ))}
         </div>
+        {gender === 'pareja' && (
+          <div className="mb-6 grid grid-cols-3 gap-2">
+            {PAIR_TYPES.map((t) => (
+              <button key={t} type="button" aria-pressed={pairType === t} onClick={() => setPairType(t)} className={`${PILL} text-footnote ${pairType === t ? SELECTED : IDLE}`}>
+                {PAIR_LABELS[t]}
+              </button>
+            ))}
+          </div>
+        )}
 
         <p className={LABEL}>Quiero conocer</p>
-        <div className="mb-1.5 grid grid-cols-3 gap-2">
-          {PARTY_GENDERS.map((g) => (
+        <div className="mb-1.5 grid grid-cols-2 gap-2">
+          {LOOKING_FOR_KEYS.map((g) => (
             <button key={g} type="button" aria-pressed={lookingFor.includes(g)} onClick={() => toggleLooking(g)}
-              className={`h-11 rounded-full border text-subhead font-semibold transition-colors ${lookingFor.includes(g) ? SELECTED : IDLE}`}>
+              className={`${PILL} text-footnote ${lookingFor.includes(g) ? SELECTED : IDLE}`}>
               {LOOKING_LABELS[g]}
             </button>
           ))}
         </div>
         <p className="mb-6 text-caption1 text-white/60">En el swipe solo te aparece quien tú buscas y que también busca a alguien como tú.</p>
+
+        <p className={LABEL}>Esta noche busco {OPTIONAL}</p>
+        <div className="mb-1.5 flex flex-wrap gap-2">
+          {INTENTS.map((i) => (
+            <button key={i} type="button" aria-pressed={intents.includes(i)} onClick={() => toggleIntent(i)}
+              className={`${PILL} ${intents.includes(i) ? SELECTED : IDLE} ${!intents.includes(i) && intents.length >= MAX_INTENTS ? 'opacity-40' : ''}`}>
+              <span aria-hidden>{INTENT_EMOJI[i]}</span> {INTENT_LABELS[i]}
+            </button>
+          ))}
+        </div>
+        <p className="mb-6 text-caption1 text-white/60">Hasta {MAX_INTENTS}. Primero te mostramos a quien busca lo mismo.</p>
+
+        <p className={LABEL}>Orientación {OPTIONAL}</p>
+        <div className="mb-6 flex flex-wrap gap-2">
+          {ORIENTATIONS.map((o) => (
+            <button key={o} type="button" aria-pressed={orientation === o} onClick={() => setOrientation(orientation === o ? null : o)} className={`${PILL} ${orientation === o ? SELECTED : IDLE}`}>
+              {ORIENTATION_LABELS[o]}
+            </button>
+          ))}
+          <button type="button" aria-pressed={orientation === null} onClick={() => setOrientation(null)} className={`${PILL} ${orientation === null ? SELECTED : IDLE}`}>Prefiero no decir</button>
+        </div>
+
+        <p className={LABEL}>Cómo me relaciono {OPTIONAL}</p>
+        <div className="mb-1.5 flex flex-wrap gap-2">
+          {RELATION_STYLES.map((r) => (
+            <button key={r} type="button" aria-pressed={relationStyle === r} onClick={() => setRelationStyle(relationStyle === r ? null : r)} className={`${PILL} ${relationStyle === r ? SELECTED : IDLE}`}>
+              {RELATION_LABELS[r]}
+            </button>
+          ))}
+          <button type="button" aria-pressed={relationStyle === null} onClick={() => setRelationStyle(null)} className={`${PILL} ${relationStyle === null ? SELECTED : IDLE}`}>Prefiero no decir</button>
+        </div>
+        <p className="mb-6 text-caption1 text-white/60">Solo lo ve quien ya entró a la fiesta, y se borra cuando termina.</p>
 
         <label className={LABEL}>Mi disfraz <span className="normal-case tracking-normal text-white/60">· opcional</span></label>
         <input
@@ -125,18 +172,18 @@ export function CreateProfile({ ticketCode, onCreated, mode = 'inside', initial,
           {costumeError ?? 'Sale grande en tu tarjeta: ayuda a que te encuentren en la fiesta.'}
         </p>
 
-        <p className={LABEL}>Tu avatar <span className="normal-case tracking-normal text-white/60">· si no pones foto</span></p>
-        <div className="grid grid-cols-4 gap-3 mb-6">
+        <p className={LABEL}>Tu ficha <span className="normal-case tracking-normal text-white/60">· si no pones foto</span></p>
+        <div className="mb-6 grid grid-cols-6 gap-2">
           {Array.from({ length: AVATARS_PER_GENDER }, (_, i) => i + 1).map((id) => (
             <button
               key={id}
               onClick={() => setAvatarId(id)}
-              aria-label={`Avatar ${id}`}
+              aria-label={`Color ${id}`}
               className={`rounded-full transition-transform active:scale-95 ${
                 avatarId === id ? 'scale-105 ring-[3px] ring-pink-400 ring-offset-2 ring-offset-[#0b0612]' : 'opacity-60'
               }`}
             >
-              <PartyAvatar gender={gender} avatarId={id} className="w-full h-auto rounded-full" />
+              <PartyAvatar gender={gender} pairType={gender === 'pareja' ? pairType : null} avatarId={id} className="w-full h-auto rounded-full" />
             </button>
           ))}
         </div>

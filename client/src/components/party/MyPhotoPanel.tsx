@@ -5,9 +5,8 @@ import { trpc } from '@/lib/trpc';
 import { ProtectedPhoto } from '@/components/party/ProtectedPhoto';
 import { Chip, PmSheet } from '@/components/party/ui';
 import { PartyPhotos } from '@/components/site/PartyPhotos';
-import { ZONE_LABELS, type PartyGender, type PartyZone } from '@shared/party';
+import { GENDER_LABELS, ZONE_LABELS, type PartyGender, type PartyZone } from '@shared/party';
 
-const GENDER_LABELS: Record<PartyGender, string> = { hombre: 'Hombre', mujer: 'Mujer', pareja: 'Pareja' };
 
 /* «Mi Playmatch»: tu tarjeta como la ven los demás (la misma del swipe) y tus fotos (hasta 3). Las
  * fotos son opcionales y solo sirven para el swipe. Borrarlas todas = salir del swipe al instante. */
@@ -50,7 +49,7 @@ export function MyPhotoPanel({ ticketCode, profileId, alias, gender, zone, costu
         <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent px-4 pb-4 pt-14">
           <p className="truncate text-title2 font-bold">{alias}</p>
           {costume && <p className="flex items-center gap-1 truncate text-subhead font-semibold text-amber-200"><Sparkles className="h-3.5 w-3.5 shrink-0" /> {costume}</p>}
-          <div className="mt-1.5 flex flex-wrap gap-1.5"><Chip>{GENDER_LABELS[gender]}</Chip><Chip><MapPin className="h-3 w-3" /> En {ZONE_LABELS[zone]}</Chip></div>
+          <div className="mt-1.5 flex flex-wrap gap-1.5"><Chip>{GENDER_LABELS[gender] ?? 'Persona'}</Chip><Chip><MapPin className="h-3 w-3" /> En {ZONE_LABELS[zone]}</Chip></div>
         </div>
         {hasPhoto && !swipeEnabled && (
           <div className="absolute inset-0 grid place-items-center bg-black/55 backdrop-blur-sm"><p className="flex items-center gap-1.5 text-subhead font-semibold"><EyeOff className="h-4 w-4" /> En pausa: nadie te ve</p></div>
