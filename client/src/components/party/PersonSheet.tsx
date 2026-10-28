@@ -2,11 +2,10 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import { Ban, Flag, MapPin, MessageCircle, Sparkles, Star, Trophy, Wine } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
-import { Chip, PersonPhoto, PmSheet, PM_CTA, tap } from '@/components/party/ui';
+import { Chip, PersonPhoto, PmSheet, PM_CTA, VibeChips, tap } from '@/components/party/ui';
 import type { CostumeVoting } from '@/components/party/costumeVotes';
 import { SWIPE_REPORT_REASONS, ZONE_LABELS, type PartyGender, type PartyZone } from '@shared/party';
 
-const GENDER_LABELS: Record<PartyGender, string> = { hombre: 'Hombre', mujer: 'Mujer', pareja: 'Pareja' };
 
 export type SheetPerson = {
   id: number;
@@ -15,6 +14,7 @@ export type SheetPerson = {
   avatarId: number;
   zone: PartyZone;
   costume?: string | null;
+  pairType?: string | null; orientation?: string | null; relationStyle?: string | null; intents?: string[]; common?: string[];
   connectionId: number | null;
   connectionStatus: string | null;
   pendingForMe: boolean;
@@ -75,10 +75,7 @@ export function PersonSheet({ ticketCode, viewerAlias, canPhoto, person, caramel
         <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent px-4 pb-4 pt-16">
           <p className="truncate text-title1 font-bold tracking-tight">{person.alias}</p>
           {person.costume && <p className="flex items-center gap-1.5 truncate text-headline font-semibold text-amber-200"><Sparkles className="h-4 w-4 shrink-0" /> {person.costume}</p>}
-          <div className="mt-1.5 flex flex-wrap gap-1.5">
-            <Chip>{GENDER_LABELS[person.gender]}</Chip>
-            <Chip><MapPin className="h-3 w-3" /> En {ZONE_LABELS[person.zone]}</Chip>
-          </div>
+          <VibeChips person={person} zone={<Chip><MapPin className="h-3 w-3" /> En {ZONE_LABELS[person.zone]}</Chip>} />
         </div>
       </div>
 

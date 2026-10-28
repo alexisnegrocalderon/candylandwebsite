@@ -1601,7 +1601,10 @@ export const partyProfiles = mysqlTable("partyProfiles", {
   // fiesta, igual que en la página pública de la entrada.
   ticketId: int("ticketId").notNull().unique(),
   alias: varchar("alias", { length: 32 }).notNull(),
-  gender: mysqlEnum("gender", ["hombre", "mujer", "pareja"]).notNull(),
+  gender: mysqlEnum("gender", ["hombre", "mujer", "pareja", "no_binario"]).notNull(),
+  // Si es pareja: de quiénes (chica + chico, dos chicas, dos chicos). Las parejas de antes quedan en null (= cualquier pareja).
+  pairType: mysqlEnum("pairType", ["mixta", "chicas", "chicos"]),
+  // El color de su «ficha» (avatar de la marca), 1..AVATARS_PER_GENDER.
   avatarId: int("avatarId").notNull(),
   zone: mysqlEnum("zone", ["living", "playground", "piscina", "barra"]).default("living").notNull(),
   // Se refresca solo, cada vez que la persona mira la mansión.
@@ -1617,7 +1620,12 @@ export const partyProfiles = mysqlTable("partyProfiles", {
   swipeEnabled: int("swipeEnabled").default(0).notNull(),
   // A quién quiere conocer («hombre,mujer,pareja»): el swipe solo junta a quienes se buscan
   // los dos (isMutualInterest en shared/party.ts).
-  lookingFor: varchar("lookingFor", { length: 32 }).default("hombre,mujer,pareja").notNull(),
+  lookingFor: varchar("lookingFor", { length: 128 }).default("hombre,mujer,pareja").notNull(),
+  // Opcionales («Prefiero no decir» = null), shared/party.ts: orientación, cómo se relaciona y qué busca esta noche
+  // («amistad,fantasia»). Ordenan el mazo por compatibilidad; los ve solo quien ya entró a la fiesta.
+  orientation: varchar("orientation", { length: 16 }),
+  relationStyle: varchar("relationStyle", { length: 16 }),
+  intents: varchar("intents", { length: 160 }),
   // «Mi disfraz» (aniversario Halloween): lo ve toda la fiesta, mismas reglas que el alias.
   costume: varchar("costume", { length: 40 }),
   // Cuántas veces deshizo un ✕ esta noche (MAX_REWINDS_PER_EVENT).

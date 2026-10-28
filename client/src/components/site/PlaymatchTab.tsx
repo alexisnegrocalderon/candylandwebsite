@@ -99,7 +99,7 @@ export function PlaymatchTab({ events, buyHref }: { events: PmEvent[]; buyHref?:
       <AppScreen open={screen === 'normas'} title="Normas de la casa" onClose={close}><Rules /></AppScreen>
       {pick && profile && (
         <AppScreen open={screen === 'editar'} title="Tu perfil" onClose={close}>
-          <CreateProfile embedded mode="edit" ticketCode={pick.t.ticketCode} initial={{ alias: profile.alias, gender: profile.gender as PartyGender, avatarId: profile.avatarId, lookingFor: profile.lookingFor as PartyGender[], costume: profile.costume }}
+          <CreateProfile embedded mode="edit" ticketCode={pick.t.ticketCode} initial={{ alias: profile.alias, gender: profile.gender as PartyGender, avatarId: profile.avatarId, lookingFor: profile.lookingFor, costume: profile.costume, pairType: profile.pairType, orientation: profile.orientation, relationStyle: profile.relationStyle, intents: profile.intents }}
             onCreated={() => { session.refetch(); close(); }} />
         </AppScreen>
       )}
@@ -162,7 +162,7 @@ export function PlaymatchTab({ events, buyHref }: { events: PmEvent[]; buyHref?:
       <div className="account-glass flex items-center gap-3 rounded-[26px] px-4 py-3.5">
         {profile.photoCount > 0
           ? <ProtectedPhoto key={photosVersion} ticketCode={pick.t.ticketCode} profileId={profile.id} viewerAlias={profile.alias} className="h-14 w-14 shrink-0 rounded-full" quiet />
-          : <PartyAvatar gender={profile.gender as PartyGender} avatarId={profile.avatarId} className="h-14 w-14 shrink-0 rounded-full" />}
+          : <PartyAvatar gender={profile.gender as PartyGender} pairType={profile.pairType} avatarId={profile.avatarId} className="h-14 w-14 shrink-0 rounded-full" />}
         <div className="min-w-0 flex-1">
           <p className="truncate text-body font-bold leading-tight">{profile.alias}</p>
           {profile.costume && <p className="truncate text-footnote font-semibold text-amber-200">✨ {profile.costume}</p>}

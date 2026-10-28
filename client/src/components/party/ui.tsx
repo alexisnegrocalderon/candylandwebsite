@@ -2,8 +2,8 @@ import type { ReactNode } from 'react';
 import { motion, useDragControls } from 'framer-motion';
 import { X } from 'lucide-react';
 import { PartyAvatar } from '@/components/party/Avatar';
+import { INTENT_EMOJI, INTENT_LABELS, ORIENTATION_LABELS, RELATION_LABELS, cleanOrientation, cleanRelationStyle, identityLabel, parseIntents, type PartyGender } from '@shared/party';
 import { ProtectedPhoto } from '@/components/party/ProtectedPhoto';
-import type { PartyGender } from '@shared/party';
 
 /* Piezas comunes de Playmatch con el vidrio y la letra de la App (account-glass, lg-pill, lg-sheet,
  * escala text-* de iOS): la hoja que sube, los botones redondos y la foto con el avatar de respaldo. */
@@ -59,11 +59,11 @@ export function PersonPhoto({ ticketCode, viewerAlias, canPhoto, person, classNa
   ticketCode: string;
   viewerAlias: string;
   canPhoto: boolean;
-  person: { id: number; gender: PartyGender; avatarId: number };
+  person: { id: number; gender: PartyGender; avatarId: number; pairType?: string | null };
   className?: string;
   quiet?: boolean;
 }) {
-  const avatar = <PartyAvatar gender={person.gender} avatarId={person.avatarId} className="h-full w-full" />;
+  const avatar = <PartyAvatar gender={person.gender} pairType={person.pairType} avatarId={person.avatarId} className="h-full w-full" />;
   if (!canPhoto) return <div className={`overflow-hidden ${className}`}>{avatar}</div>;
   return <ProtectedPhoto ticketCode={ticketCode} profileId={person.id} viewerAlias={viewerAlias} className={className} quiet={quiet} fallback={avatar} />;
 }
@@ -71,4 +71,35 @@ export function PersonPhoto({ ticketCode, viewerAlias, canPhoto, person, classNa
 /** Chip de vidrio para los datos de la tarjeta (género, zona, «Activa ahora»). */
 export function Chip({ children, className = '' }: { children: ReactNode; className?: string }) {
   return <span className={`inline-flex items-center gap-1 rounded-full bg-white/[0.14] px-2.5 py-1 text-caption1 font-semibold text-white backdrop-blur-md ${className}`}>{children}</span>;
+}
+
+/** Quién es y qué busca, en la tarjeta: «Pareja · Dos chicas», «Bi», «Poliamor», lo que busca esta noche y, si hay,
+ * lo que tienen en común con quien mira. Lo que la persona no dijo no aparece. */
+export function VibeChips({ person, zone }: {
+  person: { gender: string; pairType?: string | null; orientation?: string | null; relationStyle?: string | null; intents?: readonly string[]; common?: readonly string[] };
+  zone?: ReactNode;
+}) {
+  const intents = parseIntents(person.intents ?? []);
+  const orientation = cleanOrientation(person.orientation);
+  const relation = cleanRelationStyle(person.relationStyle);
+  return (
+    <>
+      {person.common && person.common.length > 0 && (
+        <p className="mt-2 inline-flex max-w-full items-center gap-1.5 rounded-full bg-gradient-to-r from-pink-500/90 to-fuchsia-500/90 px-3 py-1 text-caption1 font-bold text-white shadow-[0_6px_18px_-6px_rgba(236,72,153,0.9)]">
+          <span aria-hidden>✨</span><span className="truncate">En común: {person.common.slice(0, 3).join(' · ')}</span>
+        </p>
+      )}
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        <Chip>{identityLabel(person)}</Chip>
+        {orientation && <Chip>{ORIENTATION_LABELS[orientation]}</Chip>}
+        {relation && <Chip>{RELATION_LABELS[relation]}</Chip>}
+        {zone}
+      </div>
+      {intents.length > 0 && (
+        <div className="mt-1.5 flex flex-wrap gap-1.5">
+          {intents.map((i) => <Chip key={i} className="bg-white/[0.08]"><span aria-hidden>{INTENT_EMOJI[i]}</span> {INTENT_LABELS[i]}</Chip>)}
+        </div>
+      )}
+    </>
+  );
 }

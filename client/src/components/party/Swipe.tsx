@@ -5,13 +5,15 @@ import { Camera, Heart, Info, MapPin, RotateCcw, Sparkles, Star, Trophy, Wine, X
 import { trpc } from '@/lib/trpc';
 import { ProtectedPhoto, preloadPhoto } from '@/components/party/ProtectedPhoto';
 import { Confetti } from '@/components/site/Confetti';
-import { Chip, PM_CTA, tap } from '@/components/party/ui';
+import { Chip, PM_CTA, VibeChips, tap } from '@/components/party/ui';
 import type { CostumeVoting } from '@/components/party/costumeVotes';
 import { ZONE_LABELS, type PartyGender, type PartyZone } from '@shared/party';
 
-const GENDER_LABELS: Record<PartyGender, string> = { hombre: 'Hombre', mujer: 'Mujer', pareja: 'Pareja' };
 
-export type DeckCard = { id: number; alias: string; gender: PartyGender; zone: PartyZone; costume: string | null; photoCount: number; caramelo?: boolean };
+export type DeckCard = {
+  id: number; alias: string; gender: PartyGender; zone: PartyZone; costume: string | null; photoCount: number; caramelo?: boolean;
+  pairType?: string | null; orientation?: string | null; relationStyle?: string | null; intents?: string[]; common?: string[];
+};
 type Verdict = 'like' | 'nope' | 'caramelo';
 
 /* Descubrir: el swipe al estilo Tinder, con el vidrio de la App. ♥ a la derecha, ✕ a la izquierda y
@@ -269,10 +271,7 @@ function SwipeCard({ ticketCode, viewerAlias, card, command, caramelo, voting, o
           <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.9)]" aria-label="Activa ahora" />
         </p>
         {card.costume && <p className="mt-0.5 flex items-center gap-1.5 truncate text-headline font-semibold text-amber-200"><Sparkles className="h-4 w-4 shrink-0" /> {card.costume}</p>}
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          <Chip>{GENDER_LABELS[card.gender]}</Chip>
-          <Chip><MapPin className="h-3 w-3" /> En {ZONE_LABELS[card.zone]}</Chip>
-        </div>
+        <VibeChips person={card} zone={<Chip><MapPin className="h-3 w-3" /> En {ZONE_LABELS[card.zone]}</Chip>} />
       </div>
       <div className="absolute bottom-5 right-4 flex gap-2">
         {voting && (

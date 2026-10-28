@@ -13,10 +13,11 @@ import { normalizeIgHandle, saysAlreadyBought, type BuyerCandidate } from "../sh
 import { computeFans, FAN_WINDOW_DAYS } from "../shared/igEngagement";
 import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, partyPhotos, partySwipes, partyCostumeVotes, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog, eventSurveys, eventSurveySettings, accessCredits, type AccessCredit, igComments, type IgComment, igReferrals, type IgReferralRow, igLinkClicks, staffMembers, staffShifts, aiUsage, attendeeContacts } from "../drizzle/schema";
 import { ENV } from './_core/env';
+import { ensurePartyIdentitySchema } from './partySchema';
 import { nanoid } from 'nanoid';
 import { extrasDeMetadata, opcionesDeMetadata } from '../shared/insumos';
 import { isMissionActiveForEvent, missionDepositPrice, personasForAccesoSlug, personasForTicket } from '../shared/mission300';
-import { MAX_TOUCHES_PER_EVENT, MAX_COSTUME_VOTES_PER_EVENT, costumeVotesLeft, MAX_PARTY_PHOTOS, MAX_REWINDS_PER_EVENT, photoSlotFor, isMutualInterest, isSeenBy, parseLookingFor, PRESENCE_WINDOW_MS, SWIPE_DECK_SIZE, canSeePhotos, giftExpiresAt, isGiftExpired, canPayGift, canRespondToGift, orderedPair, type PartyGender, type PartyZone } from '../shared/party';
+import { MAX_TOUCHES_PER_EVENT, MAX_COSTUME_VOTES_PER_EVENT, costumeVotesLeft, MAX_PARTY_PHOTOS, MAX_REWINDS_PER_EVENT, photoSlotFor, isMutualInterest, wants, compatibility, parseIntents, cleanOrientation, cleanRelationStyle, type PairType, isSeenBy, parseLookingFor, PRESENCE_WINDOW_MS, SWIPE_DECK_SIZE, canSeePhotos, giftExpiresAt, isGiftExpired, canPayGift, canRespondToGift, orderedPair, type PartyGender, type PartyZone } from '../shared/party';
 import { playcoinsEarnedForPurchase, clampRedeemAmount } from '../shared/playcoins';
 import { isEventToday } from '../shared/eventDay';
 import { chileHourOf, startOfChileDay } from '../shared/chileDate';
@@ -66,6 +67,8 @@ export async function getDb() {
       _db = null;
     }
   }
+  // Playmatch: columnas nuevas del perfil (drizzle/0136) si la migración no se corrió.
+  if (_db) await ensurePartyIdentitySchema(_db);
   return _db;
 }
 
@@ -6798,6 +6801,10 @@ export async function createPartyProfile(params: {
   active?: 0 | 1;
   lookingFor?: string;
   costume?: string | null;
+  pairType?: PairType | null;
+  orientation?: string | null;
+  relationStyle?: string | null;
+  intents?: string | null;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -6812,6 +6819,10 @@ export async function createPartyProfile(params: {
     active: params.active ?? 1,
     lookingFor: params.lookingFor ?? 'hombre,mujer,pareja',
     costume: params.costume ?? null,
+    pairType: params.gender === 'pareja' ? params.pairType ?? null : null,
+    orientation: params.orientation ?? null,
+    relationStyle: params.relationStyle ?? null,
+    intents: params.intents ?? null,
     lastSeenAt: new Date(),
     rulesAcceptedAt: new Date(),
   });
@@ -6820,7 +6831,7 @@ export async function createPartyProfile(params: {
   return profile;
 }
 
-export async function updatePartyProfile(profileId: number, data: { zone?: PartyZone; avatarId?: number; active?: number; alias?: string; gender?: PartyGender; lastSeenAt?: Date; lookingFor?: string; costume?: string | null }) {
+export async function updatePartyProfile(profileId: number, data: { zone?: PartyZone; avatarId?: number; active?: number; alias?: string; gender?: PartyGender; lastSeenAt?: Date; lookingFor?: string; costume?: string | null; pairType?: PairType | null; orientation?: string | null; relationStyle?: string | null; intents?: string | null }) {
   const db = await getDb();
   if (!db) return;
   await db.update(partyProfiles).set(data).where(eq(partyProfiles.id, profileId));
@@ -6867,6 +6878,7 @@ export async function listPartyMansion(profileId: number, eventId: number) {
     byOther.set(other, c);
   }
 
+  const me = profiles.find((p: any) => p.id === profileId);
   const people = profiles
     .filter((p: any) => p.id !== profileId && !hidden.has(p.id))
     .map((p: any) => {
@@ -6881,6 +6893,8 @@ export async function listPartyMansion(profileId: number, eventId: number) {
         avatarId: p.avatarId,
         zone: p.zone as PartyZone,
         costume: (p.costume as string | null) ?? null,
+        ...partyVibe(p),
+        common: me ? compatibility(me, p).common : [],
         lastSeenAt: p.lastSeenAt,
         connectionId: c?.id ?? null,
         // `declined` se le muestra a quien tocó como si siguiera pendiente:
@@ -7484,6 +7498,9 @@ export async function purgeClosedPartyPhotos(now: Date = new Date()) {
   const photos = await db.select({ id: partyPhotos.id }).from(partyPhotos).where(inArray(partyPhotos.eventId, ids));
   // Los swipes se borran siempre, haya o no fotos.
   await db.delete(partySwipes).where(inArray(partySwipes.eventId, ids));
+  // Orientación, cómo se relaciona y qué buscaba: datos sensibles que solo servían esa noche.
+  await db.update(partyProfiles).set({ orientation: null, relationStyle: null, intents: null })
+    .where(and(inArray(partyProfiles.eventId, ids), or(isNotNull(partyProfiles.orientation), isNotNull(partyProfiles.relationStyle), isNotNull(partyProfiles.intents))));
   if (photos.length > 0) {
     await db.delete(partyPhotos).where(inArray(partyPhotos.eventId, ids));
     await db.update(partyProfiles).set({ swipeEnabled: 0 }).where(inArray(partyProfiles.eventId, ids));
@@ -7492,6 +7509,16 @@ export async function purgeClosedPartyPhotos(now: Date = new Date()) {
 }
 
 /* --- Swipe ---------------------------------------------------------------- */
+
+/** Lo que una persona cuenta de sí en la tarjeta (todo opcional; lo que no dijo no se manda). */
+export function partyVibe(p: { pairType?: string | null; orientation?: string | null; relationStyle?: string | null; intents?: string | null }) {
+  return {
+    pairType: (p.pairType as PairType | null) ?? null,
+    orientation: cleanOrientation(p.orientation),
+    relationStyle: cleanRelationStyle(p.relationStyle),
+    intents: parseIntents(p.intents),
+  };
+}
 
 /** Perfil que puede aparecer en el mazo / recibir un swipe: mismo evento,
  * activo, no expulsado, participando y con foto. */
@@ -7506,7 +7533,7 @@ async function isSwipeCandidate(db: any, viewerId: number, eventId: number, targ
   const { low, high } = orderedPair(viewerId, targetId);
   const [conn] = await db.select().from(partyConnections).where(and(eq(partyConnections.profileLowId, low), eq(partyConnections.profileHighId, high))).limit(1);
   const caramelFromThem = !!conn && conn.status === 'pending' && conn.initiatedById === targetId;
-  if (caramelFromThem ? !parseLookingFor(me.lookingFor).includes(t.gender) : !isMutualInterest(me, t)) return null;
+  if (caramelFromThem ? !wants(me, t) : !isMutualInterest(me, t)) return null;
   if (!(await partyProfileHasPhoto(targetId))) return null;
   const hidden = await getPartyHiddenIds(db, viewerId);
   if (hidden.has(targetId)) return null;
@@ -7545,6 +7572,9 @@ export async function getPartySwipeDeck(viewer: { id: number; eventId: number; s
   const toCard = (p: any, caramelo: boolean) => ({
     id: p.id as number, alias: p.alias as string, gender: p.gender as PartyGender, zone: p.zone as PartyZone,
     costume: (p.costume as string | null) ?? null, photoCount: photoCount.get(p.id) ?? 1, caramelo,
+    ...partyVibe(p),
+    // Lo que tienen en común con quien mira («Amistad · Relaciones abiertas»).
+    common: me ? compatibility(me, p).common : [],
   });
   // Quien me mandó un Caramelo (★) va primero, con su marca: ♥ = match al tiro. Basta con que yo
   // busque a alguien como esa persona (ella ya dijo que yo le intereso).
@@ -7552,14 +7582,17 @@ export async function getPartySwipeDeck(viewer: { id: number; eventId: number; s
     .filter((c: any) => c.status === 'pending' && c.initiatedById !== viewer.id)
     .map((c: any) => (c.profileLowId === viewer.id ? c.profileHighId : c.profileLowId)));
   const caramels = profiles
-    .filter((p: any) => caramelIds.has(p.id) && !hidden.has(p.id) && photoCount.has(p.id) && (!me || parseLookingFor(me.lookingFor).includes(p.gender)))
+    .filter((p: any) => caramelIds.has(p.id) && !hidden.has(p.id) && photoCount.has(p.id) && (!me || wants(me, p)))
     .map((p: any) => toCard(p, true));
 
   const rest = profiles
     // Busco: solo quienes se buscan los dos.
     .filter((p: any) => !skip.has(p.id) && photoCount.has(p.id) && (!me || isMutualInterest(me, p)))
-    .sort((a: any, b: any) => new Date(b.lastSeenAt).getTime() - new Date(a.lastSeenAt).getTime())
-    .map((p: any) => toCard(p, false));
+    // Primero los más compatibles, con un poco de azar para que no salgan siempre los mismos; a igual puntaje, quien
+    // estuvo activo hace menos.
+    .map((p: any) => ({ p, rank: (me ? compatibility(me, p).score : 0) + Math.random() * 1.5 }))
+    .sort((a: any, b: any) => b.rank - a.rank || new Date(b.p.lastSeenAt).getTime() - new Date(a.p.lastSeenAt).getTime())
+    .map(({ p }: any) => toCard(p, false));
 
   return [...caramels, ...rest].slice(0, SWIPE_DECK_SIZE);
 }
