@@ -5725,6 +5725,16 @@ export async function listAttendeeContacts(search?: string) {
  * que solo cuenta compras web). Devuelve null para correos marcador
  * (caja@, invitacion@) o inválidos. Es lo que deja cada movimiento --caja,
  * puerta, cumpleaños, ventas manuales-- ligado al cliente automáticamente. */
+/** El cliente de este correo (nombre incluido), o null si no existe. */
+export async function getCustomerByEmail(rawEmail: string): Promise<{ id: number; email: string; fullName: string | null } | null> {
+  const email = rawEmail.trim().toLowerCase();
+  if (!email) return null;
+  const db = await getDb();
+  if (!db) return null;
+  const [row] = await db.select({ id: customers.id, email: customers.email, fullName: customers.fullName }).from(customers).where(eq(customers.email, email)).limit(1);
+  return row ?? null;
+}
+
 export async function ensureCustomerIdForEmail(rawEmail: string | null | undefined, name?: string | null): Promise<number | null> {
   const email = (rawEmail ?? '').trim().toLowerCase();
   if (!email || !email.includes('@') || PLACEHOLDER_BUYER_EMAILS.has(email)) return null;

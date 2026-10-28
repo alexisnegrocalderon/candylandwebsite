@@ -13,6 +13,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '
 import { WriteButton } from '@/components/admin/WriteButton';
 import { ConfirmDeleteButton } from '@/components/admin/ConfirmDeleteButton';
 import { GrantCouponDialog } from '@/components/admin/app/GrantCouponDialog';
+import { GiftDialog } from '@/components/admin/staff/GiftDialog';
 import { SendPushDialog } from '@/components/admin/app/SendPushDialog';
 import { MergeCustomerDialog } from '@/components/admin/app/MergeCustomerDialog';
 import { formatChileDate, formatChileDateTime } from '@shared/chileDate';
@@ -66,6 +67,8 @@ export function CustomerDrawer({ customerId, onClose, onPrev, onNext, onChanged,
   const [initial, setInitial] = useState<FormState | null>(null);
   const [tab, setTab] = useState('datos');
   const [giftOpen, setGiftOpen] = useState(false);
+  const [giveOpen, setGiveOpen] = useState(false);
+  const { data: giftAccess } = trpc.orders.canGift.useQuery(undefined, { retry: false, staleTime: 5 * 60_000 });
   const [pushOpen, setPushOpen] = useState(false);
   const [mergeOpen, setMergeOpen] = useState(false);
   const [prepaidDelta, setPrepaidDelta] = useState('');
@@ -227,6 +230,14 @@ export function CustomerDrawer({ customerId, onClose, onPrev, onNext, onChanged,
                     <WriteButton size="sm" variant="outline" className="h-8 gap-1.5" onClick={() => setGiftOpen(true)}>
                       <Gift className="w-3.5 h-3.5" /> Regalar cupón
                     </WriteButton>
+                    {giftAccess?.can && (
+                      <>
+                        <WriteButton size="sm" variant="outline" className="h-8 gap-1.5" onClick={() => setGiveOpen(true)}>
+                          <Gift className="w-3.5 h-3.5" /> Regalar entrada o trago
+                        </WriteButton>
+                        <GiftDialog open={giveOpen} onClose={() => setGiveOpen(false)} initialRecipients={[{ email: c.email.toLowerCase(), name: c.fullName ?? '' }]} />
+                      </>
+                    )}
                     <GrantCouponDialog open={giftOpen} onClose={() => setGiftOpen(false)} email={c.email} name={c.fullName} />
                     <WriteButton size="sm" variant="outline" className="h-8 gap-1.5" onClick={() => setPushOpen(true)}>
                       <BellRing className="w-3.5 h-3.5" /> Enviar push

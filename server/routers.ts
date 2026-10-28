@@ -4,7 +4,7 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { pushTitle } from "../shared/pushText";
 import { sdk, ADMIN_LOCAL_OPEN_ID, VIEWER_LOCAL_OPEN_ID } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, protectedProcedure, adminReadProcedure, partnerProcedure, operatorProcedure, supervisorProcedure, deviceProcedure, doorProcedure, kitchenProcedure, guardarropiaProcedure, router } from "./_core/trpc";
+import { publicProcedure, protectedProcedure, adminReadProcedure, giftProcedure, partnerProcedure, operatorProcedure, supervisorProcedure, deviceProcedure, doorProcedure, kitchenProcedure, guardarropiaProcedure, router } from "./_core/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { teachFromOwner, listKnowledge, setKnowledgeStatus, updateKnowledgeText, deleteKnowledge } from "./agentLearning";
@@ -214,6 +214,7 @@ import * as staffPortal from "./staffPortal";
 import { ensureStaffSalesLink } from "./staffSales";
 import { pageCustomers, findCustomersForCaja } from "./customerFilters";
 import { COUPON_BATCH_MAX } from "../shared/couponGift";
+import { canGift } from "../shared/gifts";
 import { previewCustomerMerge, mergeCustomers } from "./customerMerge";
 import { getMemberHistory } from "./memberHistory";
 import { hasSalesLink } from "../shared/staffSales";
@@ -939,6 +940,43 @@ const couponAudienceInput = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('app') }),
   z.object({ kind: z.literal('members') }),
 ]);
+
+/** Crea los regalos de uno o varios correos: lo de acceso/extra va como invitación gratis (correo con QR), los tragos
+ * de la carta quedan con su código canjeable en la barra, y a cada persona le llega un aviso a la app. Todo queda en la
+ * auditoría con quién lo regaló. */
+async function runGift(params: { eventId: number; emails: string[]; items: { ticketTypeId: number; quantity: number }[]; reason?: string; actor: string; ip?: string | null }) {
+  const event = await db.getEventById(params.eventId);
+  if (!event) throw new TRPCError({ code: 'NOT_FOUND', message: 'Evento no encontrado' });
+  const types = await db.getTicketTypesByEventId(event.id);
+  const byId = new Map<number, any>((types as any[]).map((t) => [t.id, t]));
+  for (const it of params.items) if (!byId.has(it.ticketTypeId)) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Un producto ya no existe en este evento' });
+  const toOrder = params.items.filter((it) => ['acceso', 'extra'].includes(byId.get(it.ticketTypeId).category));
+  const comps = params.items.filter((it) => !['acceso', 'extra'].includes(byId.get(it.ticketTypeId).category));
+  const resumen = params.items.map((it) => `${it.quantity > 1 ? `${it.quantity} × ` : ''}${byId.get(it.ticketTypeId).name}`).join(', ');
+  const results: { email: string; ok: boolean; error?: string }[] = [];
+  for (const raw of params.emails) {
+    const email = raw.trim().toLowerCase();
+    try {
+      const staff = await staffPortal.findStaffByEmail(email);
+      const customer = staff ? null : await db.getCustomerByEmail(email);
+      const name = staff?.name ?? customer?.fullName ?? email.split('@')[0];
+      if (toOrder.length > 0) {
+        const r = await db.createManualOrder({ eventSlug: event.slug, buyerName: name, buyerEmail: email, items: toOrder, kind: 'invitation' });
+        await confirmFreeOrder(r.orderNumber);
+      }
+      for (const c of comps) await db.createStaffComp({ eventSlug: event.slug, ticketTypeId: c.ticketTypeId, quantity: c.quantity, staffName: name, buyerEmail: email });
+      void customerPush.pushToEmail(email, { title: '🎁 ¡Te regalaron algo!', body: `${resumen}. Míralo en tu app, en «Mis entradas».`, url: '/cuenta' });
+      results.push({ email, ok: true });
+    } catch (e) {
+      results.push({ email, ok: false, error: e instanceof Error ? e.message : 'No se pudo regalar' });
+    }
+  }
+  await db.recordAdminAudit({
+    action: 'orders.gift', targetType: 'event', targetId: event.id, eventId: event.id, ip: params.ip ?? null,
+    payload: { by: params.actor, reason: params.reason ?? null, resumen, items: params.items, results },
+  });
+  return { results, resumen };
+}
 
 export const appRouter = router({
   // Cuenta de prueba de la App (admin → Noche → «Cuenta de prueba»): server/demoAccount.ts.
@@ -1985,38 +2023,32 @@ export const appRouter = router({
     // Regalos a staff y anfitriones por correo (pedido del dueño): covers, entradas, estacionamiento y tragos de cortesía.
     // Lo de acceso/extra va como invitación gratis (le llega el correo con QR); los tragos de la carta se crean con su
     // código canjeable en la barra. A cada persona le llega un aviso al celular y todo aparece en su app al instante.
-    giftToStaff: adminProcedure.input(z.object({
+    giftToStaff: giftProcedure.input(z.object({
       eventId: z.number(),
       emails: z.array(z.string().email()).min(1).max(40),
       items: z.array(z.object({ ticketTypeId: z.number(), quantity: z.number().int().min(1).max(20) })).min(1).max(12),
-    })).mutation(async ({ input }) => {
-      const event = await db.getEventById(input.eventId);
-      if (!event) throw new TRPCError({ code: 'NOT_FOUND', message: 'Evento no encontrado' });
-      const types = await db.getTicketTypesByEventId(event.id);
-      const byId = new Map<number, any>((types as any[]).map((t) => [t.id, t]));
-      for (const it of input.items) if (!byId.has(it.ticketTypeId)) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Un producto ya no existe en este evento' });
-      const toOrder = input.items.filter((it) => ['acceso', 'extra'].includes(byId.get(it.ticketTypeId).category));
-      const comps = input.items.filter((it) => !['acceso', 'extra'].includes(byId.get(it.ticketTypeId).category));
-      const resumen = input.items.map((it) => `${it.quantity > 1 ? `${it.quantity} × ` : ''}${byId.get(it.ticketTypeId).name}`).join(', ');
-      const results: { email: string; ok: boolean; error?: string }[] = [];
-      for (const raw of input.emails) {
-        const email = raw.trim().toLowerCase();
-        try {
-          const staff = await staffPortal.findStaffByEmail(email);
-          const name = staff?.name ?? email.split('@')[0];
-          if (toOrder.length > 0) {
-            const r = await db.createManualOrder({ eventSlug: event.slug, buyerName: name, buyerEmail: email, items: toOrder, kind: 'invitation' });
-            await confirmFreeOrder(r.orderNumber);
-          }
-          for (const c of comps) await db.createStaffComp({ eventSlug: event.slug, ticketTypeId: c.ticketTypeId, quantity: c.quantity, staffName: name, buyerEmail: email });
-          void customerPush.pushToEmail(email, { title: '🎁 ¡Te regalaron algo!', body: `${resumen}. Míralo en tu app, en «Mis entradas».`, url: '/cuenta' });
-          results.push({ email, ok: true });
-        } catch (e) {
-          results.push({ email, ok: false, error: e instanceof Error ? e.message : 'No se pudo regalar' });
-        }
+    })).mutation(async ({ input, ctx }) => runGift({ eventId: input.eventId, emails: input.emails, items: input.items, actor: ctx.user.email ?? ctx.user.name ?? 'admin', ip: clientIp(ctx) })),
+    // Regalar a cualquier cliente (ficha del cliente, buscador «Regalar a…» o un grupo): el mismo envío de siempre
+    // (correo con QR + aviso a la app), solo con la clave del dueño. `audience` regala lo mismo a todo un grupo.
+    gift: giftProcedure.input(z.object({
+      eventId: z.number(),
+      emails: z.array(z.string().email()).max(40).optional(),
+      audience: couponAudienceInput.optional(),
+      items: z.array(z.object({ ticketTypeId: z.number(), quantity: z.number().int().min(1).max(20) })).min(1).max(12),
+      reason: z.string().trim().max(200).optional(),
+    })).mutation(async ({ input, ctx }) => {
+      let emails = (input.emails ?? []).map((e) => e.trim().toLowerCase());
+      if (input.audience) {
+        const r = await members.resolveCouponAudience(input.audience);
+        if (r.overLimit) throw new TRPCError({ code: 'BAD_REQUEST', message: 'El grupo es demasiado grande para un solo envío: acótalo.' });
+        emails = [...emails, ...r.customers.map((c) => c.email.toLowerCase())];
       }
-      return { results, resumen };
+      emails = Array.from(new Set(emails));
+      if (emails.length === 0) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Elige al menos a una persona.' });
+      return runGift({ eventId: input.eventId, emails, items: input.items, reason: input.reason, actor: ctx.user.email ?? ctx.user.name ?? 'admin', ip: clientIp(ctx) });
     }),
+    // ¿Esta sesión puede dar regalos? (para mostrar u ocultar los botones).
+    canGift: adminReadProcedure.query(({ ctx }) => ({ can: canGift(ctx.user) })),
     listStaffComps: adminReadProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
       return db.listStaffComps(input.eventId);
     }),

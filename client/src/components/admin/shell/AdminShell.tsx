@@ -6,6 +6,9 @@ import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { ADMIN_HUBS, hubBadgeCount, type AdminHub, type AdminHubId, type ShellSection } from './nav';
 import { CommandPalette } from './CommandPalette';
+import { GiftDialog } from '@/components/admin/staff/GiftDialog';
+import { TransferSaleDialog } from '@/components/admin/gifts/TransferSaleDialog';
+import { trpc } from '@/lib/trpc';
 import { hideSplash } from '@/lib/splash';
 import { useStackTables } from '@/lib/stackTables';
 
@@ -76,6 +79,10 @@ export function AdminShell({ sections, activeSection, onOpenSection, badgeCounts
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const [searchOpen, setSearchOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  // «Regalar» a cualquier cliente desde cualquier pantalla: solo lo ve el dueño (shared/gifts.ts).
+  const [giftOpen, setGiftOpen] = useState(false);
+  const [transferOpen, setTransferOpen] = useState(false);
+  const { data: giftAccess } = trpc.orders.canGift.useQuery(undefined, { enabled: !isDemo, retry: false, staleTime: 5 * 60_000 });
 
   const current = sections.find((s) => s.id === activeSection) ?? sections[0];
   const activeHub = current.hub;
@@ -250,6 +257,16 @@ export function AdminShell({ sections, activeSection, onOpenSection, badgeCounts
                 <span className="sm:hidden">Demo</span>
               </span>
             )}
+            {giftAccess?.can && (
+              <button type="button" onClick={() => setTransferOpen(true)} className="admin-search-btn flex h-10 shrink-0 items-center gap-2 rounded-xl px-3 text-sm font-medium" aria-label="Vender por transferencia y enviar la entrada">
+                <span aria-hidden>💸</span><span className="hidden sm:inline">Transferencia</span>
+              </button>
+            )}
+            {giftAccess?.can && (
+              <button type="button" onClick={() => setGiftOpen(true)} className="admin-search-btn flex h-10 shrink-0 items-center gap-2 rounded-xl px-3 text-sm font-medium" aria-label="Regalar una entrada o un trago">
+                <span aria-hidden>🎁</span><span className="hidden sm:inline">Regalar</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setSearchOpen(true)}
@@ -376,6 +393,9 @@ export function AdminShell({ sections, activeSection, onOpenSection, badgeCounts
           onLogout={onLogout}
         />
       )}
+
+      {giftAccess?.can && <GiftDialog open={giftOpen} onClose={() => setGiftOpen(false)} />}
+      {giftAccess?.can && <TransferSaleDialog open={transferOpen} onClose={() => setTransferOpen(false)} />}
 
       <CommandPalette
         open={searchOpen}
