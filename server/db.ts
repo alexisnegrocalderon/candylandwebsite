@@ -1,3 +1,4 @@
+import { giftMessageData } from '../shared/giftFlow';
 import { eq, desc, and, sql, or, gt, gte, lt, lte, like, inArray, notInArray, isNull, isNotNull, ne, getTableColumns } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { randomBytes } from "crypto";
@@ -2204,10 +2205,12 @@ export async function createInstantInvite({ eventSlug, personas }: { eventSlug: 
  * funciona hoy con los extras comprados por la web. No se valida stock
  * (mismo criterio "nunca bloquear la venta" ya aplicado en la Carta de la
  * Fiesta, PR Y1). */
-export async function createStaffComp({ eventSlug, ticketTypeId, quantity, staffName, buyerEmail }: {
+export async function createStaffComp({ eventSlug, ticketTypeId, quantity, staffName, buyerEmail, giftMessage }: {
   eventSlug: string; ticketTypeId: number; quantity: number; staffName: string;
   /** Con el correo real de la persona, el consumo aparece en SU app (Mis entradas) con su código. */
   buyerEmail?: string;
+  /** Mensaje personalizado del regalo: se ve en la tarjeta de Cupones de quien lo recibe (va en attendeeData). */
+  giftMessage?: string | null;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -2233,6 +2236,7 @@ export async function createStaffComp({ eventSlug, ticketTypeId, quantity, staff
     paymentStatus: 'approved',
     paymentId: `MANUAL-${orderNumber}`,
     paymentMethod: 'Manual: Consumo Staff',
+    attendeeData: giftMessageData(giftMessage ?? null),
   });
   const orderId = orderResult.insertId;
 

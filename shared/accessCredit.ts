@@ -36,11 +36,20 @@ export interface GiftMeta {
   validUntil: string | null;
   reason: string | null;
   by: string | null;
+  /** Mensaje personalizado para quien lo recibe (se ve en su tarjeta de Cupones). */
+  message?: string | null;
 }
 
+/** La columna `note` es varchar(500): quién regaló queda en la auditoría, no acá, y el mensaje se acorta si no cabe. */
+const NOTE_MAX = 500;
+
 export function giftNote(meta: Omit<GiftMeta, 'gift'>): string {
-  const trim = (v: string | null) => (v ? v.slice(0, 80) : null);
-  return JSON.stringify({ gift: 1, eventId: meta.eventId, eventTitle: trim(meta.eventTitle), validUntil: meta.validUntil, reason: trim(meta.reason), by: trim(meta.by) });
+  const trim = (v: string | null | undefined, n: number) => (v ? v.slice(0, n) : null);
+  const build = (message: string | null) => JSON.stringify({ gift: 1, eventId: meta.eventId, eventTitle: trim(meta.eventTitle, 60), validUntil: meta.validUntil, reason: trim(meta.reason, 40), message });
+  let message = trim(meta.message, 200);
+  let note = build(message);
+  while (note.length > NOTE_MAX && message) { message = message.slice(0, Math.max(0, message.length - (note.length - NOTE_MAX) - 1)) || null; note = build(message); }
+  return note;
 }
 
 export function parseGiftNote(note: string | null | undefined): GiftMeta | null {
@@ -48,7 +57,7 @@ export function parseGiftNote(note: string | null | undefined): GiftMeta | null 
   try {
     const v = JSON.parse(note) as Partial<GiftMeta>;
     if (v.gift !== 1 || !Number.isFinite(Number(v.eventId))) return null;
-    return { gift: 1, eventId: Number(v.eventId), eventTitle: v.eventTitle ?? null, validUntil: v.validUntil ?? null, reason: v.reason ?? null, by: v.by ?? null };
+    return { gift: 1, eventId: Number(v.eventId), eventTitle: v.eventTitle ?? null, validUntil: v.validUntil ?? null, reason: v.reason ?? null, by: v.by ?? null, message: v.message ?? null };
   } catch { return null; }
 }
 

@@ -40,6 +40,7 @@ import { avisosNotice } from '@/lib/pushPromptView';
 import { useIsMobile } from '@/hooks/useMobile';
 import { MemberLogin, type LoginDone } from '@/components/site/MemberLogin';
 import { fmtDate, fmtDateTime, useMemberSession } from '@/lib/member';
+import { GiftSheet } from '@/components/gifts/GiftSheet';
 import { clearAccountSnapshot, loadAccountSnapshot, saveAccountSnapshot, warmOfflineApp } from '@/lib/offlineAccount';
 import { AccountSkeleton } from '@/components/site/AccountSkeleton';
 import { PasskeySheet } from '@/components/site/PasskeySheet';
@@ -375,12 +376,24 @@ type GiftConsumo = Me['gifts']['consumos'][number];
 const giftsOf = (me: Me): Me['gifts'] => ({ pases: me.gifts?.pases ?? [], consumos: me.gifts?.consumos ?? [] });
 type GiftPase = Me['gifts']['pases'][number];
 
+/** El mensaje que escribió quien regaló, como una nota. */
+function GiftMessage({ text }: { text?: string | null }) {
+  if (!text) return null;
+  return (
+    <p className="w-full whitespace-pre-line rounded-2xl border-l-2 border-amber-300/70 bg-white/[0.04] px-4 py-3 text-left text-subhead italic text-white/85">
+      <span className="mb-1 block text-caption2 font-semibold uppercase not-italic tracking-[0.14em] text-amber-200">💌 Un mensaje para ti</span>
+      «{text}»
+    </p>
+  );
+}
+
 function GiftConsumoCard({ g }: { g: GiftConsumo }) {
   return (
     <div className={`account-glass m-auto flex w-full flex-col items-center gap-3 rounded-[28px] p-6 text-center ${g.used ? 'opacity-60' : ''}`}>
       <p className="text-caption2 font-semibold uppercase tracking-[0.18em] text-pink-300">🎁 Regalo para la barra</p>
       <p className="font-heading text-title2 font-extrabold leading-tight">{g.name}</p>
       <p className="text-subhead font-semibold text-pink-300">{g.eventTitle}</p>
+      <GiftMessage text={g.message} />
       {g.used ? (
         <p className="text-subhead text-white/60">✅ Ya lo canjeaste</p>
       ) : (
@@ -402,6 +415,7 @@ function GiftPaseCard({ g }: { g: GiftPase }) {
       <p className="font-heading text-title2 font-extrabold leading-tight">{g.anyAccess ? 'Un acceso a tu elección' : g.accesoName}</p>
       {g.eventTitle && <p className="text-subhead font-semibold text-pink-300">Para {g.eventTitle}</p>}
       <p className="text-subhead text-white/60">{g.validUntil ? `Vale hasta el ${fmtDate(g.validUntil)}` : ''}</p>
+      <GiftMessage text={g.message} />
       <a href={href} onClick={tapHaptic} className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-pink-500 to-sky-500 px-6 text-subhead font-bold text-white interactive">
         Canjear mi pase <ArrowRight className="h-4 w-4" />
       </a>
@@ -724,6 +738,7 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
   const touch = useRef<{ x: number; y: number } | null>(null);
   const [dir, setDir] = useState(1);
   // Sub-hojas de «Más» y de «Puntos» (cada tema grande abre la suya, para que ninguna pantalla crezca).
+  const [giftOpen, setGiftOpen] = useState(false);
   const [sheet, setSheet] = useEntryState<null | 'tarjetas' | 'beneficios' | 'avisos' | 'movimientos' | 'entradas' | 'embajador' | 'staff' | 'dosier' | 'anfitrion' | 'faceid' | 'soltero'>('cuenta.sheet', null);
   // Preguntas frecuentes, dress code, etc. en hojas de la app (antes había que ir al sitio).
   const [info, setInfo] = useEntryState<InfoKind | null>('cuenta.info', null);
@@ -876,9 +891,9 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
                   </span>
                 </a>
               )}
-              {/* Regalar desde el celular: abre el panel con el diálogo de regalos listo (solo lo hace el dueño). */}
+              {/* Regalar desde el celular: la hoja «Regalar» se abre acá mismo, sin ir al panel (solo lo hace el dueño). */}
               {me.isAdmin && (
-                <a href="/admin?regalar=1" onClick={tapHaptic} className="block w-full rounded-[24px] bg-gradient-to-r from-amber-300/70 via-pink-400/50 to-fuchsia-400/60 p-[1.5px] text-left interactive">
+                <button type="button" onClick={() => { tapHaptic(); setGiftOpen(true); }} className="block w-full rounded-[24px] bg-gradient-to-r from-amber-300/70 via-pink-400/50 to-fuchsia-400/60 p-[1.5px] text-left interactive">
                   <span className="flex items-center gap-3 rounded-[23px] bg-[#0d0712] px-4 py-3.5">
                     <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-amber-300/15 text-amber-200"><Gift className="h-5 w-5" /></span>
                     <span className="min-w-0 flex-1">
@@ -887,8 +902,9 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
                     </span>
                     <ArrowRight className="h-5 w-5 shrink-0 text-amber-200" />
                   </span>
-                </a>
+                </button>
               )}
+              {me.isAdmin && <GiftSheet open={giftOpen} onClose={() => setGiftOpen(false)} />}
               {/* Solo para quien entra con el correo de un embajador. */}
               {ambassador && (
                 <button type="button" onClick={() => { tapHaptic(); setSheet('embajador'); }} className="block w-full rounded-[24px] bg-gradient-to-r from-amber-300/70 via-pink-400/50 to-fuchsia-400/60 p-[1.5px] text-left interactive">

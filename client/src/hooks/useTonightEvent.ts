@@ -18,9 +18,10 @@ const loadSaved = (): number | null => {
  * una fiesta de hace semanas mientras otras (Ventas) ya mostraban la próxima. No parte del primero de la lista:
  * `listAll` ordena por fecha descendente, así que la cuenta de prueba (que cae unos días después) quedaría
  * elegida. Los eventos de prueba nunca se eligen solos. */
-export function useTonightEvent() {
-  const { data: events } = trpc.events.listAll.useQuery();
-  const { data: tonight } = trpc.events.getActiveForCaja.useQuery();
+export function useTonightEvent(opts: { enabled?: boolean } = {}) {
+  const enabled = opts.enabled ?? true;
+  const { data: events } = trpc.events.listAll.useQuery(undefined, { enabled });
+  const { data: tonight } = trpc.events.getActiveForCaja.useQuery(undefined, { enabled });
   const [chosen, setChosen] = useState<number | null>(loadSaved);
   const real = useMemo(() => ((events ?? []) as any[]).filter((e) => !isTestEvent(e)), [events]);
   const current = useMemo(() => pickCurrentEvent(real, new Date(), EVENT_WRAPUP_HOURS).event, [real]);

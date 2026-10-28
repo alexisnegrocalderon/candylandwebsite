@@ -25,8 +25,9 @@ export function TransferSaleDialog({ open, onClose }: { open: boolean; onClose: 
   const [amount, setAmount] = useState('');
   useEffect(() => { if (open) { setQ(''); setBuyer(null); setName(''); setQty({}); setAmount(''); } }, [open]);
 
-  const found = trpc.customers.page.useQuery({ search: q.trim(), page: 0, pageSize: 6 }, { enabled: open && !buyer && q.trim().length >= 3 });
-  const options = (found.data?.rows ?? []) as any[];
+  // Antes pedía `customers.page` con 6 por página (el mínimo es 10) y el servidor rechazaba cada búsqueda.
+  const found = trpc.customers.quickSearch.useQuery({ q: q.trim() }, { enabled: open && !buyer && q.trim().length >= 2 });
+  const options = found.data ?? [];
 
   const missionOpen = event ? isMissionActiveForEvent(event) : false;
   const products = useMemo(() => ((types as any[]) ?? [])
@@ -83,7 +84,7 @@ export function TransferSaleDialog({ open, onClose }: { open: boolean; onClose: 
                   <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Busca por nombre o correo, o pega un correo…" className="pl-9"
                     onKeyDown={(e) => { if (e.key === 'Enter' && looksLikeEmail(q)) { e.preventDefault(); setBuyer({ email: q.trim().toLowerCase(), name: '' }); } }} />
                 </div>
-                {q.trim().length >= 3 && (
+                {q.trim().length >= 2 && (
                   <ul className="space-y-1">
                     {options.map((r) => (
                       <li key={r.id}><button type="button" onClick={() => setBuyer({ email: r.email.toLowerCase(), name: r.fullName ?? '' })} className="flex w-full items-center justify-between rounded-xl bg-muted/50 px-3 py-2 text-left text-sm hover:bg-muted">

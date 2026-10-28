@@ -23,6 +23,8 @@ const SHORT_MS = 1600;
 const STATIC_MS = 900;
 /** El sitio público espera el toque, pero si nadie toca entra solo a los 5 s de aparecer «Toca para entrar» (que sale a 1,6 s). */
 const SITE_WAIT_MS = 1600 + 5000;
+/** El panel también espera el toque, pero nunca más de 5 s: antes esperaba sin límite y, abierto desde la App, parecía pegado. */
+const ADMIN_WAIT_MS = 5000;
 
 /** Qué app es (admin, caja, puerta…) según la ruta. El sitio instalado es
  * una sola app aunque se abra en otra ruta (un aviso push que lleva a la entrada). */
@@ -97,8 +99,8 @@ export function playNeonIntro(el: HTMLElement, done: () => void): void {
   if (!still) {
     timers.push(window.setTimeout(() => { try { navigator.vibrate?.(14); } catch { /* sin vibración */ } }, short ? 560 : 1150));
   }
-  // El panel espera el toque (pedido del dueño: «quiero hacer clic para entrar»); el sitio también,
-  // con respaldo de 5 s; la versión corta (terminales) entra sola para no frenar la puerta ni la caja.
+  // El panel y el sitio esperan el toque (pedido del dueño: «quiero hacer clic para entrar»), con respaldo:
+  // si nadie toca, entran solos (el panel a los 5 s). La versión corta (terminales) entra sola para no frenar la puerta ni la caja.
   if (short) timers.push(window.setTimeout(finish, total));
-  else if (key === 'site') timers.push(window.setTimeout(finish, still ? total : SITE_WAIT_MS));
+  else timers.push(window.setTimeout(finish, still ? total : key === 'site' ? SITE_WAIT_MS : ADMIN_WAIT_MS));
 }
