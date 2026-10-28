@@ -60,12 +60,12 @@ export function TransferSaleDialog({ open, onClose }: { open: boolean; onClose: 
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="flex max-h-[92vh] w-[96vw] max-w-xl flex-col gap-0 overflow-hidden p-0">
-        <DialogHeader className="border-b border-border px-5 py-4 pr-12">
+      <DialogContent className="flex max-h-[92dvh] w-[96vw] max-w-xl flex-col gap-0 overflow-hidden p-0 sm:max-w-xl">
+        <DialogHeader className="shrink-0 border-b border-border px-5 py-4 pr-12">
           <DialogTitle className="text-xl">💸 Vender por transferencia</DialogTitle>
           <DialogDescription>Elige la persona y la entrada: al apretar «Cobrado y enviar» le llega el correo con su entrada{event ? ` · ${event.title}` : ''}.</DialogDescription>
         </DialogHeader>
-        <div className="flex-1 space-y-5 overflow-y-auto px-5 py-4">
+        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-5 py-4">
           <section className="space-y-2">
             <p className="text-sm font-semibold">¿Quién pagó?</p>
             {buyer ? (
@@ -119,10 +119,10 @@ export function TransferSaleDialog({ open, onClose }: { open: boolean; onClose: 
             </section>
           )}
         </div>
-        <div className="flex items-center gap-3 border-t border-border px-5 py-3">
-          <p className="min-w-0 flex-1 text-base font-semibold tabular-nums">{clp(total)}</p>
-          <Button type="button" variant="outline" className="h-11" onClick={onClose}>Cancelar</Button>
-          <Button type="button" className="h-11 px-6" disabled={sell.isPending || !buyer || !event || lines.length === 0 || ((!buyer?.name) && !name.trim())} onClick={submit}>{sell.isPending ? 'Enviando…' : 'Cobrado y enviar'}</Button>
+        <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-t border-border px-5 py-3 pb-[max(env(safe-area-inset-bottom),0.75rem)]">
+          <p className="w-full min-w-0 text-base font-semibold tabular-nums sm:w-auto sm:flex-1">{clp(total)}</p>
+          <Button type="button" variant="outline" className="h-11 flex-1 sm:flex-none" onClick={onClose}>Cancelar</Button>
+          <Button type="button" className="h-11 flex-1 px-6 sm:flex-none" disabled={sell.isPending || !buyer || !event || lines.length === 0 || ((!buyer?.name) && !name.trim())} onClick={submit}>{sell.isPending ? 'Enviando…' : 'Cobrado y enviar'}</Button>
         </div>
       </DialogContent>
     </Dialog>
