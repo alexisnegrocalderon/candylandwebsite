@@ -520,46 +520,40 @@ export async function tryHandleKeywordTrigger(input: {
   }
 
   const extras = await resolveAutomationExtras(automation);
-  const { text: replyText, mid, imageMid, buttonMid, buttonTitle } = await sendAutomationReply(
+  const { text: replyText, mid, buttonMid, buttonTitle } = await sendAutomationReply(
     automation,
     extras,
     (text) => sendInstagramMessage({ recipientId: input.igUserId, text }),
     (caption, button) => sendButtonMessage({ id: input.igUserId }, caption, button),
-    (imageUrl) => sendImageMessage({ id: input.igUserId }, imageUrl),
   );
-  if (imageMid !== undefined) {
-    await appendIgMessage({ threadId: input.threadId, mid: imageMid, direction: 'out', source: 'bot', text: '[imagen]' });
-  }
   if (mid !== undefined) {
     await appendIgMessage({ threadId: input.threadId, mid, direction: 'out', source: 'bot', text: replyText });
   }
   if (buttonMid !== undefined) {
-    await appendIgMessage({ threadId: input.threadId, mid: buttonMid, direction: 'out', source: 'bot', text: `[botón] ${buttonTitle}` });
+    // Tarjeta única: se guarda el texto con su botón; si el texto salió aparte (largo), solo el botón.
+    const sentAlone = mid !== undefined;
+    await appendIgMessage({ threadId: input.threadId, mid: buttonMid, direction: 'out', source: 'bot', text: sentAlone ? `[botón] ${buttonTitle}` : `${replyText}\n[botón] ${buttonTitle}`.trim() });
   }
   await recordIgKeywordRedemption({ automationId: automation.id, igUserId: input.igUserId, source: input.source });
   return true;
 }
 
-/** Arma y manda el mensaje de una automatización. Sin `{{link}}`, es un
- * mensaje de texto normal, como siempre. Con `{{link}}` resuelto, se manda
- * en hasta tres mensajes separados -- imagen de marca (best effort, no
- * bloquea el resto si falla), el texto real como mensaje normal (burbuja
- * de chat, no una tarjeta), y el botón "Comprar" aparte en su propia
- * tarjeta chica (`BUTTON_CARD_CAPTION`, ver más arriba) -- así el texto se
- * ve como si lo hubiera escrito una persona, no encerrado en el recuadro
- * del Button Template. `sendText`/`sendButton` abstraen el destino real
- * (DM normal vs. Private Reply de comentario), que ya difiere entre
- * `tryHandleKeywordTrigger` y `handleCommentChange`. */
+/** Tope de texto del Button Template de Meta. */
+const BUTTON_TEXT_LIMIT = 640;
+
+/** Arma y manda el mensaje de una automatización. Sin botón, es un mensaje de texto normal. Con botón (el elegido en
+ * el panel o el `{{link}}` del mensaje), el texto y el botón salen JUNTOS en una sola tarjeta, sin imagen ni burbuja
+ * aparte (pedido del dueño). `single` es para el comentario: Meta admite UNA sola respuesta privada por comentario
+ * (la segunda falla con «unknown error», código 1), así que ahí un texto largo se acorta en vez de partirse en dos.
+ * En un DM, un texto de más de 640 caracteres no cabe en la tarjeta: sale como mensaje normal y el botón en su propia
+ * tarjeta chica (`BUTTON_CARD_CAPTION`). `sendText`/`sendButton` abstraen el destino real (DM vs. Private Reply). */
 async function sendAutomationReply(
   automation: Pick<IgKeywordAutomation, 'replyMessage' | 'discountCode' | 'buttonKind' | 'buttonTarget' | 'buttonTitle'>,
   extras: { productName?: string; link?: string; imageUrl?: string },
   sendText: (text: string) => Promise<{ mid: string | null }>,
   sendButton: (caption: string, button: { title: string; url: string }) => Promise<{ mid: string | null }>,
-  sendImage: (imageUrl: string) => Promise<{ mid: string | null }>,
-  /** Un comentario admite UNA sola respuesta privada (Meta rechaza la segunda con «unknown error», código 1): con `single`
-   * el texto y el botón salen juntos en una sola tarjeta, sin imagen ni burbuja aparte. */
   options: { single?: boolean } = {},
-): Promise<{ text: string; mid?: string | null; imageMid?: string | null; buttonMid?: string | null; buttonTitle?: string }> {
+): Promise<{ text: string; mid?: string | null; buttonMid?: string | null; buttonTitle?: string }> {
   const { text, buttonUrl } = splitAutomationLink(automation, extras);
   // El botón elegido en el panel manda; si no hay, vale el `{{link}}` escrito
   // en el mensaje (como siempre).
@@ -570,31 +564,16 @@ async function sendAutomationReply(
     return { text, mid };
   }
 
-  if (options.single) {
-    // Tarjeta única: el mensaje va como texto del botón (Meta acepta hasta 640 caracteres).
-    const caption = (text.trim() || BUTTON_CARD_CAPTION).slice(0, 640);
-    const { mid: buttonMid } = await sendButton(caption, { title: button.title, url: button.url });
-    return { text, buttonMid, buttonTitle: button.title };
+  const body = text.trim();
+  if (body.length > BUTTON_TEXT_LIMIT && !options.single) {
+    const { mid } = await sendText(text);
+    const { mid: buttonMid } = await sendButton(BUTTON_CARD_CAPTION, { title: button.title, url: button.url });
+    return { text, mid, buttonMid, buttonTitle: button.title };
   }
-
-  let imageMid: string | null | undefined;
-  if (extras.imageUrl) {
-    try {
-      imageMid = (await sendImage(extras.imageUrl)).mid;
-    } catch (err) {
-      console.error('[Instagram] No se pudo mandar la imagen de la tarjeta:', err);
-    }
-  }
-
-  // Puede quedar vacío si el mensaje era SOLO "{{link}}" -- en ese caso no
-  // manda una burbuja de texto vacía, va directo a la tarjeta del botón
-  // (mid queda `undefined`, distinto de un `null` real que Meta pudiera
-  // devolver si sí mandó el texto).
-  const mid = text.trim().length > 0 ? (await sendText(text)).mid : undefined;
-
-  const buttonTitle = button.title;
-  const { mid: buttonMid } = await sendButton(BUTTON_CARD_CAPTION, { title: buttonTitle, url: button.url });
-  return { text, mid, imageMid, buttonMid, buttonTitle };
+  // Tarjeta única: el mensaje va como texto del botón. Si el mensaje era SOLO «{{link}}», va la frase de siempre.
+  const caption = body ? (body.length > BUTTON_TEXT_LIMIT ? `${body.slice(0, BUTTON_TEXT_LIMIT - 1)}…` : body) : BUTTON_CARD_CAPTION;
+  const { mid: buttonMid } = await sendButton(caption, { title: button.title, url: button.url });
+  return { text, buttonMid, buttonTitle: button.title };
 }
 
 /** Comentario nuevo en un post/reel, con la forma que manda el campo de
@@ -632,7 +611,6 @@ export async function handleCommentChange(value: { id?: string; text?: string; f
       extras,
       (replyText) => sendPrivateReply(commentId, replyText),
       (caption, button) => sendButtonMessage({ comment_id: commentId }, caption, button),
-      (imageUrl) => sendImageMessage({ comment_id: commentId }, imageUrl),
       { single: true },
     );
   } catch (err) {

@@ -298,11 +298,9 @@ describe('tryHandleKeywordTrigger', () => {
   // mensaje reemplaza {{producto}} con el nombre real del producto y
   // {{link}} con el link de compra CON el código pegado, para que se
   // aplique solo al entrar al checkout.
-  // El {{link}} ya no se pega como texto -- se saca del mensaje y se manda
-  // como un botón real (Button Template de Meta), APARTE del texto -- que
-  // se manda como su propia burbuja normal, no encerrado en la tarjeta del
-  // botón (pedido del dueño al ver cómo se veía en una captura real).
-  it('manda el texto como burbuja normal y {{link}} como botón aparte cuando la automatización regala un producto', async () => {
+  // El {{link}} ya no se pega como texto -- se saca del mensaje y se manda como un botón real (Button Template de Meta),
+  // JUNTO con el texto en una sola tarjeta, sin imagen ni burbuja aparte (pedido del dueño).
+  it('manda el texto y el botón juntos en una sola tarjeta cuando la automatización regala un producto', async () => {
     findMatchingIgKeywordAutomationMock.mockResolvedValueOnce({
       id: 6, keyword: 'piscola', triggerSource: 'story_reply', replyMessage: 'Tu código {{codigo}} te regala {{producto}} 🍹 Cómpralo acá: {{link}}', discountCode: 'AUTOXY99', active: 1, createdAt: new Date(),
     } as any);
@@ -310,23 +308,20 @@ describe('tryHandleKeywordTrigger', () => {
     getFeaturedEventMock.mockResolvedValueOnce({ slug: 'aniversario', imageUrl: 'https://blob.vercel-storage.com/events/flyer.jpg' } as any);
     getDiscountCodeByCodeMock.mockResolvedValueOnce({ giftTicketTypeId: 42 } as any);
     getTicketTypeByIdMock.mockResolvedValueOnce({ id: 42, name: '1 Piscola' } as any);
-    sendImageMessageMock.mockResolvedValueOnce({ mid: 'mid-img-1' } as any);
-    sendInstagramMessageMock.mockResolvedValueOnce({ mid: 'mid-out-2' } as any);
     sendButtonMessageMock.mockResolvedValueOnce({ mid: 'mid-btn-1' } as any);
 
     await tryHandleKeywordTrigger({ threadId: 7, igUserId: 'ig-user-1', text: 'quiero mi piscola', source: 'story_reply' });
 
-    // Orden: imagen -> texto normal -> tarjeta del botón.
-    expect(sendImageMessageMock).toHaveBeenCalledWith({ id: 'ig-user-1' }, 'https://blob.vercel-storage.com/events/flyer.jpg');
-    expect(sendInstagramMessageMock).toHaveBeenCalledWith({ recipientId: 'ig-user-1', text: 'Tu código AUTOXY99 te regala 1 Piscola 🍹 Cómpralo acá:' });
+    expect(sendImageMessageMock).not.toHaveBeenCalled();
+    expect(sendInstagramMessageMock).not.toHaveBeenCalled();
+    expect(sendButtonMessageMock).toHaveBeenCalledTimes(1);
     expect(sendButtonMessageMock).toHaveBeenCalledWith(
       { id: 'ig-user-1' },
-      'Toca para continuar 👇',
+      'Tu código AUTOXY99 te regala 1 Piscola 🍹 Cómpralo acá:',
       { title: 'Comprar con código', url: 'https://mansionplayroom.cl/eventos/aniversario?code=AUTOXY99' },
     );
-    expect(appendIgMessageMock).toHaveBeenNthCalledWith(1, { threadId: 7, mid: 'mid-img-1', direction: 'out', source: 'bot', text: '[imagen]' });
-    expect(appendIgMessageMock).toHaveBeenNthCalledWith(2, { threadId: 7, mid: 'mid-out-2', direction: 'out', source: 'bot', text: 'Tu código AUTOXY99 te regala 1 Piscola 🍹 Cómpralo acá:' });
-    expect(appendIgMessageMock).toHaveBeenNthCalledWith(3, { threadId: 7, mid: 'mid-btn-1', direction: 'out', source: 'bot', text: '[botón] Comprar con código' });
+    expect(appendIgMessageMock).toHaveBeenCalledTimes(1);
+    expect(appendIgMessageMock).toHaveBeenCalledWith({ threadId: 7, mid: 'mid-btn-1', direction: 'out', source: 'bot', text: 'Tu código AUTOXY99 te regala 1 Piscola 🍹 Cómpralo acá:\n[botón] Comprar con código' });
   });
 
   // Caso real (FIRE, 06/10): la automatización regala un producto pero su
@@ -341,13 +336,13 @@ describe('tryHandleKeywordTrigger', () => {
     hasRedeemedIgKeywordAutomationMock.mockResolvedValueOnce(false);
     getFeaturedEventMock.mockResolvedValueOnce({ slug: 'aniversario', imageUrl: null } as any);
     getDiscountCodeByCodeMock.mockResolvedValueOnce({ giftTicketTypeId: null } as any);
-    sendInstagramMessageMock.mockResolvedValueOnce({ mid: 'mid-out-9' } as any);
     sendButtonMessageMock.mockResolvedValueOnce({ mid: 'mid-btn-9' } as any);
 
     await tryHandleKeywordTrigger({ threadId: 7, igUserId: 'ig-user-1', text: 'FIRE', source: 'story_reply' });
 
-    expect(sendInstagramMessageMock).toHaveBeenCalledWith({ recipientId: 'ig-user-1', text: 'Tu regalo te espera 🔥' });
-    const [, , button] = sendButtonMessageMock.mock.calls[0] as any;
+    expect(sendInstagramMessageMock).not.toHaveBeenCalled();
+    const [, caption, button] = sendButtonMessageMock.mock.calls[0] as any;
+    expect(caption).toBe('Tu regalo te espera 🔥');
     expect(button.title).toBe('Comprar con código');
     const url = new URL(button.url);
     expect(url.pathname).toBe('/eventos/aniversario');
@@ -355,37 +350,8 @@ describe('tryHandleKeywordTrigger', () => {
     expect(url.searchParams.get('utm_campaign')).toBe('automatizacion');
   });
 
-  // Si Meta rechaza la imagen (o cualquier otro error), el regalo real
-  // (código/link) tiene que mandarse igual -- la imagen es un extra, nunca
-  // debe bloquear el mensaje que la persona sí está esperando.
-  it('manda el texto y el botón igual aunque falle el envío de la imagen', async () => {
-    findMatchingIgKeywordAutomationMock.mockResolvedValueOnce({
-      id: 6, keyword: 'piscola', triggerSource: 'story_reply', replyMessage: 'Cómpralo acá: {{link}}', discountCode: null, active: 1, createdAt: new Date(),
-    } as any);
-    hasRedeemedIgKeywordAutomationMock.mockResolvedValueOnce(false);
-    getFeaturedEventMock.mockResolvedValueOnce({ slug: 'aniversario', imageUrl: null } as any);
-    sendImageMessageMock.mockRejectedValueOnce(new Error('Meta rechazó la imagen'));
-    sendInstagramMessageMock.mockResolvedValueOnce({ mid: 'mid-out-4' } as any);
-    sendButtonMessageMock.mockResolvedValueOnce({ mid: 'mid-btn-2' } as any);
-
-    await tryHandleKeywordTrigger({ threadId: 7, igUserId: 'ig-user-1', text: 'quiero mi piscola', source: 'story_reply' });
-
-    expect(sendInstagramMessageMock).toHaveBeenCalledWith({ recipientId: 'ig-user-1', text: 'Cómpralo acá:' });
-    expect(sendButtonMessageMock).toHaveBeenCalledWith(
-      { id: 'ig-user-1' },
-      'Toca para continuar 👇',
-      { title: 'Ver más', url: 'https://mansionplayroom.cl/eventos/aniversario' },
-    );
-    // Solo se guardan las dos filas reales -- la imagen fallida no deja fila.
-    expect(appendIgMessageMock).toHaveBeenCalledTimes(2);
-    expect(appendIgMessageMock).toHaveBeenNthCalledWith(1, { threadId: 7, mid: 'mid-out-4', direction: 'out', source: 'bot', text: 'Cómpralo acá:' });
-    expect(appendIgMessageMock).toHaveBeenNthCalledWith(2, { threadId: 7, mid: 'mid-btn-2', direction: 'out', source: 'bot', text: '[botón] Ver más' });
-  });
-
-  // El tope de 640 caracteres del Button Template ya no limita el texto --
-  // ahora va como mensaje normal, sin ese límite (el botón, aparte, nunca
-  // lleva el mensaje real).
-  it('manda el texto completo como mensaje normal aunque sea largo, sin cortarlo ni pegarle el link', async () => {
+  // La tarjeta admite 640 caracteres: un mensaje más largo sale como mensaje normal y el botón en su propia tarjeta chica.
+  it('si el texto no cabe en la tarjeta (más de 640 caracteres), sale completo como mensaje normal y el botón aparte', async () => {
     const longMessage = `${'x'.repeat(650)} {{link}}`;
     findMatchingIgKeywordAutomationMock.mockResolvedValueOnce({
       id: 7, keyword: 'largo', triggerSource: 'story_reply', replyMessage: longMessage, discountCode: null, active: 1, createdAt: new Date(),
