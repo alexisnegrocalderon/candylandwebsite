@@ -117,6 +117,17 @@ export const MANUAL_DRAFTS: Record<ManualKey, { title: string; sections: ManualS
       list('Al terminar', ['Revisar la meta final de la noche', 'Contarle al supervisor qué dudas se repitieron', 'Cerrar tu sesión de la app']),
     ],
   },
+  animador: {
+    title: 'Manual de Animador / MC',
+    sections: [
+      list('Antes de la fiesta', ['Llegar a la hora de citación y mostrar tu credencial en la puerta', 'Abrir tu app → «Animador» y revisar el guion de la noche', 'Coordinar con el creador de contenido las señales y el orden de tomas', 'Confirmar dónde se graban las dinámicas y dónde queda la zona tranquila']),
+      text('Tu trabajo', 'Animas la noche con dinámicas breves y juguetonas. Pones el ritmo, explicas las reglas en una frase y cuidas que todo sea con ganas y con respeto. Tú no obligas a nadie: invitas.'),
+      list('Antes de grabar cada dinámica', ['Pregunta si la persona quiere jugar y si quiere salir en cámara', 'Pídele a cámara la frase: «Soy [apodo], tengo +18, juego porque quiero y acepto aparecer en los reels de Candyland»', 'Sin esa frase no se graba a la persona; el creador encuadra otro lado', 'Ofrece siempre la versión suave si dudan']),
+      text('Lo que nunca haces', 'Nada de desnudez ni actos sexuales. No presiones ni insistas ante un «no» o un «paso». No uses retos que obliguen a beber. No expongas a nadie sin su consentimiento. No uses las dinámicas atrevidas sin opt-in expreso de todas las personas involucradas.'),
+      text('Si alguien se siente incómodo', 'Corta la dinámica con naturalidad, avisa al supervisor o a seguridad y deja que la persona se retire sin explicar nada.'),
+      list('Al terminar', ['Contarle al supervisor qué dinámicas funcionaron mejor', 'Confirmar con el creador qué material se grabó solo con consentimiento', 'Cerrar tu sesión de la app']),
+    ],
+  },
   otro: {
     title: 'Manual del equipo',
     sections: [

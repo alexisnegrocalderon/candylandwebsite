@@ -37,6 +37,7 @@ import { AVATARS_PER_GENDER, DEFAULT_LOOKING_FOR, LOOKING_FOR_KEYS, PAIR_TYPES, 
 import * as ambassadorProgram from "./ambassadorProgram";
 import * as playmatch from "./playmatchMarket";
 import { PLAYMATCH_HOST_CARGO, publicPlaymatchConfig } from "../shared/playmatchMarket";
+import { pautaAnimador } from "../shared/animadorPauta";
 import { monthKeyFor } from "../shared/ambassadorProgram";
 import { checkAndAdvanceTandaIfNeeded } from "./tandaAutoAdvance";
 import { scanReceiptImage } from "./receiptScan";
@@ -94,6 +95,15 @@ async function playmatchHostAccess(email: string) {
   if (!eventId) return null;
   const event = await db.getEventById(eventId);
   return { staff, eventId, eventTitle: event?.title ?? '' };
+}
+
+/** Quién ve la pauta del animador: quien tiene el cargo «Animador / MC» en el Staff (y el dueño, para probarla).
+ * No necesita turno ni evento: el mazo de dinámicas se puede revisar antes de la fiesta. */
+async function animadorAccess(email: string) {
+  await staffPortal.ensureAdminStaffAccess(email);
+  const staff = await staffPortal.findStaffByEmail(email);
+  if (!staff || (staff.cargo !== 'animador' && !isAdminEmail(email))) return null;
+  return { staff };
 }
 
 /** Igual que la anterior, pero además exige tener el perfil creado. */
@@ -4986,6 +4996,13 @@ export const appRouter = router({
       const cfg = await db.getPartyConfig(access.eventId);
       const overview = await playmatch.hostOverview(access.eventId, cfg);
       return overview ? { eventId: access.eventId, eventTitle: access.eventTitle, hostName: access.staff.name, playmatchOn: cfg.enabled, ...overview } : null;
+    }),
+    // La pauta del animador (cargo «Animador / MC», y el dueño para probarla): dinámicas, guion de la noche, señales y checklist.
+    animadorPauta: publicProcedure.query(async ({ ctx }) => {
+      const email = getMemberEmail(ctx.req);
+      const access = email ? await animadorAccess(email) : null;
+      if (!access) return null;
+      return { animadorName: access.staff.name, ...pautaAnimador() };
     }),
     playmatchHostSearch: publicProcedure.input(z.object({ q: z.string().max(60).default('') })).query(async ({ input, ctx }) => {
       const email = getMemberEmail(ctx.req);
