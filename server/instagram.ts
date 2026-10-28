@@ -556,6 +556,9 @@ async function sendAutomationReply(
   sendText: (text: string) => Promise<{ mid: string | null }>,
   sendButton: (caption: string, button: { title: string; url: string }) => Promise<{ mid: string | null }>,
   sendImage: (imageUrl: string) => Promise<{ mid: string | null }>,
+  /** Un comentario admite UNA sola respuesta privada (Meta rechaza la segunda con «unknown error», código 1): con `single`
+   * el texto y el botón salen juntos en una sola tarjeta, sin imagen ni burbuja aparte. */
+  options: { single?: boolean } = {},
 ): Promise<{ text: string; mid?: string | null; imageMid?: string | null; buttonMid?: string | null; buttonTitle?: string }> {
   const { text, buttonUrl } = splitAutomationLink(automation, extras);
   // El botón elegido en el panel manda; si no hay, vale el `{{link}}` escrito
@@ -565,6 +568,13 @@ async function sendAutomationReply(
   if (!button) {
     const { mid } = await sendText(text);
     return { text, mid };
+  }
+
+  if (options.single) {
+    // Tarjeta única: el mensaje va como texto del botón (Meta acepta hasta 640 caracteres).
+    const caption = (text.trim() || BUTTON_CARD_CAPTION).slice(0, 640);
+    const { mid: buttonMid } = await sendButton(caption, { title: button.title, url: button.url });
+    return { text, buttonMid, buttonTitle: button.title };
   }
 
   let imageMid: string | null | undefined;
@@ -616,13 +626,21 @@ export async function handleCommentChange(value: { id?: string; text?: string; f
   }
 
   const extras = await resolveAutomationExtras(automation);
-  await sendAutomationReply(
-    automation,
-    extras,
-    (replyText) => sendPrivateReply(commentId, replyText),
-    (caption, button) => sendButtonMessage({ comment_id: commentId }, caption, button),
-    (imageUrl) => sendImageMessage({ comment_id: commentId }, imageUrl),
-  );
+  try {
+    await sendAutomationReply(
+      automation,
+      extras,
+      (replyText) => sendPrivateReply(commentId, replyText),
+      (caption, button) => sendButtonMessage({ comment_id: commentId }, caption, button),
+      (imageUrl) => sendImageMessage({ comment_id: commentId }, imageUrl),
+      { single: true },
+    );
+  } catch (err) {
+    // Un comentario que falla no debe frenar a los demás de la misma entrega, y el error tiene que decir cuál fue
+    // (Meta solo devuelve «unknown error»). No se registra la redención: no recibió nada.
+    console.error(`[Instagram] La respuesta privada al comentario ${commentId} falló (campaña ${automation.id} «${automation.keyword}»):`, err);
+    return;
+  }
   await recordIgKeywordRedemption({ automationId: automation.id, igUserId, source: 'comment' });
 }
 

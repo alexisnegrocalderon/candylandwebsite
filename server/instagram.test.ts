@@ -452,25 +452,40 @@ describe('handleCommentChange', () => {
     expect(sendPrivateReplyMock).not.toHaveBeenCalled();
   });
 
-  it('manda la imagen, el texto normal, y el botón aparte cuando el mensaje tiene {{link}}', async () => {
+  it('manda UNA sola tarjeta (texto + botón) cuando el mensaje tiene {{link}}: Meta admite una respuesta privada por comentario', async () => {
     findMatchingIgKeywordAutomationMock.mockResolvedValueOnce({
       id: 10, keyword: 'promo', triggerSource: 'comment', replyMessage: 'Cómpralo acá: {{link}}', discountCode: null, active: 1, createdAt: new Date(),
     } as any);
     hasRedeemedIgKeywordAutomationMock.mockResolvedValueOnce(false);
     getFeaturedEventMock.mockResolvedValueOnce({ slug: 'aniversario', imageUrl: 'https://blob.vercel-storage.com/events/flyer.jpg' } as any);
-    sendImageMessageMock.mockResolvedValueOnce({ mid: 'mid-img-2' } as any);
-    sendPrivateReplyMock.mockResolvedValueOnce({ mid: 'mid-out-5' } as any);
     sendButtonMessageMock.mockResolvedValueOnce({ mid: 'mid-btn-5' } as any);
 
     await handleCommentChange({ id: 'comment-9', text: 'quiero la promo', from: { id: 'ig-user-3' } });
 
-    expect(sendImageMessageMock).toHaveBeenCalledWith({ comment_id: 'comment-9' }, 'https://blob.vercel-storage.com/events/flyer.jpg');
-    expect(sendPrivateReplyMock).toHaveBeenCalledWith('comment-9', 'Cómpralo acá:');
+    expect(sendImageMessageMock).not.toHaveBeenCalled();
+    expect(sendPrivateReplyMock).not.toHaveBeenCalled();
+    expect(sendButtonMessageMock).toHaveBeenCalledTimes(1);
     expect(sendButtonMessageMock).toHaveBeenCalledWith(
       { comment_id: 'comment-9' },
-      'Toca para continuar 👇',
+      'Cómpralo acá:',
       { title: 'Ver más', url: 'https://mansionplayroom.cl/eventos/aniversario' },
     );
+    expect(recordIgKeywordRedemptionMock).toHaveBeenCalledWith({ automationId: 10, igUserId: 'ig-user-3', source: 'comment' });
+  });
+
+  it('si la respuesta privada falla, no registra la redención ni lanza (no frena los demás comentarios)', async () => {
+    findMatchingIgKeywordAutomationMock.mockResolvedValueOnce({
+      id: 11, keyword: 'promo', triggerSource: 'comment', replyMessage: 'Hola', discountCode: null, active: 1, createdAt: new Date(),
+    } as any);
+    hasRedeemedIgKeywordAutomationMock.mockResolvedValueOnce(false);
+    sendPrivateReplyMock.mockRejectedValueOnce(new Error('An unknown error has occurred'));
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(handleCommentChange({ id: 'comment-10', text: 'quiero la promo', from: { id: 'ig-user-4' } })).resolves.toBeUndefined();
+
+    expect(recordIgKeywordRedemptionMock).not.toHaveBeenCalled();
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining('comment-10'), expect.any(Error));
+    spy.mockRestore();
   });
 });
 
