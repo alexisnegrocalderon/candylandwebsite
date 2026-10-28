@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef } from 'react';
+import { useEntryState } from '@/lib/appNav';
 import { useRoute } from 'wouter';
 import { trpc } from '@/lib/trpc';
 import { useSeo } from '@/hooks/useSeo';
@@ -15,13 +16,18 @@ export default function AppEvents() {
   useSeo({ title: 'Eventos — Mansion Playroom', description: 'Próximos eventos de Mansion Playroom.', path: '/eventos' });
   const { data: events, isLoading } = trpc.events.listPublished.useQuery();
   const { upcoming, past } = splitEvents((events ?? []) as AppEvent[]);
-  const [detail, setDetail] = useState<AppEvent | null>(null);
+  // El evento abierto queda en la entrada del historial (por slug): al volver de la compra sigue abierto.
+  const [detailSlug, setDetailSlug] = useEntryState<string | null>('eventos.detalle', null);
+  const detail = detailSlug ? ((events ?? []) as AppEvent[]).find((e) => e.slug === detailSlug) ?? null : null;
+  const setDetail = (e: AppEvent | null) => setDetailSlug(e?.slug ?? null);
   const halloween = useHalloweenMode();
   // /eventos/<slug> (un link compartido) abre la app con ese evento ya en su hoja.
   const [, params] = useRoute('/eventos/:slug');
+  // Una sola vez por link: si después la persona la cierra, no se vuelve a abrir al refrescarse la lista.
+  const opened = useRef<string | null>(null);
   useEffect(() => {
-    const found = params?.slug ? (events as AppEvent[] | undefined)?.find((e) => e.slug === params.slug) : undefined;
-    if (found) setDetail(found);
+    const found = params?.slug && opened.current !== params.slug ? (events as AppEvent[] | undefined)?.find((e) => e.slug === params.slug) : undefined;
+    if (found) { opened.current = found.slug; setDetail(found); }
   }, [params?.slug, events]);
 
   return (

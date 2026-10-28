@@ -4,6 +4,7 @@ import { useRoute, Link } from 'wouter';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import { Bell, Camera, ChevronLeft, DoorClosed, Flame, MessageCircle, Moon, PartyPopper, TicketX, Wine } from 'lucide-react';
+import { useEntryState } from '@/lib/appNav';
 import { trpc } from '@/lib/trpc';
 import { useMemberSession } from '@/lib/member';
 import { useSeo } from '@/hooks/useSeo';
@@ -65,14 +66,15 @@ export function PartyExperience({ ticketCode, onBack }: { ticketCode: string; on
     if (ticketCode && !session.data?.denial) rememberTicketCode(ticketCode);
   }, [ticketCode, session.data?.denial]);
 
-  const [tab, setTab] = useState<Tab>('descubrir');
-  const [openChat, setOpenChat] = useState<{ connectionId: number; alias: string; otherId: number } | null>(null);
+  // Pestaña, chat y paneles quedan en la entrada del historial: al volver a la fiesta están como se dejaron.
+  const [tab, setTab] = useEntryState<Tab>('fiesta.tab', 'descubrir');
+  const [openChat, setOpenChat] = useEntryState<{ connectionId: number; alias: string; otherId: number } | null>('fiesta.chat', null);
   const [selected, setSelected] = useState<SheetPerson | null>(null);
   const [gifting, setGifting] = useState<{ profileId: number; alias: string } | null>(null);
   const [match, setMatch] = useState<{ connectionId: number; alias: string; otherId: number } | null>(null);
-  const [inboxOpen, setInboxOpen] = useState(false);
-  const [notifOpen, setNotifOpen] = useState(false);
-  const [photoOpen, setPhotoOpen] = useState(false);
+  const [inboxOpen, setInboxOpen] = useEntryState('fiesta.tragos', false);
+  const [notifOpen, setNotifOpen] = useEntryState('fiesta.avisos', false);
+  const [photoOpen, setPhotoOpen] = useEntryState('fiesta.foto', false);
 
   const inside = !!session.data?.profile && !session.data?.denial;
   // Modo Halloween (el interruptor del admin): paleta lima y violeta, y votar «Mejor disfraz».

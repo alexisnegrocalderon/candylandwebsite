@@ -12,6 +12,7 @@ import { CANDYLAND } from '@/config/candyland';
 import { BRAND } from '@shared/eventBrand';
 import { useHalloweenMode } from '@/lib/halloween';
 import { isAppMode } from '@/lib/appMode';
+import { useBackLayer, useEntryState } from '@/lib/appNav';
 import { canRedeem, PLAYCOINS_MIN_REDEEM_BALANCE } from '@shared/playcoins';
 import { CUSTOMER_LEVEL_META } from '@shared/customerInsights';
 import { isMemberEarlyAccess } from '@shared/memberConfig';
@@ -458,7 +459,7 @@ function TicketsPager({ events, holder }: { events: MeEvent[]; holder: string })
     );
   }
   return (
-    <Pager>
+    <Pager rememberAs="entradas">
       {pages.map(({ ev, tickets, offset }) => (
         <div key={`${ev.eventId}-${offset}`} className="account-glass m-auto flex w-full flex-col gap-4 rounded-[28px] p-5">
           <div>
@@ -502,7 +503,7 @@ function CouponsPager({ me }: { me: Me }) {
     try { await navigator.clipboard.writeText(code); setCopied(id); tapHaptic(); window.setTimeout(() => setCopied(null), 1800); } catch { toast.error('No se pudo copiar'); }
   };
   return (
-    <Pager>
+    <Pager rememberAs="cupones">
       {me.coupons.map((c) => {
         const live = c.status === 'disponible';
         return (
@@ -647,7 +648,9 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
   const tabs = TABS;
   // El aviso de contenido nuevo (`?tab=embajador`) abre directo la pantalla Embajador, una sola vez.
   const openEmb = useRef(initial.open === 'embajador' && new URLSearchParams(window.location.search).get('tab') === 'embajador');
-  const [more, setMore] = useState(false);
+  // Qué estaba abierto queda en la entrada del historial: si sale a otra pantalla desde ahí y vuelve, lo encuentra igual.
+  const [more, setMore] = useEntryState('cuenta.more', false);
+  useBackLayer(more, () => setMore(false));
   useEffect(() => { if (openEmb.current && ambassador) { openEmb.current = false; setSheet('embajador'); } }, [ambassador]);
   // «Pide tu aprobación» desde la compra (`?soltero=1`) abre directo «Acceso Soltero».
   const solteroStatus = useSolteroStatus();
@@ -673,9 +676,9 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
   const touch = useRef<{ x: number; y: number } | null>(null);
   const [dir, setDir] = useState(1);
   // Sub-hojas de «Más» y de «Puntos» (cada tema grande abre la suya, para que ninguna pantalla crezca).
-  const [sheet, setSheet] = useState<null | 'tarjetas' | 'beneficios' | 'avisos' | 'movimientos' | 'entradas' | 'embajador' | 'staff' | 'dosier' | 'faceid' | 'soltero'>(null);
+  const [sheet, setSheet] = useEntryState<null | 'tarjetas' | 'beneficios' | 'avisos' | 'movimientos' | 'entradas' | 'embajador' | 'staff' | 'dosier' | 'faceid' | 'soltero'>('cuenta.sheet', null);
   // Preguntas frecuentes, dress code, etc. en hojas de la app (antes había que ir al sitio).
-  const [info, setInfo] = useState<InfoKind | null>(null);
+  const [info, setInfo] = useEntryState<InfoKind | null>('cuenta.info', null);
   // Face ID: recién entró con el código y este teléfono puede → se le ofrece una vez, después de ver su app.
   const passkeyOk = usePasskeyAvailable();
   const [faceIdOffer, setFaceIdOffer] = useState(false);
@@ -877,7 +880,7 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
           </div>
           </Fragment>
         ))}
-        <button type="button" onClick={() => { tapHaptic(); setMore((v) => !v); }} aria-label={more ? 'Cerrar' : 'Más acciones'} aria-expanded={more}
+        <button type="button" onClick={() => { tapHaptic(); setMore(!more); }} aria-label={more ? 'Cerrar' : 'Más acciones'} aria-expanded={more}
           className="absolute bottom-3 left-1/2 grid h-16 w-16 -translate-x-1/2 place-items-center rounded-full bg-gradient-to-br from-pink-500 via-fuchsia-500 to-sky-500 text-white shadow-[0_10px_30px_-4px_rgba(236,72,153,0.65),inset_0_1px_0_rgba(255,255,255,0.45)] ring-[5px] ring-[#0b0612]/70 transition-transform duration-300 active:scale-95">
           <Plus className={`h-7 w-7 transition-transform duration-300 ${more ? 'rotate-45' : ''}`} strokeWidth={2.4} />
           {earlyOn && !more && <span className="absolute right-0.5 top-0.5 h-3 w-3 rounded-full border-2 border-[#0b0612] bg-amber-300" />}

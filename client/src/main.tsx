@@ -6,6 +6,7 @@ import { httpBatchLink, TRPCClientError } from "@trpc/client";
 import { createRoot } from "react-dom/client";
 import superjson from "superjson";
 import App from "./App";
+import { installAppNav } from "@/lib/appNav";
 import { startLogin } from "./const";
 import { captureUtmParams } from "@/lib/utm";
 import { captureAmbassadorRef } from "@/lib/ambassadorRef";
@@ -156,6 +157,10 @@ const trpcClient = trpc.createClient({
     }),
   ],
 });
+
+// Sentido de la navegación, scroll de cada pantalla y hojas en el historial (lib/appNav.ts). Después de importar
+// App: wouter ya parchó history.pushState y este parche va por encima.
+installAppNav();
 
 createRoot(document.getElementById("root")!).render(
   <trpc.Provider client={trpcClient} queryClient={queryClient}>

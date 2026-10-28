@@ -5,6 +5,7 @@ import QRCode from 'qrcode';
 import { toast } from 'sonner';
 import { CreditCard, Loader2, Star, Trash2, X } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
+import { useBackLayer } from '@/lib/appNav';
 import { TopupPanel } from '@/components/wallet/TopupPanel';
 import { QR_PAGE_BG, QrCard } from '@/components/site/walletParts';
 import '@/pages/Ticket.wallet.css';
@@ -28,6 +29,8 @@ const WCARD_VARS = {
 /** Hoja que sube desde abajo (mismo gesto que «Más»). */
 export function BottomSheet({ open, onClose, title, children }: { open: boolean; onClose: () => void; title: string; children: React.ReactNode }) {
   const drag = useDragControls();
+  // «Atrás» (gesto o Android) cierra esta hoja antes de salir de la pantalla.
+  useBackLayer(open, onClose);
   if (typeof document === 'undefined') return null;
   return createPortal(
     <AnimatePresence>
@@ -67,6 +70,7 @@ const fmtClp = (n: number) => `$${n.toLocaleString('es-CL')}`;
 
 /** «Pagar en caja»: QR de un solo uso que vence en 2 minutos y se renueva solo. */
 export function PayInCajaViewer({ onClose, prepaidBalance, playcoins }: { onClose: () => void; prepaidBalance: number; playcoins: number }) {
+  useBackLayer(true, onClose);
   const createToken = trpc.member.payToken.useMutation();
   const [qr, setQr] = useState<string | null>(null);
   const [expiresAt, setExpiresAt] = useState<number>(0);

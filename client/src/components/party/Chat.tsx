@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import { ArrowUp, ChevronLeft, MapPin, Wine } from 'lucide-react';
+import { useBackLayer } from '@/lib/appNav';
 import { trpc } from '@/lib/trpc';
 import { PersonPhoto, tap } from '@/components/party/ui';
 import { MAX_MESSAGE_LENGTH, ZONE_LABELS, isSeenBy, type PartyGender, type PartyZone } from '@shared/party';
@@ -20,6 +21,8 @@ export function Chat({ ticketCode, connectionId, alias, otherId, viewerAlias, ca
   onClose: () => void;
   onGift: (profileId: number, alias: string) => void;
 }) {
+  // «Atrás» (gesto o Android) cierra el chat y vuelve a la fiesta.
+  useBackLayer(true, onClose);
   const [text, setText] = useState('');
   const chat = trpc.party.getMessages.useQuery({ ticketCode, connectionId }, { refetchInterval: 3_000 });
   const utils = trpc.useUtils();

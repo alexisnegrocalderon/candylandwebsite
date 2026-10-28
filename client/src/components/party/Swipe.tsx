@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { animate, motion, useMotionValue, useTransform } from 'framer-motion';
 import { toast } from 'sonner';
 import { Camera, Heart, Info, MapPin, RotateCcw, Sparkles, Star, Trophy, Wine, X } from 'lucide-react';
+import { useBackLayer } from '@/lib/appNav';
 import { trpc } from '@/lib/trpc';
 import { ProtectedPhoto, preloadPhoto } from '@/components/party/ProtectedPhoto';
 import { Confetti } from '@/components/site/Confetti';
@@ -333,6 +334,7 @@ export function MatchCelebration({ ticketCode, alias, myProfileId, match, onChat
   onGift: () => void;
   onClose: () => void;
 }) {
+  useBackLayer(true, onClose);
   return (
     <motion.div className="account-font fixed inset-0 z-[85] flex flex-col items-center justify-center bg-[#0b0612]/92 px-6 text-center backdrop-blur-xl"
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>

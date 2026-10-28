@@ -4,7 +4,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
 import { Route, Switch, useLocation, useSearch } from "wouter";
-import { AnimatePresence, motion } from "framer-motion";
+import { motion } from "framer-motion";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { SoundProvider } from '@/lib/sound/SoundContext';
@@ -31,7 +31,8 @@ import { isFinePointer, resetScrollPosition } from "./lib/smoothScroll";
 // todo el mundo aunque nunca fuera a correr. La mayoría de quien entra al
 // sitio lo hace desde el celular (tráfico de Instagram/WhatsApp), así que
 // era peso muerto para la mayoría de las visitas.
-import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { dropOrphanLayers, goBack, holdScroll, navDirection, routeScrollTarget } from "@/lib/appNav";
 import { hasWelcomeParam } from "@shared/welcome";
 import { DARK_CHROME_BG, isDarkRoute } from "@/lib/darkChrome";
 // La portada "/" pasa por HalloweenHome: renderiza la Home oficial tal cual,
@@ -144,48 +145,65 @@ function AppDarkChrome() {
 }
 
 /** En la app instalada: volver deslizando desde el borde (fuera de «Mi cuenta», que desliza entre
- * pestañas, y de la compra, que vuelve de a un paso con su propio botón). */
+ * pestañas). En la compra vuelve de a un paso (useHistoryStep). */
 function AppSwipeBack({ location }: { location: string }) {
   const [, navigate] = useLocation();
-  const enabled = useState(isInstalledApp)[0] && location !== '/' && !/^\/(cuenta|mis-puntos|checkout)/.test(location);
-  const back = useCallback(() => {
-    if (window.history.length > 1) window.history.back();
-    else navigate('/', { replace: true });
-  }, [navigate]);
+  const enabled = useState(isInstalledApp)[0] && location !== '/' && !/^\/(cuenta|mis-puntos)/.test(location);
+  const back = useCallback(() => goBack(() => navigate('/', { replace: true })), [navigate]);
   useEdgeSwipeBack(enabled, back);
   return null;
 }
 
+/** Pantallas de operación (staff y admin): se usan paradas en un puesto, sin transiciones de app. */
+const OPERATION_RE = /^\/(caja|admin|puerta|cocina|guardarropia|gastos)/;
+
+/* Entrada de cada pantalla de la App, como en iPhone: avanzando llega desde la derecha, volviendo desde la
+ * izquierda, y reemplazando (una redirección) solo aparece. Corta y con la curva de iOS. Va con `left` y no
+ * con `transform` cuando la pantalla vuelve a un punto bajado: un transform haría que lo `fixed` de adentro
+ * (barras, botones) se corriera durante la animación. */
+const IOS_EASE = [0.32, 0.72, 0, 1] as const;
+function appEnter(scrolled: boolean) {
+  const dir = navDirection();
+  if (dir === 'replace' || prefersReducedMotionNow()) return { initial: { opacity: 0 }, animate: { opacity: 1 }, transition: { duration: 0.18 } };
+  const dx = dir === 'pop' ? -36 : 36;
+  return scrolled
+    ? { initial: { opacity: 0, left: dx }, animate: { opacity: 1, left: 0 }, transition: { duration: 0.32, ease: IOS_EASE } }
+    : { initial: { opacity: 0, x: dx }, animate: { opacity: 1, x: 0 }, transition: { duration: 0.32, ease: IOS_EASE } };
+}
+function prefersReducedMotionNow() {
+  return typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
 function Router() {
   const [location] = useLocation();
-  // wouter no resetea el scroll al navegar (a diferencia de una carga de
-  // página completa) -- sin esto, un link tocado a mitad de scroll de la
-  // página anterior abre la nueva página también a mitad de camino. Ver
-  // resetScrollPosition en lib/smoothScroll.ts para el porqué de Lenis.
-  useEffect(() => {
-    resetScrollPosition();
+  const appTransitions = isAppMode() && !OPERATION_RE.test(location);
+  // Dónde abre la pantalla: en la App, donde estaba si se volvió a ella (al instante, sosteniéndola mientras
+  // carga); en el resto, arriba. wouter no mueve el scroll solo al navegar. Ver lib/appNav.ts.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const top = useMemo(() => (appTransitions ? routeScrollTarget() : 0), [location]);
+  useLayoutEffect(() => {
+    if (!appTransitions) { resetScrollPosition(); return; }
+    const cancel = holdScroll(top);
+    // Hojas que quedaron en el historial y nadie reabrió: fuera, para que «volver» nunca quede sin efecto.
+    const t = window.setTimeout(dropOrphanLayers, 600);
+    return () => { cancel(); window.clearTimeout(t); };
   }, [location]);
+  const enter = appTransitions
+    ? appEnter(top > 0)
+    : { initial: { opacity: 0, y: 14 }, animate: { opacity: 1, y: 0 }, transition: { duration: 0.25, ease: [0.23, 1, 0.32, 1] as const } };
   return (
     <Suspense fallback={<PageLoader path={location} />}>
-      {/* Transición de entrada al cambiar de ruta: fade+rise corto. Antes esto
-       * usaba AnimatePresence con mode="popLayout" para animar también la
-       * salida de la página anterior, pero eso probó ser un bug reproducible
-       * de Framer Motion en este caso (página completa, sin `layout`, code-split
-       * con lazy/Suspense): quedaban DOS instancias de la página nueva montadas
-       * a la vez —una visible y otra congelada en su pose inicial (opacity:0)—
-       * ocupando espacio real en el documento, lo que se veía como contenido
-       * duplicado al hacer scroll. Confirmado en producción con una sola
-       * navegación (un solo pushState) y reproducible también con la ruta ya
-       * cacheada, así que no era una condición de carrera de Suspense.
-       * Sin AnimatePresence, React desmonta la página vieja al instante
-       * (sin animación de salida) y solo la nueva anima su entrada — se
-       * pierde el crossfade de salida pero es imposible que queden dos
-       * páginas mostrándose a la vez. */}
+      {/* Transición de entrada al cambiar de ruta. Sin AnimatePresence a propósito: con mode="popLayout"
+       * (bug reproducible de Framer Motion con páginas completas code-split con lazy/Suspense) quedaban DOS
+       * instancias de la página montadas a la vez —una visible y otra congelada en opacity:0— ocupando
+       * espacio real, que se veía como contenido duplicado o un «barrido». React desmonta la vieja al
+       * instante y solo la nueva anima su entrada: nunca hay dos pantallas a la vez. */}
       <motion.div
         key={location}
-        initial={{ opacity: 0, y: 14 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.25, ease: [0.23, 1, 0.32, 1] }}
+        className={appTransitions ? 'relative min-h-dvh' : undefined}
+        initial={enter.initial}
+        animate={enter.animate}
+        transition={enter.transition}
       >
         <Switch>
           <Route path="/">{() => (isAppMode() ? <AppHome /> : <HalloweenHome />)}</Route>
@@ -300,6 +318,20 @@ function App() {
   // queda hasta que la pantalla está lista: lo quita la propia pantalla con
   // hideSplash() (ver client/src/lib/splash.ts). El sitio instalado como app
   // lo convierte en la intro de neón corta mientras baja la página.
+  // En la App, con el teléfono ya libre, se bajan las pantallas principales: la primera vez que se abren no
+  // pasa por la pantalla de carga. Solo descarga el código (el navegador lo guarda), no las monta.
+  useEffect(() => {
+    if (!isAppMode() || (hideChrome && !isTicket && !isParty)) return;
+    const preload = () => {
+      void import("./pages/Cuenta"); void import("./pages/AppEvents"); void import("./pages/AppHome");
+      void import("./pages/Checkout"); void import("./pages/Ticket");
+    };
+    const idle = (window as any).requestIdleCallback as ((cb: () => void, o?: { timeout: number }) => number) | undefined;
+    const t = window.setTimeout(() => (idle ? idle(preload, { timeout: 3000 }) : preload()), 2500);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     if (isSiteApp()) { hideSplash(); reportAppOpen(); }
     else if (!hasDarkSplash()) document.getElementById('initial-loader')?.remove();
@@ -333,12 +365,11 @@ function App() {
           <WelcomeGate />
           {!hideChrome && <InstallAppPrompt />}
           {holdForAccount ? (hasAccountSnapshot() ? <AccountSkeleton /> : <div className="fixed inset-0 bg-[#0b0612]" />) : memberApp ? (
-            <AnimatePresence mode="popLayout" initial={false}>
-              {/* Los colores de la app (oscuros) también en las páginas de contenido del sitio que se abren desde acá. */}
-              <motion.div key={location} className="account-tokens min-h-dvh bg-[#0b0612]" initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} transition={{ type: 'spring', damping: 30, stiffness: 300 }}>
-                <Router />
-              </motion.div>
-            </AnimatePresence>
+            // Los colores de la app (oscuros) también en las páginas de contenido del sitio que se abren desde acá.
+            // La transición es una sola, la del Router: antes había otra acá encima y se animaban dos a la vez.
+            <div className="account-tokens min-h-dvh overflow-x-clip bg-[#0b0612]">
+              <Router />
+            </div>
           ) : <Router />}
           </SoundProvider>
         </TooltipProvider>

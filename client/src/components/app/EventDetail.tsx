@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { useBackLayer } from '@/lib/appNav';
 import { createPortal } from 'react-dom';
 import { Link } from 'wouter';
 import { AnimatePresence, motion, useDragControls } from 'framer-motion';
@@ -35,6 +36,7 @@ export function EventDetail({ event, open, from, onClose, onMore }: {
   const img = eventImage(event.slug, event.imageUrl);
   const soldOut = event.status === 'soldout';
   const drag = useDragControls();
+  useBackLayer(open, onClose);
   const pistas = CANDYLAND.pistas.map((p) => ({ ...p, djs: CANDYLAND.lineup.filter((d) => d.pista === p.genero) }));
 
   // Mientras está abierta, la página de atrás no se desliza; Escape cierra.

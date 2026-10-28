@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ArrowRight, Check, ChevronLeft, Copy, Crown, Link2 } from 'lucide-react';
 import type { inferRouterOutputs } from '@trpc/server';
 import type { AppRouter } from '../../../../server/routers';
 import { trpc } from '@/lib/trpc';
+import { useBackLayer } from '@/lib/appNav';
 import { AmbassadorContent } from './AmbassadorContent';
 import { AmbassadorDetails } from './AmbassadorDetails';
 
@@ -77,26 +78,8 @@ export function AmbassadorSummary({ panel, onDetails }: { panel: AmbassadorPanel
  * exactamente donde estaba (misma pestaña, mismo scroll). El gesto o botón
  * «atrás» del teléfono también la cierra, en vez de salir de «Mi cuenta». */
 export function useBackClosable(open: boolean, onClose: () => void) {
-  const closeRef = useRef(onClose);
-  closeRef.current = onClose;
-  const pushed = useRef(false);
-  useEffect(() => {
-    if (!open) return;
-    window.history.pushState({ ...(window.history.state ?? {}), accountScreen: true }, '');
-    pushed.current = true;
-    const onPop = () => { pushed.current = false; closeRef.current(); };
-    window.addEventListener('popstate', onPop);
-    return () => {
-      window.removeEventListener('popstate', onPop);
-      // Cerrada con «Volver»: se saca la entrada que se agregó, así el «atrás» del teléfono no queda doble.
-      // Si la pantalla se cierra porque la persona navegó a otra página (por ejemplo, de Staff a /puerta), la entrada
-      // actual ya no es la nuestra: volver atrás la devolvería a «Mi cuenta».
-      if (pushed.current) {
-        pushed.current = false;
-        if (window.history.state?.accountScreen) window.history.back();
-      }
-    };
-  }, [open]);
+  // Una pila común a todas las hojas (lib/appNav.ts): con dos abiertas, «atrás» cierra solo la de arriba.
+  useBackLayer(open, onClose);
 }
 
 export function AppScreen({ open, title, onClose, children }: { open: boolean; title: string; onClose: () => void; children: React.ReactNode }) {

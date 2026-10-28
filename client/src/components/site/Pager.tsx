@@ -1,12 +1,23 @@
-import { Children, useEffect, useRef, useState, type ReactNode } from 'react';
+import { Children, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useEntryState } from '@/lib/appNav';
 
 /* Páginas que se deslizan de lado (como la pantalla de inicio del iPhone) en vez de una lista larga con scroll
  * vertical. Cada hijo es una página a todo el ancho y alto. Scroll horizontal nativo con snap, sin librerías.
- * Con una sola página no se dibujan los puntitos. `onActive` avisa la página visible. */
-export function Pager({ children, className = '', onActive }: { children: ReactNode; className?: string; onActive?: (i: number) => void }) {
+ * Con una sola página no se dibujan los puntitos. `onActive` avisa la página visible. `rememberAs`: la página
+ * queda en la entrada del historial, y al volver a la pantalla abre en la misma. */
+export function Pager({ children, className = '', onActive, rememberAs }: { children: ReactNode; className?: string; onActive?: (i: number) => void; rememberAs?: string }) {
   const pages = Children.toArray(children);
   const ref = useRef<HTMLDivElement>(null);
-  const [active, setActive] = useState(0);
+  const [saved, setSaved] = useEntryState(rememberAs ? `pager.${rememberAs}` : 'pager', 0);
+  const [active, setActive] = useState(rememberAs ? Math.min(saved, Math.max(0, pages.length - 1)) : 0);
+
+  // Abre en la página guardada sin que se vea pasar por las anteriores.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (el && active > 0) el.scrollLeft = active * el.clientWidth;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => { if (rememberAs && active !== saved) setSaved(active); }, [active]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { onActive?.(active); }, [active, onActive]);
 

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { scrollInstant, useHistoryStep } from '@/lib/appNav';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -673,7 +674,8 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
     return p;
   }, [camposAcceso, skipVibe, groupSize, requiresCommunityCode, useDbExtras, isPartner, partner?.headline, appMode, appEventLine]);
 
-  const [paso, setPaso] = useState(0);
+  // En la App cada paso es una entrada del historial: el gesto de volver y «atrás» llevan al paso anterior.
+  const [paso, setPaso, exitSteps] = useHistoryStep('compra.paso', appMode);
   const total_pasos = pasos.length;
   const pasoActual = pasos[Math.min(paso, total_pasos - 1)];
 
@@ -750,9 +752,9 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
       for (let i = 0; i < resumen; i++) {
         if (pasos[i].id === 'acceso') continue;
         const keys = pasos[i].keys.filter((k) => k !== 'buyer__mayorEdad');
-        if (keys.length === 0 || !(await trigger(keys as any, { shouldFocus: false }))) { setPaso(i); setExpressBusy(false); return; }
+        if (keys.length === 0 || !(await trigger(keys as any, { shouldFocus: false }))) { setPaso(i, { replace: true }); setExpressBusy(false); return; }
       }
-      setPaso(resumen);
+      setPaso(resumen, { replace: true });
       setExpressBusy(false);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -920,16 +922,19 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
         return;
       }
     }
-    setPaso((p) => Math.min(p + 1, total_pasos - 1));
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setPaso(Math.min(paso + 1, total_pasos - 1));
+    if (!appMode) window.scrollTo({ top: 0, behavior: 'smooth' });
   };
   const volver = () => {
-    setPaso((p) => Math.max(p - 1, 0));
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setPaso(Math.max(paso - 1, 0));
+    if (!appMode) window.scrollTo({ top: 0, behavior: 'smooth' });
   };
+  // En la App el paso nuevo abre arriba al instante (también al volver con el gesto), sin deslizarse.
+  useEffect(() => { if (appMode) scrollInstant(0); }, [paso, appMode]);
   // ✕ de la app: vuelve a la pantalla desde donde se abrió la compra (o al inicio de la app).
   const [, navigate] = useLocation();
   const salir = () => {
+    if (appMode) { exitSteps(() => navigate('/', { replace: true })); return; }
     if (window.history.length > 1) window.history.back();
     else navigate('/');
   };
@@ -1529,7 +1534,7 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
                       <p className="mt-1 font-bold">{expressOp.emoji} {acceso?.nombre ?? expressOp.label}{qty > 1 ? ` × ${qty}` : ''}</p>
                     </div>
                     {datosIdx >= 0 && (
-                      <button type="button" onClick={() => { setPaso(datosIdx); window.scrollTo({ top: 0 }); }} className="shrink-0 text-sm font-semibold text-primary interactive">Editar</button>
+                      <button type="button" onClick={() => { setPaso(datosIdx); if (!appMode) window.scrollTo({ top: 0 }); }} className="shrink-0 text-sm font-semibold text-primary interactive">Editar</button>
                     )}
                   </div>
                   <ul className="space-y-1 text-sm text-muted-foreground">

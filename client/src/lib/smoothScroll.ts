@@ -51,6 +51,7 @@ export function resetScrollPosition() {
   if (lenisInstance) {
     lenisInstance.scrollTo(0, { immediate: true });
   } else {
-    window.scrollTo(0, 0);
+    // Al instante: con el `scroll-behavior: smooth` del sitio, un scrollTo(0, 0) se veía deslizarse (el «barrido»).
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' as ScrollBehavior });
   }
 }

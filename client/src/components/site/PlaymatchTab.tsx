@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
+import { useEntryState } from '@/lib/appNav';
 import { ArrowRight, BookOpen, Check, EyeOff, Flag, Handshake, Heart, Lock, Martini, Moon, Pencil, ShieldCheck, Sparkles, CameraOff } from 'lucide-react';
 import { Link } from 'wouter';
 import { trpc } from '@/lib/trpc';
@@ -76,8 +77,10 @@ function opensLabel(ev: PmEvent): string {
 export function PlaymatchTab({ events, buyHref }: { events: PmEvent[]; buyHref?: string | null }) {
   const now = new Date();
   const pick = pickTicket(events, now);
-  const [screen, setScreen] = useState<null | 'guia' | 'normas' | 'editar' | 'fiesta'>(null);
+  // La sub-pantalla abierta queda en la entrada del historial: al volver desde otra pantalla sigue abierta.
+  const [screen, setScreen] = useEntryState<null | 'guia' | 'normas' | 'editar' | 'fiesta'>('playmatch.screen', null);
   const [photosVersion, setPhotosVersion] = useState(0);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const close = useCallback(() => setScreen(null), []);
   const [guideSeen, setGuideSeen] = useState(() => { try { return !!localStorage.getItem(GUIDE_KEY); } catch { return false; } });
   const markGuide = () => { setGuideSeen(true); try { localStorage.setItem(GUIDE_KEY, '1'); } catch { /* nada */ } };

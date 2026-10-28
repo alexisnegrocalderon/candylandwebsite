@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import { CalendarDays, CircleHelp, CircleUser, FileText, PartyPopper, Shirt } from 'lucide-react';
+import { useEntryState } from '@/lib/appNav';
 import { trpc } from '@/lib/trpc';
 import { useMemberSession } from '@/lib/member';
 import { useSeo } from '@/hooks/useSeo';
@@ -35,9 +36,9 @@ export default function AppHome() {
   const next = upcoming[0];
   const { data: nextTickets } = trpc.events.getTicketTypes.useQuery({ slug: next?.slug ?? '' }, { enabled: !!next, retry: false });
   const from = next && nextTickets ? fromPrice(nextTickets as any[], next as any) : null;
-  const [sheet, setSheet] = useState<InfoKind | null>(null);
+  const [sheet, setSheet] = useEntryState<InfoKind | null>('inicio.info', null);
   // «La fiesta» a pantalla completa. Nunca se abre sola: solo con un toque al póster o a «Ver la fiesta».
-  const [detail, setDetail] = useState(false);
+  const [detail, setDetail] = useEntryState('inicio.fiesta', false);
   const halloween = useHalloweenMode();
   // Al volver con «atrás» Safari restaura la página tal como quedó: el detalle vuelve cerrado.
   useEffect(() => {

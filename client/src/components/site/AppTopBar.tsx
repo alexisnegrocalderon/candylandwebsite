@@ -1,5 +1,6 @@
 import { ChevronLeft, CircleUser } from 'lucide-react';
 import { useLocation } from 'wouter';
+import { goBack } from '@/lib/appNav';
 
 /* Barra de arriba del «modo app» (la App de PlayRoom instalada, con sesión de
  * socio): reemplaza el menú del sitio en cualquier página que se abra desde
@@ -9,10 +10,8 @@ import { useLocation } from 'wouter';
 
 export function AppTopBar() {
   const [, navigate] = useLocation();
-  const back = () => {
-    if (window.history.length > 1) window.history.back();
-    else navigate('/', { replace: true });
-  };
+  // `history.length` también cuenta lo que había antes de abrir la app: «Volver» podía sacarla de ella.
+  const back = () => goBack(() => navigate('/', { replace: true }));
   return (
     <header className="account-font fixed inset-x-0 top-0 z-[70] flex items-center justify-between gap-2 border-b border-white/10 bg-[#0b0612]/80 px-3 pb-2 pt-[max(10px,env(safe-area-inset-top))] text-white backdrop-blur-xl">
       <button type="button" onClick={back} aria-label="Volver" className="inline-flex h-10 items-center gap-0.5 rounded-full pl-1 pr-3 text-subhead font-semibold text-pink-300 interactive">

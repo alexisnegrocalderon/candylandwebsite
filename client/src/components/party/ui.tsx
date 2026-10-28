@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { motion, useDragControls } from 'framer-motion';
 import { X } from 'lucide-react';
+import { useBackLayer } from '@/lib/appNav';
 import { PartyAvatar } from '@/components/party/Avatar';
 import { INTENT_EMOJI, INTENT_LABELS, ORIENTATION_LABELS, RELATION_LABELS, cleanOrientation, cleanRelationStyle, identityLabel, parseIntents, type PartyGender } from '@shared/party';
 import { ProtectedPhoto } from '@/components/party/ProtectedPhoto';
@@ -20,6 +21,8 @@ export const PM_CTA = `${PM_GRADIENT} ${ON_ACCENT} font-bold shadow-[0_10px_28px
 /** Hoja que sube desde abajo; se cierra tocando afuera, con la X o arrastrando la manija. */
 export function PmSheet({ title, onClose, children, tall = false }: { title?: string; onClose: () => void; children: ReactNode; tall?: boolean }) {
   const drag = useDragControls();
+  // «Atrás» (gesto o Android) cierra esta hoja antes de salir de la pantalla.
+  useBackLayer(true, onClose);
   return (
     <motion.div className="fixed inset-0 z-[90] flex items-end justify-center bg-black/60" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose}>
       <motion.div

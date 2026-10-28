@@ -4,6 +4,7 @@ import { ChevronLeft, ChevronRight, Download, Loader2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { saveTicketImage } from '@/lib/ticketImage';
 import { fmtDateTime } from '@/lib/member';
+import { useBackLayer } from '@/lib/appNav';
 import { formatChileTime } from '@shared/chileDate';
 import { TICKET_KIND_META, type TicketKind } from '@shared/ticketKind';
 import { groupOf, groupTickets, isPaidAtDoor, nextUnit } from '@shared/nightExtras';
@@ -80,6 +81,8 @@ export function QrCard({ src, alt, faded = false, className = '' }: { src: strin
 /** El QR a pantalla completa (en su tarjeta blanca: máximo contraste para el lector de la puerta y de caja),
  * con la pantalla encendida mientras está abierto. Desde acá también se guarda en Fotos. */
 export function QrViewer({ ev, t, holder, onClose, onSelect }: { ev: MeEvent; t: MeTicket; holder: string; onClose: () => void; onSelect?: (t: MeTicket) => void }) {
+  // «Atrás» (gesto o Android) cierra el QR, no la pantalla de abajo.
+  useBackLayer(true, onClose);
   const [saving, setSaving] = useState(false);
   // Con `onSelect`: una tira con la entrada y cada extra para cambiar de QR sin cerrar esta pantalla (en caja se
   // pasa del trago al estacionamiento sin salir), y un «‹ 1 de 2 ›» cuando el mismo producto viene repetido.
