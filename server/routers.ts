@@ -190,7 +190,7 @@ import { generateProfileAudit } from "./profileAudit";
 import { syncInstagramStats } from "./instagramStats";
 import { getInstagramShowcase } from "./instagramFeed";
 import { refundOrder } from "./orderRefund";
-import { issueAccessCreditsForOrder, listAccessCredits, listCreditsByOrderIds, remindAccessCredit } from "./accessCredit";
+import { cancelGiftPass, issueAccessCreditsForOrder, issueGiftPass, listAccessCredits, listCreditsByOrderIds, listGiftPasses, remindAccessCredit } from "./accessCredit";
 import { AUTOMATION_BUTTON_KINDS, AUTOMATION_BUTTON_TITLE_MAX, isAllowedCustomButtonUrl } from "../shared/automationButton";
 import { normalizeIgHandle } from "../shared/igCustomerLink";
 import { approveComment, restoreSpamComment, suggestOwnComment } from './instagramComments';
@@ -215,6 +215,7 @@ import { ensureStaffSalesLink } from "./staffSales";
 import { pageCustomers, findCustomersForCaja } from "./customerFilters";
 import { COUPON_BATCH_MAX } from "../shared/couponGift";
 import { canGift } from "../shared/gifts";
+import { ANY_ACCESS_SLUG, giftPassError } from "../shared/accessCredit";
 import { previewCustomerMerge, mergeCustomers } from "./customerMerge";
 import { getMemberHistory } from "./memberHistory";
 import { hasSalesLink } from "../shared/staffSales";
@@ -944,14 +945,26 @@ const couponAudienceInput = z.discriminatedUnion('kind', [
 /** Crea los regalos de uno o varios correos: lo de acceso/extra va como invitación gratis (correo con QR), los tragos
  * de la carta quedan con su código canjeable en la barra, y a cada persona le llega un aviso a la app. Todo queda en la
  * auditoría con quién lo regaló. */
-async function runGift(params: { eventId: number; emails: string[]; items: { ticketTypeId: number; quantity: number }[]; reason?: string; actor: string; ip?: string | null }) {
+async function runGift(params: {
+  eventId: number; emails: string[]; items: { ticketTypeId: number; quantity: number }[]; reason?: string; actor: string; ip?: string | null;
+  /** `pase`: los accesos no llegan como entrada sino como pase en Cupones, que la persona canjea en el checkout. */
+  mode?: 'directo' | 'pase';
+  /** Pase «a elección»: la persona escoge su acceso al canjear (en vez del acceso fijo elegido). */
+  anyAccess?: boolean;
+  /** Días de vigencia del pase; `null` = hasta que termine el evento. */
+  validDays?: number | null;
+}) {
   const event = await db.getEventById(params.eventId);
   if (!event) throw new TRPCError({ code: 'NOT_FOUND', message: 'Evento no encontrado' });
   const types = await db.getTicketTypesByEventId(event.id);
   const byId = new Map<number, any>((types as any[]).map((t) => [t.id, t]));
   for (const it of params.items) if (!byId.has(it.ticketTypeId)) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Un producto ya no existe en este evento' });
-  const toOrder = params.items.filter((it) => ['acceso', 'extra'].includes(byId.get(it.ticketTypeId).category));
+  const asPass = params.mode === 'pase';
+  const passItems = asPass ? params.items.filter((it) => byId.get(it.ticketTypeId).category === 'acceso') : [];
+  const toOrder = params.items.filter((it) => ['acceso', 'extra'].includes(byId.get(it.ticketTypeId).category) && !passItems.includes(it));
   const comps = params.items.filter((it) => !['acceso', 'extra'].includes(byId.get(it.ticketTypeId).category));
+  const eventEnd = (event as any).eventEnd ? new Date((event as any).eventEnd) : new Date(new Date(event.eventDate).getTime() + 12 * 3_600_000);
+  const validUntil = params.validDays ? new Date(Date.now() + params.validDays * 86_400_000) : eventEnd;
   const resumen = params.items.map((it) => `${it.quantity > 1 ? `${it.quantity} × ` : ''}${byId.get(it.ticketTypeId).name}`).join(', ');
   const results: { email: string; ok: boolean; error?: string }[] = [];
   for (const raw of params.emails) {
@@ -964,8 +977,16 @@ async function runGift(params: { eventId: number; emails: string[]; items: { tic
         const r = await db.createManualOrder({ eventSlug: event.slug, buyerName: name, buyerEmail: email, items: toOrder, kind: 'invitation' });
         await confirmFreeOrder(r.orderNumber);
       }
+      for (const it of passItems) {
+        for (let i = 0; i < it.quantity; i++) {
+          await issueGiftPass({
+            email, name, eventId: event.id, accesoSlug: params.anyAccess ? ANY_ACCESS_SLUG : (byId.get(it.ticketTypeId).accesoSlug ?? ANY_ACCESS_SLUG),
+            validUntil, reason: params.reason ?? null, actor: params.actor, ip: params.ip ?? null,
+          });
+        }
+      }
       for (const c of comps) await db.createStaffComp({ eventSlug: event.slug, ticketTypeId: c.ticketTypeId, quantity: c.quantity, staffName: name, buyerEmail: email });
-      void customerPush.pushToEmail(email, { title: '🎁 ¡Te regalaron algo!', body: `${resumen}. Míralo en tu app, en «Mis entradas».`, url: '/cuenta' });
+      void customerPush.pushToEmail(email, { title: '🎁 ¡Te regalaron algo!', body: `${resumen}. Míralo en tu app, en ${passItems.length ? 'Cupones' : '«Mis entradas»'}.`, url: '/cuenta' });
       results.push({ email, ok: true });
     } catch (e) {
       results.push({ email, ok: false, error: e instanceof Error ? e.message : 'No se pudo regalar' });
@@ -1662,7 +1683,10 @@ export const appRouter = router({
       // Crédito de acceso ("1 Acceso Dúo" que quedó vigente de otra fiesta).
       const creditHit = await db.findAccessCreditByCode(clean);
       if (creditHit) {
+        if (creditHit.availability === 'expired') return { type: 'none' as const, message: 'Este pase venció' };
         if (creditHit.availability !== 'available') return { type: 'none' as const, message: 'Este crédito ya fue usado' };
+        const passError = giftPassError(creditHit.credit, input.eventId);
+        if (passError) return { type: 'none' as const, message: passError };
         return { type: 'credit' as const, code: creditHit.credit.code, accesoSlug: creditHit.credit.accesoSlug, accesoName: creditHit.credit.accesoName };
       }
 
@@ -2036,6 +2060,9 @@ export const appRouter = router({
       audience: couponAudienceInput.optional(),
       items: z.array(z.object({ ticketTypeId: z.number(), quantity: z.number().int().min(1).max(20) })).min(1).max(12),
       reason: z.string().trim().max(200).optional(),
+      mode: z.enum(['directo', 'pase']).optional(),
+      anyAccess: z.boolean().optional(),
+      validDays: z.number().int().min(1).max(365).nullable().optional(),
     })).mutation(async ({ input, ctx }) => {
       let emails = (input.emails ?? []).map((e) => e.trim().toLowerCase());
       if (input.audience) {
@@ -2045,7 +2072,15 @@ export const appRouter = router({
       }
       emails = Array.from(new Set(emails));
       if (emails.length === 0) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Elige al menos a una persona.' });
-      return runGift({ eventId: input.eventId, emails, items: input.items, reason: input.reason, actor: ctx.user.email ?? ctx.user.name ?? 'admin', ip: clientIp(ctx) });
+      return runGift({ eventId: input.eventId, emails, items: input.items, reason: input.reason, mode: input.mode, anyAccess: input.anyAccess, validDays: input.validDays, actor: ctx.user.email ?? ctx.user.name ?? 'admin', ip: clientIp(ctx) });
+    }),
+    // Los pases regalados de un evento y su estado (disponible / usado / vencido / anulado).
+    listGifts: adminReadProcedure.input(z.object({ eventId: z.number() })).query(({ input }) => listGiftPasses(input.eventId)),
+    cancelGift: giftProcedure.input(z.object({ creditId: z.number() })).mutation(async ({ input, ctx }) => {
+      try { await cancelGiftPass(input.creditId, { by: ctx.user.email ?? ctx.user.name ?? 'admin', ip: clientIp(ctx) }); } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo anular el pase.' });
+      }
+      return { ok: true as const };
     }),
     // ¿Esta sesión puede dar regalos? (para mostrar u ocultar los botones).
     canGift: adminReadProcedure.query(({ ctx }) => ({ can: canGift(ctx.user) })),

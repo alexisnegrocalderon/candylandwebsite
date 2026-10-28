@@ -369,11 +369,52 @@ function TicketsList({ events, from = 0 }: { events: MeEvent[]; from?: number })
   );
 }
 
+/** Un regalo del dueño: un consumo con QR para mostrar en la barra, o un pase de entrada para canjear en el checkout. */
+type GiftConsumo = Me['gifts']['consumos'][number];
+type GiftPase = Me['gifts']['pases'][number];
+
+function GiftConsumoCard({ g }: { g: GiftConsumo }) {
+  return (
+    <div className={`account-glass m-auto flex w-full flex-col items-center gap-3 rounded-[28px] p-6 text-center ${g.used ? 'opacity-60' : ''}`}>
+      <p className="text-caption2 font-semibold uppercase tracking-[0.18em] text-pink-300">🎁 Regalo para la barra</p>
+      <p className="font-heading text-title2 font-extrabold leading-tight">{g.name}</p>
+      <p className="text-subhead font-semibold text-pink-300">{g.eventTitle}</p>
+      {g.used ? (
+        <p className="text-subhead text-white/60">✅ Ya lo canjeaste</p>
+      ) : (
+        <>
+          {g.qrImageUrl && <img src={g.qrImageUrl} alt={`QR de ${g.name}`} className="h-48 w-48 rounded-2xl bg-white p-2" />}
+          {g.displayCode && <p className="font-mono text-title3 font-bold tracking-[0.2em]">{g.displayCode}</p>}
+          <p className="text-caption1 text-white/60">Muestra este QR en la barra. Se puede usar una sola vez.</p>
+        </>
+      )}
+    </div>
+  );
+}
+
+function GiftPaseCard({ g }: { g: GiftPase }) {
+  const href = g.eventSlug ? `/checkout/${g.eventSlug}?code=${encodeURIComponent(g.code)}` : '/eventos';
+  return (
+    <div className="account-glass m-auto flex w-full flex-col items-center gap-3 rounded-[28px] p-6 text-center">
+      <p className="text-caption2 font-semibold uppercase tracking-[0.18em] text-pink-300">🎁 Pase de entrada</p>
+      <p className="font-heading text-title2 font-extrabold leading-tight">{g.anyAccess ? 'Un acceso a tu elección' : g.accesoName}</p>
+      {g.eventTitle && <p className="text-subhead font-semibold text-pink-300">Para {g.eventTitle}</p>}
+      <p className="text-subhead text-white/60">{g.validUntil ? `Vale hasta el ${fmtDate(g.validUntil)}` : ''}</p>
+      <a href={href} onClick={tapHaptic} className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-pink-500 to-sky-500 px-6 text-subhead font-bold text-white interactive">
+        Canjear mi pase <ArrowRight className="h-4 w-4" />
+      </a>
+      <p className="text-caption1 text-white/60">{g.anyAccess ? 'Elige tu acceso y compra con el pase: va sin costo. ' : 'Compra con el pase: va sin costo. '}Es personal: úsalo con el correo de tu cuenta.</p>
+    </div>
+  );
+}
+
 function CouponsList({ me }: { me: Me }) {
   const active = me.coupons.filter((c) => c.status === 'disponible');
   return (
     <>
-      {me.coupons.length === 0 ? (
+      {me.gifts.pases.map((g) => <GiftPaseCard key={`p${g.id}`} g={g} />)}
+      {me.gifts.consumos.map((g) => <GiftConsumoCard key={g.ticketCode} g={g} />)}
+      {me.coupons.length === 0 && me.gifts.pases.length + me.gifts.consumos.length === 0 ? (
         <p className="account-glass rounded-2xl p-4 text-subhead text-white/60">
           Todavía no tienes cupones.{perkList(me).length ? ' Te vamos regalando según lo que desbloqueas.' : ''}
         </p>
@@ -491,7 +532,7 @@ function TicketsPager({ events, holder }: { events: MeEvent[]; holder: string })
 /** Cupones en páginas: uno por página, con el código grande. */
 function CouponsPager({ me }: { me: Me }) {
   const [copied, setCopied] = useState<number | null>(null);
-  if (me.coupons.length === 0) {
+  if (me.coupons.length === 0 && me.gifts.pases.length + me.gifts.consumos.length === 0) {
     return (
       <div className="account-glass m-auto flex w-full flex-col items-center gap-3 rounded-[28px] p-8 text-center">
         <Gift className="h-10 w-10 text-pink-300" />
@@ -505,6 +546,8 @@ function CouponsPager({ me }: { me: Me }) {
   };
   return (
     <Pager rememberAs="cupones">
+      {me.gifts.pases.map((g) => <GiftPaseCard key={`p${g.id}`} g={g} />)}
+      {me.gifts.consumos.map((g) => <GiftConsumoCard key={g.ticketCode} g={g} />)}
       {me.coupons.map((c) => {
         const live = c.status === 'disponible';
         return (
@@ -670,7 +713,7 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
   const push = useCustomerPush({ source: 'puntos' });
   const level = CUSTOMER_LEVEL_META[me.level as keyof typeof CUSTOMER_LEVEL_META];
   const upcoming = me.events as MeEvent[];
-  const activeCoupons = me.coupons.filter((c) => c.status === 'disponible').length;
+  const activeCoupons = me.coupons.filter((c) => c.status === 'disponible').length + me.gifts.pases.length + me.gifts.consumos.filter((g) => !g.used).length;
   const { href: buyHref, last: lastBuy } = useBuyHref(me.nextEvent?.slug);
   // La noche de la fiesta, ya escaneada: un punto en la pestaña Playmatch.
   const playmatchLive = upcoming.some((e) => e.tickets.some((x) => (x.category ?? 'acceso') === 'acceso' && canEnterParty({ status: x.status, eventId: e.eventId }, { eventDate: e.eventDate, doorsOpen: e.doorsOpen, eventEnd: e.eventEnd })));
@@ -828,6 +871,19 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
                       <span className="block truncate text-footnote text-white/60">Entra al panel: ventas, caja, staff y más</span>
                     </span>
                     <ArrowRight className="h-5 w-5 shrink-0 text-pink-300" />
+                  </span>
+                </a>
+              )}
+              {/* Regalar desde el celular: abre el panel con el diálogo de regalos listo (solo lo hace el dueño). */}
+              {me.isAdmin && (
+                <a href="/admin?regalar=1" onClick={tapHaptic} className="block w-full rounded-[24px] bg-gradient-to-r from-amber-300/70 via-pink-400/50 to-fuchsia-400/60 p-[1.5px] text-left interactive">
+                  <span className="flex items-center gap-3 rounded-[23px] bg-[#0d0712] px-4 py-3.5">
+                    <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-amber-300/15 text-amber-200"><Gift className="h-5 w-5" /></span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-callout font-bold leading-tight">Regalar una entrada o un trago</span>
+                      <span className="block truncate text-footnote text-white/60">Elige a la persona y queda en sus Cupones</span>
+                    </span>
+                    <ArrowRight className="h-5 w-5 shrink-0 text-amber-200" />
                   </span>
                 </a>
               )}

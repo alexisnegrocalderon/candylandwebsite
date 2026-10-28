@@ -2,7 +2,7 @@ import { eq, desc, and, sql, or, gt, gte, lt, lte, like, inArray, notInArray, is
 import { drizzle } from "drizzle-orm/mysql2";
 import { randomBytes } from "crypto";
 import { normalizeStatusCounts } from "../shared/ordersPagination";
-import { creditAvailability, creditDiscount, normalizeCreditCode, type CreditAvailability } from "../shared/accessCredit";
+import { creditAvailability, creditDiscount, giftPassError, normalizeCreditCode, parseGiftNote, type CreditAvailability } from "../shared/accessCredit";
 import { computeCodeDiscount } from "../shared/discountCode";
 import { classifyHandoffNoise } from "../shared/agentKnowledge";
 import { BLOCK_BY_LABEL, blockedKeysFor, hasHardKey, matchBlocked, type BlockedRow, type BlockMatchBy, type Identity } from "../shared/blockedMatch";
@@ -1716,7 +1716,14 @@ export async function createOrder(input: {
   const creditHit = codeForDiscount ? await findAccessCreditByCode(codeForDiscount) : null;
   let accessCreditId: number | undefined;
   if (creditHit) {
+    if (creditHit.availability === 'expired') throw new Error('Este pase venció.');
     if (creditHit.availability !== 'available') throw new Error('Este crédito ya fue usado.');
+    const passError = giftPassError(creditHit.credit, event.id);
+    if (passError) throw new Error(passError);
+    // Un pase regalado es personal: se canjea con el correo de a quien se le regaló.
+    if (parseGiftNote(creditHit.credit.note) && creditHit.credit.buyerEmail.trim().toLowerCase() !== input.buyerEmail.trim().toLowerCase()) {
+      throw new Error('Este pase es personal: úsalo con el correo de tu cuenta.');
+    }
     const lines = input.items.map((item) => {
       const tt = tts.find((t) => t.id === item.ticketTypeId);
       return { ticketTypeId: item.ticketTypeId, accesoSlug: tt?.accesoSlug, category: tt?.category, unitPrice: unitPrices.get(item.ticketTypeId) ?? 0, quantity: item.quantity };

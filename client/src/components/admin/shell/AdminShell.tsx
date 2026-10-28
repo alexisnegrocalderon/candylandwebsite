@@ -83,6 +83,19 @@ export function AdminShell({ sections, activeSection, onOpenSection, badgeCounts
   const [giftOpen, setGiftOpen] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
   const { data: giftAccess } = trpc.orders.canGift.useQuery(undefined, { enabled: !isDemo, retry: false, staleTime: 5 * 60_000 });
+  // Desde la App (Cuenta → «Regalar»): /admin?regalar=1 abre el diálogo de regalos de una.
+  useEffect(() => {
+    if (!giftAccess?.can) return;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('regalar') === '1') {
+        setGiftOpen(true);
+        params.delete('regalar');
+        const qs = params.toString();
+        window.history.replaceState(null, '', `${window.location.pathname}${qs ? `?${qs}` : ''}${window.location.hash}`);
+      }
+    } catch { /* sin acceso a la URL: no se abre solo */ }
+  }, [giftAccess?.can]);
 
   const current = sections.find((s) => s.id === activeSection) ?? sections[0];
   const activeHub = current.hub;

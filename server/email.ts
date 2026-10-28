@@ -675,6 +675,41 @@ export function buildAccessCreditEmail(data: {
   });
 }
 
+/** Aviso de un pase de entrada REGALADO: el botón lleva directo al checkout del evento con el código puesto. */
+export function buildGiftPassEmail(data: {
+  buyerName: string;
+  eventTitle: string;
+  /** «Acceso Dúo» o «a tu elección». */
+  accesoName: string;
+  code: string;
+  url: string;
+  validUntilText?: string | null;
+  reason?: string | null;
+}) {
+  const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
+  const name = esc(data.buyerName);
+  const eventTitle = esc(data.eventTitle);
+  return emailShell({
+    preheader: `Te regalaron un pase para ${eventTitle}.`,
+    pageBg: DISCO_BG,
+    hero: emailHero({ accent: 'yellow', heroBg: DISCO_HERO_BG, emoji: '🎁🎟️', title: `¡Te regalaron un pase, ${name}!`, subtitle: eventTitle }),
+    body: `
+      <p style="color:${MUTED};font-size:15px;line-height:1.6;margin:0 0 24px;">
+        ${data.reason ? `${esc(data.reason)}. ` : ''}Tienes un pase de <strong style="color:${INK};">${esc(data.accesoName)}</strong> para <strong style="color:${INK};">${eventTitle}</strong>.
+        Está en tu cuenta, en <em>Cupones</em>: tócalo para canjearlo y compra con tu acceso de regalo.
+      </p>
+      ${card(`
+        <div style="text-align:center;margin:0 0 14px;">
+          <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 6px;">${esc(data.accesoName)}</p>
+          <p style="color:${ACCENT.gold.text};font-size:28px;font-weight:800;letter-spacing:2px;margin:0;user-select:all;">${esc(data.code)}</p>
+        </div>
+        <div style="text-align:center;">${pastelButton(data.url, 'Canjear mi pase', 'gold')}</div>
+        <p style="color:${FAINT};font-size:12px;margin:16px 0 0;text-align:center;">Es personal: úsalo con este mismo correo. Se puede usar una sola vez${data.validUntilText ? ` y vale hasta ${esc(data.validUntilText)}` : ''}.</p>
+      `, { glow: 'gold' })}
+    `,
+  });
+}
+
 /** Aviso de devolución de una compra web: cuánto se devuelve, el porcentaje y
  * cuándo llega la plata (política: 3 días hábiles después del evento). La
  * devolución en sí la hace el equipo a mano por Mercado Pago. */

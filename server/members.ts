@@ -8,6 +8,7 @@
  * correo mal escrito no deja fichas vacías. Los límites por correo e IP están en server/routers.ts. */
 import { and, desc, eq, gte, inArray, isNotNull, ne, or, sql } from 'drizzle-orm';
 import { getDb, getSiteSettings } from './db';
+import { listMyGiftPasses } from './accessCredit';
 import { sendEmail, buildMemberCodeEmail } from './email';
 import { pushToEmail } from './customerPush';
 import { findAmbassadorByEmail } from './ambassadorProgram';
@@ -315,7 +316,7 @@ export async function getMemberHome(email: string, now = new Date()) {
       ticketCode: tickets.ticketCode, displayCode: tickets.displayCode, usedAt: tickets.usedAt, holderName: tickets.holderName, status: tickets.status, qrImageUrl: tickets.qrImageUrl,
       category: ticketTypes.category, typeName: ticketTypes.name,
       eventId: events.id, eventTitle: events.title, eventSlug: events.slug, eventDate: events.eventDate, venue: events.venue,
-      doorsOpen: events.doorsOpen, eventEnd: events.eventEnd, attendeeData: orders.attendeeData,
+      doorsOpen: events.doorsOpen, eventEnd: events.eventEnd, attendeeData: orders.attendeeData, paymentMethod: orders.paymentMethod,
     }).from(tickets).innerJoin(orders, eq(tickets.orderId, orders.id)).innerJoin(events, eq(tickets.eventId, events.id))
       .innerJoin(ticketTypes, eq(tickets.ticketTypeId, ticketTypes.id))
       // El evento oculto de la cuenta de prueba (admin → Noche) también: solo lo compró ese correo.
@@ -376,6 +377,7 @@ export async function getMemberHome(email: string, now = new Date()) {
     });
   }
 
+  const giftPasses = await listMyGiftPasses(key);
   const config = await getMemberConfig();
   const level = computeCustomerLevel({ totalOrders: customer.totalOrders, totalSpent: Number(customer.totalSpent), lastActivityAt: customer.lastSeenAt, levelOverride: customer.levelOverride, now });
   const next = nextRows[0] ?? null;
@@ -390,6 +392,13 @@ export async function getMemberHome(email: string, now = new Date()) {
     movements,
     // Accesos primero y los extras (estacionamiento, guardarropía…) después.
     events: Array.from(byEvent.values()).sort((a, b) => a.eventDate.getTime() - b.eventDate.getTime()).map((e) => ({ ...e, tickets: sortByKind(e.tickets) })),
+    // Regalos del dueño: consumos con QR para mostrar en la barra y pases de entrada para canjear en el checkout.
+    gifts: {
+      consumos: ticketRows
+        .filter((t) => t.paymentMethod === 'Manual: Consumo Staff' && ['consumo', 'merch', 'locker'].includes(t.category) && t.status !== 'cancelled')
+        .map((t) => ({ ticketCode: t.ticketCode, displayCode: t.displayCode ?? null, name: t.typeName, qrImageUrl: t.qrImageUrl ?? null, used: t.status === 'used' || !!t.usedAt, eventTitle: t.eventTitle, eventDate: t.eventDate })),
+      pases: giftPasses,
+    },
     coupons: couponRows.map((c) => ({
       id: c.id, kind: c.kind, title: c.title, code: c.code, percent: Number(c.percent), discountType: c.discountType, eventTitle: c.eventTitle ?? null, validUntil: c.validUntil,
       status: couponStatus({ usedCount: c.usedCount, maxUses: c.maxUses, validUntil: c.validUntil, isActive: c.isActive }, now),

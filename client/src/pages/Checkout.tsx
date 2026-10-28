@@ -15,6 +15,7 @@ import { CANDYLAND, EVENTO, CAMPOS_COMPRADOR, formatCLP, whatsappComunidadLink, 
 import { isMissionActiveForEvent, missionDepositPrice, missionCutoff, missionCapPrice } from '@shared/mission300';
 import { isValidRut, isValidPassport, isValidChileanPhone, formatRutLive } from '@shared/rut';
 import { isTopupProduct } from '@shared/prepaid';
+import { ANY_ACCESS_SLUG } from '@shared/accessCredit';
 import { computeCodeDiscount } from '@shared/discountCode';
 import { playcoinsEarnedForPurchase } from '@shared/playcoins';
 import { dropSupersededTickets } from '@shared/liveTickets';
@@ -778,7 +779,7 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
   const subtotal = (acceso?.precio ?? 0) * qty;
   // Crédito de acceso: vale UNA unidad del mismo acceso (mismo cálculo que
   // `creditDiscount` en shared/accessCredit.ts, que es el que cobra el servidor).
-  const creditApplies = codeResult?.type === 'credit' && codeResult.accesoSlug === accesoSlug && qty > 0;
+  const creditApplies = codeResult?.type === 'credit' && (codeResult.accesoSlug === accesoSlug || codeResult.accesoSlug === ANY_ACCESS_SLUG) && qty > 0;
   // Descuento por código: misma función que usa el servidor al cobrar
   // (shared/discountCode.ts) -- solo sobre el acceso, nunca sobre extras, y el
   // monto fijo nunca pasa del precio del acceso.
@@ -1767,7 +1768,7 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
                     {codeResult?.type === 'credit' && (
                       <p className={`text-sm mt-1 ${creditApplies ? 'text-green-400' : 'text-yellow-400'}`}>
                         {creditApplies
-                          ? `Crédito aplicado: tu ${codeResult.accesoName} va sin costo ✓`
+                          ? `${codeResult.accesoSlug === ANY_ACCESS_SLUG ? 'Pase de regalo aplicado: tu acceso va sin costo' : `Crédito aplicado: tu ${codeResult.accesoName} va sin costo`} ✓`
                           : `Este crédito es para un ${codeResult.accesoName}. Elige ese acceso para usarlo.`}
                       </p>
                     )}
