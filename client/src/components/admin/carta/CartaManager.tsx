@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
 import { Ban, ChevronDown, Download, FolderInput, MoreHorizontal, Plus, Percent, RotateCcw, Search, Upload, X, CheckSquare, ChevronsDownUp, ChevronsUpDown, CopyPlus } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
+import { useTonightEvent } from '@/hooks/useTonightEvent';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
@@ -46,9 +47,8 @@ const loadCollapsed = (): Set<string> => {
 type SheetState = { mode: 'new' | 'edit'; id?: number; initial: ProductForm } | null;
 
 export function CartaManager() {
-  const { data: events } = trpc.events.listAll.useQuery();
-  const [eventId, setEventId] = useState<number | null>(null);
-  const activeId = eventId ?? events?.[0]?.id ?? null;
+  // Arranca en el evento real de esta noche (nunca en la cuenta de prueba) y recuerda el que elijas.
+  const { events, eventId: activeId, setSelected: setEventId } = useTonightEvent();
 
   const utils = trpc.useUtils();
   const { data: allTypes, isLoading } = trpc.events.listTicketTypes.useQuery({ eventId: activeId! }, { enabled: !!activeId });
@@ -87,10 +87,19 @@ export function CartaManager() {
     onError: onCartaError,
   });
 
-  const cartaProducts = useMemo(
-    () => ((allTypes ?? []) as CartaProduct[]).filter((t) => CARTA_CATEGORIES.some((c) => c.id === t.category)),
-    [allTypes],
-  );
+  // Las porciones de un producto con receta salen del stock de insumos (las mismas que ve Stock de barra), no de
+  // un número cargado a mano: así Carta y Stock siempre coinciden.
+  const { data: barra } = trpc.insumos.estado.useQuery({ eventId: activeId! }, { enabled: !!activeId, retry: false, refetchInterval: 30_000 });
+  const cartaProducts = useMemo(() => {
+    const porId = new Map<number, any>(((barra as any)?.productos ?? []).map((b: any) => [b.id, b]));
+    return ((allTypes ?? []) as CartaProduct[])
+      .filter((t) => CARTA_CATEGORIES.some((c) => c.id === t.category))
+      .map((t) => {
+        const b = porId.get(t.id);
+        if (!b) return t;
+        return { ...t, portions: b.drinks ?? null, sinReceta: b.drinks == null && !b.sinInsumos && !b.oculto && t.category === 'consumo' };
+      });
+  }, [allTypes, barra]);
   const tabProducts = useMemo(() => cartaProducts.filter((p) => p.category === tab), [cartaProducts, tab]);
   const counts = useMemo(() => Object.fromEntries(CARTA_CATEGORIES.map((c) => [c.id, cartaProducts.filter((p) => p.category === c.id).length])), [cartaProducts]);
   const summary = useMemo(() => summarizeCarta(tabProducts), [tabProducts]);

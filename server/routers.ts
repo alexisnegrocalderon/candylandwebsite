@@ -6258,6 +6258,9 @@ export const appRouter = router({
         throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'No se pudo leer la foto. Intenta con otra más nítida, o carga la compra a mano.', cause: err });
       }
     }),
+    // Aprende al tiro cómo aparece un insumo en las boletas (sin esperar a «Cargar compra»).
+    comprasAprender: adminProcedure.input(z.object({ insumoId: z.number(), alias: z.string().min(2).max(160) }))
+      .mutation(async ({ input }) => { await comprasSvc.aprenderAlias(input.insumoId, input.alias); return { ok: true as const }; }),
     comprasAplicar: adminProcedure.input(z.object({
       opId: z.string().min(8).max(40), eventId: z.number(),
       lineas: z.array(z.object({

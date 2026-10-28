@@ -25,9 +25,34 @@ const PALABRAS_VACIAS = new Set([
 ]);
 const ABREVIATURAS: Record<string, string> = { bco: 'blanco', neg: 'negro', cl: 'cola', gas: 'gas', cerv: 'cerveza', ginger: 'ginger' };
 
+const ES_TAMANO = /^\d+(?:[.,]\d+)?(?:cc|ml|lts?|l|litros?|kg|gr?|oz|º|°|%)$/;
+const ES_PACK = /^(?:x\d{1,3}|\d{1,3}x\d{0,3}|\d{1,3}pk|pk\d{1,3})$/;
+
+/** Quita de una línea de boleta lo que no es el nombre: «COD: 12345», «SKU AB-123», códigos de barras (5 o más
+ * dígitos), códigos con letras y números mezclados («A1234B») y el número de ítem del principio. Conserva tamaños
+ * («750cc», «1,5 L», «35°») y packs («x6»). */
+export function limpiarCodigos(texto: string): string {
+  const base = normalizeName(texto)
+    .replace(/\b(?:cod(?:igo)?|sku|ean|plu|ref|art(?:iculo)?|item|lote)\b\.?\s*[:#.\-]?\s*[a-z0-9][a-z0-9\-/.]*/g, ' ')
+    .replace(/[#*]/g, ' ');
+  const tokens = base.split(/\s+/).filter(Boolean);
+  const out: string[] = [];
+  tokens.forEach((t, i) => {
+    if (ES_TAMANO.test(t) || ES_PACK.test(t)) { out.push(t); return; }
+    const soloNum = t.replace(/[.\-/]/g, '');
+    if (/^\d{5,}$/.test(soloNum)) return; // código de barras o SKU
+    if (i === 0 && /^\d{3,}$/.test(soloNum)) return; // número de ítem
+    const letras = (t.match(/[a-z]/g) ?? []).length;
+    const digitos = (t.match(/\d/g) ?? []).length;
+    if (letras > 0 && digitos >= 2 && t.length >= 5 && !/^\d+(?:[.,]\d+)?[a-z]{1,6}$/.test(t)) return; // código mezclado
+    out.push(t);
+  });
+  return out.join(' ').replace(/\s+/g, ' ').trim();
+}
+
 /** Palabras con peso de un nombre de producto (sin tamaños, sin relleno, sin tildes, sin plurales). */
 export function palabrasClave(texto: string): string[] {
-  const limpio = normalizeName(texto)
+  const limpio = limpiarCodigos(texto)
     .replace(/\b\d+[.,]?\d*\s*(cc|ml|lts?|l|litros?|kg|gr?|oz)\b/g, ' ')
     .replace(/\bx\s*\d+\b/g, ' ');
   const out: string[] = [];
@@ -71,7 +96,7 @@ export interface Emparejado {
 }
 
 function puntaje(lineaTexto: string, nombre: string): number {
-  if (normalizeName(lineaTexto) === normalizeName(nombre)) return 1;
+  if (normalizeName(lineaTexto) === normalizeName(nombre) || limpiarCodigos(lineaTexto) === limpiarCodigos(nombre)) return 1;
   const a = new Set(palabrasClave(lineaTexto));
   const b = palabrasClave(nombre);
   if (a.size === 0 || b.length === 0) return 0;
@@ -156,7 +181,7 @@ export function cuadreBoleta(lineas: { totalLinea: number }[], totalBoleta: numb
 
 /** Nombre de insumo sugerido para un producto nuevo de la boleta: sin tamaños, en mayúscula inicial. */
 export function nombreSugerido(descripcion: string): string {
-  const limpio = descripcion
+  const limpio = limpiarCodigos(descripcion)
     .replace(/\b\d+[.,]?\d*\s*(cc|ml|lts?|l|litros?|kg|gr?)\b/gi, ' ')
     .replace(/\b(pack|pk)\s*\d*\b|\bx\s*\d+\b/gi, ' ')
     .replace(/\s+/g, ' ').trim();

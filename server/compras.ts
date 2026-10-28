@@ -6,7 +6,7 @@ import { getDb, createExpense } from "./db";
 import { insumoAlias, insumoMovimientos, insumos } from "../drizzle/schema";
 import { invokeLLM, extractContent } from "./_core/llm";
 import { addInsumoAliases, listInsumos } from "./insumos";
-import { cargaDeLinea, emparejarInsumo, packDeTexto, tamanoDeTexto, type BoletaLinea } from "../shared/compras";
+import { cargaDeLinea, emparejarInsumo, limpiarCodigos, packDeTexto, tamanoDeTexto, type BoletaLinea } from "../shared/compras";
 
 export interface BoletaLeida {
   isReceipt: boolean;
@@ -128,6 +128,12 @@ export async function aliasesPorInsumo(): Promise<Map<number, string[]>> {
   return out;
 }
 
+/** Recuerda al tiro cómo aparece un insumo en las boletas (sin códigos), para reconocerlo solo la próxima vez. */
+export async function aprenderAlias(insumoId: number, alias: string) {
+  if (!(await ensureAliasTable())) return;
+  await addInsumoAliases([{ insumoId, alias: limpiarCodigos(alias) || alias }]);
+}
+
 /** Lee la boleta y propone, para cada línea, el insumo (con su confianza), cuánto sumar y el costo. Solo lectura. */
 export async function proponerCompra(imageUrl: string) {
   const [todos, aliases] = await Promise.all([listInsumos(), aliasesPorInsumo()]);
@@ -190,7 +196,7 @@ export async function aplicarCompra(params: {
     }
   }
   if (params.recordarNombres && (await ensureAliasTable())) {
-    await addInsumoAliases(params.lineas.filter((l) => l.alias).map((l) => ({ insumoId: l.insumoId, alias: l.alias! })));
+    await addInsumoAliases(params.lineas.filter((l) => l.alias).map((l) => ({ insumoId: l.insumoId, alias: limpiarCodigos(l.alias!) || l.alias! })));
   }
   let gastoId: number | null = null;
   if (params.gasto.crear && params.gasto.total > 0) {

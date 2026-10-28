@@ -91,3 +91,17 @@ describe('nombre sugerido', () => {
     expect(nombreSugerido('GIN BEEFEATER 750CC')).toBe('Gin Beefeater');
   });
 });
+
+describe('limpiarCodigos', () => {
+  it('quita códigos de barra, SKU y números de ítem, pero conserva tamaños y packs', async () => {
+    const { limpiarCodigos } = await import('./compras');
+    expect(limpiarCodigos('001 RON BACARDI BCO 750CC 7801234567890')).toBe('ron bacardi bco 750cc');
+    expect(limpiarCodigos('COD: AB-123 Coca Cola 1,5 L X6')).toBe('coca cola 1,5 l x6');
+    expect(limpiarCodigos('PISCO MISTRAL 35º A1234B')).toBe('pisco mistral 35º');
+  });
+  it('empareja una línea con códigos con el insumo correcto', () => {
+    const insumos = [{ id: 1, name: 'Ron blanco', unit: 'ml' as const, containerSize: 750 }, { id: 2, name: 'Vodka', unit: 'ml' as const, containerSize: 750 }];
+    const r = emparejarInsumo('7801234567890 RON BLANCO 750CC COD 99887', insumos);
+    expect(r.insumoId).toBe(1);
+  });
+});

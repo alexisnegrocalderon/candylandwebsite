@@ -54,6 +54,9 @@ export function CompraBoletaDialog({ eventId, data, open, onClose, onDone }: { e
   const leer = trpc.insumos.comprasLeer.useMutation({ onError: (e) => toast.error(e.message) });
   const aplicar = trpc.insumos.comprasAplicar.useMutation({ onError: (e) => toast.error(e.message) });
   const crear = trpc.insumos.save.useMutation({ onError: (e) => toast.error(e.message) });
+  const aprender = trpc.insumos.comprasAprender.useMutation();
+  /** Al asignar una línea a mano, se recuerda de inmediato (si el nombre se guardó, no se pierde aunque no se cargue la compra). */
+  const recordar = (descripcion: string, insumoId: number) => { if (opts.nombres) aprender.mutate({ insumoId, alias: descripcion }); };
 
   const insumos: Insumo[] = useMemo(() => {
     const base: Insumo[] = data.insumos.map((i) => ({ id: i.id, name: i.name, unit: i.unit, containerSize: i.containerSize, containerLabel: i.containerLabel, sizes: insumoSizes(i) }));
@@ -103,6 +106,7 @@ export function CompraBoletaDialog({ eventId, data, open, onClose, onDone }: { e
       costPerContainer: costo, alertDrinks: esLata ? 10 : 15,
     }); } catch { return; }
     setCreados((cs) => [...cs, { id: r.id, name, unit: esLata ? 'un' : 'ml', containerSize: size, containerLabel: esLata ? 'lata' : 'botella', sizes: esLata ? [] : [size] }]);
+    recordar(primero.descripcion, r.id);
     upd(primero.key, { insumoId: r.id, manual: true, confianza: 'alta', tamano: esLata ? primero.tamano : size });
     setNuevo(BLANK_NUEVO); setBuscar(''); setVinculando(false);
   };
@@ -210,7 +214,7 @@ export function CompraBoletaDialog({ eventId, data, open, onClose, onDone }: { e
                   <div className="flex max-h-48 flex-wrap gap-1.5 overflow-y-auto">
                     {insumos.filter((i) => !q || i.name.toLowerCase().includes(q)).slice(0, 40).map((i) => (
                       <button key={i.id} type="button" className="rounded-full border-2 border-border bg-card px-3 py-1.5 text-sm hover:bg-muted active:scale-95"
-                        onClick={() => { upd(primero.key, { insumoId: i.id, manual: true, confianza: 'alta' }); setVinculando(false); setBuscar(''); }}>{i.name}</button>
+                        onClick={() => { recordar(primero.descripcion, i.id); upd(primero.key, { insumoId: i.id, manual: true, confianza: 'alta' }); setVinculando(false); setBuscar(''); }}>{i.name}</button>
                     ))}
                   </div>
                   <Button type="button" variant="ghost" onClick={() => setVinculando(false)}>Volver</Button>
@@ -259,7 +263,7 @@ export function CompraBoletaDialog({ eventId, data, open, onClose, onDone }: { e
                             {[...f.candidatos.map((id) => byId.get(id)).filter((x): x is Insumo => !!x), ...insumos.filter((i) => !f.candidatos.includes(i.id))]
                               .filter((i) => !q || i.name.toLowerCase().includes(q)).slice(0, 40).map((i) => (
                                 <button key={i.id} type="button" className="rounded-full border-2 border-border bg-card px-3 py-1.5 text-sm hover:bg-muted active:scale-95"
-                                  onClick={() => { upd(f.key, { insumoId: i.id, manual: true, confianza: 'alta', cambiando: false, agregarManual: null }); setBuscar(''); }}>{i.name}</button>
+                                  onClick={() => { recordar(f.descripcion, i.id); upd(f.key, { insumoId: i.id, manual: true, confianza: 'alta', cambiando: false, agregarManual: null }); setBuscar(''); }}>{i.name}</button>
                               ))}
                           </div>
                         </div>

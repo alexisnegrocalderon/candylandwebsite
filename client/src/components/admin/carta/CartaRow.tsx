@@ -34,6 +34,7 @@ export function CartaRow({ p, selectionMode, selected, onSelect, onEdit, onDupli
   const meta = categoryMeta(p.category);
   const color = p.color || (meta.color as string);
   const level = stockLevel(p);
+  const byInsumos = p.portions != null;
   const margin = marginOf(p.price, p.costPrice);
   const tone = margin ? marginTone(margin) : null;
 
@@ -131,12 +132,12 @@ export function CartaRow({ p, selectionMode, selected, onSelect, onEdit, onDupli
           </button>
         )}
 
-        <span className="inline-flex items-center gap-1" aria-label={`Stock de ${p.name}`}>
-          <Button type="button" variant="outline" size="icon" className="h-8 w-8" disabled={!!demo.disabled} onClick={() => bump(-1)} aria-label="Una porción menos"><Minus className="h-3.5 w-3.5" /></Button>
+        <span className="inline-flex items-center gap-1" aria-label={`Stock de ${p.name}`} title={byInsumos ? 'Porciones según el stock de insumos (Stock de barra)' : undefined}>
+          {!byInsumos && <Button type="button" variant="outline" size="icon" className="h-8 w-8" disabled={!!demo.disabled} onClick={() => bump(-1)} aria-label="Una porción menos"><Minus className="h-3.5 w-3.5" /></Button>}
           <span className={`min-w-[3.5rem] text-center text-xs tabular-nums ${level === 'sin_stock' || level === 'agotado' ? 'font-semibold text-red-500' : level === 'bajo' ? 'font-semibold text-amber-500' : 'text-muted-foreground'}`}>
-            {left <= 0 ? 'Sin stock' : `Quedan ${left}`}
+            {left <= 0 ? 'Sin stock' : `Quedan ${left}`}{byInsumos && <span className="ml-1 font-normal text-muted-foreground">· insumos</span>}
           </span>
-          <Button type="button" variant="outline" size="icon" className="h-8 w-8" disabled={!!demo.disabled} onClick={() => bump(1)} aria-label="Una porción más"><Plus className="h-3.5 w-3.5" /></Button>
+          {!byInsumos && <Button type="button" variant="outline" size="icon" className="h-8 w-8" disabled={!!demo.disabled} onClick={() => bump(1)} aria-label="Una porción más"><Plus className="h-3.5 w-3.5" /></Button>}
         </span>
 
         {margin ? (
@@ -146,6 +147,7 @@ export function CartaRow({ p, selectionMode, selected, onSelect, onEdit, onDupli
         ) : (
           <button type="button" onClick={onEdit} className="rounded-md bg-muted px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-muted/70">Sin costo</button>
         )}
+        {p.sinReceta && <span className="rounded-md bg-amber-500/15 px-1.5 py-0.5 text-xs font-medium text-amber-500" title="Sin receta: las porciones no salen del stock de insumos. Agrégala en Stock de barra → Recetas.">Sin receta</span>}
       </div>
 
       <ConfirmDeleteButton

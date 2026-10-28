@@ -21,6 +21,10 @@ export interface CartaProduct {
   toKitchen?: number | string | null;
   description?: string | null;
   internalCode?: string | null;
+  /** Porciones que alcanzan según el stock de insumos (Stock de barra). Si viene, manda sobre el stock cargado a mano. */
+  portions?: number | null;
+  /** Trago de la carta sin receta ni marca de «se vende solo»: no puede calcular porciones por insumos. */
+  sinReceta?: boolean;
 }
 
 export const NO_SECTION = 'Sin sección';
@@ -31,15 +35,16 @@ export const LOW_MARGIN_PCT = 30;
 
 const num = (v: unknown) => Number(v ?? 0);
 
-/** Porciones que quedan según el stock cargado (puede ser negativo: la caja
- * nunca impide vender). */
-export function remaining(p: Pick<CartaProduct, 'totalStock' | 'soldCount'>): number {
+/** Porciones que quedan: las del stock de insumos si el producto tiene receta; si no, el stock cargado menos lo
+ * vendido (puede ser negativo: la caja nunca impide vender). */
+export function remaining(p: Pick<CartaProduct, 'totalStock' | 'soldCount'> & { portions?: number | null }): number {
+  if (p.portions != null && Number.isFinite(p.portions)) return p.portions;
   return num(p.totalStock) - num(p.soldCount);
 }
 
 export type StockLevel = 'agotado' | 'sin_stock' | 'bajo' | 'ok';
 
-export function stockLevel(p: Pick<CartaProduct, 'totalStock' | 'soldCount' | 'status'>): StockLevel {
+export function stockLevel(p: Pick<CartaProduct, 'totalStock' | 'soldCount' | 'status'> & { portions?: number | null }): StockLevel {
   if (p.status === 'soldout') return 'agotado';
   const left = remaining(p);
   if (left <= 0) return 'sin_stock';
