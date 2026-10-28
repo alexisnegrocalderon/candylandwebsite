@@ -147,19 +147,19 @@ export function GiftDialog({ open, onClose, team = [], initialIds = [], initialR
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="flex max-h-[92vh] w-[96vw] max-w-2xl flex-col gap-0 overflow-hidden p-0">
-        <DialogHeader className="border-b border-border px-5 py-4 pr-12">
+      <DialogContent className="flex max-h-[92dvh] w-[96vw] max-w-2xl flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
+        <DialogHeader className="shrink-0 border-b border-border px-5 py-4 pr-12">
           <DialogTitle className="text-xl">🎁 Regalar</DialogTitle>
-          <DialogDescription>Elige a quién y qué. Les llega el correo con el QR y un aviso al celular, y aparece al instante en su app{event ? ` · ${event.title}` : ''}.</DialogDescription>
+          <DialogDescription className="text-xs sm:text-sm">Elige a quién y qué. Les llega el correo con el QR y un aviso al celular, y aparece en su app{event ? ` · ${event.title}` : ''}.</DialogDescription>
         </DialogHeader>
-        <div className="flex gap-1.5 border-b border-border px-5 py-2" role="tablist" aria-label="Regalos">
+        <div className="flex shrink-0 gap-1.5 border-b border-border px-5 py-2" role="tablist" aria-label="Regalos">
           {([['regalar', '🎁 Regalar'], ['historial', '📋 Regalos hechos']] as const).map(([v, label]) => (
             <button key={v} type="button" role="tab" aria-selected={view === v} onClick={() => setView(v)}
               className={`rounded-full px-3.5 py-1.5 text-sm font-medium ${view === v ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>{label}</button>
           ))}
         </div>
         {view === 'historial' ? (
-          <div className="flex-1 space-y-2 overflow-y-auto px-5 py-4">
+          <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain px-5 py-4">
             {history.isLoading && <p className="text-sm text-muted-foreground">Cargando…</p>}
             {!history.isLoading && (history.data ?? []).length === 0 && <p className="text-sm text-muted-foreground">Todavía no hay pases regalados para este evento.</p>}
             {(history.data ?? []).map((g) => (
@@ -179,7 +179,7 @@ export function GiftDialog({ open, onClose, team = [], initialIds = [], initialR
           </div>
         ) : (
         <>
-        <div className="flex-1 space-y-5 overflow-y-auto px-5 py-4">
+        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-5 py-4">
           {blocked && <p className="rounded-2xl bg-destructive/10 px-3 py-2 text-sm text-destructive">{GIFT_DENIED_MESSAGE}</p>}
 
           <section className="space-y-2">
@@ -315,10 +315,10 @@ export function GiftDialog({ open, onClose, team = [], initialIds = [], initialR
             <Input value={reason} onChange={(e) => setReason(e.target.value)} maxLength={200} placeholder="Ej. cumpleaños, compensación, invitado de producción…" />
           </section>
         </div>
-        <div className="flex items-center gap-3 border-t border-border px-5 py-3">
-          <p className="min-w-0 flex-1 text-sm text-muted-foreground">{count} {count === 1 ? 'persona' : 'personas'} · {items.reduce((s, i) => s + i.quantity, 0)} regalos cada una</p>
-          <Button type="button" variant="outline" className="h-11" onClick={onClose}>Cancelar</Button>
-          <Button type="button" className="h-11 px-6" disabled={blocked || gift.isPending || count === 0 || items.length === 0 || !event || (!!audience && !!preview.data?.overLimit)} onClick={submit}>{gift.isPending ? 'Regalando…' : mode === 'pase' ? '🎁 Enviar pase' : '🎁 Regalar'}</Button>
+        <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-t border-border px-5 py-3 pb-[max(env(safe-area-inset-bottom),0.75rem)]">
+          <p className="w-full min-w-0 text-sm text-muted-foreground sm:w-auto sm:flex-1">{count} {count === 1 ? 'persona' : 'personas'} · {items.reduce((s, i) => s + i.quantity, 0)} regalos cada una</p>
+          <Button type="button" variant="outline" className="h-11 flex-1 sm:flex-none" onClick={onClose}>Cancelar</Button>
+          <Button type="button" className="h-11 flex-1 px-6 sm:flex-none" disabled={blocked || gift.isPending || count === 0 || items.length === 0 || !event || (!!audience && !!preview.data?.overLimit)} onClick={submit}>{gift.isPending ? 'Regalando…' : mode === 'pase' ? '🎁 Enviar pase' : '🎁 Regalar'}</Button>
         </div>
         </>
         )}
