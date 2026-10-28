@@ -50,11 +50,14 @@ function SheetContent({
   side = "right",
   style,
   hideClose = false,
+  overlayClassName,
   ...props
 }: React.ComponentProps<typeof SheetPrimitive.Content> & {
   side?: "top" | "right" | "bottom" | "left";
   /** Sin la X de la esquina: para hojas que traen su propio botón de cerrar en el encabezado. */
   hideClose?: boolean;
+  /** Clases del fondo oscuro (p. ej. un z-index mayor para abrirse encima de la App, que vive en una capa z-[60]). */
+  overlayClassName?: string;
 }) {
   // Los paneles laterales ocupan toda la pantalla en el celular: sin esto, la hora y el notch del iPhone (app
   // instalada) quedan encima de la barra de arriba y del botón de cerrar, y no hay cómo salir.
@@ -63,7 +66,7 @@ function SheetContent({
     : undefined;
   return (
     <SheetPortal>
-      <SheetOverlay />
+      <SheetOverlay className={overlayClassName} />
       <SheetPrimitive.Content
         data-slot="sheet-content"
         className={cn(
