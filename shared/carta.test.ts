@@ -141,3 +141,14 @@ describe('porciones por insumos', () => {
     expect(remaining({ ...p, portions: null })).toBe(90);
   });
 });
+
+describe('textoAviso', () => {
+  it('dice qué insumo falta, y si nunca se compró', async () => {
+    const { textoAviso } = await import('./carta');
+    const base = { limitante: { insumoId: 11, name: 'Ginger ale', drinks: 0, sinComprar: true }, bajos: [], sugerencias: [] };
+    expect(textoAviso({ ...base, estado: 'agotado', faltantes: [{ insumoId: 11, name: 'Ginger ale', sinComprar: true }] })).toBe('Falta Ginger ale (sin comprar)');
+    expect(textoAviso({ ...base, estado: 'agotado', faltantes: [{ insumoId: 11, name: 'Ginger ale', sinComprar: false }, { insumoId: 4, name: 'Limón', sinComprar: false }] })).toBe('Faltan Ginger ale y Limón');
+    expect(textoAviso({ ...base, estado: 'bajo', faltantes: [], bajos: [{ insumoId: 10, name: 'Gin Beefeater', drinks: 3 }] })).toBe('Se acaba Gin Beefeater');
+    expect(textoAviso({ ...base, estado: 'ok', faltantes: [] })).toBe('Limita Ginger ale');
+  });
+});

@@ -19,6 +19,7 @@ import { DOSIER_INSUMOS, DOSIER_SUPUESTOS, planDosier } from "../shared/dosier";
 import {
   DEFAULT_GLASS, aplicarUso, conteoATotal, extrasDeMetadata, metadataConExtras, metadataConOpciones, opcionesDeMetadata, metadataConPreparacion, pasosDeMetadata, fotoDeMetadata, recetaConOpciones, type OpcionGrupo, metadataConSinInsumos, productoSinInsumos, TIPOS_PRODUCTO, type TipoProducto, consumoDeVenta, descuadre, detalleATotal, insumoSizes, recetaDe, nivelInsumo, normalizeName, proyeccionCompra, tragosDisponibles, tragosPorInsumo,
   OPEN_PORTIONS, type ConteoDetalle, type Insumo, type InsumoUnit, type MovimientoKind, type RecetaLinea,
+  diagnosticoProducto, sugerirReemplazos,
 } from "../shared/insumos";
 
 /** Evento de pruebas de la caja: sus ventas no son reales y no gastan botellas. */
@@ -107,6 +108,7 @@ export async function estadoBarra(eventId: number) {
   ]);
   const reference = await referenciaApertura(db, eventId, stock);
   const activos = new Set(all.map((i) => i.id));
+  const infoInsumos = all.map((i) => ({ id: i.id, name: i.name, alertDrinks: i.alertDrinks, sinComprar: !stock.has(i.id) }));
   const usedBy = new Map<number, string[]>();
   for (const r of recetas) {
     const name = (products as any[]).find((p) => p.id === r.ticketTypeId)?.name;
@@ -120,6 +122,8 @@ export async function estadoBarra(eventId: number) {
       const drinks = tragosPorInsumo(i.id, s, recetas);
       return {
         ...i, stock: s, drinks, level: nivelInsumo(drinks, i.alertDrinks),
+        // Nunca tuvo stock cargado (no es lo mismo que haberse acabado).
+        sinComprar: !stock.has(i.id),
         reference: reference.get(i.id) ?? null, usedBy: usedBy.get(i.id) ?? [],
       };
     }),
@@ -131,10 +135,16 @@ export async function estadoBarra(eventId: number) {
       const receta = lines.filter((r) => activos.has(r.insumoId)).map((r) => ({ insumoId: r.insumoId, amount: r.amount }));
       const opciones = opcionesDeMetadata(p.metadata);
       // «Quedan ~N» no cuenta lo que las opciones reemplazan (la bebida de mezcla genérica): la bebida la elige la cajera.
-      const left = tragosDisponibles(receta.filter((l) => !opciones.some((g) => g.reemplaza === l.insumoId)), stock);
+      const recetaBase = receta.filter((l) => !opciones.some((g) => g.reemplaza === l.insumoId));
+      const left = tragosDisponibles(recetaBase, stock);
+      // Qué insumo hace que se acabe (o ya no alcance) y con qué se podría reemplazar.
+      const diag = diagnosticoProducto(recetaBase, infoInsumos, stock);
+      const sugerencias: Record<number, { insumoId: number; name: string; drinks: number }[]> = {};
+      for (const f of diag ? (diag.faltantes.length ? diag.faltantes : [diag.limitante]) : []) sugerencias[f.insumoId] = sugerirReemplazos(f.insumoId, all, stock, recetaBase);
       return {
         id: p.id as number, name: p.name as string, groupName: (p.groupName as string | null) ?? null, emoji: (p.emoji as string | null) ?? null,
         glass, receta, drinks: left?.drinks ?? null, limitingInsumoId: left?.limitingInsumoId ?? null,
+        diagnostico: diag, sugerencias,
         // Lo que lleva sin medida (borde de Tajín, hielo frappé…): solo anotado en el producto.
         extras: extrasDeMetadata(p.metadata),
         opciones,
@@ -152,7 +162,7 @@ export async function estadoBarra(eventId: number) {
 
 /** Lo que viaja en el snapshot de /caja para calcular "quedan ~N" sin señal. */
 export async function cajaInsumoSnapshot(eventId: number): Promise<{
-  insumos: { id: number; name: string; unit: InsumoUnit; containerSize: number; containerLabel: string; stock: number; alertDrinks: number }[];
+  insumos: { id: number; name: string; unit: InsumoUnit; containerSize: number; containerLabel: string; stock: number; alertDrinks: number; sinComprar?: boolean }[];
   recetas: RecetaLinea[];
   opciones: Record<number, OpcionGrupo[]>;
 } | null> {
@@ -170,7 +180,7 @@ export async function cajaInsumoSnapshot(eventId: number): Promise<{
     const recetas = todas.filter((r) => activos.has(r.insumoId) && !opciones[r.ticketTypeId]?.some((g) => g.reemplaza === r.insumoId));
     return {
       insumos: all.map((i) => ({
-        id: i.id, name: i.name, unit: i.unit, containerSize: i.containerSize, containerLabel: i.containerLabel, stock: stock.get(i.id) ?? 0, alertDrinks: i.alertDrinks,
+        id: i.id, name: i.name, unit: i.unit, containerSize: i.containerSize, containerLabel: i.containerLabel, stock: stock.get(i.id) ?? 0, alertDrinks: i.alertDrinks, sinComprar: !stock.has(i.id),
       })),
       recetas,
       opciones,
@@ -386,12 +396,19 @@ export async function descontarVenta(db: any, params: { opId: string; eventId: n
     const ids = params.items.map((i) => i.ticketTypeId);
     const rows = await db.select().from(insumoRecetas).where(inArray(insumoRecetas.ticketTypeId, ids));
     // Los insumos archivados ya no se descuentan (siguen en la base, pero no cuentan para la barra).
-    const activos = new Set((await listInsumos()).map((i) => i.id));
+    const lista = await listInsumos();
+    const activos = new Set(lista.map((i) => i.id));
+    // Un reemplazo «por hoy» solo vale si el insumo nuevo está activo y se mide en la misma unidad que el que reemplaza.
+    const unidad = new Map(lista.map((i) => [i.id, i.unit]));
+    const items = params.items.map((it) => ({ ...it, opciones: it.opciones?.filter((o) => {
+      const m = /^sub:(\d+):(\d+)$/.exec(o);
+      return !m || (unidad.has(Number(m[2])) && unidad.get(Number(m[1])) === unidad.get(Number(m[2])));
+    }) }));
     const recetas: RecetaLinea[] = rows.filter((r: any) => activos.has(r.insumoId)).map((r: any) => ({ ticketTypeId: r.ticketTypeId, insumoId: r.insumoId, amount: n(r.amount), glass: (r.glass as string) || DEFAULT_GLASS }));
     const tipos = await db.select({ id: ticketTypes.id, metadata: ticketTypes.metadata }).from(ticketTypes).where(inArray(ticketTypes.id, ids));
     const opciones: Record<number, OpcionGrupo[]> = {};
     for (const t of tipos) { const g = opcionesDeMetadata(t.metadata); if (g.length) opciones[t.id] = g; }
-    const consumo = consumoDeVenta(params.items, recetas, opciones);
+    const consumo = consumoDeVenta(items, recetas, opciones);
     if (consumo.length === 0) return;
     await db.insert(insumoMovimientos).values(consumo.map((c) => ({
       insumoId: c.insumoId, kind: "venta" as const, delta: String(c.delta), eventId: params.eventId, opId: params.opId, operatorId: params.operatorId,
@@ -426,8 +443,21 @@ export async function cambiosDeVenta(opId: string, eventId: number) {
   const [all, stock, recetas] = await Promise.all([listInsumos(true), stockMap(db), recetasDelEvento(eventId, db)]);
   const reference = await referenciaApertura(db, eventId, stock);
   const byId = new Map(all.map((i) => [i.id, i]));
+  // Qué tragos de la carta quedan afectados por cada insumo y con qué se podrían reemplazar (para el texto de la alerta).
+  const productos = await db.select({ id: ticketTypes.id, name: ticketTypes.name }).from(ticketTypes).where(eq(ticketTypes.eventId, eventId));
+  const nombreProducto = new Map<number, string>((productos as any[]).map((p) => [p.id, p.name]));
+  const activos = all.filter((i) => i.active);
+  const afectados = new Map<number, string[]>();
+  const reemplazos = new Map<number, string[]>();
+  for (const r of rows as any[]) {
+    const lineas = recetas.filter((x) => x.insumoId === r.insumoId);
+    afectados.set(r.insumoId, Array.from(new Set(lineas.map((l) => nombreProducto.get(l.ticketTypeId)).filter((x): x is string => !!x))));
+    const primera = lineas[0] ? recetas.filter((x) => x.ticketTypeId === lineas[0].ticketTypeId) : [];
+    reemplazos.set(r.insumoId, sugerirReemplazos(r.insumoId, activos, stock, primera, 2).map((x) => `${x.name} (alcanza para ${x.drinks})`));
+  }
   return {
     recetas,
+    contexto: { afectados, reemplazos },
     changes: (rows as any[]).flatMap((r) => {
       const insumo = byId.get(r.insumoId);
       if (!insumo) return [];

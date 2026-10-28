@@ -18,7 +18,7 @@ import {
   nextKitchenTicketNumber, nextLockerTagNumber, getLocalBarra,
   type CajaAttendee, type CajaBarra, type CajaCatalogItem, type CajaStaffComp, type QueuedOp,
 } from './db';
-import { nivelInsumo, tragosDisponibles, tragosPorInsumo } from '@shared/insumos';
+import { diagnosticoProducto, idSustitucion, nivelInsumo, sugerirReemplazos, tragosDisponibles, tragosPorInsumo, type DiagnosticoProducto, type Reemplazo } from '@shared/insumos';
 import { BarraCount } from './BarraCount';
 import { BarraStock } from './BarraStock';
 import { BarraDosier } from './BarraDosier';
@@ -1321,6 +1321,9 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
   // Tragos con opciones (con qué bebida va…): cuántos van de cada elección, para descontar el insumo correcto.
   const [combos, setCombos] = useState<Record<number, Record<string, number>>>({});
   const [picking, setPicking] = useState<CajaCatalogItem | null>(null);
+  const [pickSub, setPickSub] = useState<string | null>(null);
+  // Producto al que le falta un insumo: la cajera elige con qué reemplazarlo hoy (o vende igual).
+  const [subFor, setSubFor] = useState<{ p: CajaCatalogItem; faltante: { insumoId: number; name: string; sinComprar: boolean }; sugerencias: Reemplazo[] } | null>(null);
   const [pickSel, setPickSel] = useState<Record<string, string>>({});
   // Arranca con el último medio usado en ESTA tablet (en barra se repite
   // casi siempre el mismo); 'saldo' nunca, porque exige datos del cliente.
@@ -1505,18 +1508,28 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
   // Stock de la barra por insumos: un trago con receta muestra cuántos quedan
   // según el insumo que se acaba primero (no su stock por unidades).
   const barraLeft = useMemo(() => {
-    const byProduct = new Map<number, { drinks: number; low: boolean }>();
-    if (!barra) return { byProduct, alerts: [] as { name: string; drinks: number }[] };
+    const byProduct = new Map<number, { drinks: number; low: boolean; diag: DiagnosticoProducto | null; sugerencias: Reemplazo[] }>();
+    if (!barra) return { byProduct, alerts: [] as { name: string; drinks: number; afecta: string[]; sinComprar: boolean }[] };
     const stock = new Map(barra.insumos.map((i) => [i.id, i.stock]));
     const alertOf = new Map(barra.insumos.map((i) => [i.id, i.alertDrinks]));
+    const info = barra.insumos.map((i) => ({ id: i.id, name: i.name, alertDrinks: i.alertDrinks, sinComprar: !!i.sinComprar }));
     for (const p of catalog) {
-      const left = tragosDisponibles(barra.recetas.filter((r) => r.ticketTypeId === p.id), stock);
-      if (left) byProduct.set(p.id, { drinks: left.drinks, low: left.drinks < (alertOf.get(left.limitingInsumoId) ?? 0) });
+      const receta = barra.recetas.filter((r) => r.ticketTypeId === p.id);
+      const left = tragosDisponibles(receta, stock);
+      if (!left) continue;
+      const diag = diagnosticoProducto(receta, info, stock);
+      // Con qué reemplazar el insumo que falta (o el que manda), para venderlo igual hoy.
+      const faltaId = diag ? (diag.faltantes[0]?.insumoId ?? diag.limitante.insumoId) : null;
+      const sugerencias = diag?.estado === 'agotado' && faltaId != null ? sugerirReemplazos(faltaId, barra.insumos, stock, receta) : [];
+      byProduct.set(p.id, { drinks: left.drinks, low: left.drinks < (alertOf.get(left.limitingInsumoId) ?? 0), diag, sugerencias });
     }
+    // Qué tragos de la carta quedan afectados por cada insumo agotado o bajo.
+    const afecta = (insumoId: number) => catalog.filter((p) => barra.recetas.some((r) => r.ticketTypeId === p.id && r.insumoId === insumoId)).map((p) => p.name);
     const alerts = barra.insumos
-      .map((i) => ({ name: i.name, drinks: tragosPorInsumo(i.id, i.stock, barra.recetas), alertDrinks: i.alertDrinks }))
-      .filter((i): i is { name: string; drinks: number; alertDrinks: number } => i.drinks !== null && ['agotado', 'bajo'].includes(nivelInsumo(i.drinks, i.alertDrinks)))
-      .sort((a, b) => a.drinks - b.drinks);
+      .map((i) => ({ id: i.id, name: i.name, drinks: tragosPorInsumo(i.id, i.stock, barra.recetas), alertDrinks: i.alertDrinks, sinComprar: !!i.sinComprar }))
+      .filter((i): i is { id: number; name: string; drinks: number; alertDrinks: number; sinComprar: boolean } => i.drinks !== null && ['agotado', 'bajo'].includes(nivelInsumo(i.drinks, i.alertDrinks)))
+      .sort((a, b) => a.drinks - b.drinks)
+      .map((i) => ({ name: i.name, drinks: i.drinks, afecta: afecta(i.id), sinComprar: i.sinComprar }));
     return { byProduct, alerts };
   }, [barra, catalog]);
 
@@ -1533,8 +1546,16 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
   // Un trago con opciones pregunta primero cuál (con qué bebida va, qué variante).
   const add = (id: number) => {
     const p = catalog.find((x) => x.id === id);
-    if (p?.opciones?.length) { setPickSel({}); setPicking(p); return; }
-    addPlain(id);
+    // Si falta un insumo de la receta y hay con qué reemplazarlo, se pregunta antes (se puede vender igual).
+    const info = barraLeft.byProduct.get(id);
+    if (p && info?.diag?.estado === 'agotado' && info.sugerencias.length > 0) { setSubFor({ p, faltante: info.diag.faltantes[0] ?? info.diag.limitante, sugerencias: info.sugerencias }); return; }
+    sumar(id);
+  };
+  // Suma el producto; `sub` es un reemplazo «por hoy» (ver idSustitucion) que se guarda junto a las opciones elegidas.
+  const sumar = (id: number, sub?: string) => {
+    const p = catalog.find((x) => x.id === id);
+    if (p?.opciones?.length) { setPickSel({}); setPickSub(sub ?? null); setPicking(p); return; }
+    if (sub) addCombo(id, sub); else addPlain(id);
   };
   const remove = (id: number) => setCart((c) => ({ ...c, [id]: Math.max(0, (c[id] || 0) - 1) }));
   const addCombo = (id: number, key: string) => {
@@ -1545,7 +1566,11 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
     setCart((c) => ({ ...c, [id]: Math.max(0, (c[id] || 0) - 1) }));
     setCombos((m) => ({ ...m, [id]: { ...m[id], [key]: Math.max(0, (m[id]?.[key] || 0) - 1) } }));
   };
-  const comboLabel = (p: CajaCatalogItem, key: string) => key.split('|').map((cid) => p.opciones?.flatMap((g) => g.choices).find((c) => c.id === cid)?.label).filter(Boolean).join(' + ');
+  const comboLabel = (p: CajaCatalogItem, key: string) => key.split('|').map((cid) => {
+    const sub = /^sub:(\d+):(\d+)$/.exec(cid);
+    if (sub) return `${barra?.insumos.find((i) => i.id === Number(sub[2]))?.name ?? 'otro insumo'} en vez de ${barra?.insumos.find((i) => i.id === Number(sub[1]))?.name ?? 'el faltante'}`;
+    return p.opciones?.flatMap((g) => g.choices).find((c) => c.id === cid)?.label;
+  }).filter(Boolean).join(' + ');
   const onToggleFavorite = (id: number) => setFavorites(toggleFavorite(id));
 
   // Pestañas por sección (groupName), con la categoría como respaldo para
@@ -1621,12 +1646,12 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
                     )}
                     {!editingFavorites && !soldOut && noStock && (
                       <span className="absolute top-2 right-2 text-[10px] font-bold uppercase tracking-wide bg-red-500/90 text-white px-2 py-0.5 rounded-full">
-                        Sin stock
+                        {byInsumo?.diag ? `Falta ${byInsumo.diag.faltantes[0]?.name ?? byInsumo.diag.limitante.name}${(byInsumo.diag.faltantes[0] ?? byInsumo.diag.limitante).sinComprar ? ' · sin comprar' : ''}` : 'Sin stock'}
                       </span>
                     )}
                     {!editingFavorites && !soldOut && !noStock && byInsumo && !(cart[p.id] > 0) && (
                       <span className={`absolute top-2 right-2 text-[10px] font-semibold px-2 py-0.5 rounded-full ${byInsumo.low ? 'bg-amber-500/90 text-black' : 'bg-white/10 text-white/60'}`}>
-                        quedan ~{left}
+                        quedan ~{left}{byInsumo.low && byInsumo.diag ? ` · ${byInsumo.diag.limitante.name}` : ''}
                       </span>
                     )}
                     {p.description && (
@@ -1816,12 +1841,39 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
   const pickDone = pickGroups.length > 0 && pickGroups.every((g) => pickSel[g.id]);
   const confirmPick = (sel: Record<string, string>) => {
     if (!picking) return;
-    addCombo(picking.id, pickGroups.map((g) => sel[g.id]).filter(Boolean).sort().join('|'));
-    setPicking(null);
+    addCombo(picking.id, [...pickGroups.map((g) => sel[g.id]).filter(Boolean).sort(), ...(pickSub ? [pickSub] : [])].join('|'));
+    setPicking(null); setPickSub(null);
   };
 
   return (
     <div className="h-full flex flex-col gap-5">
+      {subFor && (
+        <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/70 p-3 backdrop-blur-sm sm:items-center" onClick={() => setSubFor(null)}>
+          <div role="dialog" aria-label={`Falta un insumo de ${subFor.p.name}`} onClick={(e) => e.stopPropagation()}
+            className="admin-glass-sheet w-full max-w-lg space-y-4 rounded-3xl p-5 pb-[max(env(safe-area-inset-bottom),1.25rem)]">
+            <div className="flex items-center gap-2">
+              <span className="text-3xl">{subFor.p.emoji || '🍹'}</span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-lg font-bold">{subFor.p.name}</p>
+                <p className="text-sm text-red-300">⛔ {subFor.faltante.sinComprar ? `${subFor.faltante.name} (sin comprar)` : `Se acabó ${subFor.faltante.name}`}</p>
+              </div>
+              <button type="button" onClick={() => setSubFor(null)} aria-label="Cancelar" className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10"><X className="h-5 w-5" /></button>
+            </div>
+            <p className="text-sm font-semibold text-white/80">¿Lo preparas hoy con otra cosa?</p>
+            <div className="grid grid-cols-2 gap-2">
+              {subFor.sugerencias.map((r) => (
+                <button key={r.insumoId} type="button"
+                  onClick={() => { const { p, faltante } = subFor; setSubFor(null); sumar(p.id, idSustitucion(faltante.insumoId, r.insumoId)); }}
+                  className="min-h-[3.5rem] rounded-2xl border-2 border-white/15 bg-white/5 px-3 py-2 text-left text-base font-semibold active:scale-95">
+                  Con {r.name}
+                  <span className="block text-xs font-normal text-white/60">alcanza para {r.drinks}</span>
+                </button>
+              ))}
+            </div>
+            <button type="button" onClick={() => { const { p } = subFor; setSubFor(null); sumar(p.id); }} className="h-12 w-full rounded-2xl bg-white/10 text-base font-semibold">Vender igual, sin reemplazo</button>
+          </div>
+        </div>
+      )}
       {picking && (
         <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/70 p-3 backdrop-blur-sm sm:items-center" onClick={() => setPicking(null)}>
           <div role="dialog" aria-label={`Elegir opción de ${picking.name}`} onClick={(e) => e.stopPropagation()}
@@ -1901,7 +1953,7 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
               <div className="shrink-0 flex gap-2 overflow-x-auto pb-2 -mt-1" role="status">
                 {barraLeft.alerts.map((a) => (
                   <span key={a.name} className={`shrink-0 text-xs font-semibold px-3 py-1 rounded-full ${a.drinks <= 0 ? 'bg-red-500/20 text-red-200' : 'bg-amber-500/20 text-amber-200'}`}>
-                    {a.drinks <= 0 ? `⛔ ${a.name}: se acabó` : `⚠️ ${a.name}: ~${a.drinks} tragos`}
+                    {a.drinks <= 0 ? `⛔ ${a.name}: ${a.sinComprar ? 'sin comprar' : 'se acabó'}` : `⚠️ ${a.name}: ~${a.drinks} tragos`}{a.afecta.length > 0 ? ` · afecta: ${a.afecta.slice(0, 3).join(', ')}${a.afecta.length > 3 ? '…' : ''}` : ''}
                   </span>
                 ))}
               </div>

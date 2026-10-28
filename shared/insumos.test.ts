@@ -3,7 +3,7 @@ import {
   pasosSugeridos, pasosDeMetadata, fotoDeMetadata, metadataConPreparacion,
   metadataConOpciones, opcionesDeMetadata,
   productoSinInsumos, metadataConSinInsumos,
-  consumoDeVenta, conteoATotal, descuadre, descuadreAlerts, formatCantidad, insumoRitmoAlerts, insumoStockAlerts,
+  consumoDeVenta, diagnosticoProducto, idSustitucion, sugerirReemplazos, sustitucionesDe, conteoATotal, descuadre, descuadreAlerts, formatCantidad, insumoRitmoAlerts, insumoStockAlerts,
   listaComprasTexto, nivelInsumo, proyeccionCompra, stockActual, tragosDisponibles, tragosPorInsumo, type Insumo, type RecetaLinea,
 } from './insumos';
 
@@ -525,5 +525,66 @@ describe('pasos sugeridos', () => {
     expect(pasosDeMetadata(m)).toEqual(['Paso 1']);
     expect(fotoDeMetadata(m)).toBe('https://blob/foto.jpg');
     expect(fotoDeMetadata(metadataConPreparacion(m, undefined, null))).toBeNull();
+  });
+});
+
+// Gin con Gin: 3 jiggers de Beefeater + Ginger ale (sin comprar todavía). Tónica y Sprite sí tienen stock.
+const gin: Insumo = { id: 10, name: 'Gin Beefeater', unit: 'ml', containerSize: 750, containerLabel: 'botella', costPerContainer: 15000, alertDrinks: 10 };
+const ginger: Insumo = { id: 11, name: 'Ginger ale', unit: 'ml', containerSize: 1500, containerLabel: 'botella', costPerContainer: 2000, alertDrinks: 10 };
+const tonica: Insumo = { id: 12, name: 'Tónica', unit: 'ml', containerSize: 1500, containerLabel: 'botella', costPerContainer: 2000, alertDrinks: 10 };
+const hielo: Insumo = { id: 13, name: 'Hielo', unit: 'un', containerSize: 1, containerLabel: 'bolsa', costPerContainer: 0, alertDrinks: 0 };
+const ginConGin = [{ insumoId: 10, amount: 90 }, { insumoId: 11, amount: 120 }];
+const info = [gin, ginger, tonica].map((i) => ({ id: i.id, name: i.name, alertDrinks: i.alertDrinks, sinComprar: i.id === 11 }));
+const stockGin = new Map<number, number>([[10, 1050], [12, 3000]]);
+
+describe('diagnosticoProducto', () => {
+  it('dice qué insumo falta aunque el gin alcance', () => {
+    const d = diagnosticoProducto(ginConGin, info, stockGin)!;
+    expect(d.estado).toBe('agotado');
+    expect(d.drinks).toBe(0);
+    expect(d.limitante).toMatchObject({ insumoId: 11, name: 'Ginger ale', sinComprar: true });
+    expect(d.faltantes.map((f) => f.name)).toEqual(['Ginger ale']);
+  });
+  it('con todo cargado, manda el que se acaba primero y avisa si queda poco', () => {
+    const d = diagnosticoProducto(ginConGin, info, new Map([[10, 1050], [11, 600]]))!;
+    expect(d.drinks).toBe(5);
+    expect(d.limitante.name).toBe('Ginger ale');
+    expect(d.estado).toBe('bajo');
+    expect(diagnosticoProducto(ginConGin, info, new Map([[10, 5000], [11, 5000]]))!.estado).toBe('ok');
+  });
+  it('sin líneas con cantidad no hay diagnóstico', () => {
+    expect(diagnosticoProducto([], info, stockGin)).toBeNull();
+  });
+});
+
+describe('sugerirReemplazos', () => {
+  it('sugiere otra bebida con stock y nunca un insumo de otra categoría o unidad', () => {
+    const r = sugerirReemplazos(11, [gin, ginger, tonica, hielo], stockGin, ginConGin);
+    expect(r).toEqual([{ insumoId: 12, name: 'Tónica', drinks: 25 }]);
+  });
+  it('no sugiere lo que no tiene stock', () => {
+    expect(sugerirReemplazos(11, [gin, ginger, tonica], new Map([[10, 1050]]), ginConGin)).toEqual([]);
+  });
+});
+
+describe('reemplazo «por hoy» en la venta', () => {
+  const recetasGin: RecetaLinea[] = [{ ticketTypeId: 5, insumoId: 10, amount: 90 }, { ticketTypeId: 5, insumoId: 11, amount: 120 }];
+  it('descuenta el insumo de reemplazo y no el faltante', () => {
+    const out = consumoDeVenta([{ ticketTypeId: 5, quantity: 2, opciones: [idSustitucion(11, 12)] }], recetasGin);
+    expect(out).toEqual(expect.arrayContaining([{ insumoId: 10, delta: -180 }, { insumoId: 12, delta: -240 }]));
+    expect(out.find((o) => o.insumoId === 11)).toBeUndefined();
+  });
+  it('sin reemplazo todo sigue igual', () => {
+    expect(consumoDeVenta([{ ticketTypeId: 5, quantity: 1 }], recetasGin).map((o) => o.insumoId).sort()).toEqual([10, 11]);
+  });
+  it('lee los reemplazos de la lista de opciones y no se confunde con otras', () => {
+    expect(sustitucionesDe(['sub:11:12', 'hielo', 'sub:x:y']).get(11)).toBe(12);
+  });
+  it('la alerta de insumo agotado dice qué tragos afecta y con qué reemplazarlo', () => {
+    const d = insumoStockAlerts([{ insumo: ginger, before: 100, after: 0, reference: null }], recetasGin, 7, {
+      afectados: new Map([[11, ['Gin con Gin']]]), reemplazos: new Map([[11, ['Tónica (alcanza para 25)']]]),
+    });
+    expect(d[0].body).toContain('Afecta: Gin con Gin');
+    expect(d[0].body).toContain('Tónica (alcanza para 25)');
   });
 });
