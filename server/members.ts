@@ -9,6 +9,7 @@
 import { and, desc, eq, gte, inArray, isNotNull, ne, or, sql } from 'drizzle-orm';
 import { getDb, getSiteSettings } from './db';
 import { listMyGiftPasses } from './accessCredit';
+import { giftMessageOf } from '../shared/giftFlow';
 import { sendEmail, buildMemberCodeEmail } from './email';
 import { pushToEmail } from './customerPush';
 import { findAmbassadorByEmail } from './ambassadorProgram';
@@ -396,7 +397,7 @@ export async function getMemberHome(email: string, now = new Date()) {
     gifts: {
       consumos: ticketRows
         .filter((t) => t.paymentMethod === 'Manual: Consumo Staff' && ['consumo', 'merch', 'locker'].includes(t.category) && t.status !== 'cancelled')
-        .map((t) => ({ ticketCode: t.ticketCode, displayCode: t.displayCode ?? null, name: t.typeName, qrImageUrl: t.qrImageUrl ?? null, used: t.status === 'used' || !!t.usedAt, eventTitle: t.eventTitle, eventDate: t.eventDate })),
+        .map((t) => ({ ticketCode: t.ticketCode, displayCode: t.displayCode ?? null, name: t.typeName, qrImageUrl: t.qrImageUrl ?? null, used: t.status === 'used' || !!t.usedAt, eventTitle: t.eventTitle, eventDate: t.eventDate, message: giftMessageOf(t.attendeeData) })),
       pases: giftPasses,
     },
     coupons: couponRows.map((c) => ({

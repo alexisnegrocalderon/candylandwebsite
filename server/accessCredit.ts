@@ -7,6 +7,7 @@ import { accessCredits, customers, events, orderItems, orders, ticketTypes, tick
 import { addCustomerTag, getDb, recordAdminAudit } from './db';
 import { buildAccessCreditEmail, buildGiftPassEmail, sendEmail } from './email';
 import { pushToEmail } from './customerPush';
+import { EMAIL_BASE_URL } from './emailLayout';
 import { ANY_ACCESS_SLUG, creditAvailability, generateCreditCode, giftNote, parseGiftNote, type CreditAvailability } from '../shared/accessCredit';
 import { ensureCustomerIdForEmail } from './db';
 
@@ -193,6 +194,8 @@ export async function remindAccessCredit(creditId: number): Promise<{ sent: bool
  * Aparece en la zona Cupones de la persona y le llega un aviso al celular y por correo. */
 export async function issueGiftPass(params: {
   email: string; name?: string | null; eventId: number; accesoSlug: string; accesoName?: string; validUntil: Date | null; reason?: string | null; actor: string; ip?: string | null;
+  /** Mensaje personalizado para quien lo recibe (correo y tarjeta de Cupones). */
+  message?: string | null;
 }): Promise<{ code: string; creditId: number; emailSent: boolean }> {
   const db = await getDb();
   if (!db) throw new Error('Base de datos no disponible');
@@ -216,7 +219,7 @@ export async function issueGiftPass(params: {
     buyerName: params.name ?? null,
     originOrderId: 0,
     originEventId: event.id,
-    note: giftNote({ eventId: event.id, eventTitle: event.title, validUntil: params.validUntil ? params.validUntil.toISOString() : null, reason: params.reason ?? null, by: params.actor }),
+    note: giftNote({ eventId: event.id, eventTitle: event.title, validUntil: params.validUntil ? params.validUntil.toISOString() : null, reason: params.reason ?? null, by: params.actor, message: params.message ?? null }),
   });
   const [row] = await db.select({ id: accessCredits.id }).from(accessCredits).where(eq(accessCredits.code, code)).limit(1);
   void customerId;
@@ -225,8 +228,7 @@ export async function issueGiftPass(params: {
     payload: { by: params.actor, email, code, accesoSlug: params.accesoSlug, validUntil: params.validUntil, reason: params.reason ?? null },
   });
 
-  const base = process.env.PUBLIC_SITE_URL || 'https://mansionplayroom.cl';
-  const url = `${base.replace(/\/$/, '')}/checkout/${event.slug}?code=${encodeURIComponent(code)}`;
+  const url = `${EMAIL_BASE_URL}/checkout/${event.slug}?code=${encodeURIComponent(code)}`;
   void pushToEmail(email, { title: '🎁 ¡Te regalaron un pase!', body: `${accesoName} para ${event.title}. Míralo en tu cuenta, en Cupones.`, url: '/cuenta' }).catch(() => {});
   let emailSent = false;
   try {
@@ -236,7 +238,8 @@ export async function issueGiftPass(params: {
       html: buildGiftPassEmail({
         buyerName: params.name?.trim() || email.split('@')[0], eventTitle: event.title, accesoName, code, url,
         validUntilText: params.validUntil ? params.validUntil.toLocaleDateString('es-CL', { timeZone: 'America/Santiago', day: 'numeric', month: 'long' }) : null,
-        reason: params.reason ?? null,
+        // El motivo es interno (historial); a la persona le llega solo el mensaje que se escribió para ella.
+        message: params.message ?? null,
       }),
     });
     emailSent = Boolean(result?.success);
@@ -279,7 +282,7 @@ export async function listGiftPasses(eventId: number): Promise<GiftPassRow[]> {
   }
 }
 
-export interface MyGiftPass { id: number; code: string; accesoName: string; anyAccess: boolean; eventId: number; eventTitle: string | null; eventSlug: string | null; validUntil: string | null; reason: string | null }
+export interface MyGiftPass { id: number; code: string; accesoName: string; anyAccess: boolean; eventId: number; eventTitle: string | null; eventSlug: string | null; validUntil: string | null; message: string | null }
 
 /** Los pases regalados que esta persona todavía puede canjear (para su zona Cupones). */
 export async function listMyGiftPasses(email: string): Promise<MyGiftPass[]> {
@@ -298,7 +301,7 @@ export async function listMyGiftPasses(email: string): Promise<MyGiftPass[]> {
     return withState.filter((w) => w.availability === 'available').map((w) => {
       const meta = parseGiftNote(gifts.find((g) => g.id === w.id)?.note)!;
       const ev = eventById.get(meta.eventId);
-      return { id: w.id, code: w.code, accesoName: w.accesoName, anyAccess: gifts.find((g) => g.id === w.id)?.accesoSlug === ANY_ACCESS_SLUG, eventId: meta.eventId, eventTitle: ev?.title ?? meta.eventTitle, eventSlug: ev?.slug ?? null, validUntil: meta.validUntil, reason: meta.reason };
+      return { id: w.id, code: w.code, accesoName: w.accesoName, anyAccess: gifts.find((g) => g.id === w.id)?.accesoSlug === ANY_ACCESS_SLUG, eventId: meta.eventId, eventTitle: ev?.title ?? meta.eventTitle, eventSlug: ev?.slug ?? null, validUntil: meta.validUntil, message: meta.message ?? null };
     });
   } catch {
     return [];

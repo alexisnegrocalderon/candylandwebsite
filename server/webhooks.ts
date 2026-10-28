@@ -1,3 +1,4 @@
+import { giftMessageOf } from '../shared/giftFlow';
 import { saveCardFromToken, storedMpCustomerId } from './memberCards';
 import { getMemberConfig } from './members';
 import { formatChileDate, formatChileTime } from '../shared/chileDate';
@@ -521,11 +522,13 @@ async function sendConfirmationEmailForOrder(order: any): Promise<{ success: boo
     templateConfig,
     partnerWelcome: partner ? { label: partner.label, emoji: partner.emoji, rules: partnerRulesList(partner.rulesText) } : undefined,
     contestInvite: (await getContestInviteForEvent(event.id).catch(() => null)) ?? undefined,
+    giftMessage: giftMessageOf(order.attendeeData),
   });
 
+  const giftMessage = giftMessageOf(order.attendeeData);
   const result = await sendEmail({
     to: order.buyerEmail,
-    subject: `🎉 Tu entrada para ${event.title} - Mansion Playroom`,
+    subject: giftMessage ? `🎁 Te regalaron una entrada para ${event.title}` : `🎉 Tu entrada para ${event.title} - Mansion Playroom`,
     html,
   });
   return result;

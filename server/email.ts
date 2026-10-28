@@ -233,6 +233,8 @@ export function buildOrderEmail(data: {
   /** Concurso de Instagram activo (server/contests.ts): llamado a comentar el
    * post para entrar al sorteo con la entrada ya comprada. */
   contestInvite?: { permalink: string; drawText: string; multiplier: number };
+  /** Entrada REGALADA: el mensaje que escribió quien regala (va arriba, como una nota). */
+  giftMessage?: string | null;
 }) {
   const cfg = data.templateConfig ?? DEFAULT_ORDER_EMAIL_CONFIG;
   const ticketNames = data.items.map(i => i.name).join(', ');
@@ -260,6 +262,7 @@ export function buildOrderEmail(data: {
       ctaStyle: 'pastel',
     }),
     body: `
+      ${giftMessageBlock(data.giftMessage)}
       <!-- SALUDO -->
       <h2 style="color:${INK};font-size:22px;font-weight:800;margin:0 0 6px;">👋 Hola ${data.buyerName}</h2>
       <p style="color:${MUTED};font-size:15px;margin:0 0 28px;">
@@ -675,6 +678,41 @@ export function buildAccessCreditEmail(data: {
   });
 }
 
+/** El mensaje personalizado de un regalo, como una nota entre comillas (escapado; los saltos de línea se respetan). */
+export function giftMessageBlock(message: string | null | undefined): string {
+  if (!message?.trim()) return '';
+  const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
+  return `
+      <div style="margin:0 0 24px;padding:16px 18px;border-left:3px solid ${ACCENT.gold.text};background:rgba(255,255,255,0.04);border-radius:12px;">
+        <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 6px;">💌 Un mensaje para ti</p>
+        <p style="color:${INK};font-size:15px;line-height:1.6;margin:0;font-style:italic;">«${esc(message.trim()).replace(/\n/g, '<br>')}»</p>
+      </div>`;
+}
+
+/** Aviso de un trago (u otro consumo de la carta) REGALADO: queda en Cupones con un QR para mostrar en la barra. */
+export function buildGiftDrinkEmail(data: { buyerName: string; eventTitle: string; items: { name: string; quantity: number }[]; url: string; message?: string | null }) {
+  const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
+  const name = esc(data.buyerName);
+  const eventTitle = esc(data.eventTitle);
+  const list = data.items.map((i) => `<p style="color:${INK};font-size:16px;font-weight:700;margin:0 0 6px;text-align:center;">${i.quantity > 1 ? `${i.quantity} × ` : ''}${esc(i.name)}</p>`).join('');
+  return emailShell({
+    preheader: data.message ? data.message.slice(0, 90) : `Te regalaron algo para ${eventTitle}.`,
+    pageBg: DISCO_BG,
+    hero: emailHero({ accent: 'yellow', heroBg: DISCO_HERO_BG, emoji: '🎁🍹', title: `¡Te regalaron algo, ${name}!`, subtitle: eventTitle }),
+    body: `
+      <p style="color:${MUTED};font-size:15px;line-height:1.6;margin:0 0 24px;">
+        Está en tu cuenta, en <em>Cupones</em>, con un QR: muéstralo en la barra de <strong style="color:${INK};">${eventTitle}</strong> y listo.
+      </p>
+      ${giftMessageBlock(data.message)}
+      ${card(`
+        ${list}
+        <div style="text-align:center;margin-top:14px;">${pastelButton(data.url, 'Ver mi regalo', 'gold')}</div>
+        <p style="color:${FAINT};font-size:12px;margin:16px 0 0;text-align:center;">Cada QR se puede usar una sola vez.</p>
+      `, { glow: 'gold' })}
+    `,
+  });
+}
+
 /** Aviso de un pase de entrada REGALADO: el botón lleva directo al checkout del evento con el código puesto. */
 export function buildGiftPassEmail(data: {
   buyerName: string;
@@ -684,20 +722,22 @@ export function buildGiftPassEmail(data: {
   code: string;
   url: string;
   validUntilText?: string | null;
-  reason?: string | null;
+  /** Mensaje personalizado de quien regala. */
+  message?: string | null;
 }) {
   const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
   const name = esc(data.buyerName);
   const eventTitle = esc(data.eventTitle);
   return emailShell({
-    preheader: `Te regalaron un pase para ${eventTitle}.`,
+    preheader: data.message ? data.message.slice(0, 90) : `Te regalaron un pase para ${eventTitle}.`,
     pageBg: DISCO_BG,
     hero: emailHero({ accent: 'yellow', heroBg: DISCO_HERO_BG, emoji: '🎁🎟️', title: `¡Te regalaron un pase, ${name}!`, subtitle: eventTitle }),
     body: `
       <p style="color:${MUTED};font-size:15px;line-height:1.6;margin:0 0 24px;">
-        ${data.reason ? `${esc(data.reason)}. ` : ''}Tienes un pase de <strong style="color:${INK};">${esc(data.accesoName)}</strong> para <strong style="color:${INK};">${eventTitle}</strong>.
+        Tienes un pase de <strong style="color:${INK};">${esc(data.accesoName)}</strong> para <strong style="color:${INK};">${eventTitle}</strong>.
         Está en tu cuenta, en <em>Cupones</em>: tócalo para canjearlo y compra con tu acceso de regalo.
       </p>
+      ${giftMessageBlock(data.message)}
       ${card(`
         <div style="text-align:center;margin:0 0 14px;">
           <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 6px;">${esc(data.accesoName)}</p>

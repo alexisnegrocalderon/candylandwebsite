@@ -157,7 +157,7 @@ import { askFinance, buildNightSummary, buildWeeklySummary } from "./financeDire
 import { comparisonPdf as budgetComparisonPdf, singlePdf as budgetSinglePdf, loadSims as loadBudgetSims, slug as budgetSlug } from "./budgetReport";
 import { compareSimulations, formatPercent } from "../shared/budgetInsights";
 import { computeBudgetResult } from "../shared/eventBudget";
-import { sendEmail, buildShiftCloseEmail, buildMailingBlastEmail, buildKitchenVendorEmail, buildSimpleReportEmail, buildOrderEmail, buildMissionTopupEmail, buildPendingReminderEmail, buildGiftEmail, buildTopupCodeEmail, buildPinChangedEmail, buildMemberCodeEmail } from "./email";
+import { sendEmail, buildShiftCloseEmail, buildMailingBlastEmail, buildKitchenVendorEmail, buildSimpleReportEmail, buildOrderEmail, buildMissionTopupEmail, buildPendingReminderEmail, buildGiftEmail, buildGiftDrinkEmail, buildTopupCodeEmail, buildPinChangedEmail, buildMemberCodeEmail } from "./email";
 import { currentLoginCode, verifyLoginCode, signTopupSession, verifyTopupSession, normalizeEmail } from "./topupAccess";
 import { identityFromTicketCode, identityFromEmail, getTopupOptions, createTopupOrder, resetCardPin, maskEmail, type TopupIdentity } from "./playcardTopup";
 import { formatChileDate, formatChileTime } from "../shared/chileDate";
@@ -212,9 +212,10 @@ import { getStampCard, refreshStampsForTicket } from "./stampCard";
 import { activatePlaymatchForTicket } from "./partyActivation";
 import * as staffPortal from "./staffPortal";
 import { ensureStaffSalesLink } from "./staffSales";
-import { pageCustomers, findCustomersForCaja } from "./customerFilters";
+import { pageCustomers, findCustomersForCaja, quickSearchCustomers } from "./customerFilters";
 import { COUPON_BATCH_MAX } from "../shared/couponGift";
 import { canGift } from "../shared/gifts";
+import { cleanGiftMessage, giftMessageData, GIFT_MESSAGE_MAX } from "../shared/giftFlow";
 import { ANY_ACCESS_SLUG, giftPassError } from "../shared/accessCredit";
 import { previewCustomerMerge, mergeCustomers } from "./customerMerge";
 import { getMemberHistory } from "./memberHistory";
@@ -953,12 +954,15 @@ async function runGift(params: {
   anyAccess?: boolean;
   /** Días de vigencia del pase; `null` = hasta que termine el evento. */
   validDays?: number | null;
+  /** Mensaje personalizado para quien lo recibe (correo y tarjeta de Cupones). */
+  message?: string | null;
 }) {
   const event = await db.getEventById(params.eventId);
   if (!event) throw new TRPCError({ code: 'NOT_FOUND', message: 'Evento no encontrado' });
   const types = await db.getTicketTypesByEventId(event.id);
   const byId = new Map<number, any>((types as any[]).map((t) => [t.id, t]));
   for (const it of params.items) if (!byId.has(it.ticketTypeId)) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Un producto ya no existe en este evento' });
+  const message = cleanGiftMessage(params.message);
   const asPass = params.mode === 'pase';
   const passItems = asPass ? params.items.filter((it) => byId.get(it.ticketTypeId).category === 'acceso') : [];
   const toOrder = params.items.filter((it) => ['acceso', 'extra'].includes(byId.get(it.ticketTypeId).category) && !passItems.includes(it));
@@ -974,19 +978,26 @@ async function runGift(params: {
       const customer = staff ? null : await db.getCustomerByEmail(email);
       const name = staff?.name ?? customer?.fullName ?? email.split('@')[0];
       if (toOrder.length > 0) {
-        const r = await db.createManualOrder({ eventSlug: event.slug, buyerName: name, buyerEmail: email, items: toOrder, kind: 'invitation' });
+        const r = await db.createManualOrder({ eventSlug: event.slug, buyerName: name, buyerEmail: email, items: toOrder, kind: 'invitation', attendeeData: giftMessageData(message) });
         await confirmFreeOrder(r.orderNumber);
       }
       for (const it of passItems) {
         for (let i = 0; i < it.quantity; i++) {
           await issueGiftPass({
             email, name, eventId: event.id, accesoSlug: params.anyAccess ? ANY_ACCESS_SLUG : (byId.get(it.ticketTypeId).accesoSlug ?? ANY_ACCESS_SLUG),
-            validUntil, reason: params.reason ?? null, actor: params.actor, ip: params.ip ?? null,
+            validUntil, reason: params.reason ?? null, actor: params.actor, ip: params.ip ?? null, message,
           });
         }
       }
-      for (const c of comps) await db.createStaffComp({ eventSlug: event.slug, ticketTypeId: c.ticketTypeId, quantity: c.quantity, staffName: name, buyerEmail: email });
-      void customerPush.pushToEmail(email, { title: '🎁 ¡Te regalaron algo!', body: `${resumen}. Míralo en tu app, en ${passItems.length ? 'Cupones' : '«Mis entradas»'}.`, url: '/cuenta' });
+      for (const c of comps) await db.createStaffComp({ eventSlug: event.slug, ticketTypeId: c.ticketTypeId, quantity: c.quantity, staffName: name, buyerEmail: email, giftMessage: message });
+      // Los tragos regalados no tenían correo: ahora llega uno con el mensaje y el botón a sus Cupones.
+      if (comps.length > 0) {
+        void sendEmail({
+          to: email, subject: `🎁 Te regalaron algo para ${event.title}`,
+          html: buildGiftDrinkEmail({ buyerName: name, eventTitle: event.title, items: comps.map((c) => ({ name: byId.get(c.ticketTypeId).name, quantity: c.quantity })), url: `${EMAIL_BASE_URL}/cuenta`, message }),
+        }).catch((err) => console.error('[regalos] correo del trago:', err));
+      }
+      void customerPush.pushToEmail(email, { title: '🎁 ¡Te regalaron algo!', body: message ? `${resumen}. «${message.slice(0, 60)}${message.length > 60 ? '…' : ''}»` : `${resumen}. Míralo en tu app, en ${passItems.length || comps.length ? 'Cupones' : '«Mis entradas»'}.`, url: '/cuenta' });
       results.push({ email, ok: true });
     } catch (e) {
       results.push({ email, ok: false, error: e instanceof Error ? e.message : 'No se pudo regalar' });
@@ -2063,6 +2074,7 @@ export const appRouter = router({
       mode: z.enum(['directo', 'pase']).optional(),
       anyAccess: z.boolean().optional(),
       validDays: z.number().int().min(1).max(365).nullable().optional(),
+      message: z.string().max(GIFT_MESSAGE_MAX + 20).optional(),
     })).mutation(async ({ input, ctx }) => {
       let emails = (input.emails ?? []).map((e) => e.trim().toLowerCase());
       if (input.audience) {
@@ -2072,7 +2084,7 @@ export const appRouter = router({
       }
       emails = Array.from(new Set(emails));
       if (emails.length === 0) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Elige al menos a una persona.' });
-      return runGift({ eventId: input.eventId, emails, items: input.items, reason: input.reason, mode: input.mode, anyAccess: input.anyAccess, validDays: input.validDays, actor: ctx.user.email ?? ctx.user.name ?? 'admin', ip: clientIp(ctx) });
+      return runGift({ eventId: input.eventId, emails, items: input.items, reason: input.reason, mode: input.mode, anyAccess: input.anyAccess, validDays: input.validDays, message: input.message, actor: ctx.user.email ?? ctx.user.name ?? 'admin', ip: clientIp(ctx) });
     }),
     // Los pases regalados de un evento y su estado (disponible / usado / vencido / anulado).
     listGifts: adminReadProcedure.input(z.object({ eventId: z.number() })).query(({ input }) => listGiftPasses(input.eventId)),
@@ -7118,6 +7130,12 @@ export const appRouter = router({
     backfillAttendees: adminProcedure.mutation(async () => db.backfillAttendeeContacts()),
     listAll: adminReadProcedure.input(customerFiltersInput.optional()).query(({ input }) => customerRows(input ?? {})),
     // La tabla de Clientes: una página por vez (la lista entera solo para armar audiencias de mailing).
+    // «¿A quién?» de Regalar: búsqueda en vivo (nombre, apellido, correo, teléfono o RUT, sin tildes), hasta 8.
+    quickSearch: adminReadProcedure.input(z.object({ q: z.string().max(100) })).query(async ({ input }) => {
+      const raw = await db.getDb();
+      if (!raw) return [];
+      return quickSearchCustomers(raw, input.q);
+    }),
     page: adminReadProcedure.input(customerFiltersInput.extend({
       page: z.number().int().min(0).max(100_000).default(0),
       pageSize: z.number().int().min(10).max(100).default(25),

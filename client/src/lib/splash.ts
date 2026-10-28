@@ -11,8 +11,8 @@ import { useEffect, type RefObject } from 'react';
 import { introDue, playNeonIntro } from './neonIntro';
 
 const FADE_MS = 260;
-/** Respaldo: pase lo que pase, a los 12 s el splash se va solo. */
-const SAFETY_MS = 12_000;
+/** Respaldo: pase lo que pase, a los 5 s el splash se va solo (si la sesión no resuelve, la pantalla sigue con lo que tenga). */
+const SAFETY_MS = 5_000;
 
 let hidden = false;
 

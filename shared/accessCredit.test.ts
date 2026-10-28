@@ -86,3 +86,13 @@ describe('pases regalados', () => {
     expect(creditDiscount('trio', lines)).toEqual({ amount: 28000, ticketTypeId: 2 });
   });
 });
+
+describe('mensaje del pase regalado', () => {
+  it('viaja en la nota y la nota nunca pasa de 500 caracteres', () => {
+    const n = giftNote({ eventId: 1, eventTitle: 'x'.repeat(200), validUntil: '2026-10-31T12:00:00.000Z', reason: 'r'.repeat(200), by: 'a@b.cl', message: '"comillas" ' + 'ñ'.repeat(300) });
+    expect(n.length).toBeLessThanOrEqual(500);
+    const meta = parseGiftNote(n)!;
+    expect(meta.message?.startsWith('"comillas"')).toBe(true);
+    expect(parseGiftNote(giftNote({ eventId: 1, eventTitle: null, validUntil: null, reason: null, by: null, message: '¡Feliz cumple!' }))?.message).toBe('¡Feliz cumple!');
+  });
+});

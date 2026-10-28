@@ -49,9 +49,12 @@ function SheetContent({
   children,
   side = "right",
   style,
+  hideClose = false,
   ...props
 }: React.ComponentProps<typeof SheetPrimitive.Content> & {
   side?: "top" | "right" | "bottom" | "left";
+  /** Sin la X de la esquina: para hojas que traen su propio botón de cerrar en el encabezado. */
+  hideClose?: boolean;
 }) {
   // Los paneles laterales ocupan toda la pantalla en el celular: sin esto, la hora y el notch del iPhone (app
   // instalada) quedan encima de la barra de arriba y del botón de cerrar, y no hay cómo salir.
@@ -79,10 +82,10 @@ function SheetContent({
         {...props}
       >
         {children}
-        <SheetPrimitive.Close className="ring-offset-background focus:ring-ring data-[state=open]:bg-secondary absolute top-[calc(1rem+env(safe-area-inset-top))] right-4 rounded-xs opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none">
+        {!hideClose && <SheetPrimitive.Close className="ring-offset-background focus:ring-ring data-[state=open]:bg-secondary absolute top-[calc(1rem+env(safe-area-inset-top))] right-4 rounded-xs opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none">
           <XIcon className="size-4" />
           <span className="sr-only">Close</span>
-        </SheetPrimitive.Close>
+        </SheetPrimitive.Close>}
       </SheetPrimitive.Content>
     </SheetPortal>
   );

@@ -104,3 +104,43 @@ export async function findCustomersForCaja(db: any, query: string) {
   return (rows as { email: string; fullName: string | null; playcoins: number }[])
     .filter((r) => r.email && !PLACEHOLDER_BUYER_EMAILS.has(r.email.toLowerCase()));
 }
+
+/** Lo que se busca en el «¿A quién?» de Regalar: el texto tal cual (nombre, apellido o correo), los dígitos (teléfono, desde 3)
+ * y el RUT si lo parece. `null` con menos de 2 caracteres. */
+export function quickSearchTerms(query: string): { pattern: string; digits: string | null; rut: string | null } | null {
+  const q = query.trim().replace(/\s+/g, ' ');
+  if (q.length < 2) return null;
+  const digits = q.replace(/\D/g, '');
+  return {
+    pattern: `%${escapeLikePattern(q)}%`,
+    digits: digits.length >= 3 && /^[\d\s+()-]+$/.test(q) ? `%${digits}%` : null,
+    rut: looksLikeRutSearch(q) ? `%${rutDigits(q)}%` : null,
+  };
+}
+
+export interface QuickCustomer { id: number; email: string; fullName: string | null; phone: string | null; lastSeenAt: Date | null }
+
+/** Búsqueda en vivo del «¿A quién?» de Regalar: nombre y apellido (van juntos en `fullName`), correo, teléfono o RUT, sin
+ * importar mayúsculas ni tildes («jose» encuentra «José»), hasta 8, los vistos más recientemente primero. Sin los correos marcador.
+ * La comparación sin tildes usa la collation `utf8mb4_general_ci`; si la base no la aceptara, se busca igual sin mayúsculas. */
+export async function quickSearchCustomers(db: any, query: string, limit = 8): Promise<QuickCustomer[]> {
+  const t = quickSearchTerms(query);
+  if (!t) return [];
+  const cols = { id: customers.id, email: customers.email, fullName: customers.fullName, phone: customers.phone, lastSeenAt: customers.lastSeenAt };
+  const extra: SQL[] = [];
+  if (t.digits) extra.push(sql`REPLACE(REPLACE(REPLACE(REPLACE(${customers.phone}, ' ', ''), '+', ''), '-', ''), '.', '') LIKE ${t.digits}`);
+  if (t.rut) extra.push(sql`REPLACE(REPLACE(REPLACE(LOWER(${customers.rut}), '.', ''), '-', ''), ' ', '') LIKE ${t.rut}`);
+  const run = (text: SQL[]) => db.select(cols).from(customers).where(or(...text, ...extra)).orderBy(desc(customers.lastSeenAt), asc(customers.id)).limit(limit + 4);
+  let rows: QuickCustomer[];
+  try {
+    rows = await run([
+      sql`${customers.fullName} COLLATE utf8mb4_general_ci LIKE ${t.pattern}`,
+      sql`${customers.email} COLLATE utf8mb4_general_ci LIKE ${t.pattern}`,
+    ]);
+  } catch (err) {
+    console.warn('[clientes] búsqueda sin tildes no disponible, busco sin mayúsculas:', err);
+    const lower = t.pattern.toLowerCase();
+    rows = await run([sql`LOWER(${customers.fullName}) LIKE ${lower}`, sql`LOWER(${customers.email}) LIKE ${lower}`]);
+  }
+  return rows.filter((r) => r.email && !PLACEHOLDER_BUYER_EMAILS.has(r.email.toLowerCase())).slice(0, limit);
+}
