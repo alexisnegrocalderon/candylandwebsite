@@ -4,7 +4,7 @@
  * los demás solo tienen credencial, turnos e info en su app. */
 import type { OperatorRole } from './cajaRoles';
 
-export const STAFF_CARGO_KEYS = ['caja', 'barra', 'puerta', 'cocina', 'guardarropia', 'supervisor', 'dj', 'rrpp', 'produccion', 'otro'] as const;
+export const STAFF_CARGO_KEYS = ['caja', 'barra', 'puerta', 'cocina', 'guardarropia', 'supervisor', 'dj', 'rrpp', 'produccion', 'anfitrion_playmatch', 'otro'] as const;
 export type StaffCargo = (typeof STAFF_CARGO_KEYS)[number];
 
 export interface StaffCargoDef {
@@ -27,6 +27,7 @@ export const STAFF_CARGOS: StaffCargoDef[] = [
   { key: 'dj', label: 'DJ / Artista', emoji: '🎧', operatorRole: null, hint: 'Credencial, turnos y su link de ventas.' },
   { key: 'rrpp', label: 'RRPP / Promotor', emoji: '📣', operatorRole: null, hint: 'Credencial, turnos y su link de referido.' },
   { key: 'produccion', label: 'Montaje / Foto', emoji: '📸', operatorRole: null, hint: 'Credencial, turnos e info de la noche.' },
+  { key: 'anfitrion_playmatch', label: 'Anfitrión Playmatch', emoji: '💘', operatorRole: null, hint: 'Ayuda a bajar la App y a armar el perfil; ve la meta de la noche de Playmatch.' },
   { key: 'otro', label: 'Otro', emoji: '✨', operatorRole: null, hint: 'Escribe el cargo: credencial, turnos e info.' },
 ];
 
@@ -58,6 +59,8 @@ export function cargoFromRole(role: string | null | undefined): StaffCargo | nul
   const r = plain(role);
   if (!r) return null;
   if (/(admin|supervis|encargad|coordin|jef)/.test(r)) return 'supervisor';
+  // «Anfitrión Playmatch» no es de la puerta: va antes que «anfitri».
+  if (/playmatch/.test(r)) return 'anfitrion_playmatch';
   if (/(puerta|acceso|seguridad|guardia|anfitri|host|recepci)/.test(r)) return 'puerta';
   if (/(caja|cajer)/.test(r)) return 'caja';
   if (/(barra|bar\b|bartender|barman|copero)/.test(r)) return 'barra';

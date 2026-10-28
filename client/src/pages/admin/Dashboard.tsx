@@ -10,7 +10,7 @@ import { requestGiftCoupon } from '@/components/admin/members/requestGiftCoupon'
 import { useHideSplashOnMount } from '@/lib/splash';
 import { useSeo } from '@/hooks/useSeo';
 import { useInstallableApp } from '@/hooks/useInstallableApp';
-import { Home, Calendar, DollarSign, Ticket, Users, Plus, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, Contact, Mail, History, Gift, MessageCircle, Crown, Martini, Instagram, UserPlus, Ban, Receipt, Compass, Sparkles, Car, Send, ShieldAlert, Zap, Cake, Calculator, Star, FlaskConical, Palette, UserCheck, Banknote, Landmark, Headphones, ListChecks, PartyPopper, BellRing, Wine, Smartphone, Bot, TrendingUp, Link2 } from 'lucide-react';
+import { Home, Flame, Calendar, DollarSign, Ticket, Users, Plus, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, Contact, Mail, History, Gift, MessageCircle, Crown, Martini, Instagram, UserPlus, Ban, Receipt, Compass, Sparkles, Car, Send, ShieldAlert, Zap, Cake, Calculator, Star, FlaskConical, Palette, UserCheck, Banknote, Landmark, Headphones, ListChecks, PartyPopper, BellRing, Wine, Smartphone, Bot, TrendingUp, Link2 } from 'lucide-react';
 import { AdminLoginForm } from '@/components/admin/AdminLoginForm';
 import { OPEN_SECTION_EVENT } from '@/components/admin/studio/handoff';
 import { parseAdminDeepLink } from '@shared/adminDeepLink';
@@ -71,6 +71,7 @@ const ParkingReportView = lazy(() => import('./sections/ventas').then((m) => ({ 
 const PartnerCampaignView = lazy(() => import('./sections/eventos').then((m) => ({ default: m.PartnerCampaignView })));
 const PartyGiftsView = lazy(() => import('./sections/noche').then((m) => ({ default: m.PartyGiftsView })));
 const PlaymatchTestView = lazy(() => import('./sections/noche').then((m) => ({ default: m.PlaymatchTestView })));
+const PlaymatchControlView = lazy(() => import('./sections/playmatchAdmin').then((m) => ({ default: m.PlaymatchControlView })));
 const ReferralsView = lazy(() => import('./sections/comunidad').then((m) => ({ default: m.ReferralsView })));
 const SalesByOriginView = lazy(() => import('./sections/ventas').then((m) => ({ default: m.SalesByOriginView })));
 const SettingsManager = lazy(() => import('./sections/ajustes').then((m) => ({ default: m.SettingsManager })));
@@ -148,6 +149,7 @@ const ADMIN_SECTIONS = [
   { id: 'push-clientes', label: 'Notificaciones', hub: 'app', icon: BellRing, render: () => <CustomerPushView /> },
   { id: 'app-clientes', label: 'Clientes con la app', hub: 'app', icon: Smartphone, render: () => <AppInstallsView /> },
   { id: 'solteros', label: 'Solteros', hub: 'app', icon: UserCheck, render: () => <SolterosManager /> },
+  { id: 'playmatch-control', label: 'Playmatch en vivo', hub: 'app', icon: Flame, render: () => <PlaymatchControlView /> },
   { id: 'denuncias', label: 'Denuncias Playmatch', hub: 'app', icon: ShieldAlert, render: () => <DenunciasView /> },
   { id: 'playmatch-test', label: 'Probar Playmatch', hub: 'app', icon: FlaskConical, render: () => <PlaymatchTestView /> },
   { id: 'mejor-disfraz', label: 'Mejor disfraz', hub: 'app', icon: Trophy, render: () => <MejorDisfrazView /> },

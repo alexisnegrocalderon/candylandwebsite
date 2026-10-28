@@ -72,3 +72,10 @@ describe('puedeVerDosier', () => {
     expect(puedeVerDosier('dj', 'DJ')).toBe(false);
   });
 });
+
+describe('anfitrión de Playmatch', () => {
+  it('no escanea entradas: su rol no abre la puerta', () => {
+    expect(staffToolsForRole('Anfitrión Playmatch')).toEqual([]);
+    expect(staffToolsForRole('Anfitrión').map((t) => t.key)).toEqual(['puerta']);
+  });
+});

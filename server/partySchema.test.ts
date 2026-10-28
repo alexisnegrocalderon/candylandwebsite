@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { missingPartyIdentitySteps } from "./partySchema";
+import { missingPartyIdentitySteps, missingPartySteps, type PartySnapshot } from "./partySchema";
 
 const OLD = [
   { name: "id", type: "int" },
@@ -38,5 +38,50 @@ describe("missingPartyIdentitySteps", () => {
 
   it("sin la tabla (base nueva) no toca nada", () => {
     expect(missingPartyIdentitySteps([])).toEqual([]);
+  });
+});
+
+describe("missingPartySteps (0137)", () => {
+  const profileOld = new Map([["id", "int"], ["gender", "enum('hombre','mujer','pareja','no_binario')"], ["pairType", "enum('mixta','chicas','chicos')"], ["lookingFor", "varchar(128)"], ["orientation", "varchar(16)"], ["relationStyle", "varchar(16)"], ["intents", "varchar(160)"]]);
+  const profileNew = new Map([...Array.from(profileOld.entries()), ["superLikeCredits", "int"], ["superLikeBought", "int"], ["superLikeCap", "int"], ["likesUnlocked", "int"], ["affinityAlerts", "int"]]);
+  const wallet = (value: boolean) => new Map([["reason", value ? "enum('earn_web','spend_playmatch')" : "enum('earn_web')"]]);
+  const prepaid = (value: boolean) => new Map([["reason", value ? "enum('topup_web','spend_playmatch')" : "enum('topup_web')"]]);
+  const staff = (value: boolean) => new Map([["cargo", value ? "enum('caja','anfitrion_playmatch')" : "enum('caja')"]]);
+  const full = (): PartySnapshot => ({
+    columns: new Map([["partyProfiles", profileNew], ["playcoinsLedger", wallet(true)], ["prepaidLedger", prepaid(true)], ["staffMembers", staff(true)], ["partyCharges", new Map([["id", "int"]])], ["partyEventConfig", new Map([["eventId", "int"]])]]),
+    tables: new Set(["partyCharges", "partyEventConfig"]),
+    indexes: new Set(["partyCharges.party_charges_op_idx", "partyCharges.party_charges_event_idx", "partyCharges.party_charges_profile_idx"]),
+  });
+
+  it("con todo aplicado no hace nada", () => {
+    expect(missingPartySteps(full())).toEqual([]);
+  });
+
+  it("a una base de antes de la 0137 le agrega las columnas, las tablas, los índices y los valores nuevos", () => {
+    const s: PartySnapshot = {
+      columns: new Map([["partyProfiles", profileOld], ["playcoinsLedger", wallet(false)], ["prepaidLedger", prepaid(false)], ["staffMembers", staff(false)]]),
+      tables: new Set(), indexes: new Set(),
+    };
+    const labels = missingPartySteps(s).map((x) => x.label);
+    expect(labels).toEqual(expect.arrayContaining([
+      "partyProfiles.superLikeCredits", "partyProfiles.superLikeBought", "partyProfiles.superLikeCap", "partyProfiles.likesUnlocked", "partyProfiles.affinityAlerts",
+      "tabla partyCharges", "tabla partyEventConfig", "índice partyCharges.opId",
+      "playcoinsLedger spend_playmatch", "prepaidLedger spend_playmatch", "staffMembers.cargo anfitrion_playmatch",
+    ]));
+    // El orden importa: la tabla antes que sus índices.
+    expect(labels.indexOf("tabla partyCharges")).toBeLessThan(labels.indexOf("índice partyCharges.opId"));
+  });
+
+  it("los grupos se piden por separado (la billetera no depende del perfil)", () => {
+    const s = full();
+    s.columns.set("playcoinsLedger", wallet(false));
+    expect(missingPartySteps(s, ["wallet"]).map((x) => x.label)).toEqual(["playcoinsLedger spend_playmatch"]);
+    expect(missingPartySteps(s, ["profile", "tables", "staff"])).toEqual([]);
+  });
+
+  it("una tabla que no existe (base sin migrar) no recibe ALTER", () => {
+    const s: PartySnapshot = { columns: new Map(), tables: new Set(), indexes: new Set() };
+    const groups = missingPartySteps(s).map((x) => x.group);
+    expect(groups.every((g) => g === "tables")).toBe(true);
   });
 });

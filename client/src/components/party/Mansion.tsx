@@ -72,7 +72,7 @@ export function Mansion({ people, myZone, onPick, onChangeZone, ticketCode, view
                       <span className="relative block">
                         <PersonPhoto ticketCode={ticketCode} viewerAlias={viewerAlias} canPhoto={canPhoto} person={p}
                           className={`h-16 w-16 rounded-full ${online ? 'ring-[2.5px] ring-emerald-400 ring-offset-2 ring-offset-[#120a11]' : 'opacity-50 grayscale'}`} />
-                        {/* Un Caramelo esperando respuesta es lo único que pide acción: se marca fuerte. */}
+                        {/* Un Super Like esperando respuesta es lo único que pide acción: se marca fuerte. */}
                         {p.pendingForMe && (
                           <span className="absolute -right-1 -top-1 grid h-6 w-6 place-items-center rounded-full bg-sky-400 shadow-[0_0_12px_rgba(56,189,248,0.9)]"><Star className="h-3.5 w-3.5 fill-[#0b0612] text-[#0b0612]" /></span>
                         )}

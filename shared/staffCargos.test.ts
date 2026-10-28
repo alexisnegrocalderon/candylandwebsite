@@ -58,3 +58,11 @@ describe('cargos del staff', () => {
     expect(pinProblem('8901')).not.toBeNull();
   });
 });
+
+describe('anfitrión de Playmatch', () => {
+  it('está entre los cargos, no usa ninguna pantalla de trabajo y no se confunde con la puerta', () => {
+    expect(STAFF_CARGOS.find((c) => c.key === 'anfitrion_playmatch')?.operatorRole).toBeNull();
+    expect(cargoFromRole('Anfitrión Playmatch')).toBe('anfitrion_playmatch');
+    expect(cargoFromRole('Anfitrión de puerta')).toBe('puerta');
+  });
+});

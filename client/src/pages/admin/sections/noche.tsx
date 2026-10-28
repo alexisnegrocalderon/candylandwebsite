@@ -876,7 +876,7 @@ export function CuentaDemoView() {
     onSuccess: (r) => {
       refresh();
       toast.success(r.phase === 'durante'
-        ? (r.interactions ? 'Fiesta en curso: entrada escaneada, Playmatch abierto, con Caramelo, likes y un match' : 'Fiesta en curso. Inscríbete en Playmatch desde la App y vuelve a apretar para ver Caramelo, likes y match')
+        ? (r.interactions ? 'Fiesta en curso: entrada escaneada, Playmatch abierto, con Super Like, likes y un match' : 'Fiesta en curso. Inscríbete en Playmatch desde la App y vuelve a apretar para ver Super Like, likes y match')
         : 'Volvió a «antes de la fiesta»');
     },
     onError: onMutationError,
@@ -944,7 +944,7 @@ export function CuentaDemoView() {
           <ol className="list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
             <li>Entra a la App (Mi cuenta) con ese correo: te llega el código.</li>
             <li>En la pestaña Playmatch inscríbete y sube tus fotos.</li>
-            <li>Aprieta «Empezar la fiesta»: tu entrada queda escaneada, Playmatch abre y los invitados de prueba te mandan un Caramelo, te dan ♥ y uno ya es match con mensajes. Puedes apretarlo de nuevo para repetir.</li>
+            <li>Aprieta «Empezar la fiesta»: tu entrada queda escaneada, Playmatch abre y los invitados de prueba te mandan un Super Like, te dan ♥ y uno ya es match con mensajes. Puedes apretarlo de nuevo para repetir.</li>
             <li>Para ver la sección «Staff»: en Noche → Staff agrega a alguien con este mismo correo y un cargo; ahí crea su PIN.</li>
           </ol>
         </div>

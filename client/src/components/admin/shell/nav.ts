@@ -58,6 +58,7 @@ export const SECTION_KEYWORDS: Record<string, string> = {
   solteros: 'soltero solteros aprobar aprobacion hombres solos codigo comunidad solicitudes',
   'flash-promo': 'promocion oferta relampago',
   'party-gifts': 'regalos tragos gratis',
+  'playmatch-control': 'playmatch en vivo conteo super like superlike cobros ingresos regalar devolver tope interruptor pausar disfraz podio anfitriones meta',
   denuncias: 'reportes playmatch seguridad',
   'playmatch-test': 'prueba invitados qr',
   'mejor-disfraz': 'concurso disfraz halloween votos ganador',

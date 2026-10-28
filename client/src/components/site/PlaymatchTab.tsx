@@ -39,7 +39,7 @@ function Tile({ icon: Icon, size = 44, className = '' }: { icon: typeof Heart; s
 
 const GUIDE = [
   { icon: Sparkles, title: '¿Qué es Playmatch?', body: 'La fiesta en tu celular: mira quién está en cada zona de la mansión, conecta y chatea. Solo existe mientras dura la fiesta.' },
-  { icon: Heart, title: 'Cómo se hace match', body: 'Pon tu foto y desliza: ♥ a la derecha, ✕ a la izquierda. Si los dos se dan ♥ es match y se abre el chat. Tienes 3 Caramelos ★ por noche (hacia arriba): con esos la otra persona se entera al tiro.' },
+  { icon: Heart, title: 'Cómo se hace match', body: 'Pon tu foto y desliza: ♥ a la derecha, ✕ a la izquierda. Si los dos se dan ♥ es match y se abre el chat. Tu primer Super Like ⭐ de la noche es gratis (hacia arriba): la otra persona se entera al tiro. Para mandar más, los compras con Playcoins o saldo.' },
   { icon: Martini, title: 'Invita un trago', body: 'Regálale un trago a alguien desde Playmatch. Si lo acepta, lo retira en la barra.' },
   { icon: Lock, title: 'Tu privacidad primero', body: 'Te ven con un alias y un avatar, nunca con tu nombre. La foto se toma adentro y se borra al cerrar la fiesta. Puedes bloquear y denunciar cuando quieras.' },
 ];

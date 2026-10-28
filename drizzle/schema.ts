@@ -1412,7 +1412,7 @@ export const playcoinsLedger = mysqlTable("playcoinsLedger", {
   id: int("id").autoincrement().primaryKey(),
   customerId: int("customerId").notNull(),
   delta: int("delta").notNull(), // + gana, - canjea/ajusta
-  reason: mysqlEnum("reason", ["earn_web", "earn_caja", "redeem_caja", "manual_adjust"]).notNull(),
+  reason: mysqlEnum("reason", ["earn_web", "earn_caja", "redeem_caja", "manual_adjust", "spend_playmatch"]).notNull(),
   orderId: int("orderId"), // orden web o venta de caja que originó el movimiento (si aplica)
   opId: varchar("opId", { length: 36 }), // id del op de caja (idempotencia); null para web
   balanceAfter: int("balanceAfter").notNull(),
@@ -1458,6 +1458,7 @@ export const prepaidLedger = mysqlTable("prepaidLedger", {
     "spend_puerta",  // pagó el estacionamiento en la puerta con saldo
     "refund",        // devolución por una orden anulada
     "manual_adjust", // corrección del admin (nunca lleva orderId, ver abajo)
+    "spend_playmatch", // Super Like o «Ver quién me dio ♥» en Playmatch
   ]).notNull(),
   orderId: int("orderId"), // orden que originó el movimiento (si aplica)
   opId: varchar("opId", { length: 36 }), // op de caja/puerta; null para web
@@ -1630,6 +1631,15 @@ export const partyProfiles = mysqlTable("partyProfiles", {
   costume: varchar("costume", { length: 40 }),
   // Cuántas veces deshizo un ✕ esta noche (MAX_REWINDS_PER_EVENT).
   rewindsUsed: int("rewindsUsed").default(0).notNull(),
+  // Super Likes comprados o regalados que todavía no usó; cuántos compró en la noche (cuenta para el tope) y un tope
+  // propio que el administrador puede poner (null = el de la fiesta). El gratis (FREE_SUPER_LIKES) no pasa por acá.
+  superLikeCredits: int("superLikeCredits").default(0).notNull(),
+  superLikeBought: int("superLikeBought").default(0).notNull(),
+  superLikeCap: int("superLikeCap"),
+  // Pagó «Ver quién me dio ♥» esta noche.
+  likesUnlocked: int("likesUnlocked").default(0).notNull(),
+  // Cuántos avisos «Alguien muy afín llegó» ya recibió (MAX_AFFINITY_ALERTS por noche).
+  affinityAlerts: int("affinityAlerts").default(0).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => ({
   // El patrón de consulta real: "todos los perfiles activos de este evento".
@@ -1638,6 +1648,37 @@ export const partyProfiles = mysqlTable("partyProfiles", {
 
 export type PartyProfile = typeof partyProfiles.$inferSelect;
 export type InsertPartyProfile = typeof partyProfiles.$inferInsert;
+
+// Cada cobro, regalo o ajuste de Playmatch (Super Likes, «Ver quién me dio ♥»): lo que alimenta el control del administrador.
+// `coins` + `saldo` = `amountClp` (1 Playcoin = $1); los regalos y ajustes del equipo valen 0. `opId` evita cobrar dos veces el mismo toque.
+export const partyCharges = mysqlTable("partyCharges", {
+  id: int("id").autoincrement().primaryKey(),
+  eventId: int("eventId").notNull(),
+  profileId: int("profileId").notNull(),
+  kind: mysqlEnum("kind", ["superlike", "likes_unlock", "gift", "return", "cap"]).notNull(),
+  quantity: int("quantity").default(1).notNull(),
+  amountClp: int("amountClp").default(0).notNull(),
+  coins: int("coins").default(0).notNull(),
+  saldo: int("saldo").default(0).notNull(),
+  opId: varchar("opId", { length: 40 }),
+  note: varchar("note", { length: 200 }),
+  // Quién lo hizo cuando no fue la propia persona (administrador).
+  actor: varchar("actor", { length: 100 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  opIdx: uniqueIndex("party_charges_op_idx").on(table.opId),
+  eventIdx: index("party_charges_event_idx").on(table.eventId, table.createdAt),
+  profileIdx: index("party_charges_profile_idx").on(table.profileId),
+}));
+export type PartyCharge = typeof partyCharges.$inferSelect;
+
+// Lo que el administrador controla en vivo de Playmatch en cada fiesta (shared/playmatchMarket.ts: PlaymatchConfig).
+// Va en su propia tabla y no en `siteSettings`: esa fila la lee todo el sitio y una columna sin migrar la tumbaría.
+export const partyEventConfig = mysqlTable("partyEventConfig", {
+  eventId: int("eventId").primaryKey(),
+  config: json("config").notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
 
 // MEDIUMBLOB (hasta 16MB) para la foto ya comprimida: la foto NO va a Vercel
 // Blob porque esas URLs son públicas, y esta tiene que verse solo adentro de
@@ -2701,7 +2742,7 @@ export const staffMembers = mysqlTable("staffMembers", {
   email: varchar("email", { length: 320 }),
   // Qué hace (shared/staffCargos.ts): define a qué pantalla entra. `role`
   // queda como el título que se muestra (texto libre).
-  cargo: mysqlEnum("cargo", ["caja", "barra", "puerta", "cocina", "guardarropia", "supervisor", "dj", "rrpp", "produccion", "otro"]),
+  cargo: mysqlEnum("cargo", ["caja", "barra", "puerta", "cocina", "guardarropia", "supervisor", "dj", "rrpp", "produccion", "otro", "anfitrion_playmatch"]),
   // PIN que la persona eligió en su app; se copia a sus `operators`.
   pinHash: varchar("pinHash", { length: 255 }),
   pinSetAt: timestamp("pinSetAt"),

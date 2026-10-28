@@ -13,22 +13,26 @@ import { ZONE_LABELS, type PartyGender, type PartyZone } from '@shared/party';
 
 export type DeckCard = {
   id: number; alias: string; gender: PartyGender; zone: PartyZone; costume: string | null; photoCount: number; caramelo?: boolean;
-  pairType?: string | null; orientation?: string | null; relationStyle?: string | null; intents?: string[]; common?: string[];
+  pairType?: string | null; orientation?: string | null; relationStyle?: string | null; intents?: string[]; common?: string[]; affinity?: number | null;
 };
 type Verdict = 'like' | 'nope' | 'caramelo';
 
 /* Descubrir: el swipe al estilo Tinder, con el vidrio de la App. ♥ a la derecha, ✕ a la izquierda y
- * ★ Caramelo hacia arriba. Los ♥ son ciegos (la otra persona solo se entera si hay match); el
- * Caramelo sí le llega (es el «toque» de siempre, con su tope por noche). Solo entra quien puso su
- * foto (el servidor lo exige igual). */
-export function DiscoverView({ ticketCode, alias, myProfileId, participating, caramelosLeft, voting, onOpenPhoto, onMatch, onGift, onInfo }: {
+ * ⭐ Super Like hacia arriba. Los ♥ son ciegos (la otra persona solo se entera si hay match); el
+ * Super Like sí le llega: el primero de la noche es gratis y los demás se compran (con Playcoins o saldo). Solo
+ * entra quien puso su foto (el servidor lo exige igual). */
+export function DiscoverView({ ticketCode, alias, myProfileId, participating, superLikesLeft, voting, onOpenPhoto, onMatch, onGift, onInfo, onBuySuperLike, onOpenLikes }: {
   ticketCode: string;
   alias: string;
   myProfileId: number;
   participating: boolean;
-  caramelosLeft: number;
+  superLikesLeft: number;
   /** «Mejor disfraz»: solo en modo Halloween. */
   voting?: CostumeVoting;
+  /** Abre la compra de Super Likes y, al pagar, vuelve a intentar lo que se quería hacer. */
+  onBuySuperLike: (then: () => void) => void;
+  /** «Les gustas a N personas»: abre quién te dio ♥. */
+  onOpenLikes: () => void;
   onOpenPhoto: () => void;
   onMatch: (m: { connectionId: number; alias: string; otherId: number }) => void;
   onGift: (profileId: number, alias: string) => void;
@@ -78,10 +82,18 @@ export function DiscoverView({ ticketCode, alias, myProfileId, participating, ca
         onSuccess: (res) => {
           utils.party.listMansion.invalidate();
           if (res.status === 'accepted') onMatch({ connectionId: res.connectionId, alias: card.alias, otherId: card.id });
-          else toast.success(`Le mandaste un Caramelo a ${card.alias} ★`);
+          else toast.success(`Le mandaste un Super Like a ${card.alias} ⭐`);
           refill();
         },
-        onError: (e) => toast.error(e.message),
+        onError: (e) => {
+          // Sin Super Likes: la tarjeta vuelve y se abre la compra; al pagar, se manda.
+          if (e.message === 'sin_super_likes') {
+            setDone((prev) => { const next = new Set(prev); next.delete(card.id); return next; });
+            onBuySuperLike(() => setCommand({ v: 'caramelo', n: Date.now() }));
+            return;
+          }
+          toast.error(e.message);
+        },
       });
       return;
     }
@@ -113,7 +125,8 @@ export function DiscoverView({ ticketCode, alias, myProfileId, participating, ca
 
   const press = (v: Verdict) => {
     if (!top || command) return;
-    if (v === 'caramelo' && caramelosLeft <= 0) { toast.error('Ya usaste tus Caramelos de esta noche'); return; }
+    // Sin Super Likes se abre la compra (no es un error): al pagar, se manda solo.
+    if (v === 'caramelo' && superLikesLeft <= 0) { tap(); onBuySuperLike(() => setCommand({ v: 'caramelo', n: Date.now() })); return; }
     setCommand({ v, n: Date.now() });
   };
 
@@ -141,11 +154,11 @@ export function DiscoverView({ ticketCode, alias, myProfileId, participating, ca
 
   return (
     <div className="flex flex-1 flex-col px-3 pb-3">
-      {/* Solo el número, nunca quiénes: los ♥ siguen siendo ciegos. */}
+      {/* Solo el número, nunca quiénes (a menos que pague el desbloqueo de la noche): los ♥ siguen siendo ciegos. */}
       {likesYou > 0 && (
-        <p className="mx-auto mb-2 flex w-fit items-center gap-1.5 rounded-full bg-pink-500/15 px-3 py-1.5 text-footnote font-semibold text-pink-200">
-          <Heart className="h-3.5 w-3.5 fill-pink-400 text-pink-400" /> Les gustas a {likesYou === 1 ? '1 persona' : `${likesYou} personas`} · sigue deslizando
-        </p>
+        <button type="button" onClick={() => { tap(); onOpenLikes(); }} className="mx-auto mb-2 flex w-fit items-center gap-1.5 rounded-full bg-pink-500/15 px-3 py-1.5 text-footnote font-semibold text-pink-200 interactive">
+          <Heart className="h-3.5 w-3.5 fill-pink-400 text-pink-400" /> Les gustas a {likesYou === 1 ? '1 persona' : `${likesYou} personas`} · ver quién
+        </button>
       )}
       <div className="relative mx-auto w-full max-w-md flex-1" style={{ minHeight: 360 }}>
         {/* Las de atrás asoman escaladas, como un mazo. */}
@@ -158,8 +171,8 @@ export function DiscoverView({ ticketCode, alias, myProfileId, participating, ca
             </div>
           );
         })}
-        <SwipeCard key={top.id} ticketCode={ticketCode} viewerAlias={alias} card={top} command={command} caramelo={caramelosLeft > 0}
-          voting={voting} onVerdict={(v) => resolve(top, v)} onInfo={() => onInfo(top)} />
+        <SwipeCard key={top.id} ticketCode={ticketCode} viewerAlias={alias} card={top} command={command} caramelo={superLikesLeft > 0}
+          voting={voting} onVerdict={(v) => resolve(top, v)} onInfo={() => onInfo(top)} onBuy={() => press('caramelo')} />
       </div>
 
       <div className="mt-4 flex items-center justify-center gap-3">
@@ -167,9 +180,9 @@ export function DiscoverView({ ticketCode, alias, myProfileId, participating, ca
           <RotateCcw className="h-5 w-5 text-amber-300" strokeWidth={2.4} />
         </RoundButton>
         <RoundButton label="No" size="lg" onClick={() => press('nope')}><X className="h-8 w-8 text-white" strokeWidth={2.6} /></RoundButton>
-        <RoundButton label={`Caramelo (te quedan ${caramelosLeft})`} onClick={() => press('caramelo')} dim={caramelosLeft <= 0}>
+        <RoundButton label={superLikesLeft > 0 ? `Super Like (te quedan ${superLikesLeft})` : 'Comprar Super Likes'} onClick={() => press('caramelo')}>
           <Star className="h-6 w-6 fill-sky-300 text-sky-300" />
-          <span className="absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-full bg-sky-400 px-1 text-caption2 font-bold text-[#0b0612]">{caramelosLeft}</span>
+          <span className="absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-full bg-sky-400 px-1 text-caption2 font-bold text-[#0b0612]">{superLikesLeft > 0 ? superLikesLeft : '+'}</span>
         </RoundButton>
         <RoundButton label="Me gusta" size="lg" primary onClick={() => press('like')}><Heart className="h-8 w-8 fill-[color:var(--pm-on-accent,#fff)] text-[color:var(--pm-on-accent,#fff)]" /></RoundButton>
         <RoundButton label={`Invitarle un trago a ${top.alias}`} onClick={() => { tap(); onGift(top.id, top.alias); }}><Wine className="h-6 w-6 text-amber-300" /></RoundButton>
@@ -190,12 +203,14 @@ function RoundButton({ label, onClick, children, size = 'md', primary = false, d
   );
 }
 
-function SwipeCard({ ticketCode, viewerAlias, card, command, caramelo, voting, onVerdict, onInfo }: {
+function SwipeCard({ ticketCode, viewerAlias, card, command, caramelo, voting, onVerdict, onInfo, onBuy }: {
   ticketCode: string;
   viewerAlias: string;
   card: DeckCard;
   command: { v: Verdict; n: number } | null;
   caramelo: boolean;
+  /** Deslizó hacia arriba sin Super Likes: se abre la compra. */
+  onBuy: () => void;
   voting?: CostumeVoting;
   onVerdict: (v: Verdict) => void;
   onInfo: () => void;
@@ -250,7 +265,7 @@ function SwipeCard({ ticketCode, viewerAlias, card, command, caramelo, voting, o
       onDragEnd={(_, info) => {
         if (info.offset.x > 110 || info.velocity.x > 700) fly('like');
         else if (info.offset.x < -110 || info.velocity.x < -700) fly('nope');
-        else if (caramelo && (info.offset.y < -130 || info.velocity.y < -800)) fly('caramelo');
+        else if (info.offset.y < -130 || info.velocity.y < -800) { if (caramelo) fly('caramelo'); else { back(); onBuy(); } }
         else back();
       }}
     >
@@ -258,7 +273,7 @@ function SwipeCard({ ticketCode, viewerAlias, card, command, caramelo, voting, o
       <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-black/45 to-transparent" />
       {card.caramelo && (
         <p className="pointer-events-none absolute inset-x-0 top-6 mx-auto flex w-fit items-center gap-1.5 rounded-full bg-sky-400 px-3.5 py-1.5 text-footnote font-bold text-[#0b0612] shadow-[0_6px_20px_-4px_rgba(56,189,248,0.9)]">
-          <Star className="h-4 w-4 fill-[#0b0612]" /> Te mandó un Caramelo · dale ♥ y es match
+          <Star className="h-4 w-4 fill-[#0b0612]" /> Te mandó un Super Like · dale ♥ y es match
         </p>
       )}
       {count > 1 && (
@@ -288,7 +303,7 @@ function SwipeCard({ ticketCode, viewerAlias, card, command, caramelo, voting, o
         </button>
       </div>
 
-      {/* Los sellos: ME GUSTA (rosa), NOPE (blanco) y CARAMELO (celeste, hacia arriba). */}
+      {/* Los sellos: ME GUSTA (rosa), NOPE (blanco) y SUPER LIKE (celeste, hacia arriba). */}
       <motion.span style={{ opacity: likeOpacity }} className="pointer-events-none absolute left-5 top-8 -rotate-[14deg] rounded-xl border-[3px] border-pink-400 px-3 py-1 text-title2 font-black tracking-wider text-pink-400 shadow-[0_0_24px_rgba(236,72,153,0.6)]">
         ME GUSTA
       </motion.span>
@@ -297,7 +312,7 @@ function SwipeCard({ ticketCode, viewerAlias, card, command, caramelo, voting, o
       </motion.span>
       {caramelo && (
         <motion.span style={{ opacity: caraOpacity }} className="pointer-events-none absolute inset-x-0 bottom-40 mx-auto flex w-fit items-center gap-1.5 rounded-xl border-[3px] border-sky-300 px-3 py-1 text-title2 font-black tracking-wider text-sky-300 shadow-[0_0_24px_rgba(56,189,248,0.6)]">
-          <Star className="h-5 w-5 fill-sky-300" /> CARAMELO
+          <Star className="h-5 w-5 fill-sky-300" /> SUPER LIKE
         </motion.span>
       )}
     </motion.div>

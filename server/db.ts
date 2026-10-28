@@ -11,9 +11,10 @@ import { findExistingMatch, mergeFields, type ImportFields } from "../shared/blo
 import { ambassadorBuyerDiscount, bestBuyerDiscount, effectiveBuyerDiscountPercent, type GeneralBuyerDiscount } from "../shared/ambassadorDiscount";
 import { normalizeIgHandle, saysAlreadyBought, type BuyerCandidate } from "../shared/igCustomerLink";
 import { computeFans, FAN_WINDOW_DAYS } from "../shared/igEngagement";
-import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, partyPhotos, partySwipes, partyCostumeVotes, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog, eventSurveys, eventSurveySettings, accessCredits, type AccessCredit, igComments, type IgComment, igReferrals, type IgReferralRow, igLinkClicks, staffMembers, staffShifts, aiUsage, attendeeContacts } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyCharges, partyEventConfig, partyConnections, partyMessages, partyBlocks, partyReports, partyPhotos, partySwipes, partyCostumeVotes, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog, eventSurveys, eventSurveySettings, accessCredits, type AccessCredit, igComments, type IgComment, igReferrals, type IgReferralRow, igLinkClicks, staffMembers, staffShifts, aiUsage, attendeeContacts } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { ensurePartyIdentitySchema } from './partySchema';
+import { FREE_SUPER_LIKES, DEFAULT_PLAYMATCH_CONFIG, affinityPercent, normalizePlaymatchConfig, superLikePlan, type PlaymatchConfig } from '../shared/playmatchMarket';
 import { nanoid } from 'nanoid';
 import { extrasDeMetadata, opcionesDeMetadata } from '../shared/insumos';
 import { isMissionActiveForEvent, missionDepositPrice, personasForAccesoSlug, personasForTicket } from '../shared/mission300';
@@ -67,8 +68,9 @@ export async function getDb() {
       _db = null;
     }
   }
-  // Playmatch: columnas nuevas del perfil (drizzle/0136) si la migración no se corrió.
-  if (_db) await ensurePartyIdentitySchema(_db);
+  // Playmatch: columnas, tablas y valores nuevos (drizzle/0136 y 0137) si la migración no se corrió. Se lanza sin esperarla:
+  // el resto del sitio nunca queda detenido por esto; solo Playmatch espera (getPartyActor y server/playmatchMarket.ts).
+  if (_db) void ensurePartyIdentitySchema(_db);
   return _db;
 }
 
@@ -6757,6 +6759,8 @@ export async function importCustomers(rows: {
 export async function getPartyActor(ticketCode: string) {
   const db = await getDb();
   if (!db) return null;
+  // La puerta de toda la fiesta: espera a que la base esté al día (casi siempre ya lo está y no cuesta nada).
+  await ensurePartyIdentitySchema(db);
 
   const [ticket] = await db.select().from(tickets).where(eq(tickets.ticketCode, ticketCode.trim())).limit(1);
   if (!ticket) return null;
@@ -6841,7 +6845,7 @@ export async function updatePartyProfile(profileId: number, data: { zone?: Party
  * juntan los que bloqueé con los que me bloquearon, así el bloqueado nunca
  * nota que lo bloquearon (si solo desapareciera de un lado, lo notaría y
  * podría ir a buscar a la persona en la fiesta real). */
-async function getPartyHiddenIds(db: any, profileId: number): Promise<Set<number>> {
+export async function getPartyHiddenIds(db: any, profileId: number): Promise<Set<number>> {
   const rows = await db.select().from(partyBlocks)
     .where(or(eq(partyBlocks.blockerProfileId, profileId), eq(partyBlocks.blockedProfileId, profileId)));
   const hidden = new Set<number>();
@@ -6852,7 +6856,7 @@ async function getPartyHiddenIds(db: any, profileId: number): Promise<Set<number
 }
 
 /** Todas las conexiones en las que participa este perfil, en cualquier estado. */
-async function getPartyConnectionsFor(db: any, profileId: number) {
+export async function getPartyConnectionsFor(db: any, profileId: number) {
   return db.select().from(partyConnections)
     .where(or(eq(partyConnections.profileLowId, profileId), eq(partyConnections.profileHighId, profileId)));
 }
@@ -6895,6 +6899,7 @@ export async function listPartyMansion(profileId: number, eventId: number) {
         costume: (p.costume as string | null) ?? null,
         ...partyVibe(p),
         common: me ? compatibility(me, p).common : [],
+        affinity: me ? affinityPercent(me, p) : null,
         lastSeenAt: p.lastSeenAt,
         connectionId: c?.id ?? null,
         // `declined` se le muestra a quien tocó como si siguiera pendiente:
@@ -6905,20 +6910,60 @@ export async function listPartyMansion(profileId: number, eventId: number) {
     });
 
   const touchesUsed = connections.filter((c: any) => c.initiatedById === profileId && !c.viaSwipe).length;
+  const credits = (me as any)?.superLikeCredits ?? 0;
 
-  return { people, touchesUsed, touchesLeft: Math.max(0, MAX_TOUCHES_PER_EVENT - touchesUsed) };
+  // `touchesLeft` = los Super Likes que puede mandar ahora mismo: el gratis (si no lo usó) más los comprados o regalados.
+  return { people, touchesUsed, touchesLeft: Math.max(0, FREE_SUPER_LIKES - touchesUsed) + credits };
+}
+
+// --- Lo que controla el administrador en vivo (shared/playmatchMarket.ts: PlaymatchConfig) ---
+
+/** La config de Playmatch de una fiesta. Se guarda un momento en memoria (5 s): cada pantalla de la fiesta la pide en cada
+ * toque, y un interruptor del administrador llega a todos en cuanto vence. Sin la tabla (base sin migrar) o sin fila,
+ * vale lo de siempre. */
+const partyConfigCache = new Map<number, { at: number; cfg: PlaymatchConfig }>();
+const PARTY_CONFIG_TTL_MS = 5_000;
+
+export async function getPartyConfig(eventId: number): Promise<PlaymatchConfig> {
+  const hit = partyConfigCache.get(eventId);
+  if (hit && Date.now() - hit.at < PARTY_CONFIG_TTL_MS) return hit.cfg;
+  let cfg: PlaymatchConfig = DEFAULT_PLAYMATCH_CONFIG;
+  const db = await getDb();
+  if (db) {
+    await ensurePartyIdentitySchema(db);
+    try {
+      const [row] = await db.select().from(partyEventConfig).where(eq(partyEventConfig.eventId, eventId)).limit(1);
+      cfg = normalizePlaymatchConfig(row?.config);
+    } catch { /* sin tabla todavía: los valores de siempre */ }
+  }
+  partyConfigCache.set(eventId, { at: Date.now(), cfg });
+  return cfg;
+}
+
+export async function setPartyConfig(eventId: number, patch: Partial<Omit<PlaymatchConfig, 'hostGoal'>> & { hostGoal?: Partial<PlaymatchConfig['hostGoal']> }): Promise<PlaymatchConfig> {
+  const db = await getDb();
+  if (!db) throw new Error('Base de datos no disponible');
+  await ensurePartyIdentitySchema(db);
+  // Se lee de la base (no del caché): otra instancia pudo cambiarla hace un instante.
+  const [row] = await db.select().from(partyEventConfig).where(eq(partyEventConfig.eventId, eventId)).limit(1);
+  const current = normalizePlaymatchConfig(row?.config);
+  const next = normalizePlaymatchConfig({ ...current, ...patch, hostGoal: { ...current.hostGoal, ...(patch.hostGoal ?? {}) } });
+  await db.insert(partyEventConfig).values({ eventId, config: next }).onDuplicateKeyUpdate({ set: { config: next } });
+  partyConfigCache.set(eventId, { at: Date.now(), cfg: next });
+  return next;
 }
 
 export type PartyTouchResult =
   | { ok: true; status: 'pending' | 'accepted'; connectionId: number }
-  | { ok: false; reason: string };
+  | { ok: false; reason: string; code?: 'needs_purchase' | 'paused' };
 
-/** Mandar un toque 👋. Si la otra persona ya me había tocado, la conexión
- * pasa sola a `accepted`: toque recíproco = match. */
+/** Mandar un Super Like ⭐ (el «toque» de siempre). Si la otra persona ya me había mandado uno, la conexión
+ * pasa sola a `accepted`: recíproco = match, y no cuesta. El primero de la noche es gratis; los demás salen de los
+ * comprados o regalados (`superLikeCredits`, ver server/playmatchMarket.ts). */
 export async function touchPartyProfile(profileId: number, targetProfileId: number, eventId: number): Promise<PartyTouchResult> {
   const db = await getDb();
   if (!db) return { ok: false, reason: 'Base de datos no disponible' };
-  if (profileId === targetProfileId) return { ok: false, reason: 'No puedes mandarte un Caramelo a ti mismo' };
+  if (profileId === targetProfileId) return { ok: false, reason: 'No puedes mandarte un Super Like a ti mismo' };
 
   const [target] = await db.select().from(partyProfiles).where(eq(partyProfiles.id, targetProfileId)).limit(1);
   if (!target || target.eventId !== eventId || target.active !== 1) {
@@ -6950,15 +6995,30 @@ export async function touchPartyProfile(profileId: number, targetProfileId: numb
     return { ok: false, reason: 'No se puede abrir esta conversación' };
   }
 
+  const cfg = await getPartyConfig(eventId);
+  if (!cfg.superLikes) return { ok: false, reason: 'Los Super Likes están en pausa por ahora', code: 'paused' };
+
   const connections = await getPartyConnectionsFor(db, profileId);
   const touchesUsed = connections.filter((c: any) => c.initiatedById === profileId && !c.viaSwipe).length;
-  if (touchesUsed >= MAX_TOUCHES_PER_EVENT) {
-    return { ok: false, reason: `Ya usaste tus ${MAX_TOUCHES_PER_EVENT} Caramelos de esta noche` };
+  const [me] = await db.select({ credits: partyProfiles.superLikeCredits }).from(partyProfiles).where(eq(partyProfiles.id, profileId)).limit(1);
+  const plan = superLikePlan(touchesUsed, me?.credits ?? 0);
+  if (plan === 'needs_purchase') return { ok: false, reason: 'No te quedan Super Likes', code: 'needs_purchase' };
+  // Un comprado se descuenta de forma atómica: dos toques al mismo tiempo no pueden gastar el mismo.
+  if (plan === 'credit') {
+    const [res] = await db.update(partyProfiles).set({ superLikeCredits: sql`${partyProfiles.superLikeCredits} - 1` })
+      .where(and(eq(partyProfiles.id, profileId), gt(partyProfiles.superLikeCredits, 0)));
+    if ((res as unknown as { affectedRows: number }).affectedRows === 0) return { ok: false, reason: 'No te quedan Super Likes', code: 'needs_purchase' };
   }
 
-  await db.insert(partyConnections).values({
-    eventId, profileLowId: low, profileHighId: high, initiatedById: profileId, status: 'pending',
-  });
+  try {
+    await db.insert(partyConnections).values({
+      eventId, profileLowId: low, profileHighId: high, initiatedById: profileId, status: 'pending',
+    });
+  } catch (err) {
+    // No se pudo enviar: el comprado vuelve a su dueño.
+    if (plan === 'credit') await db.update(partyProfiles).set({ superLikeCredits: sql`${partyProfiles.superLikeCredits} + 1` }).where(eq(partyProfiles.id, profileId));
+    throw err;
+  }
   const [created] = await db.select().from(partyConnections)
     .where(and(eq(partyConnections.profileLowId, low), eq(partyConnections.profileHighId, high))).limit(1);
 
@@ -7573,8 +7633,9 @@ export async function getPartySwipeDeck(viewer: { id: number; eventId: number; s
     id: p.id as number, alias: p.alias as string, gender: p.gender as PartyGender, zone: p.zone as PartyZone,
     costume: (p.costume as string | null) ?? null, photoCount: photoCount.get(p.id) ?? 1, caramelo,
     ...partyVibe(p),
-    // Lo que tienen en común con quien mira («Amistad · Relaciones abiertas»).
+    // Lo que tienen en común con quien mira («Amistad · Relaciones abiertas») y qué tan afines son (% o null si falta con qué comparar).
     common: me ? compatibility(me, p).common : [],
+    affinity: me ? affinityPercent(me, p) : null,
   });
   // Quien me mandó un Caramelo (★) va primero, con su marca: ♥ = match al tiro. Basta con que yo
   // busque a alguien como esa persona (ella ya dijo que yo le intereso).

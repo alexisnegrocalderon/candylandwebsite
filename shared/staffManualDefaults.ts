@@ -106,6 +106,17 @@ export const MANUAL_DRAFTS: Record<ManualKey, { title: string; sections: ManualS
       text('Fotos y videos', 'Fotografía al público solo en las zonas y formas acordadas. Si un cliente no quiere salir, se respeta de inmediato. El material es de la empresa y no se comparte por tu cuenta.'),
     ],
   },
+  anfitrion_playmatch: {
+    title: 'Manual de Anfitrión Playmatch',
+    sections: [
+      list('Antes de la fiesta', ['Llegar a la hora de citación y mostrar tu credencial en la puerta', 'Abrir tu app → «Anfitrión Playmatch» y revisar la meta de la noche', 'Tener a mano el QR de «Baja la App» (pantalla con brillo alto)', 'Coordinar con tu compañero/a de anfitrión en qué zona de la casa se pone cada uno']),
+      text('Tu trabajo', 'Ayudas a que la gente baje la App, entre a Playmatch y encuentre lo que busca. Tú no decides con quién se conecta nadie: acompañas, explicas cómo funciona y resuelves dudas.'),
+      list('Cómo ayudar a alguien', ['Preséntate con tu nombre y tu credencial', 'Muestra el QR de «Baja la App» o ayuda a abrir el link', 'Explica en una frase: pones tu foto, deslizas ♥ y, si los dos se dan ♥, es match y se abre el chat', 'Si falta la foto o contar qué busca, busca a la persona en «Ayudar a armar el perfil» y mándale el aviso', 'Si no quiere participar, lo respetas y no insistes']),
+      text('Lo que nunca haces', 'No pidas ni anotes datos personales (teléfono, redes, correo). No saques fotos de las pantallas de otras personas ni muestres perfiles ajenos. No presiones a nadie para participar ni para comprar Super Likes. No prometas matches ni resultados.'),
+      text('Denuncias y problemas', 'Si alguien se siente incómodo o te cuenta un problema con otra persona, avisa de inmediato al supervisor o a seguridad. Las denuncias de la App llegan al administrador: tú no expulsas a nadie.'),
+      list('Al terminar', ['Revisar la meta final de la noche', 'Contarle al supervisor qué dudas se repitieron', 'Cerrar tu sesión de la app']),
+    ],
+  },
   otro: {
     title: 'Manual del equipo',
     sections: [

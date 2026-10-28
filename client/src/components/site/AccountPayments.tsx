@@ -57,6 +57,12 @@ export function BottomSheet({ open, onClose, title, children }: { open: boolean;
   );
 }
 
+/** La misma recarga, para usarla dentro de otra hoja (por ejemplo, al pagar un Super Like en Playmatch): se identifica con
+ * el código de la entrada, igual que el botón «Cargar saldo» de la tarjeta digital. */
+export function TicketTopup({ ticketCode, onPaid }: { ticketCode: string; onPaid?: () => void }) {
+  return <div style={WCARD_VARS}><TopupPanel access={{ ticketCode }} onPaid={onPaid} /></div>;
+}
+
 /** Recargar la PlayCard desde la cuenta (la sesión del socio lo identifica). */
 export function TopupSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   return (

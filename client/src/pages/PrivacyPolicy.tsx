@@ -29,9 +29,12 @@ const DATOS = [
     title: 'Cuando usas la fiesta en tu celular',
     text: 'Esta parte es completamente voluntaria: solo existe si tú creas un perfil. Si lo haces, guardamos:',
     list: [
-      'El alias que elegiste, el avatar y la categoría (hombre, mujer o pareja) que seleccionaste.',
+      'El alias que elegiste, el avatar y cómo te identificas (mujer, hombre, no binario o pareja, y de quiénes si es pareja), además de a quiénes quieres conocer.',
+      'Si tú quieres, tu orientación, cómo te relacionas y qué buscas esta noche. Son opcionales («Prefiero no decir» no se guarda) y solo los ven quienes ya entraron a la fiesta, para mostrarte primero a quien más va contigo.',
       'La zona del recinto en la que dices estar y la última vez que abriste la aplicación.',
-      'A quién le mandaste un toque y quién te lo aceptó o rechazó.',
+      'A quién le mandaste un Super Like y quién te lo aceptó o rechazó, y los ♥ y ✕ que diste al deslizar.',
+      'Tus votos en el concurso del mejor disfraz, y el disfraz que escribiste en tu perfil.',
+      'Lo que compraste dentro de Playmatch (Super Likes y «Ver quién me dio ♥»): qué fue, cuánto costó, cuándo y si lo pagaste con Playcoins o con saldo de tu PlayCard.',
       'Los mensajes que intercambias en el chat.',
       'Las personas que bloqueaste y las denuncias que hiciste.',
     ],
@@ -62,8 +65,16 @@ const PLAZOS = [
     text: 'Se borran automáticamente 24 horas después de que termina el evento. No los conservamos.',
   },
   {
-    title: 'Tu perfil de la fiesta, los toques y los bloqueos',
+    title: 'Tu perfil de la fiesta, los Super Likes y los bloqueos',
     text: 'Se borran automáticamente 12 meses después del evento. Mientras tanto solo se usan para que la función opere y para saber cuánta gente la usó.',
+  },
+  {
+    title: 'Tu orientación, cómo te relacionas, qué buscas, tus ♥ y ✕ y tus votos de disfraz',
+    text: 'Tu orientación, cómo te relacionas y qué buscas esta noche se borran del perfil cuando se cierra la fiesta. Los ♥ y ✕ que diste se borran también al cerrarse, y los votos del concurso de disfraces, 24 horas después del evento.',
+  },
+  {
+    title: 'Lo que compraste dentro de Playmatch',
+    text: 'Los Super Likes y desbloqueos que pagaste quedan anotados (qué fue, monto y fecha) como respaldo de esa venta, junto al movimiento de tus Playcoins o de tu saldo, y se conservan mientras haga falta para respaldarla.',
   },
   {
     title: 'Los tragos regalados y sin retirar',

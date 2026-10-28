@@ -35,6 +35,8 @@ import { MANUAL_LIMITS, isManualKey } from "../shared/staffManuals";
 import * as solteros from "./solteros";
 import { AVATARS_PER_GENDER, DEFAULT_LOOKING_FOR, LOOKING_FOR_KEYS, PAIR_TYPES, ORIENTATIONS, RELATION_STYLES, INTENTS, MAX_INTENTS, serializeIntents, parseIntents, MAX_PARTY_PHOTOS, MAX_REWINDS_PER_EVENT, PARTY_GENDERS, PARTY_ZONES, parseLookingFor, sanitizeCostume, serializeLookingFor, canPreRegister, partyEntryDenial, sanitizeAlias, sanitizeGiftMessage, sanitizeMessage, isPartyWindowOpen, validatePhotoBytes } from "../shared/party";
 import * as ambassadorProgram from "./ambassadorProgram";
+import * as playmatch from "./playmatchMarket";
+import { PLAYMATCH_HOST_CARGO, publicPlaymatchConfig } from "../shared/playmatchMarket";
 import { monthKeyFor } from "../shared/ambassadorProgram";
 import { checkAndAdvanceTandaIfNeeded } from "./tandaAutoAdvance";
 import { scanReceiptImage } from "./receiptScan";
@@ -82,14 +84,30 @@ async function requirePartyActor(ticketCode: string) {
   return actor;
 }
 
+/** Quién puede entrar a la pantalla de anfitriones de Playmatch: quien tiene ese cargo en el Staff (y el dueño, para probarla),
+ * con la fiesta de su próximo turno. */
+async function playmatchHostAccess(email: string) {
+  await staffPortal.ensureAdminStaffAccess(email);
+  const staff = await staffPortal.findStaffByEmail(email);
+  if (!staff || (staff.cargo !== PLAYMATCH_HOST_CARGO && !isAdminEmail(email))) return null;
+  const eventId = await staffPortal.staffDosierEventId(staff.id);
+  if (!eventId) return null;
+  const event = await db.getEventById(eventId);
+  return { staff, eventId, eventTitle: event?.title ?? '' };
+}
+
 /** Igual que la anterior, pero además exige tener el perfil creado. */
 async function requirePartyProfile(ticketCode: string) {
   const actor = await requirePartyActor(ticketCode);
   if (!actor.profile) throw new TRPCError({ code: 'FORBIDDEN', message: 'Todavía no creaste tu perfil' });
   if (actor.profile.banned) throw new TRPCError({ code: 'FORBIDDEN', message: 'El equipo del local te sacó de Playmatch por esta noche' });
+  // El administrador puede poner Playmatch en pausa en vivo: nadie desliza ni escribe hasta que lo reactive.
+  if (!(await db.getPartyConfig(actor.event.id)).enabled) throw new TRPCError({ code: 'FORBIDDEN', message: 'Playmatch está en pausa por un momento. Vuelve en un rato.' });
   // Se inscribió antes de llegar: al pasar por la puerta su perfil aparece en la fiesta.
   if (!actor.profile.active) {
     await db.updatePartyProfile(actor.profile.id, { active: 1, lastSeenAt: new Date() });
+    // Entra al juego: a quienes tienen mucha afinidad con esta persona les llega un aviso (sin decir quién es).
+    if (actor.profile.swipeEnabled) void playmatch.notifyAffinityArrival(actor.profile.id);
     return { ...actor, profile: { ...actor.profile, active: 1 } };
   }
   return { ...actor, profile: actor.profile };
@@ -2369,7 +2387,7 @@ export const appRouter = router({
     }),
     getSession: publicProcedure.input(z.object({ ticketCode: z.string() })).query(async ({ input }) => {
       const actor = await db.getPartyActor(input.ticketCode);
-      if (!actor) return { denial: 'sin_ticket' as const, preRegister: false, event: null, profile: null };
+      if (!actor) return { denial: 'sin_ticket' as const, preRegister: false, event: null, profile: null, config: null };
 
       const now = new Date();
       const denial = partyEntryDenial(actor.ticket, actor.event, now);
@@ -2384,6 +2402,8 @@ export const appRouter = router({
           doorsOpen: actor.event.doorsOpen,
           eventEnd: actor.event.eventEnd,
         },
+        // Lo que el administrador prende y apaga en vivo, y los precios (shared/playmatchMarket.ts).
+        config: publicPlaymatchConfig(await db.getPartyConfig(actor.event.id)),
         profile: actor.profile
           ? await (async (p) => {
             const photoCount = await db.countPartyPhotos(p.id);
@@ -2489,16 +2509,59 @@ export const appRouter = router({
       .mutation(async ({ input }) => {
         const actor = await requirePartyProfile(input.ticketCode);
         const res = await db.touchPartyProfile(actor.profile.id, input.targetProfileId, actor.event.id);
+        // Sin Super Likes: el cliente abre la compra (PRECONDITION_FAILED + «sin_super_likes»), no un error.
+        if (!res.ok && res.code === 'needs_purchase') throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'sin_super_likes' });
         if (!res.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: res.reason });
-        // El Caramelo sí se entera (a diferencia del ♥): le llega un aviso.
+        // El Super Like sí se entera (a diferencia del ♥): le llega un aviso.
         const otherTicketCode = await db.getPartyProfileTicketCode(input.targetProfileId);
         if (otherTicketCode) {
           await sendPushToProfile(input.targetProfileId, res.status === 'accepted'
             ? { title: '💘 ¡Hicieron match!', body: `Tú y ${actor.profile.alias} se gustaron en Playmatch`, url: `/fiesta/${otherTicketCode}` }
-            : { title: '★ Te mandaron un Caramelo', body: `${actor.profile.alias} quiere conocerte en Playmatch`, url: `/fiesta/${otherTicketCode}` });
+            : { title: '⭐ Te mandaron un Super Like', body: `${actor.profile.alias} quiere conocerte en Playmatch`, url: `/fiesta/${otherTicketCode}` });
         }
         return res;
       }),
+
+    // --- Super Likes pagados y «Ver quién me dio ♥» ---
+    // Cuántos Super Likes tiene, lo que se le ofrece comprar y con qué puede pagar (Playcoins y saldo).
+    superLikeStatus: publicProcedure.input(z.object({ ticketCode: z.string() })).query(async ({ input }) => {
+      const actor = await requirePartyProfile(input.ticketCode);
+      const status = await playmatch.superLikeStatus(actor.profile, input.ticketCode);
+      if (!status) throw new TRPCError({ code: 'NOT_FOUND', message: 'No encontramos tu perfil' });
+      return status;
+    }),
+    // Comprar 1 Super Like o el pack. `opId` lo genera el celular por toque: reintentar no cobra dos veces.
+    superLikeBuy: publicProcedure.input(z.object({ ticketCode: z.string(), quantity: z.number().int().min(1).max(50), opId: z.string().min(8).max(30) }))
+      .mutation(async ({ input }) => {
+        const actor = await requirePartyProfile(input.ticketCode);
+        const ipKey = `party-buy:${actor.profile.id}`;
+        if (!(await db.checkIpRateLimit(ipKey))) throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Espera un momento antes de volver a comprar.' });
+        await db.recordIpAttempt(ipKey, 12, 5 * 60 * 1000);
+        const res = await playmatch.buySuperLikes({ profile: actor.profile, ticketCode: input.ticketCode, quantity: input.quantity, opId: input.opId });
+        if (!res.ok && res.code !== 'saldo') throw new TRPCError({ code: 'BAD_REQUEST', message: res.reason });
+        return res;
+      }),
+    // La cantidad de ♥ que me dieron (siempre) y quiénes, si ya pagó el desbloqueo de esta noche.
+    likesForMe: publicProcedure.input(z.object({ ticketCode: z.string() })).query(async ({ input }) => {
+      const actor = await requirePartyProfile(input.ticketCode);
+      return playmatch.listLikesForMe(actor.profile);
+    }),
+    likesUnlock: publicProcedure.input(z.object({ ticketCode: z.string(), opId: z.string().min(8).max(30) })).mutation(async ({ input }) => {
+      const actor = await requirePartyProfile(input.ticketCode);
+      const ipKey = `party-buy:${actor.profile.id}`;
+      if (!(await db.checkIpRateLimit(ipKey))) throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Espera un momento antes de volver a intentar.' });
+      await db.recordIpAttempt(ipKey, 12, 5 * 60 * 1000);
+      const res = await playmatch.unlockLikes({ profile: actor.profile, ticketCode: input.ticketCode, opId: input.opId });
+      if (!res.ok && res.code !== 'saldo') throw new TRPCError({ code: 'BAD_REQUEST', message: res.reason });
+      return res;
+    }),
+    // La galería de disfraces para votar (y el podio, cuando el administrador lo revela).
+    costumeGallery: publicProcedure.input(z.object({ ticketCode: z.string() })).query(async ({ input }) => {
+      const actor = await requirePartyProfile(input.ticketCode);
+      const gallery = await playmatch.costumeGallery(actor.profile);
+      if (!gallery) throw new TRPCError({ code: 'NOT_FOUND', message: 'No se pudo cargar' });
+      return gallery;
+    }),
 
     respondTouch: publicProcedure.input(z.object({ ticketCode: z.string(), connectionId: z.number(), accept: z.boolean() }))
       .mutation(async ({ input }) => {
@@ -2553,6 +2616,8 @@ export const appRouter = router({
       if (!check.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: check.reason });
       const position = await db.savePartyPhoto(actor.profile.id, actor.event.id, bytes, input.position);
       if (position === null) throw new TRPCError({ code: 'BAD_REQUEST', message: `Puedes tener hasta ${MAX_PARTY_PHOTOS} fotos` });
+      // Su primera foto lo mete al juego: a quienes tienen mucha afinidad con esta persona les llega un aviso (sin decir quién es).
+      if (!actor.profile.swipeEnabled && actor.profile.active) void playmatch.notifyAffinityArrival(actor.profile.id);
       return { ok: true, position };
     }),
     // Sin `position` borra todas (salir del swipe de una).
@@ -2570,6 +2635,8 @@ export const appRouter = router({
       const actor = await requirePartyProfile(input.ticketCode);
       const res = await db.setPartySwipeEnabled(actor.profile.id, input.enabled);
       if (!res.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Primero sube tu foto' });
+      // Entra al juego: a quienes tienen mucha afinidad con esta persona les llega un aviso (sin decir quién es).
+      if (input.enabled && !actor.profile.swipeEnabled) void playmatch.notifyAffinityArrival(actor.profile.id);
       return { ok: true };
     }),
 
@@ -2580,7 +2647,7 @@ export const appRouter = router({
       const deck = await db.getPartySwipeDeck(actor.profile);
       return {
         deck,
-        likesYou: deck ? await db.countPartyLikesForMe(actor.profile.id) : 0,
+        likesYou: deck ? (await playmatch.listLikesForMe(actor.profile)).count : 0,
         rewindsLeft: Math.max(0, MAX_REWINDS_PER_EVENT - (actor.profile.rewindsUsed ?? 0)),
       };
     }),
@@ -2599,12 +2666,53 @@ export const appRouter = router({
     // Votar (o quitar el voto). Los votos los ve solo el staff.
     voteCostume: publicProcedure.input(z.object({ ticketCode: z.string(), targetProfileId: z.number() })).mutation(async ({ input }) => {
       const actor = await requirePartyProfile(input.ticketCode);
+      const cfg = await db.getPartyConfig(actor.event.id);
+      if (!cfg.costumes) throw new TRPCError({ code: 'BAD_REQUEST', message: 'El concurso de disfraces está en pausa por ahora' });
+      if (cfg.costumeRevealed) throw new TRPCError({ code: 'BAD_REQUEST', message: 'La votación ya cerró: mira el podio' });
       const res = await db.toggleCostumeVote(actor.profile, input.targetProfileId);
       if (!res.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: res.reason });
       return res;
     }),
     // Ranking de disfraces para premiar en vivo (admin).
     costumeRanking: adminReadProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => db.getCostumeRanking(input.eventId)),
+
+    // --- Control de Playmatch para el administrador (Admin → Noche → Playmatch) ---
+    // Lo que se puede prender, apagar y cambiar en vivo de esta fiesta.
+    adminConfig: adminReadProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => db.getPartyConfig(input.eventId)),
+    adminSetConfig: adminProcedure.input(z.object({
+      eventId: z.number(),
+      enabled: z.boolean().optional(), superLikes: z.boolean().optional(), likesUnlock: z.boolean().optional(),
+      costumes: z.boolean().optional(), costumeRevealed: z.boolean().optional(),
+      superLikePrice: z.number().int().min(0).max(50_000).optional(), superLikePackSize: z.number().int().min(2).max(50).optional(),
+      superLikePackPrice: z.number().int().min(0).max(500_000).optional(), maxPaidSuperLikes: z.number().int().min(0).max(100).optional(),
+      likesUnlockPrice: z.number().int().min(0).max(50_000).optional(),
+      hostGoal: z.object({ profiles: z.number().int().min(1).max(5000), photos: z.number().int().min(1).max(5000), matches: z.number().int().min(1).max(5000) }).partial().optional(),
+    })).mutation(async ({ input }) => {
+      const { eventId, ...patch } = input;
+      return db.setPartyConfig(eventId, patch);
+    }),
+    // El conteo en vivo de todo lo que pasa en Playmatch.
+    adminStats: adminReadProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => playmatch.adminStats(input.eventId)),
+    // Cada cobro, regalo, devolución y ajuste (más nuevo primero).
+    adminCharges: adminReadProcedure.input(z.object({ eventId: z.number(), limit: z.number().int().min(1).max(2000).optional(), offset: z.number().int().min(0).optional(), profileId: z.number().optional() }))
+      .query(async ({ input }) => playmatch.adminCharges(input.eventId, input)),
+    adminPeople: adminReadProcedure.input(z.object({ eventId: z.number(), q: z.string().max(60).default('') })).query(async ({ input }) => playmatch.adminPeople(input.eventId, input.q)),
+    adminPendingSuperLikes: adminReadProcedure.input(z.object({ eventId: z.number(), profileId: z.number() })).query(async ({ input }) => playmatch.adminPendingSuperLikes(input.eventId, input.profileId)),
+    adminGift: adminProcedure.input(z.object({ eventId: z.number(), profileId: z.number(), quantity: z.number().int().min(1).max(50), note: z.string().max(200).optional() }))
+      .mutation(async ({ input, ctx }) => {
+        try { return await playmatch.adminGiftSuperLikes({ ...input, actor: ctx.user.name || 'Admin' }); }
+        catch (e) { throw new TRPCError({ code: 'BAD_REQUEST', message: e instanceof Error ? e.message : 'No se pudo regalar' }); }
+      }),
+    adminReturn: adminProcedure.input(z.object({ eventId: z.number(), connectionId: z.number(), note: z.string().max(200).optional() }))
+      .mutation(async ({ input, ctx }) => {
+        try { return await playmatch.adminReturnSuperLike({ ...input, actor: ctx.user.name || 'Admin' }); }
+        catch (e) { throw new TRPCError({ code: 'BAD_REQUEST', message: e instanceof Error ? e.message : 'No se pudo devolver' }); }
+      }),
+    adminSetCap: adminProcedure.input(z.object({ eventId: z.number(), profileId: z.number(), cap: z.number().int().min(0).max(100).nullable() }))
+      .mutation(async ({ input, ctx }) => {
+        try { return await playmatch.adminSetCap({ ...input, actor: ctx.user.name || 'Admin' }); }
+        catch (e) { throw new TRPCError({ code: 'BAD_REQUEST', message: e instanceof Error ? e.message : 'No se pudo cambiar' }); }
+      }),
     // Pestaña Matches: con quién, último mensaje, no leídos y «Visto».
     myMatches: publicProcedure.input(z.object({ ticketCode: z.string() })).query(async ({ input }) => {
       const actor = await requirePartyProfile(input.ticketCode);
@@ -4790,6 +4898,29 @@ export const appRouter = router({
       const data = await dosierFichas(eventId).catch(() => null);
       if (!data) return null;
       return { eventId, data, pdfPath: dosierPath(firmarDosier(eventId, 24 * 3600 * 1000).token) };
+    }),
+    // Los anfitriones de Playmatch (cargo «Anfitrión Playmatch», y el dueño para probarlo): cómo va la noche y a quién ayudar.
+    playmatchHost: publicProcedure.query(async ({ ctx }) => {
+      const email = getMemberEmail(ctx.req);
+      const access = email ? await playmatchHostAccess(email) : null;
+      if (!access) return null;
+      const cfg = await db.getPartyConfig(access.eventId);
+      const overview = await playmatch.hostOverview(access.eventId, cfg);
+      return overview ? { eventId: access.eventId, eventTitle: access.eventTitle, hostName: access.staff.name, playmatchOn: cfg.enabled, ...overview } : null;
+    }),
+    playmatchHostSearch: publicProcedure.input(z.object({ q: z.string().max(60).default('') })).query(async ({ input, ctx }) => {
+      const email = getMemberEmail(ctx.req);
+      const access = email ? await playmatchHostAccess(email) : null;
+      if (!access) throw new TRPCError({ code: 'FORBIDDEN', message: 'Esta pantalla es solo para los anfitriones de Playmatch.' });
+      return playmatch.hostSearch(access.eventId, input.q);
+    }),
+    playmatchHostNudge: publicProcedure.input(z.object({ profileId: z.number(), what: z.enum(['photo', 'tastes']) })).mutation(async ({ input, ctx }) => {
+      const email = getMemberEmail(ctx.req);
+      const access = email ? await playmatchHostAccess(email) : null;
+      if (!access) throw new TRPCError({ code: 'FORBIDDEN', message: 'Esta pantalla es solo para los anfitriones de Playmatch.' });
+      const res = await playmatch.hostNudge(access.eventId, input.profileId, input.what);
+      if (!res.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: res.reason });
+      return res;
     }),
     staffManualAccept: publicProcedure.mutation(async ({ ctx }) => {
       const email = getMemberEmail(ctx.req);

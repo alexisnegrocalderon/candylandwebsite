@@ -1,9 +1,9 @@
 import '@/admin.css';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRoute, Link } from 'wouter';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
-import { Bell, Camera, ChevronLeft, DoorClosed, Flame, MessageCircle, Moon, PartyPopper, TicketX, Wine } from 'lucide-react';
+import { Bell, Camera, ChevronLeft, DoorClosed, Flame, MessageCircle, Moon, PartyPopper, TicketX, Trophy, Wine } from 'lucide-react';
 import { useEntryState } from '@/lib/appNav';
 import { trpc } from '@/lib/trpc';
 import { useMemberSession } from '@/lib/member';
@@ -14,6 +14,8 @@ import { MyPhotoPanel } from '@/components/party/MyPhotoPanel';
 import { DiscoverView, MatchCelebration } from '@/components/party/Swipe';
 import { MatchesView } from '@/components/party/Matches';
 import { Chat } from '@/components/party/Chat';
+import { CostumesView } from '@/components/party/Costumes';
+import { LikesSheet, SuperLikeSheet } from '@/components/party/SuperLike';
 import { PersonSheet, type SheetPerson } from '@/components/party/PersonSheet';
 import { ProtectedPhoto } from '@/components/party/ProtectedPhoto';
 import { GlassIconButton, ON_ACCENT, PmSheet, PM_CTA, tap } from '@/components/party/ui';
@@ -25,7 +27,7 @@ import { CreateProfile } from '@/components/site/PartyProfileForm';
 import { useInstallableApp } from '@/hooks/useInstallableApp';
 
 
-/** "Caramelo" — la capa social de la fiesta, en el celular de cada invitado.
+/** Playmatch — la capa social de la fiesta, en el celular de cada invitado.
  * Solo entra quien tuvo su QR escaneado en la puerta, y solo mientras dura
  * el evento; ambas cosas las revalida el servidor en cada llamada, esto es
  * únicamente la cara visible. */
@@ -44,13 +46,14 @@ export default function Party() {
 /** Playmatch completo. En la página /fiesta ocupa la pantalla; dentro de la app de «Mi cuenta» se
  * abre como una pantalla más (`onBack` = volver a la app, sin salir a la web).
  *
- * Tres pestañas como una app de citas: Descubrir (el swipe), Fiesta (quién está en cada sala) y
- * Matches (Caramelos que te mandaron y tus chats). Todo con el vidrio y la letra de la App. */
-type Tab = 'descubrir' | 'fiesta' | 'matches';
+ * Pestañas como una app de citas: Descubrir (el swipe), Fiesta (quién está en cada sala), Matches (Super Likes
+ * que te mandaron y tus chats) y, durante el concurso, Disfraces. Todo con el vidrio y la letra de la App. */
+type Tab = 'descubrir' | 'fiesta' | 'matches' | 'disfraces';
 const TABS: { id: Tab; label: string; icon: typeof Flame }[] = [
   { id: 'descubrir', label: 'Descubrir', icon: Flame },
   { id: 'fiesta', label: 'Fiesta', icon: PartyPopper },
   { id: 'matches', label: 'Matches', icon: MessageCircle },
+  { id: 'disfraces', label: 'Disfraces', icon: Trophy },
 ];
 
 export function PartyExperience({ ticketCode, onBack }: { ticketCode: string; onBack?: () => void }) {
@@ -60,7 +63,8 @@ export function PartyExperience({ ticketCode, onBack }: { ticketCode: string; on
   // generado en el build (scripts/generate-pwa-html.mjs), igual que /admin.
   useInstallableApp('/fiesta/sw.js', '/fiesta/');
 
-  const session = trpc.party.getSession.useQuery({ ticketCode }, { enabled: !!ticketCode, retry: false });
+  // Cada 20 s (y al volver a la app): así se entera solo de lo que el administrador prende o apaga (pausa, Super Likes, podio del concurso).
+  const session = trpc.party.getSession.useQuery({ ticketCode }, { enabled: !!ticketCode, retry: false, refetchInterval: 20_000 });
 
   useEffect(() => {
     if (ticketCode && !session.data?.denial) rememberTicketCode(ticketCode);
@@ -75,6 +79,12 @@ export function PartyExperience({ ticketCode, onBack }: { ticketCode: string; on
   const [inboxOpen, setInboxOpen] = useEntryState('fiesta.tragos', false);
   const [notifOpen, setNotifOpen] = useEntryState('fiesta.avisos', false);
   const [photoOpen, setPhotoOpen] = useEntryState('fiesta.foto', false);
+  // Compra de Super Likes y «Quién me dio ♥»: viven acá (y no dentro de cada pantalla) para que se abran por encima de cualquier hoja.
+  // `afterBuy` guarda lo que se quería hacer, para hacerlo apenas termine de pagar.
+  const [buyOpen, setBuyOpen] = useState(false);
+  const [likesOpen, setLikesOpen] = useState(false);
+  const afterBuy = useRef<(() => void) | null>(null);
+  const openBuy = (then: () => void) => { afterBuy.current = then; setBuyOpen(true); };
 
   const inside = !!session.data?.profile && !session.data?.denial;
   // Modo Halloween (el interruptor del admin): paleta lima y violeta, y votar «Mejor disfraz».
@@ -102,18 +112,27 @@ export function PartyExperience({ ticketCode, onBack }: { ticketCode: string; on
   }
 
   const profile = session.data.profile;
+  // El administrador puede poner Playmatch en pausa en vivo: mientras dure, una pantalla clara en vez de pantallas que fallan.
+  if (session.data.config && !session.data.config.enabled) return <PausedScreen eventTitle={session.data.event?.title} onBack={onBack} />;
+  // El concurso del mejor disfraz (Modo Halloween): la pestaña se ve mientras el administrador lo tenga prendido; se vota hasta que revele el podio.
+  const config = session.data.config;
+  const showContest = halloween && !!config?.costumes;
+  const contestOpen = showContest && !config?.costumeRevealed;
+  const tabs = TABS.filter((t) => t.id !== 'disfraces' || showContest);
   const canPhoto = profile.hasPhoto && profile.swipeEnabled;
   const people = (mansion.data?.people ?? []) as MansionPerson[];
-  const caramelosLeft = mansion.data?.touchesLeft ?? 0;
+  const superLikesLeft = mansion.data?.touchesLeft ?? 0;
   const caramelosForMe = people.filter((p) => p.pendingForMe).length;
-  // Lo que pide respuesta en Matches: Caramelos por contestar y mensajes sin leer.
+  // Lo que pide respuesta en Matches: Super Likes por contestar y mensajes sin leer.
   const unreadChats = (myMatches.data ?? []).reduce((n, m) => n + m.unread, 0);
   // Lo que pide acción mía en los tragos: una invitación por responder, o una aceptada por pagar.
   const pendingGifts =
     (myGifts.data?.received.filter((g) => g.status === 'invited').length ?? 0) +
     (myGifts.data?.sent.filter((g) => g.status === 'accepted').length ?? 0);
 
-  const go = (next: Tab) => { if (next !== tab) { tap(); setTab(next); } };
+  // Si el administrador apaga el concurso estando en esa pestaña, vuelve a Descubrir.
+  const view: Tab = tab === 'disfraces' && !showContest ? 'descubrir' : tab;
+  const go = (next: Tab) => { if (next !== view) { tap(); setTab(next); } };
   const openPerson = (p: SheetPerson) => setSelected(p);
   const chatWith = (connectionId: number, alias: string, otherId: number) => { setSelected(null); setMatch(null); setOpenChat({ connectionId, alias, otherId }); };
   const gift = (profileId: number, alias: string) => { setSelected(null); setGifting({ profileId, alias }); };
@@ -142,45 +161,50 @@ export function PartyExperience({ ticketCode, onBack }: { ticketCode: string; on
       </header>
 
       <main className="relative z-10 flex min-h-0 flex-1 flex-col pb-[calc(env(safe-area-inset-bottom)+84px)]">
-        <motion.div key={tab} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }} className="flex min-h-0 flex-1 flex-col">
-          {tab === 'descubrir' && (
+        <motion.div key={view} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }} className="flex min-h-0 flex-1 flex-col">
+          {view === 'descubrir' && (
             <DiscoverView
               ticketCode={ticketCode}
               alias={profile.alias}
               myProfileId={profile.id}
               participating={canPhoto}
-              caramelosLeft={caramelosLeft}
-              voting={halloween ? voting : undefined}
+              superLikesLeft={superLikesLeft}
+              voting={contestOpen ? voting : undefined}
+              onBuySuperLike={openBuy}
+              onOpenLikes={() => setLikesOpen(true)}
               onOpenPhoto={() => setPhotoOpen(true)}
               onMatch={celebrate}
               onGift={gift}
               onInfo={(card) => openPerson(people.find((p) => p.id === card.id) ?? { ...card, avatarId: 1, connectionId: null, connectionStatus: null, pendingForMe: false })}
             />
           )}
-          {tab === 'fiesta' && (
+          {view === 'fiesta' && (
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-4 pt-1">
               <Mansion people={people} myZone={profile.zone as PartyZone} onPick={openPerson} onChangeZone={(zone) => setZone.mutate({ ticketCode, zone })}
                 ticketCode={ticketCode} viewerAlias={profile.alias} canPhoto={canPhoto} />
             </div>
           )}
-          {tab === 'matches' && (
+          {view === 'matches' && (
             <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain pt-1">
               <MatchesView people={people} ticketCode={ticketCode} viewerAlias={profile.alias} canPhoto={canPhoto}
                 onPick={openPerson} onOpenChat={chatWith} onDiscover={() => go('descubrir')} />
             </div>
           )}
+          {view === 'disfraces' && (
+            <CostumesView ticketCode={ticketCode} viewerAlias={profile.alias} canPhoto={canPhoto} voting={voting} onOpenPhoto={() => setPhotoOpen(true)} />
+          )}
         </motion.div>
       </main>
 
       {/* La barra de abajo, del mismo vidrio que la de la App. */}
-      <nav aria-label="Secciones de Playmatch" className="fixed bottom-[max(12px,env(safe-area-inset-bottom))] left-1/2 z-20 w-[calc(100vw-48px)] max-w-xs -translate-x-1/2">
-        <div className="lg-pill grid grid-cols-3 rounded-full p-1.5">
-          {TABS.map(({ id, label, icon: Icon }) => {
+      <nav aria-label="Secciones de Playmatch" className={`fixed bottom-[max(12px,env(safe-area-inset-bottom))] left-1/2 z-20 w-[calc(100vw-48px)] -translate-x-1/2 ${tabs.length > 3 ? 'max-w-sm' : 'max-w-xs'}`}>
+        <div className="lg-pill grid rounded-full p-1.5" style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))` }}>
+          {tabs.map(({ id, label, icon: Icon }) => {
             const badge = id === 'matches' ? caramelosForMe + unreadChats : 0;
             return (
-              <button key={id} type="button" onClick={() => go(id)} aria-current={tab === id ? 'page' : undefined}
-                className={`relative flex flex-col items-center justify-center gap-0.5 rounded-full py-2 text-caption2 font-semibold transition-all duration-300 ${tab === id ? 'bg-white/[0.16] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.3)]' : 'text-white/60'}`}>
-                <Icon className={`h-[22px] w-[22px] ${tab === id && id === 'descubrir' ? 'fill-pink-500 text-pink-400' : ''}`} />
+              <button key={id} type="button" onClick={() => go(id)} aria-current={view === id ? 'page' : undefined}
+                className={`relative flex flex-col items-center justify-center gap-0.5 rounded-full py-2 text-caption2 font-semibold transition-all duration-300 ${view === id ? 'bg-white/[0.16] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.3)]' : 'text-white/60'}`}>
+                <Icon className={`h-[22px] w-[22px] ${view === id && id === 'descubrir' ? 'fill-pink-500 text-pink-400' : ''}`} />
                 {label}
                 {badge > 0 && <span className={`absolute right-3 top-0.5 grid h-5 min-w-5 place-items-center rounded-full bg-pink-500 px-1 text-caption2 font-bold ${ON_ACCENT}`}>{badge}</span>}
               </button>
@@ -191,8 +215,8 @@ export function PartyExperience({ ticketCode, onBack }: { ticketCode: string; on
 
       <AnimatePresence>
         {selected && (
-          <PersonSheet key="persona" ticketCode={ticketCode} viewerAlias={profile.alias} canPhoto={canPhoto} person={selected} caramelosLeft={caramelosLeft} voting={halloween ? voting : undefined}
-            onClose={() => setSelected(null)} onOpenChat={chatWith} onGift={gift} onMatch={celebrate} />
+          <PersonSheet key="persona" ticketCode={ticketCode} viewerAlias={profile.alias} canPhoto={canPhoto} person={selected} superLikesLeft={superLikesLeft} voting={contestOpen ? voting : undefined}
+            onClose={() => setSelected(null)} onOpenChat={chatWith} onGift={gift} onMatch={celebrate} onBuySuperLike={openBuy} />
         )}
         {match && (
           <MatchCelebration key="match" ticketCode={ticketCode} alias={profile.alias} myProfileId={profile.id} match={match}
@@ -212,6 +236,15 @@ export function PartyExperience({ ticketCode, onBack }: { ticketCode: string; on
           <Chat key="chat" ticketCode={ticketCode} connectionId={openChat.connectionId} alias={openChat.alias} otherId={openChat.otherId}
             viewerAlias={profile.alias} canPhoto={canPhoto} onClose={() => { setOpenChat(null); utils.party.myMatches.invalidate(); }} onGift={gift} />
         )}
+        {likesOpen && (
+          <LikesSheet key="likes" ticketCode={ticketCode} viewerAlias={profile.alias} canPhoto={canPhoto} onClose={() => setLikesOpen(false)} onMatch={celebrate}
+            onInfo={(card) => { setLikesOpen(false); openPerson(people.find((p) => p.id === card.id) ?? { ...card, connectionId: null, connectionStatus: null, pendingForMe: false }); }} />
+        )}
+        {buyOpen && (
+          <SuperLikeSheet key="superlike" ticketCode={ticketCode}
+            onClose={() => { afterBuy.current = null; setBuyOpen(false); }}
+            onBought={() => { const then = afterBuy.current; afterBuy.current = null; setBuyOpen(false); if (then) window.setTimeout(then, 250); }} />
+        )}
       </AnimatePresence>
     </div>
   );
@@ -225,6 +258,25 @@ function MemberBackLink() {
 }
 
 /* --- Puerta cerrada ------------------------------------------------------ */
+
+function PausedScreen({ eventTitle, onBack }: { eventTitle?: string | null; onBack?: () => void }) {
+  return (
+    <div className="account-font account-tokens relative grid min-h-dvh place-items-center bg-[#0b0612] px-6 pt-[env(safe-area-inset-top)] text-white">
+      <div className="account-backdrop" />
+      <div className="account-glass relative z-10 w-full max-w-sm rounded-[28px] px-6 py-8 text-center">
+        <span className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-gradient-to-br from-pink-500/25 to-sky-500/25"><Moon className="h-8 w-8 text-pink-300" /></span>
+        <h1 className="mt-4 text-title2 font-bold tracking-tight">Playmatch está en pausa</h1>
+        <p className="mt-2 text-subhead text-white/70">El equipo lo pausó un momento. Tu perfil, tus matches y tus chats siguen acá: vuelve en un rato y se activa solo.</p>
+        {eventTitle && <p className="mt-4 text-footnote text-white/60">{eventTitle}</p>}
+        {onBack ? (
+          <button type="button" onClick={onBack} className="lg-pill mt-6 inline-flex h-12 items-center rounded-full px-8 text-subhead font-semibold">Volver</button>
+        ) : (
+          <Link href="/cuenta" className="lg-pill mt-6 inline-flex h-12 items-center rounded-full px-8 text-subhead font-semibold">Volver a mi cuenta</Link>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function ClosedDoor({ denial, eventTitle, doorsOpen, onBack }: { denial: string; eventTitle?: string | null; doorsOpen?: string | Date | null; onBack?: () => void }) {
   const horaApertura = doorsOpen
@@ -358,7 +410,7 @@ function NotificationsPanel({ ticketCode, onClose }: { ticketCode: string; onClo
   return (
     <PmSheet title="Avisos" onClose={onClose}>
       <p className="mb-4 text-subhead text-white/70">
-        Te avisamos cuando alguien te escribe o te manda un Caramelo, y si el anfitrión larga una promo relámpago durante la fiesta.
+        Te avisamos cuando alguien te escribe o te manda un Super Like, y si el anfitrión larga una promo relámpago durante la fiesta.
       </p>
 
       {needsInstallFirst && (

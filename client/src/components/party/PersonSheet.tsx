@@ -14,27 +14,29 @@ export type SheetPerson = {
   avatarId: number;
   zone: PartyZone;
   costume?: string | null;
-  pairType?: string | null; orientation?: string | null; relationStyle?: string | null; intents?: string[]; common?: string[];
+  pairType?: string | null; orientation?: string | null; relationStyle?: string | null; intents?: string[]; common?: string[]; affinity?: number | null;
   connectionId: number | null;
   connectionStatus: string | null;
   pendingForMe: boolean;
 };
 
 /** El perfil de una persona (desde la Fiesta, Matches o la «i» de la tarjeta): su foto grande y
- * lo que se puede hacer: aceptar su Caramelo, mandarle uno, abrir el chat, invitarle un trago,
+ * lo que se puede hacer: aceptar su Super Like, mandarle uno, abrir el chat, invitarle un trago,
  * bloquear o denunciar. */
-export function PersonSheet({ ticketCode, viewerAlias, canPhoto, person, caramelosLeft, voting, onClose, onOpenChat, onGift, onMatch }: {
+export function PersonSheet({ ticketCode, viewerAlias, canPhoto, person, superLikesLeft, voting, onClose, onOpenChat, onGift, onMatch, onBuySuperLike }: {
   ticketCode: string;
   viewerAlias: string;
   canPhoto: boolean;
   person: SheetPerson;
-  caramelosLeft: number;
+  superLikesLeft: number;
   /** «Mejor disfraz»: solo en modo Halloween. */
   voting?: CostumeVoting;
   onClose: () => void;
   onOpenChat: (connectionId: number, alias: string, otherId: number) => void;
   onGift: (profileId: number, alias: string) => void;
   onMatch: (m: { connectionId: number; alias: string; otherId: number }) => void;
+  /** Abre la compra de Super Likes y, cuando termina de pagar, vuelve a intentar lo que se quería hacer. */
+  onBuySuperLike: (then: () => void) => void;
 }) {
   const utils = trpc.useUtils();
   const [reporting, setReporting] = useState(false);
@@ -45,9 +47,10 @@ export function PersonSheet({ ticketCode, viewerAlias, canPhoto, person, caramel
     onSuccess: (res) => {
       refresh();
       if (res.status === 'accepted') onMatch({ connectionId: res.connectionId, alias: person.alias, otherId: person.id });
-      else { toast.success(`Le mandaste un Caramelo a ${person.alias} ★`); onClose(); }
+      else { toast.success(`Le mandaste un Super Like a ${person.alias} ⭐`); onClose(); }
     },
-    onError: (e) => toast.error(e.message),
+    // Sin Super Likes no es un error: se abre la compra y, al pagar, se manda.
+    onError: (e) => { if (e.message === 'sin_super_likes') onBuySuperLike(() => touch.mutate({ ticketCode, targetProfileId: person.id })); else toast.error(e.message); },
   });
   const respond = trpc.party.respondTouch.useMutation({
     onSuccess: (res) => {
@@ -82,7 +85,7 @@ export function PersonSheet({ ticketCode, viewerAlias, canPhoto, person, caramel
       <div className="space-y-2.5">
         {person.pendingForMe && person.connectionId ? (
           <>
-            <p className="flex items-center justify-center gap-1.5 text-subhead font-semibold text-sky-300"><Star className="h-4 w-4 fill-sky-300" /> Te mandó un Caramelo</p>
+            <p className="flex items-center justify-center gap-1.5 text-subhead font-semibold text-sky-300"><Star className="h-4 w-4 fill-sky-300" /> Te mandó un Super Like</p>
             <button type="button" disabled={busy} onClick={() => { tap(); respond.mutate({ ticketCode, connectionId: person.connectionId!, accept: true }); }}
               className={`h-14 w-full rounded-full text-headline ${PM_CTA} disabled:opacity-50`}>Aceptar y hablar</button>
             <button type="button" disabled={busy} onClick={() => respond.mutate({ ticketCode, connectionId: person.connectionId!, accept: false })}
@@ -92,11 +95,12 @@ export function PersonSheet({ ticketCode, viewerAlias, canPhoto, person, caramel
           <button type="button" onClick={() => { tap(); onOpenChat(person.connectionId!, person.alias, person.id); }}
             className={`flex h-14 w-full items-center justify-center gap-2 rounded-full text-headline ${PM_CTA}`}><MessageCircle className="h-5 w-5" /> Abrir chat</button>
         ) : person.connectionStatus === 'pending' ? (
-          <p className="rounded-2xl bg-white/[0.06] py-4 text-center text-subhead text-white/70">Ya le mandaste un Caramelo. Queda esperar 🤞</p>
+          <p className="rounded-2xl bg-white/[0.06] py-4 text-center text-subhead text-white/70">Ya le mandaste un Super Like. Queda esperar 🤞</p>
         ) : (
-          <button type="button" disabled={busy || caramelosLeft <= 0} onClick={() => { tap(); touch.mutate({ ticketCode, targetProfileId: person.id }); }}
+          <button type="button" disabled={busy}
+            onClick={() => { tap(); const send = () => touch.mutate({ ticketCode, targetProfileId: person.id }); if (superLikesLeft > 0) send(); else onBuySuperLike(send); }}
             className={`flex h-14 w-full items-center justify-center gap-2 rounded-full text-headline ${PM_CTA} disabled:opacity-50`}>
-            <Star className="h-5 w-5 fill-current" /> {caramelosLeft > 0 ? `Mandarle un Caramelo · te quedan ${caramelosLeft}` : 'Ya usaste tus Caramelos'}
+            <Star className="h-5 w-5 fill-current" /> {superLikesLeft > 0 ? `Mandarle un Super Like · te quedan ${superLikesLeft}` : 'Mandarle un Super Like · comprar'}
           </button>
         )}
         {/* Invitar un trago no exige match: es la forma clásica de acercarse. Si lo rechaza, no se cobra. */}

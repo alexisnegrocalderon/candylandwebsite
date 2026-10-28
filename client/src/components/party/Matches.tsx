@@ -6,7 +6,7 @@ import type { MansionPerson } from '@/components/party/Mansion';
 
 const hhmm = (d: Date | string) => new Date(d).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hour12: false });
 
-/** Matches: los Caramelos que te mandaron (piden respuesta), los matches nuevos (todavía sin
+/** Matches: los Super Likes que te mandaron (piden respuesta), los matches nuevos (todavía sin
  * escribirse, en fila como en las apps de citas) y los chats con su último mensaje, la hora, los no
  * leídos y el «Visto». */
 export function MatchesView({ people, ticketCode, viewerAlias, canPhoto, onPick, onOpenChat, onDiscover }: {
@@ -31,7 +31,7 @@ export function MatchesView({ people, ticketCode, viewerAlias, canPhoto, onPick,
       <div className="flex flex-1 flex-col items-center justify-center px-8 pb-10 text-center">
         <span className="grid h-20 w-20 place-items-center rounded-full bg-gradient-to-br from-pink-500/25 to-sky-500/25"><Heart className="h-9 w-9 text-pink-300" /></span>
         <p className="mt-4 text-title3 font-bold">{matches.isLoading ? 'Cargando…' : 'Todavía no hay matches'}</p>
-        {!matches.isLoading && <p className="mt-1 text-subhead text-white/65">{waiting > 0 ? `Le mandaste un Caramelo a ${waiting === 1 ? '1 persona' : `${waiting} personas`}. ` : ''}Desliza en Descubrir: cuando los dos se den ♥, aparece acá.</p>}
+        {!matches.isLoading && <p className="mt-1 text-subhead text-white/65">{waiting > 0 ? `Le mandaste un Super Like a ${waiting === 1 ? '1 persona' : `${waiting} personas`}. ` : ''}Desliza en Descubrir: cuando los dos se den ♥, aparece acá.</p>}
         <button type="button" onClick={() => { tap(); onDiscover(); }} className="lg-pill mt-5 h-12 rounded-full px-6 text-subhead font-semibold interactive">Ir a Descubrir</button>
       </div>
     );
@@ -41,7 +41,7 @@ export function MatchesView({ people, ticketCode, viewerAlias, canPhoto, onPick,
     <div className="space-y-6 px-4 pb-6">
       {caramelos.length > 0 && (
         <section>
-          <h2 className="mb-3 flex items-center gap-1.5 text-headline font-bold"><Star className="h-4 w-4 fill-sky-300 text-sky-300" /> Te mandaron un Caramelo</h2>
+          <h2 className="mb-3 flex items-center gap-1.5 text-headline font-bold"><Star className="h-4 w-4 fill-sky-300 text-sky-300" /> Te mandaron un Super Like</h2>
           <div className="flex gap-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {caramelos.map((p) => (
               <button key={p.id} type="button" onClick={() => { tap(); onPick(p); }} className="relative h-36 w-[104px] shrink-0 overflow-hidden rounded-[20px] border-2 border-sky-300/80 shadow-[0_0_20px_-4px_rgba(56,189,248,0.7)]">
@@ -101,7 +101,7 @@ export function MatchesView({ people, ticketCode, viewerAlias, canPhoto, onPick,
           </div>
         </section>
       )}
-      {waiting > 0 && <p className="text-center text-footnote text-white/60">Esperando respuesta de {waiting === 1 ? '1 Caramelo' : `${waiting} Caramelos`} que mandaste.</p>}
+      {waiting > 0 && <p className="text-center text-footnote text-white/60">Esperando respuesta de {waiting === 1 ? '1 Super Like' : `${waiting} Super Likes`} que mandaste.</p>}
     </div>
   );
 }

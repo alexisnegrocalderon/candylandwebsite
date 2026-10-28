@@ -79,7 +79,7 @@ export function Chip({ children, className = '' }: { children: ReactNode; classN
 /** Quién es y qué busca, en la tarjeta: «Pareja · Dos chicas», «Bi», «Poliamor», lo que busca esta noche y, si hay,
  * lo que tienen en común con quien mira. Lo que la persona no dijo no aparece. */
 export function VibeChips({ person, zone }: {
-  person: { gender: string; pairType?: string | null; orientation?: string | null; relationStyle?: string | null; intents?: readonly string[]; common?: readonly string[] };
+  person: { gender: string; pairType?: string | null; orientation?: string | null; relationStyle?: string | null; intents?: readonly string[]; common?: readonly string[]; affinity?: number | null };
   zone?: ReactNode;
 }) {
   const intents = parseIntents(person.intents ?? []);
@@ -87,10 +87,20 @@ export function VibeChips({ person, zone }: {
   const relation = cleanRelationStyle(person.relationStyle);
   return (
     <>
-      {person.common && person.common.length > 0 && (
-        <p className="mt-2 inline-flex max-w-full items-center gap-1.5 rounded-full bg-gradient-to-r from-pink-500/90 to-fuchsia-500/90 px-3 py-1 text-caption1 font-bold text-white shadow-[0_6px_18px_-6px_rgba(236,72,153,0.9)]">
-          <span aria-hidden>✨</span><span className="truncate">En común: {person.common.slice(0, 3).join(' · ')}</span>
-        </p>
+      {((person.common && person.common.length > 0) || person.affinity != null) && (
+        <div className="mt-2 flex max-w-full flex-wrap items-center gap-1.5">
+          {/* Qué tan afines son (solo si los dos contaron algo con qué comparar). */}
+          {person.affinity != null && (
+            <p className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-caption1 font-bold ${person.affinity >= 80 ? 'bg-emerald-400 text-[#052e1a] shadow-[0_6px_18px_-6px_rgba(52,211,153,0.9)]' : 'bg-white/[0.2] text-white backdrop-blur-md'}`}>
+              <span aria-hidden>{person.affinity >= 80 ? '🔥' : '💫'}</span> {person.affinity}% afín
+            </p>
+          )}
+          {person.common && person.common.length > 0 && (
+            <p className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-gradient-to-r from-pink-500/90 to-fuchsia-500/90 px-3 py-1 text-caption1 font-bold text-white shadow-[0_6px_18px_-6px_rgba(236,72,153,0.9)]">
+              <span aria-hidden>✨</span><span className="truncate">En común: {person.common.slice(0, 3).join(' · ')}</span>
+            </p>
+          )}
+        </div>
       )}
       <div className="mt-2 flex flex-wrap gap-1.5">
         <Chip>{identityLabel(person)}</Chip>

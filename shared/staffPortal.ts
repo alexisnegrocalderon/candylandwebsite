@@ -38,6 +38,8 @@ export function staffToolsForRole(role: string | null | undefined): StaffTool[] 
   const r = plain(role);
   if (!r) return [];
   if (/(admin|supervis|encargad|coordin|produc|jef)/.test(r)) return Object.values(TOOLS);
+  // Los anfitriones de Playmatch no escanean entradas: su herramienta es su propia pantalla de Playmatch.
+  if (/playmatch/.test(r)) return [];
   const out: StaffTool[] = [];
   if (/(puerta|acceso|seguridad|guardia|anfitri|host|recepci)/.test(r)) out.push(TOOLS.puerta);
   if (/(caja|cajer|barra|bar\b|bartender|barman|copero)/.test(r)) out.push(TOOLS.caja);
