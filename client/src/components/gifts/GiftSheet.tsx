@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { ArrowLeft, Check, Minus, Plus, Search, X } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { AnimatePresence, motion } from 'framer-motion';
+import { ArrowLeft, Check, ChevronLeft, Minus, Plus, Search, X } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { useTonightEvent } from '@/hooks/useTonightEvent';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet';
+import { useBackClosable } from '@/components/site/AmbassadorAccount';
 import { isAnyParkingTicketType } from '@shared/parking';
 import { cargoDef } from '@shared/staffCargos';
 import { GIFT_DENIED_MESSAGE } from '@shared/gifts';
@@ -56,8 +59,10 @@ function Stepper({ label, value, onChange }: { label: string; value: number; onC
  * grupo), 2 Qué (entradas y tragos, paquetes guardados, «Llega directo» o «Pase para canjear») y 3 Confirmar (resumen y un
  * mensaje opcional que le llega en el correo y en su app). La misma hoja en el panel y en la App: en la App funciona si ese
  * celular ya tiene abierta la sesión del panel (que pide la app autenticadora); si no, lo dice. Solo el dueño regala. */
-export function GiftSheet({ open, onClose, team = [], initialIds = [], initialRecipients = [] }: {
+export function GiftSheet({ open, onClose, team = [], initialIds = [], initialRecipients = [], variant = 'sheet' }: {
   open: boolean; onClose: () => void; team?: Persona[]; initialIds?: number[]; initialRecipients?: Recipient[];
+  /** `sheet`: hoja inferior del panel. `app`: pantalla de la App (Mi cuenta), con su mismo estilo oscuro. */
+  variant?: 'sheet' | 'app';
 }) {
   const access = trpc.orders.canGift.useQuery(undefined, { enabled: open, retry: false });
   const allowed = !!access.data?.can;
@@ -198,6 +203,265 @@ export function GiftSheet({ open, onClose, team = [], initialIds = [], initialRe
   const flowStep = step === 'quien' || step === 'que' || step === 'confirmar' ? step : null;
   const canNext = step === 'quien' ? count > 0 && !(audienceDef && preview.data?.overLimit) : step === 'que' ? giftCount > 0 : true;
 
+  // Atrás del encabezado de la App: un paso atrás, o cerrar si ya está en el primero.
+  const goBack = () => {
+    if (step === 'confirmar') setStep('que');
+    else if (step === 'que' || step === 'historial') setStep('quien');
+    else onClose();
+  };
+  useBackClosable(open && variant === 'app', onClose);
+
+  const body = (
+    <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">
+      {access.isLoading ? (
+        <p className="text-sm text-muted-foreground">Cargando…</p>
+      ) : !allowed ? (
+        <div className="space-y-3 rounded-2xl bg-muted/50 p-4 text-sm">
+          <p className="font-semibold">{access.data ? GIFT_DENIED_MESSAGE : 'Para regalar, entra al panel una vez en este celular.'}</p>
+          {!access.data && <p className="text-muted-foreground">Regalar es dar plata, por eso pide la sesión del panel (con la app autenticadora). Entras una vez y después regalas desde aquí sin salir de la App.</p>}
+          {!access.data && <a href="/admin" className="inline-flex h-11 items-center rounded-full bg-primary px-5 font-semibold text-primary-foreground">Entrar al panel</a>}
+        </div>
+      ) : step === 'quien' ? (
+        <div className="space-y-4">
+          {recipients.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {recipients.map((r) => (
+                <span key={r.email} className="inline-flex items-center gap-1 rounded-full bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground">
+                  {r.name || r.email}
+                  <button type="button" aria-label={`Quitar a ${r.name || r.email}`} onClick={() => setRecipients((l) => l.filter((x) => x.email !== r.email))}><X className="h-3.5 w-3.5" /></button>
+                </span>
+              ))}
+            </div>
+          )}
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input ref={searchRef} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Nombre, apellido, correo o teléfono" className="h-12 pl-9 text-base" inputMode="search" autoComplete="off"
+              onKeyDown={(e) => { if (e.key === 'Enter' && looksLikeEmail(q)) { e.preventDefault(); addRecipient({ email: q.trim().toLowerCase(), name: '' }); } }} />
+          </div>
+          {q.trim().length === 1 && <p className="text-xs text-muted-foreground">Escribe una letra más para buscar.</p>}
+          {term.length >= 2 && (
+            <ul className="space-y-1.5" aria-live="polite">
+              {options.map((r) => (
+                <li key={r.id}>
+                  <button type="button" onClick={() => addRecipient({ email: r.email.toLowerCase(), name: r.fullName ?? '' })} className="flex w-full items-center gap-3 rounded-2xl bg-muted/50 px-3 py-2.5 text-left hover:bg-muted">
+                    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-primary/15 font-bold text-primary">{initialOf(r.fullName, r.email)}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-semibold">{r.fullName || '(sin nombre)'}</span>
+                      <span className="block truncate text-xs text-muted-foreground">{r.email}</span>
+                    </span>
+                    <span className="shrink-0 text-right text-[11px] text-muted-foreground">{lastVisitLabel(r.lastSeenAt)}</span>
+                  </button>
+                </li>
+              ))}
+              {looksLikeEmail(q) && !options.some((r) => r.email.toLowerCase() === q.trim().toLowerCase()) && (
+                <li><button type="button" onClick={() => addRecipient({ email: q.trim().toLowerCase(), name: '' })} className="w-full rounded-2xl border border-dashed border-border px-3 py-2.5 text-left text-sm hover:bg-muted">Agregar {q.trim().toLowerCase()}</button></li>
+              )}
+              {!found.isFetching && options.length === 0 && !looksLikeEmail(q) && <li className="px-1 text-xs text-muted-foreground">Nadie con «{term}». Si no es cliente todavía, escribe su correo completo.</li>}
+              {found.isFetching && options.length === 0 && <li className="px-1 text-xs text-muted-foreground">Buscando…</li>}
+            </ul>
+          )}
+
+          {people.length > 0 && (
+            <section>
+              <p className="mb-1.5 flex items-center gap-2 text-xs font-semibold text-muted-foreground">Equipo
+                <button type="button" className="font-normal underline" onClick={() => setStaffIds(people.map((m) => m.id))}>todos</button>
+                <button type="button" className="font-normal underline" onClick={() => setStaffIds([])}>ninguno</button>
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {people.map((m) => (
+                  <button key={m.id} type="button" aria-pressed={staffIds.includes(m.id)} onClick={() => setStaffIds((s) => (s.includes(m.id) ? s.filter((x) => x !== m.id) : [...s, m.id]))} className={chip(staffIds.includes(m.id))}>
+                    {cargoDef(m.cargo)?.emoji ?? ''} {m.name}
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
+
+          <section>
+            <p className="mb-1.5 text-xs font-semibold text-muted-foreground">O a todo un grupo</p>
+            <div className="flex flex-wrap gap-1.5">
+              {AUDIENCES.map((a) => <button key={a.id} type="button" aria-pressed={audienceId === a.id} onClick={() => setAudienceId(audienceId === a.id ? null : a.id)} className={chip(audienceId === a.id)}>{a.label}</button>)}
+            </div>
+            {audienceDef && <p className="mt-1.5 text-xs text-muted-foreground">{preview.isLoading ? 'Contando…' : preview.data?.overLimit ? 'Es demasiado grande para un solo envío: elige un grupo más chico.' : `Le llegaría a ${preview.data?.count ?? 0} personas.`}</p>}
+          </section>
+        </div>
+      ) : step === 'que' ? (
+        <div className="space-y-4">
+          {(packs.length > 0 || giftCount > 0) && (
+            <section>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {shownPacks.map((p) => (
+                  <span key={p.id} className="inline-flex items-center overflow-hidden rounded-full border border-border bg-card text-sm">
+                    <button type="button" onClick={() => applyPack(p)} className="px-3 py-1.5 font-medium hover:bg-muted">📦 {p.name}</button>
+                    <button type="button" aria-label={`Borrar el paquete ${p.name}`} onClick={() => deletePack(p.id)} className="px-2 py-1.5 text-muted-foreground hover:bg-muted"><X className="h-3.5 w-3.5" /></button>
+                  </span>
+                ))}
+                {giftCount > 0 && <button type="button" onClick={saveAsPack} className="text-xs underline">Guardar como paquete</button>}
+              </div>
+            </section>
+          )}
+
+          <section className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Cómo lo recibe">
+            {([['directo', '🎟️ Llega directo', 'La entrada llega con su QR.'], ['pase', '🎁 Pase para canjear', 'Queda en Cupones y compra con su acceso de regalo.']] as const).map(([m, label, help]) => (
+              <button key={m} type="button" role="radio" aria-checked={mode === m} onClick={() => setMode(m)}
+                className={`rounded-2xl border-2 px-3 py-2.5 text-left transition ${mode === m ? 'border-primary bg-primary/10' : 'border-border bg-card/60 hover:bg-muted'}`}>
+                <span className="block text-sm font-semibold">{label}</span>
+                <span className="block text-xs text-muted-foreground">{help}</span>
+              </button>
+            ))}
+          </section>
+          {mode === 'pase' && (
+            <section className="space-y-2 rounded-2xl bg-muted/40 p-3">
+              <div className="flex flex-wrap gap-1.5">
+                <button type="button" aria-pressed={!anyAccess} onClick={() => setAnyAccess(false)} className={chip(!anyAccess)}>Acceso fijo</button>
+                <button type="button" aria-pressed={anyAccess} onClick={() => setAnyAccess(true)} className={chip(anyAccess)}>A elección</button>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {VALIDITY.map((v) => <button key={v.label} type="button" aria-pressed={validDays === v.days} onClick={() => setValidDays(v.days)} className={chip(validDays === v.days)}>{v.label}</button>)}
+              </div>
+              <p className="text-xs text-muted-foreground">Personal, solo para este evento y se canjea en el checkout con todos sus pasos (incluido el código de Soltero).</p>
+            </section>
+          )}
+
+          <section className="rounded-3xl border border-border p-3">
+            <p className="mb-2 font-semibold">🎟️ Entrada</p>
+            <ul className="space-y-1.5">
+              {passAny && <Stepper label="Pase de acceso a elección" value={anyQty} onChange={setAnyQty} />}
+              {products.entradas.filter((t) => !(passAny && t.category === 'acceso')).map((t) => (
+                <Stepper key={t.id} label={`${t.emoji ? `${t.emoji} ` : ''}${t.name}`} value={qty[t.id] ?? 0} onChange={(n) => setQty((s) => ({ ...s, [t.id]: n }))} />
+              ))}
+              {types && products.entradas.length === 0 && <li className="text-sm text-muted-foreground">Este evento no tiene entradas.</li>}
+            </ul>
+          </section>
+          <section className="rounded-3xl border border-border p-3">
+            <p className="mb-2 font-semibold">🍹 Trago</p>
+            <ul className="space-y-1.5">
+              {products.tragos.map((t) => (
+                <Stepper key={t.id} label={`${t.emoji ? `${t.emoji} ` : ''}${t.name}`} value={qty[t.id] ?? 0} onChange={(n) => setQty((s) => ({ ...s, [t.id]: n }))} />
+              ))}
+              {types && products.tragos.length === 0 && <li className="text-sm text-muted-foreground">La carta de este evento no tiene tragos.</li>}
+            </ul>
+            <p className="mt-2 text-xs text-muted-foreground">Los tragos quedan en sus Cupones con un QR para la barra.</p>
+          </section>
+        </div>
+      ) : step === 'confirmar' ? (
+        <div className="space-y-4">
+          <p className="rounded-2xl bg-primary/10 p-4 text-base leading-relaxed">{summary}</p>
+          <section>
+            <label htmlFor="gift-message" className="mb-1 block text-sm font-semibold">Mensaje <span className="font-normal text-muted-foreground">(opcional, le llega en el correo y en su app)</span></label>
+            <textarea id="gift-message" value={message} maxLength={GIFT_MESSAGE_MAX} rows={3} onChange={(e) => setMessage(e.target.value.slice(0, GIFT_MESSAGE_MAX))}
+              placeholder="Ej. ¡Feliz cumpleaños! Te esperamos en la fiesta 💖"
+              className="w-full resize-none rounded-2xl border border-input bg-transparent px-3 py-2 text-base outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+            <p className={`text-right text-xs tabular-nums ${message.length >= GIFT_MESSAGE_MAX ? 'text-amber-500' : 'text-muted-foreground'}`}>{message.length}/{GIFT_MESSAGE_MAX}</p>
+          </section>
+          <section>
+            <label htmlFor="gift-reason" className="mb-1 block text-xs font-semibold text-muted-foreground">Motivo interno (solo lo ves tú, en «Regalos hechos»)</label>
+            <Input id="gift-reason" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={200} placeholder="Ej. compensación, invitado de producción…" />
+          </section>
+        </div>
+      ) : step === 'listo' && result ? (
+        <div className="flex flex-col items-center gap-3 py-6 text-center">
+          <span className="grid h-16 w-16 place-items-center rounded-full bg-emerald-500/15 text-emerald-500"><Check className="h-8 w-8" /></span>
+          <p className="text-xl font-bold">{result.ok > 0 ? `Le llegó a ${result.ok === 1 ? toLabel : `${result.ok} personas`}` : 'No se pudo regalar'}</p>
+          {result.ok > 0 && <p className="text-sm text-muted-foreground">{result.resumen}. Ya tiene el correo y el aviso en su app.</p>}
+          {result.bad.length > 0 && (
+            <ul className="w-full space-y-1 rounded-2xl bg-destructive/10 p-3 text-left text-sm text-destructive">
+              {result.bad.slice(0, 6).map((b) => <li key={b.email}>{b.email}: {b.error}</li>)}
+            </ul>
+          )}
+        </div>
+      ) : step === 'historial' ? (
+        <div className="space-y-2">
+          {history.isLoading && <p className="text-sm text-muted-foreground">Cargando…</p>}
+          {!history.isLoading && (history.data ?? []).length === 0 && <p className="text-sm text-muted-foreground">Todavía no hay pases regalados para este evento.</p>}
+          {(history.data ?? []).map((g) => (
+            <div key={g.id} className="flex items-center gap-3 rounded-2xl bg-muted/50 px-3 py-2 text-sm">
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-medium">{g.buyerName || g.buyerEmail} <span className="font-normal text-muted-foreground">· {g.accesoName}</span></p>
+                <p className="truncate text-xs text-muted-foreground">{g.buyerEmail} · {g.code}{g.reason ? ` · ${g.reason}` : ''}</p>
+              </div>
+              <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${g.availability === 'available' ? 'bg-emerald-500/15 text-emerald-500' : g.availability === 'used' ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'}`}>
+                {g.availability === 'available' ? 'Disponible' : g.availability === 'used' ? 'Canjeado' : g.availability === 'expired' ? 'Vencido' : 'Anulado'}
+              </span>
+              {g.availability === 'available' && (
+                <Button type="button" variant="outline" size="sm" disabled={cancel.isPending} onClick={() => { if (window.confirm(`¿Anular el pase de ${g.buyerEmail}?`)) cancel.mutate({ creditId: g.id }); }}>Anular</Button>
+              )}
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+
+  // Pie: la acción del paso.
+  const footer = allowed && step !== 'historial' && (
+      <div className="flex shrink-0 items-center gap-2 border-t border-border px-5 py-3 pb-[max(env(safe-area-inset-bottom),0.75rem)]">
+        {step === 'listo' ? (
+          <>
+            <Button type="button" variant="outline" className="h-12 flex-1" onClick={onClose}>Cerrar</Button>
+            <Button type="button" className="h-12 flex-1" onClick={anotherPerson}>Regalar a otra persona</Button>
+          </>
+        ) : (
+          <>
+            <p className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
+              {step === 'quien' ? `${count} ${count === 1 ? 'persona' : 'personas'}` : `${giftCount} ${giftCount === 1 ? 'regalo' : 'regalos'}${count > 1 ? ' por persona' : ''}`}
+            </p>
+            {step === 'confirmar' ? (
+              <Button type="button" className="h-12 px-6" disabled={gift.isPending || !event || count === 0 || giftCount === 0} onClick={submit}>{gift.isPending ? 'Regalando…' : '🎁 Regalar'}</Button>
+            ) : (
+              <Button type="button" className="h-12 px-6" disabled={!canNext} onClick={() => setStep(step === 'quien' ? 'que' : 'confirmar')}>Siguiente</Button>
+            )}
+          </>
+        )}
+      </div>
+  );
+
+  // Dentro de la App (Mi cuenta): una pantalla más de la App, con su mismo fondo oscuro, tipografía y «Volver», no una hoja
+  // clara encima. Entra deslizándose como Staff y Dosier de barra.
+  if (variant === 'app') {
+    const title = flowStep ? STEP_LABEL[flowStep] : step === 'historial' ? 'Regalos hechos' : '¡Listo!';
+    return createPortal(
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            key="gift-screen"
+            role="dialog"
+            aria-label="Regalar"
+            className="account-font account-tokens fixed inset-0 z-[90] flex flex-col bg-[#0b0612] text-white"
+            initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
+            transition={{ type: 'spring', damping: 32, stiffness: 320, mass: 0.9 }}
+          >
+            <div className="account-backdrop" />
+            <header className="relative z-10 shrink-0 px-3 pb-2 pt-[max(12px,env(safe-area-inset-top))]">
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={goBack} className="inline-flex h-10 items-center gap-0.5 rounded-full pl-1 pr-3 text-subhead font-semibold text-pink-300 interactive" aria-label="Volver">
+                  <ChevronLeft className="h-6 w-6" /> Volver
+                </button>
+                <div className="min-w-0 flex-1 text-center">
+                  <h2 className="truncate text-body font-bold">🎁 {title}</h2>
+                  <p className="truncate text-caption1 text-white/60">{event ? event.title : 'Cargando el evento…'}{flowStep ? ` · Paso ${STEP_NUM[flowStep]} de 3` : ''}</p>
+                </div>
+                {flowStep && allowed ? (
+                  <button type="button" onClick={() => setStep('historial')} className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white/10 text-base interactive" aria-label="Regalos hechos">📋</button>
+                ) : <span className="w-10 shrink-0" aria-hidden />}
+              </div>
+              {flowStep && (
+                <div className="mt-3 grid grid-cols-3 gap-1.5 px-1" aria-hidden>
+                  {(['quien', 'que', 'confirmar'] as const).map((s) => <span key={s} className={`h-1 rounded-full ${STEP_NUM[s] <= STEP_NUM[flowStep] ? 'bg-pink-400' : 'bg-white/15'}`} />)}
+                </div>
+              )}
+            </header>
+            <div className="relative z-10 mx-auto flex min-h-0 w-full max-w-lg flex-1 flex-col">
+              {body}
+              {footer}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>,
+      document.body,
+    );
+  }
+
   return (
     <Sheet open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
       {/* z-[100]: la App (Cuenta) vive en una capa fija z-[60] y el detalle de un evento en z-[80]; con el z-50 de siempre la hoja
@@ -224,208 +488,9 @@ export function GiftSheet({ open, onClose, team = [], initialIds = [], initialRe
           )}
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">
-          {access.isLoading ? (
-            <p className="text-sm text-muted-foreground">Cargando…</p>
-          ) : !allowed ? (
-            <div className="space-y-3 rounded-2xl bg-muted/50 p-4 text-sm">
-              <p className="font-semibold">{access.data ? GIFT_DENIED_MESSAGE : 'Para regalar, entra al panel una vez en este celular.'}</p>
-              {!access.data && <p className="text-muted-foreground">Regalar es dar plata, por eso pide la sesión del panel (con la app autenticadora). Entras una vez y después regalas desde aquí sin salir de la App.</p>}
-              {!access.data && <a href="/admin" className="inline-flex h-11 items-center rounded-full bg-primary px-5 font-semibold text-primary-foreground">Entrar al panel</a>}
-            </div>
-          ) : step === 'quien' ? (
-            <div className="space-y-4">
-              {recipients.length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
-                  {recipients.map((r) => (
-                    <span key={r.email} className="inline-flex items-center gap-1 rounded-full bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground">
-                      {r.name || r.email}
-                      <button type="button" aria-label={`Quitar a ${r.name || r.email}`} onClick={() => setRecipients((l) => l.filter((x) => x.email !== r.email))}><X className="h-3.5 w-3.5" /></button>
-                    </span>
-                  ))}
-                </div>
-              )}
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input ref={searchRef} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Nombre, apellido, correo o teléfono" className="h-12 pl-9 text-base" inputMode="search" autoComplete="off"
-                  onKeyDown={(e) => { if (e.key === 'Enter' && looksLikeEmail(q)) { e.preventDefault(); addRecipient({ email: q.trim().toLowerCase(), name: '' }); } }} />
-              </div>
-              {q.trim().length === 1 && <p className="text-xs text-muted-foreground">Escribe una letra más para buscar.</p>}
-              {term.length >= 2 && (
-                <ul className="space-y-1.5" aria-live="polite">
-                  {options.map((r) => (
-                    <li key={r.id}>
-                      <button type="button" onClick={() => addRecipient({ email: r.email.toLowerCase(), name: r.fullName ?? '' })} className="flex w-full items-center gap-3 rounded-2xl bg-muted/50 px-3 py-2.5 text-left hover:bg-muted">
-                        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-primary/15 font-bold text-primary">{initialOf(r.fullName, r.email)}</span>
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-sm font-semibold">{r.fullName || '(sin nombre)'}</span>
-                          <span className="block truncate text-xs text-muted-foreground">{r.email}</span>
-                        </span>
-                        <span className="shrink-0 text-right text-[11px] text-muted-foreground">{lastVisitLabel(r.lastSeenAt)}</span>
-                      </button>
-                    </li>
-                  ))}
-                  {looksLikeEmail(q) && !options.some((r) => r.email.toLowerCase() === q.trim().toLowerCase()) && (
-                    <li><button type="button" onClick={() => addRecipient({ email: q.trim().toLowerCase(), name: '' })} className="w-full rounded-2xl border border-dashed border-border px-3 py-2.5 text-left text-sm hover:bg-muted">Agregar {q.trim().toLowerCase()}</button></li>
-                  )}
-                  {!found.isFetching && options.length === 0 && !looksLikeEmail(q) && <li className="px-1 text-xs text-muted-foreground">Nadie con «{term}». Si no es cliente todavía, escribe su correo completo.</li>}
-                  {found.isFetching && options.length === 0 && <li className="px-1 text-xs text-muted-foreground">Buscando…</li>}
-                </ul>
-              )}
+        {body}
 
-              {people.length > 0 && (
-                <section>
-                  <p className="mb-1.5 flex items-center gap-2 text-xs font-semibold text-muted-foreground">Equipo
-                    <button type="button" className="font-normal underline" onClick={() => setStaffIds(people.map((m) => m.id))}>todos</button>
-                    <button type="button" className="font-normal underline" onClick={() => setStaffIds([])}>ninguno</button>
-                  </p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {people.map((m) => (
-                      <button key={m.id} type="button" aria-pressed={staffIds.includes(m.id)} onClick={() => setStaffIds((s) => (s.includes(m.id) ? s.filter((x) => x !== m.id) : [...s, m.id]))} className={chip(staffIds.includes(m.id))}>
-                        {cargoDef(m.cargo)?.emoji ?? ''} {m.name}
-                      </button>
-                    ))}
-                  </div>
-                </section>
-              )}
-
-              <section>
-                <p className="mb-1.5 text-xs font-semibold text-muted-foreground">O a todo un grupo</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {AUDIENCES.map((a) => <button key={a.id} type="button" aria-pressed={audienceId === a.id} onClick={() => setAudienceId(audienceId === a.id ? null : a.id)} className={chip(audienceId === a.id)}>{a.label}</button>)}
-                </div>
-                {audienceDef && <p className="mt-1.5 text-xs text-muted-foreground">{preview.isLoading ? 'Contando…' : preview.data?.overLimit ? 'Es demasiado grande para un solo envío: elige un grupo más chico.' : `Le llegaría a ${preview.data?.count ?? 0} personas.`}</p>}
-              </section>
-            </div>
-          ) : step === 'que' ? (
-            <div className="space-y-4">
-              {(packs.length > 0 || giftCount > 0) && (
-                <section>
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    {shownPacks.map((p) => (
-                      <span key={p.id} className="inline-flex items-center overflow-hidden rounded-full border border-border bg-card text-sm">
-                        <button type="button" onClick={() => applyPack(p)} className="px-3 py-1.5 font-medium hover:bg-muted">📦 {p.name}</button>
-                        <button type="button" aria-label={`Borrar el paquete ${p.name}`} onClick={() => deletePack(p.id)} className="px-2 py-1.5 text-muted-foreground hover:bg-muted"><X className="h-3.5 w-3.5" /></button>
-                      </span>
-                    ))}
-                    {giftCount > 0 && <button type="button" onClick={saveAsPack} className="text-xs underline">Guardar como paquete</button>}
-                  </div>
-                </section>
-              )}
-
-              <section className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Cómo lo recibe">
-                {([['directo', '🎟️ Llega directo', 'La entrada llega con su QR.'], ['pase', '🎁 Pase para canjear', 'Queda en Cupones y compra con su acceso de regalo.']] as const).map(([m, label, help]) => (
-                  <button key={m} type="button" role="radio" aria-checked={mode === m} onClick={() => setMode(m)}
-                    className={`rounded-2xl border-2 px-3 py-2.5 text-left transition ${mode === m ? 'border-primary bg-primary/10' : 'border-border bg-card/60 hover:bg-muted'}`}>
-                    <span className="block text-sm font-semibold">{label}</span>
-                    <span className="block text-xs text-muted-foreground">{help}</span>
-                  </button>
-                ))}
-              </section>
-              {mode === 'pase' && (
-                <section className="space-y-2 rounded-2xl bg-muted/40 p-3">
-                  <div className="flex flex-wrap gap-1.5">
-                    <button type="button" aria-pressed={!anyAccess} onClick={() => setAnyAccess(false)} className={chip(!anyAccess)}>Acceso fijo</button>
-                    <button type="button" aria-pressed={anyAccess} onClick={() => setAnyAccess(true)} className={chip(anyAccess)}>A elección</button>
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {VALIDITY.map((v) => <button key={v.label} type="button" aria-pressed={validDays === v.days} onClick={() => setValidDays(v.days)} className={chip(validDays === v.days)}>{v.label}</button>)}
-                  </div>
-                  <p className="text-xs text-muted-foreground">Personal, solo para este evento y se canjea en el checkout con todos sus pasos (incluido el código de Soltero).</p>
-                </section>
-              )}
-
-              <section className="rounded-3xl border border-border p-3">
-                <p className="mb-2 font-semibold">🎟️ Entrada</p>
-                <ul className="space-y-1.5">
-                  {passAny && <Stepper label="Pase de acceso a elección" value={anyQty} onChange={setAnyQty} />}
-                  {products.entradas.filter((t) => !(passAny && t.category === 'acceso')).map((t) => (
-                    <Stepper key={t.id} label={`${t.emoji ? `${t.emoji} ` : ''}${t.name}`} value={qty[t.id] ?? 0} onChange={(n) => setQty((s) => ({ ...s, [t.id]: n }))} />
-                  ))}
-                  {types && products.entradas.length === 0 && <li className="text-sm text-muted-foreground">Este evento no tiene entradas.</li>}
-                </ul>
-              </section>
-              <section className="rounded-3xl border border-border p-3">
-                <p className="mb-2 font-semibold">🍹 Trago</p>
-                <ul className="space-y-1.5">
-                  {products.tragos.map((t) => (
-                    <Stepper key={t.id} label={`${t.emoji ? `${t.emoji} ` : ''}${t.name}`} value={qty[t.id] ?? 0} onChange={(n) => setQty((s) => ({ ...s, [t.id]: n }))} />
-                  ))}
-                  {types && products.tragos.length === 0 && <li className="text-sm text-muted-foreground">La carta de este evento no tiene tragos.</li>}
-                </ul>
-                <p className="mt-2 text-xs text-muted-foreground">Los tragos quedan en sus Cupones con un QR para la barra.</p>
-              </section>
-            </div>
-          ) : step === 'confirmar' ? (
-            <div className="space-y-4">
-              <p className="rounded-2xl bg-primary/10 p-4 text-base leading-relaxed">{summary}</p>
-              <section>
-                <label htmlFor="gift-message" className="mb-1 block text-sm font-semibold">Mensaje <span className="font-normal text-muted-foreground">(opcional, le llega en el correo y en su app)</span></label>
-                <textarea id="gift-message" value={message} maxLength={GIFT_MESSAGE_MAX} rows={3} onChange={(e) => setMessage(e.target.value.slice(0, GIFT_MESSAGE_MAX))}
-                  placeholder="Ej. ¡Feliz cumpleaños! Te esperamos en la fiesta 💖"
-                  className="w-full resize-none rounded-2xl border border-input bg-transparent px-3 py-2 text-base outline-none focus-visible:ring-2 focus-visible:ring-ring" />
-                <p className={`text-right text-xs tabular-nums ${message.length >= GIFT_MESSAGE_MAX ? 'text-amber-500' : 'text-muted-foreground'}`}>{message.length}/{GIFT_MESSAGE_MAX}</p>
-              </section>
-              <section>
-                <label htmlFor="gift-reason" className="mb-1 block text-xs font-semibold text-muted-foreground">Motivo interno (solo lo ves tú, en «Regalos hechos»)</label>
-                <Input id="gift-reason" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={200} placeholder="Ej. compensación, invitado de producción…" />
-              </section>
-            </div>
-          ) : step === 'listo' && result ? (
-            <div className="flex flex-col items-center gap-3 py-6 text-center">
-              <span className="grid h-16 w-16 place-items-center rounded-full bg-emerald-500/15 text-emerald-500"><Check className="h-8 w-8" /></span>
-              <p className="text-xl font-bold">{result.ok > 0 ? `Le llegó a ${result.ok === 1 ? toLabel : `${result.ok} personas`}` : 'No se pudo regalar'}</p>
-              {result.ok > 0 && <p className="text-sm text-muted-foreground">{result.resumen}. Ya tiene el correo y el aviso en su app.</p>}
-              {result.bad.length > 0 && (
-                <ul className="w-full space-y-1 rounded-2xl bg-destructive/10 p-3 text-left text-sm text-destructive">
-                  {result.bad.slice(0, 6).map((b) => <li key={b.email}>{b.email}: {b.error}</li>)}
-                </ul>
-              )}
-            </div>
-          ) : step === 'historial' ? (
-            <div className="space-y-2">
-              {history.isLoading && <p className="text-sm text-muted-foreground">Cargando…</p>}
-              {!history.isLoading && (history.data ?? []).length === 0 && <p className="text-sm text-muted-foreground">Todavía no hay pases regalados para este evento.</p>}
-              {(history.data ?? []).map((g) => (
-                <div key={g.id} className="flex items-center gap-3 rounded-2xl bg-muted/50 px-3 py-2 text-sm">
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-medium">{g.buyerName || g.buyerEmail} <span className="font-normal text-muted-foreground">· {g.accesoName}</span></p>
-                    <p className="truncate text-xs text-muted-foreground">{g.buyerEmail} · {g.code}{g.reason ? ` · ${g.reason}` : ''}</p>
-                  </div>
-                  <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${g.availability === 'available' ? 'bg-emerald-500/15 text-emerald-500' : g.availability === 'used' ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'}`}>
-                    {g.availability === 'available' ? 'Disponible' : g.availability === 'used' ? 'Canjeado' : g.availability === 'expired' ? 'Vencido' : 'Anulado'}
-                  </span>
-                  {g.availability === 'available' && (
-                    <Button type="button" variant="outline" size="sm" disabled={cancel.isPending} onClick={() => { if (window.confirm(`¿Anular el pase de ${g.buyerEmail}?`)) cancel.mutate({ creditId: g.id }); }}>Anular</Button>
-                  )}
-                </div>
-              ))}
-            </div>
-          ) : null}
-        </div>
-
-        {/* Pie: la acción del paso. */}
-        {allowed && step !== 'historial' && (
-          <div className="flex shrink-0 items-center gap-2 border-t border-border px-5 py-3 pb-[max(env(safe-area-inset-bottom),0.75rem)]">
-            {step === 'listo' ? (
-              <>
-                <Button type="button" variant="outline" className="h-12 flex-1" onClick={onClose}>Cerrar</Button>
-                <Button type="button" className="h-12 flex-1" onClick={anotherPerson}>Regalar a otra persona</Button>
-              </>
-            ) : (
-              <>
-                <p className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
-                  {step === 'quien' ? `${count} ${count === 1 ? 'persona' : 'personas'}` : `${giftCount} ${giftCount === 1 ? 'regalo' : 'regalos'}${count > 1 ? ' por persona' : ''}`}
-                </p>
-                {step === 'confirmar' ? (
-                  <Button type="button" className="h-12 px-6" disabled={gift.isPending || !event || count === 0 || giftCount === 0} onClick={submit}>{gift.isPending ? 'Regalando…' : '🎁 Regalar'}</Button>
-                ) : (
-                  <Button type="button" className="h-12 px-6" disabled={!canNext} onClick={() => setStep(step === 'quien' ? 'que' : 'confirmar')}>Siguiente</Button>
-                )}
-              </>
-            )}
-          </div>
-        )}
+        {footer}
       </SheetContent>
     </Sheet>
   );

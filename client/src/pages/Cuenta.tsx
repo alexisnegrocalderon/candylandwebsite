@@ -904,7 +904,7 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
                   </span>
                 </button>
               )}
-              {me.isAdmin && <GiftSheet open={giftOpen} onClose={() => setGiftOpen(false)} />}
+              {me.isAdmin && <GiftSheet variant="app" open={giftOpen} onClose={() => setGiftOpen(false)} />}
               {/* Solo para quien entra con el correo de un embajador. */}
               {ambassador && (
                 <button type="button" onClick={() => { tapHaptic(); setSheet('embajador'); }} className="block w-full rounded-[24px] bg-gradient-to-r from-amber-300/70 via-pink-400/50 to-fuchsia-400/60 p-[1.5px] text-left interactive">
