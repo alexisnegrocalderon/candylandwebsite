@@ -9,6 +9,7 @@
     "build:api": "esbuild server/vercel-entry.ts --platform=node --packages=external --bundle --format=esm --outfile=api/index.js",
     "start": "NODE_ENV=production node dist/index.js",
     "check": "tsc --noEmit",
+    "loadtest:playmatch": "tsx scripts/loadtest-playmatch.ts",
     "format": "prettier --write .",
     "test": "vitest run",
     "db:push": "drizzle-kit generate && drizzle-kit migrate"
