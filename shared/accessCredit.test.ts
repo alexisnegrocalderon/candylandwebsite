@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { creditAvailability, creditDiscount, generateCreditCode, normalizeCreditCode } from './accessCredit';
+import { ANY_ACCESS_SLUG, creditAvailability, creditDiscount, generateCreditCode, giftNote, giftPassError, normalizeCreditCode, parseGiftNote } from './accessCredit';
 
 describe('generateCreditCode', () => {
   it('arma CREDITO- + 6 caracteres sin ambiguos', () => {
@@ -47,5 +47,42 @@ describe('creditDiscount', () => {
   });
   it('si hay varias tandas del mismo acceso, usa la más barata', () => {
     expect(creditDiscount('duo', [line(1, 'duo', 40000), line(4, 'duo', 35000)])).toEqual({ amount: 35000, ticketTypeId: 4 });
+  });
+});
+
+describe('pases regalados', () => {
+  const note = giftNote({ eventId: 7, eventTitle: '2º Aniversario', validUntil: '2026-10-31T12:00:00.000Z', reason: 'Cumpleaños', by: 'contacto@mansionplayroom.cl' });
+  const credit = { status: 'available', usedOrderId: null, reservedAt: null, note };
+
+  it('guarda y lee los datos del regalo en la nota; una nota de texto de siempre no es un regalo', () => {
+    expect(parseGiftNote(note)).toMatchObject({ gift: 1, eventId: 7, eventTitle: '2º Aniversario', reason: 'Cumpleaños' });
+    expect(parseGiftNote('Dejado para otra fecha (orden MP-1)')).toBeNull();
+    expect(parseGiftNote(null)).toBeNull();
+    expect(parseGiftNote('{roto')).toBeNull();
+  });
+
+  it('el pase vence, pero uno de siempre no', () => {
+    expect(creditAvailability(credit, null, new Date('2026-10-30T00:00:00Z'))).toBe('available');
+    expect(creditAvailability(credit, null, new Date('2026-11-02T00:00:00Z'))).toBe('expired');
+    expect(creditAvailability({ ...credit, note: 'texto' }, null, new Date('2030-01-01T00:00:00Z'))).toBe('available');
+    expect(creditAvailability({ ...credit, status: 'cancelled' }, null, new Date('2026-10-30T00:00:00Z'))).toBe('cancelled');
+  });
+
+  it('solo sirve para su evento y mientras no venza', () => {
+    expect(giftPassError(credit, 7, new Date('2026-10-30T00:00:00Z'))).toBeNull();
+    expect(giftPassError(credit, 8, new Date('2026-10-30T00:00:00Z'))).toBe('Este pase es para 2º Aniversario.');
+    expect(giftPassError(credit, 7, new Date('2026-11-02T00:00:00Z'))).toBe('Este pase venció.');
+    expect(giftPassError({ note: 'texto de siempre' }, 99)).toBeNull();
+  });
+
+  it('un pase «a elección» descuenta UNA unidad del acceso que elijan (la más barata)', () => {
+    const lines = [
+      { ticketTypeId: 1, accesoSlug: 'duo', category: 'acceso', unitPrice: 20000, quantity: 1 },
+      { ticketTypeId: 2, accesoSlug: 'trio', category: 'acceso', unitPrice: 28000, quantity: 2 },
+      { ticketTypeId: 3, accesoSlug: null, category: 'extra', unitPrice: 3000, quantity: 1 },
+    ];
+    expect(creditDiscount(ANY_ACCESS_SLUG, lines)).toEqual({ amount: 20000, ticketTypeId: 1 });
+    expect(creditDiscount(ANY_ACCESS_SLUG, [lines[2]])).toBeNull();
+    expect(creditDiscount('trio', lines)).toEqual({ amount: 28000, ticketTypeId: 2 });
   });
 });

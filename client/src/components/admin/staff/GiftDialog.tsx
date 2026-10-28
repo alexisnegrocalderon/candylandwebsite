@@ -12,7 +12,8 @@ import { GIFT_DENIED_MESSAGE } from '@shared/gifts';
 
 type Persona = { id: number; name: string; email: string | null; cargo: string | null; active: boolean };
 type Recipient = { email: string; name: string };
-type Pack = { id: string; name: string; items: { name: string; qty: number }[] };
+type Pack = { id: string; name: string; items: { name: string; qty: number }[]; mode?: 'directo' | 'pase'; anyAccess?: boolean; anyQty?: number; validDays?: number | null };
+const VALIDITY = [{ days: null, label: 'Hasta el evento' }, { days: 7, label: '7 días' }, { days: 15, label: '15 días' }, { days: 30, label: '30 días' }] as const;
 
 const GROUPS = [
   { key: 'covers', label: '🎟️ Covers y entradas' },
@@ -51,11 +52,16 @@ export function GiftDialog({ open, onClose, team = [], initialIds = [], initialR
   const [qty, setQty] = useState<Record<number, number>>({});
   const [reason, setReason] = useState('');
   const [packs, setPacks] = useState<Pack[]>(loadPacks);
+  const [mode, setMode] = useState<'directo' | 'pase'>('directo');
+  const [anyAccess, setAnyAccess] = useState(false);
+  const [anyQty, setAnyQty] = useState(1);
+  const [validDays, setValidDays] = useState<number | null>(null);
+  const [view, setView] = useState<'regalar' | 'historial'>('regalar');
   const recKey = initialRecipients.map((r) => r.email).join(',');
   const idsKey = initialIds.join(',');
   useEffect(() => {
     if (!open) return;
-    setRecipients(initialRecipients); setStaffIds(idsKey ? idsKey.split(',').map(Number) : []); setAudienceId(null); setQ(''); setQty({}); setReason(''); setPacks(loadPacks());
+    setRecipients(initialRecipients); setStaffIds(idsKey ? idsKey.split(',').map(Number) : []); setAudienceId(null); setQ(''); setQty({}); setReason(''); setPacks(loadPacks()); setMode('directo'); setAnyAccess(false); setAnyQty(1); setValidDays(null); setView('regalar');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, recKey, idsKey]);
 
@@ -72,6 +78,11 @@ export function GiftDialog({ open, onClose, team = [], initialIds = [], initialR
     onError: (e) => toast.error(e.message),
   });
 
+  const history = trpc.orders.listGifts.useQuery({ eventId: event?.id ?? 0 }, { enabled: open && view === 'historial' && !!event });
+  const cancel = trpc.orders.cancelGift.useMutation({
+    onSuccess: () => { toast.success('Pase anulado'); history.refetch(); },
+    onError: (e) => toast.error(e.message),
+  });
   const found = trpc.customers.page.useQuery({ search: q.trim(), page: 0, pageSize: 6 }, { enabled: open && q.trim().length >= 3 });
   const options = ((found.data?.rows ?? []) as any[]).filter((r) => r.email && !recipients.some((x) => x.email === r.email.toLowerCase()));
   const audience = AUDIENCES.find((a) => a.id === audienceId)?.audience;
@@ -92,7 +103,12 @@ export function GiftDialog({ open, onClose, team = [], initialIds = [], initialR
   const people = team.filter((m) => m.active && m.email);
   const staffEmails = people.filter((m) => staffIds.includes(m.id)).map((m) => m.email!.toLowerCase());
   const emails = Array.from(new Set([...recipients.map((r) => r.email), ...staffEmails]));
-  const items = Object.entries(qty).filter(([, n]) => n > 0).map(([id, n]) => ({ ticketTypeId: Number(id), quantity: n }));
+  const accesos = allProducts.filter((t) => t.category === 'acceso');
+  const passAny = mode === 'pase' && anyAccess && accesos.length > 0;
+  const items = [
+    ...Object.entries(qty).filter(([id, n]) => n > 0 && !(passAny && accesos.some((a) => String(a.id) === id))).map(([id, n]) => ({ ticketTypeId: Number(id), quantity: n })),
+    ...(passAny && anyQty > 0 ? [{ ticketTypeId: accesos[0].id as number, quantity: anyQty }] : []),
+  ];
   const count = (audience ? preview.data?.count ?? 0 : 0) + emails.length;
 
   const addRecipient = (r: Recipient) => { setRecipients((l) => (l.some((x) => x.email === r.email) ? l : [...l, r])); setQ(''); };
@@ -106,13 +122,14 @@ export function GiftDialog({ open, onClose, team = [], initialIds = [], initialR
       if (t) next[t.id] = Math.min(20, it.qty); else missing.push(it.name);
     }
     setQty(next);
+    setMode(pack.mode ?? 'directo'); setAnyAccess(!!pack.anyAccess); setAnyQty(pack.anyQty ?? 1); setValidDays(pack.validDays ?? null);
     if (missing.length) toast.message(`Este evento no tiene: ${missing.join(', ')}`);
   };
   const saveAsPack = () => {
     const name = window.prompt('Nombre del paquete (ej. Barra, Puerta, Invitado VIP)');
     if (!name?.trim()) return;
-    const packItems = items.map((i) => ({ name: allProducts.find((p) => p.id === i.ticketTypeId)?.name ?? '', qty: i.quantity })).filter((i) => i.name);
-    const next = [...packs.filter((p) => p.name.toLowerCase() !== name.trim().toLowerCase()), { id: `${Date.now()}`, name: name.trim(), items: packItems }];
+    const packItems = items.filter((i) => !(passAny && i.ticketTypeId === accesos[0].id)).map((i) => ({ name: allProducts.find((p) => p.id === i.ticketTypeId)?.name ?? '', qty: i.quantity })).filter((i) => i.name);
+    const next = [...packs.filter((p) => p.name.toLowerCase() !== name.trim().toLowerCase()), { id: `${Date.now()}`, name: name.trim(), items: packItems, mode, anyAccess: passAny, anyQty: passAny ? anyQty : undefined, validDays }];
     setPacks(next); savePacks(next); toast.success(`Paquete «${name.trim()}» guardado`);
   };
   const deletePack = (id: string) => { const next = packs.filter((p) => p.id !== id); setPacks(next); savePacks(next); };
@@ -124,7 +141,7 @@ export function GiftDialog({ open, onClose, team = [], initialIds = [], initialR
 
   const submit = () => {
     if (!event) return;
-    gift.mutate({ eventId: event.id, emails: emails.length ? emails : undefined, audience: audience as any, items, reason: reason.trim() || undefined });
+    gift.mutate({ eventId: event.id, emails: emails.length ? emails : undefined, audience: audience as any, items, reason: reason.trim() || undefined, mode, anyAccess: passAny, validDays });
   };
   const blocked = canGift.data ? !canGift.data.can : false;
 
@@ -135,6 +152,33 @@ export function GiftDialog({ open, onClose, team = [], initialIds = [], initialR
           <DialogTitle className="text-xl">🎁 Regalar</DialogTitle>
           <DialogDescription>Elige a quién y qué. Les llega el correo con el QR y un aviso al celular, y aparece al instante en su app{event ? ` · ${event.title}` : ''}.</DialogDescription>
         </DialogHeader>
+        <div className="flex gap-1.5 border-b border-border px-5 py-2" role="tablist" aria-label="Regalos">
+          {([['regalar', '🎁 Regalar'], ['historial', '📋 Regalos hechos']] as const).map(([v, label]) => (
+            <button key={v} type="button" role="tab" aria-selected={view === v} onClick={() => setView(v)}
+              className={`rounded-full px-3.5 py-1.5 text-sm font-medium ${view === v ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>{label}</button>
+          ))}
+        </div>
+        {view === 'historial' ? (
+          <div className="flex-1 space-y-2 overflow-y-auto px-5 py-4">
+            {history.isLoading && <p className="text-sm text-muted-foreground">Cargando…</p>}
+            {!history.isLoading && (history.data ?? []).length === 0 && <p className="text-sm text-muted-foreground">Todavía no hay pases regalados para este evento.</p>}
+            {(history.data ?? []).map((g) => (
+              <div key={g.id} className="flex items-center gap-3 rounded-2xl bg-muted/50 px-3 py-2 text-sm">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-medium">{g.buyerName || g.buyerEmail} <span className="font-normal text-muted-foreground">· {g.accesoName}</span></p>
+                  <p className="truncate text-xs text-muted-foreground">{g.buyerEmail} · {g.code}{g.reason ? ` · ${g.reason}` : ''}</p>
+                </div>
+                <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${g.availability === 'available' ? 'bg-emerald-500/15 text-emerald-500' : g.availability === 'used' ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'}`}>
+                  {g.availability === 'available' ? 'Disponible' : g.availability === 'used' ? 'Canjeado' : g.availability === 'expired' ? 'Vencido' : 'Anulado'}
+                </span>
+                {g.availability === 'available' && (
+                  <Button type="button" variant="outline" size="sm" disabled={cancel.isPending || blocked} onClick={() => { if (window.confirm(`¿Anular el pase de ${g.buyerEmail}?`)) cancel.mutate({ creditId: g.id }); }}>Anular</Button>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+        <>
         <div className="flex-1 space-y-5 overflow-y-auto px-5 py-4">
           {blocked && <p className="rounded-2xl bg-destructive/10 px-3 py-2 text-sm text-destructive">{GIFT_DENIED_MESSAGE}</p>}
 
@@ -195,6 +239,47 @@ export function GiftDialog({ open, onClose, team = [], initialIds = [], initialR
             </div>
           </section>
 
+          <section className="space-y-2">
+            <p className="text-sm font-semibold">¿Cómo lo recibe?</p>
+            <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Cómo lo recibe">
+              {([['directo', '🎟️ Llega directo', 'La entrada llega con su QR, lista para usar.'], ['pase', '🎁 Pase para canjear', 'Queda en Cupones: canjea y compra con su acceso de regalo.']] as const).map(([m, label, help]) => (
+                <button key={m} type="button" role="radio" aria-checked={mode === m} onClick={() => setMode(m)}
+                  className={`rounded-2xl border-2 px-3 py-2.5 text-left transition ${mode === m ? 'border-primary bg-primary/10' : 'border-border bg-card/60 hover:bg-muted'}`}>
+                  <span className="block text-sm font-semibold">{label}</span>
+                  <span className="block text-xs text-muted-foreground">{help}</span>
+                </button>
+              ))}
+            </div>
+            {mode === 'pase' && (
+              <div className="space-y-2 rounded-2xl bg-muted/40 p-3">
+                <div className="flex flex-wrap gap-1.5">
+                  {([[false, 'Acceso fijo'], [true, 'A elección']] as const).map(([v, label]) => (
+                    <button key={label} type="button" aria-pressed={anyAccess === v} onClick={() => setAnyAccess(v)}
+                      className={`rounded-full px-3 py-1.5 text-sm font-medium ${anyAccess === v ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>{label}</button>
+                  ))}
+                </div>
+                {anyAccess && (
+                  <div className="flex items-center gap-2 rounded-2xl bg-card/60 px-3 py-1.5">
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium">🎟️ Pase a elección (cada uno vale por un acceso)</span>
+                    <Button type="button" variant="outline" size="icon" className="h-9 w-9" aria-label="Un pase menos" onClick={() => setAnyQty((n) => Math.max(0, n - 1))}><Minus className="h-4 w-4" /></Button>
+                    <span className="w-6 text-center font-bold tabular-nums">{anyQty}</span>
+                    <Button type="button" size="icon" className="h-9 w-9" aria-label="Un pase más" onClick={() => setAnyQty((n) => Math.min(20, n + 1))}><Plus className="h-4 w-4" /></Button>
+                  </div>
+                )}
+                <div>
+                  <p className="mb-1 text-xs font-semibold text-muted-foreground">Vigencia</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {VALIDITY.map((v) => (
+                      <button key={v.label} type="button" aria-pressed={validDays === v.days} onClick={() => setValidDays(v.days)}
+                        className={`rounded-full px-3 py-1.5 text-sm font-medium ${validDays === v.days ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>{v.label}</button>
+                    ))}
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">El pase es personal, vale solo para {event?.title ?? 'este evento'} y se canjea en el checkout con todos sus pasos (incluido el código de Soltero). Los tragos siempre llegan con QR.</p>
+              </div>
+            )}
+          </section>
+
           <section>
             <div className="mb-2 flex flex-wrap items-center gap-2">
               <p className="text-sm font-semibold">Paquetes</p>
@@ -212,7 +297,7 @@ export function GiftDialog({ open, onClose, team = [], initialIds = [], initialR
             <section key={g.key}>
               <p className="mb-2 text-sm font-semibold">{g.label}</p>
               <ul className="space-y-1.5">
-                {products[g.key].map((t: any) => (
+                {products[g.key].filter((t: any) => !(passAny && t.category === 'acceso')).map((t: any) => (
                   <li key={t.id} className="flex items-center gap-2 rounded-2xl bg-muted/50 px-3 py-1.5">
                     <span className="min-w-0 flex-1 truncate text-sm font-medium">{t.emoji ? `${t.emoji} ` : ''}{t.name}</span>
                     <Button type="button" variant="outline" size="icon" className="h-9 w-9" aria-label={`Uno menos de ${t.name}`} onClick={() => setQty((s) => ({ ...s, [t.id]: Math.max(0, (s[t.id] ?? 0) - 1) }))}><Minus className="h-4 w-4" /></Button>
@@ -233,8 +318,10 @@ export function GiftDialog({ open, onClose, team = [], initialIds = [], initialR
         <div className="flex items-center gap-3 border-t border-border px-5 py-3">
           <p className="min-w-0 flex-1 text-sm text-muted-foreground">{count} {count === 1 ? 'persona' : 'personas'} · {items.reduce((s, i) => s + i.quantity, 0)} regalos cada una</p>
           <Button type="button" variant="outline" className="h-11" onClick={onClose}>Cancelar</Button>
-          <Button type="button" className="h-11 px-6" disabled={blocked || gift.isPending || count === 0 || items.length === 0 || !event || (!!audience && !!preview.data?.overLimit)} onClick={submit}>{gift.isPending ? 'Regalando…' : '🎁 Regalar'}</Button>
+          <Button type="button" className="h-11 px-6" disabled={blocked || gift.isPending || count === 0 || items.length === 0 || !event || (!!audience && !!preview.data?.overLimit)} onClick={submit}>{gift.isPending ? 'Regalando…' : mode === 'pase' ? '🎁 Enviar pase' : '🎁 Regalar'}</Button>
         </div>
+        </>
+        )}
       </DialogContent>
     </Dialog>
   );

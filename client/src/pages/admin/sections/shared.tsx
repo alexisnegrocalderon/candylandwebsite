@@ -1572,7 +1572,7 @@ export function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
                             )}
                             {(order.credits ?? []).map((c: any) => (
                               <span key={c.id} className="mt-1 block w-fit rounded-full bg-purple-500/15 px-2 py-0.5 text-xs font-semibold text-purple-700">
-                                Crédito {c.code} · {c.availability === 'available' ? 'disponible' : c.availability === 'used' ? 'usado' : 'cancelado'}
+                                Crédito {c.code} · {c.availability === 'available' ? 'disponible' : c.availability === 'used' ? 'usado' : c.availability === 'expired' ? 'vencido' : 'cancelado'}
                               </span>
                             ))}
                           </td>
@@ -1809,7 +1809,7 @@ export function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
                       )}
                       {(order.credits ?? []).map((c: any) => (
                         <span key={c.id} className="mt-1 block w-fit rounded-full bg-purple-500/15 px-2 py-0.5 text-xs font-semibold text-purple-700">
-                          Crédito {c.code} · {c.availability === 'available' ? 'disponible' : c.availability === 'used' ? 'usado' : 'cancelado'}
+                          Crédito {c.code} · {c.availability === 'available' ? 'disponible' : c.availability === 'used' ? 'usado' : c.availability === 'expired' ? 'vencido' : 'cancelado'}
                         </span>
                       ))}
                     </div>

@@ -22,13 +22,63 @@ export function normalizeCreditCode(raw: string): string {
   return raw.trim().toUpperCase();
 }
 
-export type CreditAvailability = 'available' | 'used' | 'cancelled';
+/** `accesoSlug` de un pase «a elección»: vale por UNA unidad de cualquier acceso que la persona escoja al comprar. */
+export const ANY_ACCESS_SLUG = '*';
 
-/** El estado real de un crédito. `order` es la orden que lo reservó (o null). */
+/** Datos de un pase REGALADO. Viajan en la columna `note` del crédito (JSON), así regalar no necesita migración: un crédito
+ * de siempre tiene una nota de texto y `parseGiftNote` devuelve `null`. */
+export interface GiftMeta {
+  gift: 1;
+  /** Evento para el que vale (solo ese). */
+  eventId: number;
+  eventTitle: string | null;
+  /** ISO: vence en esta fecha; `null` = sin vencimiento propio. */
+  validUntil: string | null;
+  reason: string | null;
+  by: string | null;
+}
+
+export function giftNote(meta: Omit<GiftMeta, 'gift'>): string {
+  const trim = (v: string | null) => (v ? v.slice(0, 80) : null);
+  return JSON.stringify({ gift: 1, eventId: meta.eventId, eventTitle: trim(meta.eventTitle), validUntil: meta.validUntil, reason: trim(meta.reason), by: trim(meta.by) });
+}
+
+export function parseGiftNote(note: string | null | undefined): GiftMeta | null {
+  if (!note || note[0] !== '{') return null;
+  try {
+    const v = JSON.parse(note) as Partial<GiftMeta>;
+    if (v.gift !== 1 || !Number.isFinite(Number(v.eventId))) return null;
+    return { gift: 1, eventId: Number(v.eventId), eventTitle: v.eventTitle ?? null, validUntil: v.validUntil ?? null, reason: v.reason ?? null, by: v.by ?? null };
+  } catch { return null; }
+}
+
+export type CreditAvailability = 'available' | 'used' | 'cancelled' | 'expired';
+
+/** El estado real de un crédito. `order` es la orden que lo reservó (o null). Un pase regalado además vence. */
 export function creditAvailability(
-  credit: { status: string; usedOrderId: number | null; reservedAt: Date | string | null },
+  credit: { status: string; usedOrderId: number | null; reservedAt: Date | string | null; note?: string | null },
   order: { paymentStatus: string; createdAt: Date | string } | null,
   now: Date = new Date(),
+): CreditAvailability {
+  const base = baseAvailability(credit, order, now);
+  if (base !== 'available') return base;
+  const gift = parseGiftNote(credit.note);
+  return gift?.validUntil && new Date(gift.validUntil).getTime() < now.getTime() ? 'expired' : 'available';
+}
+
+/** Por qué un pase regalado no sirve para esta compra (otro evento, o ya venció); `null` si sirve. Un crédito de siempre sirve en cualquiera. */
+export function giftPassError(credit: { note?: string | null }, eventId: number, now: Date = new Date()): string | null {
+  const gift = parseGiftNote(credit.note);
+  if (!gift) return null;
+  if (gift.validUntil && new Date(gift.validUntil).getTime() < now.getTime()) return 'Este pase venció.';
+  if (gift.eventId !== eventId) return `Este pase es para ${gift.eventTitle ?? 'otro evento'}.`;
+  return null;
+}
+
+function baseAvailability(
+  credit: { status: string; usedOrderId: number | null; reservedAt: Date | string | null },
+  order: { paymentStatus: string; createdAt: Date | string } | null,
+  now: Date,
 ): CreditAvailability {
   if (credit.status === 'cancelled') return 'cancelled';
   if (credit.status === 'used') return 'used';
@@ -53,10 +103,10 @@ export interface CartAccessLine {
 }
 
 /** Cuánto descuenta el crédito: el precio de UNA sola unidad del acceso del
- * mismo tipo (la más barata si hubiera varias). `null` si el carrito no tiene
+ * mismo tipo (cualquier acceso, si el pase es «a elección»; la más barata si hubiera varias). `null` si el carrito no tiene
  * ese acceso. Aunque compren 3, solo una sale gratis. */
 export function creditDiscount(accesoSlug: string, lines: CartAccessLine[]): { amount: number; ticketTypeId: number } | null {
-  const matching = lines.filter((l) => l.category === 'acceso' && l.accesoSlug === accesoSlug && l.quantity > 0);
+  const matching = lines.filter((l) => l.category === 'acceso' && (accesoSlug === ANY_ACCESS_SLUG || l.accesoSlug === accesoSlug) && l.quantity > 0);
   if (matching.length === 0) return null;
   const cheapest = matching.reduce((a, b) => (b.unitPrice < a.unitPrice ? b : a));
   return { amount: cheapest.unitPrice, ticketTypeId: cheapest.ticketTypeId };
