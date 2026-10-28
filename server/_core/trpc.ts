@@ -1,3 +1,4 @@
+import { canGift, GIFT_DENIED_MESSAGE } from '@shared/gifts';
 import { NOT_ADMIN_ERR_MSG, UNAUTHED_ERR_MSG } from '@shared/const';
 import { canUseCaja } from "@shared/cajaRoles";
 import { initTRPC, TRPCError } from "@trpc/server";
@@ -43,6 +44,14 @@ export const adminProcedure = t.procedure.use(
         user: ctx.user,
       },
     });
+  }),
+);
+
+/** Regalos (plata que no se cobra): solo el administrador dueño (shared/gifts.ts). */
+export const giftProcedure = adminProcedure.use(
+  t.middleware(async opts => {
+    if (!canGift(opts.ctx.user)) throw new TRPCError({ code: "FORBIDDEN", message: GIFT_DENIED_MESSAGE });
+    return opts.next();
   }),
 );
 
