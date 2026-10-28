@@ -371,6 +371,8 @@ function TicketsList({ events, from = 0 }: { events: MeEvent[]; from?: number })
 
 /** Un regalo del dueño: un consumo con QR para mostrar en la barra, o un pase de entrada para canjear en el checkout. */
 type GiftConsumo = Me['gifts']['consumos'][number];
+/** Los regalos de la cuenta. La copia guardada para usar sin señal puede ser de antes de que existieran: vacía, no rompe la pantalla. */
+const giftsOf = (me: Me): Me['gifts'] => ({ pases: me.gifts?.pases ?? [], consumos: me.gifts?.consumos ?? [] });
 type GiftPase = Me['gifts']['pases'][number];
 
 function GiftConsumoCard({ g }: { g: GiftConsumo }) {
@@ -412,9 +414,9 @@ function CouponsList({ me }: { me: Me }) {
   const active = me.coupons.filter((c) => c.status === 'disponible');
   return (
     <>
-      {me.gifts.pases.map((g) => <GiftPaseCard key={`p${g.id}`} g={g} />)}
-      {me.gifts.consumos.map((g) => <GiftConsumoCard key={g.ticketCode} g={g} />)}
-      {me.coupons.length === 0 && me.gifts.pases.length + me.gifts.consumos.length === 0 ? (
+      {giftsOf(me).pases.map((g) => <GiftPaseCard key={`p${g.id}`} g={g} />)}
+      {giftsOf(me).consumos.map((g) => <GiftConsumoCard key={g.ticketCode} g={g} />)}
+      {me.coupons.length === 0 && giftsOf(me).pases.length + giftsOf(me).consumos.length === 0 ? (
         <p className="account-glass rounded-2xl p-4 text-subhead text-white/60">
           Todavía no tienes cupones.{perkList(me).length ? ' Te vamos regalando según lo que desbloqueas.' : ''}
         </p>
@@ -532,7 +534,7 @@ function TicketsPager({ events, holder }: { events: MeEvent[]; holder: string })
 /** Cupones en páginas: uno por página, con el código grande. */
 function CouponsPager({ me }: { me: Me }) {
   const [copied, setCopied] = useState<number | null>(null);
-  if (me.coupons.length === 0 && me.gifts.pases.length + me.gifts.consumos.length === 0) {
+  if (me.coupons.length === 0 && giftsOf(me).pases.length + giftsOf(me).consumos.length === 0) {
     return (
       <div className="account-glass m-auto flex w-full flex-col items-center gap-3 rounded-[28px] p-8 text-center">
         <Gift className="h-10 w-10 text-pink-300" />
@@ -546,8 +548,8 @@ function CouponsPager({ me }: { me: Me }) {
   };
   return (
     <Pager rememberAs="cupones">
-      {me.gifts.pases.map((g) => <GiftPaseCard key={`p${g.id}`} g={g} />)}
-      {me.gifts.consumos.map((g) => <GiftConsumoCard key={g.ticketCode} g={g} />)}
+      {giftsOf(me).pases.map((g) => <GiftPaseCard key={`p${g.id}`} g={g} />)}
+      {giftsOf(me).consumos.map((g) => <GiftConsumoCard key={g.ticketCode} g={g} />)}
       {me.coupons.map((c) => {
         const live = c.status === 'disponible';
         return (
@@ -713,7 +715,7 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
   const push = useCustomerPush({ source: 'puntos' });
   const level = CUSTOMER_LEVEL_META[me.level as keyof typeof CUSTOMER_LEVEL_META];
   const upcoming = me.events as MeEvent[];
-  const activeCoupons = me.coupons.filter((c) => c.status === 'disponible').length + me.gifts.pases.length + me.gifts.consumos.filter((g) => !g.used).length;
+  const activeCoupons = me.coupons.filter((c) => c.status === 'disponible').length + giftsOf(me).pases.length + giftsOf(me).consumos.filter((g) => !g.used).length;
   const { href: buyHref, last: lastBuy } = useBuyHref(me.nextEvent?.slug);
   // La noche de la fiesta, ya escaneada: un punto en la pestaña Playmatch.
   const playmatchLive = upcoming.some((e) => e.tickets.some((x) => (x.category ?? 'acceso') === 'acceso' && canEnterParty({ status: x.status, eventId: e.eventId }, { eventDate: e.eventDate, doorsOpen: e.doorsOpen, eventEnd: e.eventEnd })));
