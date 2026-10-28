@@ -200,7 +200,9 @@ export function GiftSheet({ open, onClose, team = [], initialIds = [], initialRe
 
   return (
     <Sheet open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <SheetContent side="bottom" hideClose className="mx-auto flex h-[92dvh] max-w-2xl flex-col gap-0 overflow-hidden rounded-t-3xl border-0 p-0">
+      {/* z-[100]: la App (Cuenta) vive en una capa fija z-[60] y el detalle de un evento en z-[80]; con el z-50 de siempre la hoja
+          quedaba debajo y, como una hoja abierta bloquea los toques del resto, la pantalla parecía congelada. */}
+      <SheetContent side="bottom" hideClose overlayClassName="z-[100]" className="z-[100] mx-auto flex h-[92dvh] max-w-2xl flex-col gap-0 overflow-hidden rounded-t-3xl border-0 p-0">
         {/* Encabezado: paso, título y cerrar. */}
         <div className="shrink-0 border-b border-border px-5 pb-3 pt-3">
           <div className="mx-auto mb-2 h-1.5 w-10 rounded-full bg-muted" aria-hidden />
