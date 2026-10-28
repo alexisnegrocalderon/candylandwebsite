@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { ConfirmDeleteButton } from '@/components/admin/ConfirmDeleteButton';
 import { useDemoProps } from '@/lib/demoMode';
-import { marginOf, marginTone, remaining, stockLevel, type CartaProduct } from '@shared/carta';
+import { marginOf, marginTone, remaining, stockLevel, textoAviso, type CartaProduct } from '@shared/carta';
 import { categoryMeta } from './constants';
 
 const money = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
@@ -16,7 +16,7 @@ export type CartaRowProduct = CartaProduct;
 /** Fila compacta de un producto: ícono, nombre, precio y stock editables en el
  * lugar, margen y un menú ⋯ con el resto. En celular la fila tiene dos líneas
  * (nombre arriba, precio/stock abajo) para que nada se pise. */
-export function CartaRow({ p, selectionMode, selected, onSelect, onEdit, onDuplicate, onToggleSoldOut, onMove, canUp, canDown, onPatch, onDelete }: {
+export function CartaRow({ p, selectionMode, selected, onSelect, onEdit, onDuplicate, onToggleSoldOut, onMove, canUp, canDown, onPatch, onDelete, onReceta }: {
   p: CartaRowProduct;
   selectionMode: boolean;
   selected: boolean;
@@ -29,6 +29,8 @@ export function CartaRow({ p, selectionMode, selected, onSelect, onEdit, onDupli
   canDown: boolean;
   onPatch: (patch: { price?: number; totalStock?: number }) => void;
   onDelete: (adminPassword: string) => Promise<void>;
+  /** Abre la receta del trago (para cambiar un insumo que falta). */
+  onReceta?: () => void;
 }) {
   const demo = useDemoProps();
   const meta = categoryMeta(p.category);
@@ -149,6 +151,19 @@ export function CartaRow({ p, selectionMode, selected, onSelect, onEdit, onDupli
         )}
         {p.sinReceta && <span className="rounded-md bg-amber-500/15 px-1.5 py-0.5 text-xs font-medium text-amber-500" title="Sin receta: las porciones no salen del stock de insumos. Agrégala en Stock de barra → Recetas.">Sin receta</span>}
       </div>
+
+      {p.aviso && p.aviso.estado !== 'ok' && (
+        <div className={`mt-2 flex flex-wrap items-center gap-1.5 text-xs ${p.aviso.estado === 'agotado' ? 'text-red-500' : 'text-amber-500'}`} role="status">
+          <span className="font-semibold">{p.aviso.estado === 'agotado' ? '⛔' : '⚠️'} {textoAviso(p.aviso)}</span>
+          {p.aviso.estado === 'agotado' && p.aviso.sugerencias.map((s) => (
+            <button key={s.insumoId} type="button" onClick={onReceta} title="Cambiar el insumo en la receta" className="rounded-full border border-border bg-muted px-2 py-0.5 text-foreground hover:bg-muted/70">
+              Cambiar por {s.name} · alcanza para {s.drinks}
+            </button>
+          ))}
+          {onReceta && <button type="button" onClick={onReceta} className="rounded-full border border-border px-2 py-0.5 text-foreground hover:bg-muted">Cambiar receta</button>}
+        </div>
+      )}
+      {p.aviso && p.aviso.estado === 'ok' && byInsumos && <p className="mt-1 text-xs text-muted-foreground">{textoAviso(p.aviso)}</p>}
 
       <ConfirmDeleteButton
         open={delOpen}

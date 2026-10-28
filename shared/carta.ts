@@ -23,8 +23,32 @@ export interface CartaProduct {
   internalCode?: string | null;
   /** Porciones que alcanzan según el stock de insumos (Stock de barra). Si viene, manda sobre el stock cargado a mano. */
   portions?: number | null;
+  /** Qué insumo hace que se acabe o ya no alcance (viene de Stock de barra). */
+  aviso?: AvisoInsumos | null;
   /** Trago de la carta sin receta ni marca de «se vende solo»: no puede calcular porciones por insumos. */
   sinReceta?: boolean;
+}
+
+export interface AvisoInsumos {
+  estado: 'ok' | 'bajo' | 'agotado';
+  limitante: { insumoId: number; name: string; drinks: number; sinComprar: boolean };
+  faltantes: { insumoId: number; name: string; sinComprar: boolean }[];
+  bajos: { insumoId: number; name: string; drinks: number }[];
+  /** Con qué reemplazar el insumo que falta (otro de la misma categoría, con stock). */
+  sugerencias: { insumoId: number; name: string; drinks: number }[];
+}
+
+const listar = (names: string[]) => (names.length <= 1 ? (names[0] ?? '') : `${names.slice(0, -1).join(', ')} y ${names[names.length - 1]}`);
+
+/** «Falta Ginger ale (sin comprar)», «Se acaba Gin Beefeater» o «Limita Gin Beefeater»: qué insumo manda en un trago. */
+export function textoAviso(a: AvisoInsumos): string {
+  if (a.estado === 'agotado') {
+    const f = a.faltantes.length ? a.faltantes : [{ ...a.limitante }];
+    const nombres = f.map((x) => (x.sinComprar ? `${x.name} (sin comprar)` : x.name));
+    return `${f.length === 1 ? 'Falta' : 'Faltan'} ${listar(nombres)}`;
+  }
+  if (a.estado === 'bajo') return `Se acaba ${listar(a.bajos.map((b) => b.name))}`;
+  return `Limita ${a.limitante.name}`;
 }
 
 export const NO_SECTION = 'Sin sección';

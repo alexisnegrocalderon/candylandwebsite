@@ -45,6 +45,11 @@ export function StockTab({ eventId, data, onEdit, onChanged }: {
     return rank[a.level] - rank[b.level] || (a.drinks ?? 1e9) - (b.drinks ?? 1e9) || a.name.localeCompare(b.name);
   });
 
+  // Qué reponer: lo agotado o bajo y lo que se usa en la carta pero nunca se compró, con los tragos que afecta.
+  const reponer = sorted
+    .filter((i) => i.usedBy.length > 0 && (i.level === 'agotado' || i.level === 'bajo' || i.sinComprar))
+    .map((i) => ({ i, motivo: i.sinComprar ? 'sin comprar' : i.level === 'agotado' ? 'se acabó' : `alcanza para ~${i.drinks ?? 0} tragos` }));
+
   const filas = data.insumos.map((i) => ({ ...i, drinks: i.drinks, level: i.level }));
   const copyText = async () => {
     try { await navigator.clipboard.writeText(stockTexto(filas, `Stock de barra · ${new Date().toLocaleString('es-CL', { timeZone: 'America/Santiago', dateStyle: 'short', timeStyle: 'short' })}`)); toast.success('Stock copiado: pégalo en WhatsApp'); }
@@ -80,6 +85,17 @@ export function StockTab({ eventId, data, onEdit, onChanged }: {
           </div>
         ))}
       </div>
+
+      {reponer.length > 0 && (
+        <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 p-3" role="status">
+          <p className="text-sm font-semibold text-amber-500">Qué reponer ({reponer.length})</p>
+          <ul className="mt-1.5 space-y-1 text-sm">
+            {reponer.map(({ i, motivo }) => (
+              <li key={i.id}><span className="font-semibold">{i.name}</span> · {motivo}<span className="text-muted-foreground"> — afecta: {i.usedBy.slice(0, 4).join(', ')}{i.usedBy.length > 4 ? '…' : ''}</span></li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="flex items-center justify-end gap-2">
         <Button variant="outline" size="sm" onClick={copyText}><Copy className="mr-1 h-4 w-4" /> WhatsApp</Button>

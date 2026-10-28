@@ -421,21 +421,38 @@ export function metadataConOpciones(metadata: unknown, opciones: OpcionGrupo[]):
   return Object.keys(base).length ? base : null;
 }
 
+/** Reemplazo de un insumo faltante «por hoy» al vender: va dentro de `opciones` de la venta como `sub:<faltante>:<reemplazo>`,
+ * así viaja por la misma cola offline y el mismo descuento que las opciones de siempre, sin tocar la receta guardada. */
+export const idSustitucion = (faltanteId: number, reemplazoId: number): string => `sub:${faltanteId}:${reemplazoId}`;
+
+/** Los reemplazos (faltante → reemplazo) que trae la lista de opciones elegidas de una venta. */
+export function sustitucionesDe(elegidas: string[] | undefined): Map<number, number> {
+  const out = new Map<number, number>();
+  for (const e of elegidas ?? []) {
+    const m = /^sub:(\d+):(\d+)$/.exec(e);
+    if (m && m[1] !== m[2]) out.set(Number(m[1]), Number(m[2]));
+  }
+  return out;
+}
+
 /** Receta de un trago con sus opciones ya elegidas: quita lo que reemplazan y suma lo elegido. Si no se eligió nada
- * de un grupo, queda la receta base (así un trago sin elección igual descuenta algo). */
+ * de un grupo, queda la receta base (así un trago sin elección igual descuenta algo). Los reemplazos `sub:` cambian
+ * el insumo faltante por otro, con la misma cantidad. */
 export function recetaConOpciones(
   lines: { insumoId: number; amount: number }[],
   grupos: OpcionGrupo[] | undefined,
   elegidas: string[] | undefined,
 ): { insumoId: number; amount: number }[] {
-  if (!grupos?.length || !elegidas?.length) return lines;
+  if (!elegidas?.length) return lines;
   let out = lines;
-  for (const g of grupos) {
+  for (const g of grupos ?? []) {
     const c = g.choices.find((x) => elegidas.includes(x.id));
     if (!c) continue;
     if (g.reemplaza != null) out = out.filter((l) => l.insumoId !== g.reemplaza);
     out = [...out, { insumoId: c.insumoId, amount: c.amount }];
   }
+  const subs = sustitucionesDe(elegidas);
+  if (subs.size > 0) out = out.map((l) => (subs.has(l.insumoId) ? { ...l, insumoId: subs.get(l.insumoId)! } : l));
   return out;
 }
 
@@ -477,6 +494,68 @@ export function tragosDisponibles(
     if (!best || drinks < best.drinks) best = { drinks, limitingInsumoId: r.insumoId };
   }
   return best;
+}
+
+/** Un insumo de la receta de un trago con cuánto alcanza. `sinComprar`: nunca tuvo stock cargado (no es lo mismo que haberse acabado). */
+export interface InsumoDiagnostico { insumoId: number; name: string; drinks: number; stock: number; sinComprar: boolean }
+export interface DiagnosticoProducto {
+  /** Tragos que alcanzan (el insumo que se acaba primero manda). */
+  drinks: number;
+  estado: 'ok' | 'bajo' | 'agotado';
+  /** El insumo que manda: el que se acaba primero. */
+  limitante: InsumoDiagnostico;
+  /** Todos los insumos de la receta que ya no alcanzan para ningún trago. */
+  faltantes: InsumoDiagnostico[];
+  /** Los que alcanzan para menos de su aviso (`alertDrinks`), sin contar los faltantes. */
+  bajos: InsumoDiagnostico[];
+}
+
+/** Qué insumo hace que un trago esté agotado o por agotarse: para decir «falta Ginger ale» en vez de solo «sin stock».
+ * `null` si la receta no tiene líneas con cantidad. */
+export function diagnosticoProducto(
+  receta: { insumoId: number; amount: number }[],
+  insumos: { id: number; name: string; alertDrinks: number; sinComprar?: boolean }[],
+  stock: Map<number, number>,
+): DiagnosticoProducto | null {
+  const byId = new Map(insumos.map((i) => [i.id, i]));
+  const filas: (InsumoDiagnostico & { alertDrinks: number })[] = [];
+  for (const r of receta) {
+    if (!(r.amount > 0)) continue;
+    const i = byId.get(r.insumoId);
+    if (!i) continue;
+    const s = stock.get(r.insumoId) ?? 0;
+    filas.push({ insumoId: i.id, name: i.name, stock: s, drinks: Math.max(0, Math.floor(s / r.amount + 1e-9)), sinComprar: !!i.sinComprar, alertDrinks: i.alertDrinks });
+  }
+  if (filas.length === 0) return null;
+  const limitante = filas.reduce((best, f) => (f.drinks < best.drinks ? f : best), filas[0]);
+  const strip = ({ alertDrinks: _a, ...f }: InsumoDiagnostico & { alertDrinks: number }): InsumoDiagnostico => f;
+  const faltantes = filas.filter((f) => f.drinks <= 0).map(strip);
+  const bajos = filas.filter((f) => f.drinks > 0 && f.alertDrinks > 0 && f.drinks < f.alertDrinks).map(strip);
+  return { drinks: limitante.drinks, estado: limitante.drinks <= 0 ? 'agotado' : bajos.length > 0 ? 'bajo' : 'ok', limitante: strip(limitante), faltantes, bajos };
+}
+
+export interface Reemplazo { insumoId: number; name: string; drinks: number }
+
+/** Con qué se puede reemplazar un insumo que falta: otro de la misma unidad y categoría (otra bebida por una bebida), con
+ * stock y que el trago no use ya. Primero el que más tragos alcanza. */
+export function sugerirReemplazos(
+  faltanteId: number,
+  insumos: { id: number; name: string; unit: InsumoUnit }[],
+  stock: Map<number, number>,
+  receta: { insumoId: number; amount: number }[],
+  max = 3,
+): Reemplazo[] {
+  const falta = insumos.find((i) => i.id === faltanteId);
+  const linea = receta.find((r) => r.insumoId === faltanteId);
+  if (!falta || !linea || !(linea.amount > 0)) return [];
+  const categoria = categoriaInsumo(falta.name, falta.unit);
+  const usados = new Set(receta.map((r) => r.insumoId));
+  return insumos
+    .filter((i) => i.id !== faltanteId && !usados.has(i.id) && i.unit === falta.unit && categoriaInsumo(i.name, i.unit) === categoria)
+    .map((i) => ({ insumoId: i.id, name: i.name, drinks: Math.max(0, Math.floor((stock.get(i.id) ?? 0) / linea.amount + 1e-9)) }))
+    .filter((r) => r.drinks > 0)
+    .sort((a, b) => b.drinks - a.drinks || a.name.localeCompare(b.name))
+    .slice(0, max);
 }
 
 /** Cuántos tragos "típicos" alcanzan de un insumo: stock dividido por lo que
@@ -735,8 +814,15 @@ export function insumoStockAlerts(
   changes: { insumo: Insumo; before: number; after: number; reference: number | null }[],
   recetas: RecetaLinea[],
   eventId: number,
+  contexto?: { afectados?: Map<number, string[]>; reemplazos?: Map<number, string[]> },
 ): InsumoAlertDraft[] {
   const drafts: InsumoAlertDraft[] = [];
+  /** «Afecta: Gin con Gin, PlayRoom. Reemplazo: Tónica (alcanza para 20).» */
+  const detalle = (insumoId: number) => {
+    const a = contexto?.afectados?.get(insumoId) ?? [];
+    const r = contexto?.reemplazos?.get(insumoId) ?? [];
+    return `${a.length ? ` Afecta: ${a.slice(0, 4).join(', ')}${a.length > 4 ? '…' : ''}.` : ''}${r.length ? ` Reemplazo posible: ${r.join(' o ')}.` : ''}`;
+  };
   for (const { insumo, before, after, reference } of changes) {
     if (after >= before) continue;
     const left = formatCantidad(after, insumo);
@@ -744,7 +830,7 @@ export function insumoStockAlerts(
       drafts.push({
         kind: 'insumo_out', severity: 'critical', dedupeKey: `insumo_out:${eventId}:${insumo.id}`,
         title: `Se acabó: ${insumo.name}`,
-        body: 'Según las ventas ya no queda. Revisa la barra o carga una compra si hay más en bodega.',
+        body: `Según las ventas ya no queda. Revisa la barra o carga una compra si hay más en bodega.${detalle(insumo.id)}`,
       });
       continue;
     }
@@ -754,7 +840,7 @@ export function insumoStockAlerts(
       drafts.push({
         kind: 'insumo_low', severity: 'warning', dedupeKey: `insumo_low:${eventId}:${insumo.id}:${insumo.alertDrinks}`,
         title: `Queda poco: ${insumo.name}`,
-        body: `Alcanza para ~${drinksAfter} tragos (${left}).`,
+        body: `Alcanza para ~${drinksAfter} tragos (${left}).${detalle(insumo.id)}`,
       });
     }
     if (reference && reference > 0) {

@@ -234,7 +234,7 @@ export async function checkSaleAlerts(params: { eventId: number; opId: string; o
 
     // Insumos de la barra: poco stock, agotado y bajo el 25 % / 10 % de la apertura.
     const insumoChanges = await cambiosDeVenta(params.opId, params.eventId);
-    if (insumoChanges) await raiseAll(params.eventId, insumoStockAlerts(insumoChanges.changes, insumoChanges.recetas, params.eventId));
+    if (insumoChanges) await raiseAll(params.eventId, insumoStockAlerts(insumoChanges.changes, insumoChanges.recetas, params.eventId, insumoChanges.contexto));
   } catch (err) {
     console.error("[cajaAlerts] checkSaleAlerts:", err);
   }

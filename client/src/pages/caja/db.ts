@@ -251,7 +251,7 @@ export interface DoorStaff { code: string; name: string; role: string | null }
 /** Stock de la barra por insumos (server/insumos.ts `cajaInsumoSnapshot`):
  * con esto la grilla muestra "quedan ~N" también sin señal. */
 export interface CajaBarra {
-  insumos: { id: number; name: string; unit: InsumoUnit; containerSize: number; containerLabel: string; stock: number; alertDrinks: number }[];
+  insumos: { id: number; name: string; unit: InsumoUnit; containerSize: number; containerLabel: string; stock: number; alertDrinks: number; sinComprar?: boolean }[];
   recetas: RecetaLinea[];
   /** Opciones al vender por producto (con qué bebida va…): para el descuento local. */
   opciones?: Record<number, OpcionGrupo[]>;

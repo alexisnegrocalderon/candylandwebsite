@@ -19,6 +19,7 @@ import { CARTA_CATEGORIES, emptyForm, formFromProduct, payloadFromForm, type Car
 import { CartaRow } from './CartaRow';
 import { ImportDialog, MoveSectionDialog, PriceAdjustDialog } from './BulkDialogs';
 import { ProductSheet } from './ProductSheet';
+import { RecetaDialog } from '@/components/admin/insumos/RecetaDialog';
 import { onCartaError } from './errors';
 
 const FILTERS: { id: CartaFilter; label: string }[] = [
@@ -63,6 +64,7 @@ export function CartaManager() {
   const [selectionMode, setSelectionMode] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [busy, setBusy] = useState(false);
+  const [recetaId, setRecetaId] = useState<number | null>(null);
   const [priceOpen, setPriceOpen] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -97,7 +99,12 @@ export function CartaManager() {
       .map((t) => {
         const b = porId.get(t.id);
         if (!b) return t;
-        return { ...t, portions: b.drinks ?? null, sinReceta: b.drinks == null && !b.sinInsumos && !b.oculto && t.category === 'consumo' };
+        const d = b.diagnostico;
+        const aviso = d ? {
+          estado: d.estado, limitante: d.limitante, faltantes: d.faltantes, bajos: d.bajos,
+          sugerencias: (d.faltantes[0]?.insumoId ?? d.limitante.insumoId) in b.sugerencias ? b.sugerencias[d.faltantes[0]?.insumoId ?? d.limitante.insumoId] : [],
+        } : null;
+        return { ...t, aviso, portions: b.drinks ?? null, sinReceta: b.drinks == null && !b.sinInsumos && !b.oculto && t.category === 'consumo' };
       });
   }, [allTypes, barra]);
   const tabProducts = useMemo(() => cartaProducts.filter((p) => p.category === tab), [cartaProducts, tab]);
@@ -359,6 +366,7 @@ export function CartaManager() {
                         canDown={canReorder && idx >= 0 && idx < full.length - 1}
                         onPatch={(data) => patch(p.id, data)}
                         onDelete={(pw) => deleteOne(p.id, pw)}
+                        onReceta={() => setRecetaId(p.id)}
                       />
                     );
                   })}
@@ -389,6 +397,16 @@ export function CartaManager() {
         onConfirm={bulkDelete}
         className="hidden"
       />
+
+      {barra && (barra as any).ready && (
+        <RecetaDialog
+          producto={recetaId != null ? ((barra as any).productos.find((x: any) => x.id === recetaId) ?? null) : null}
+          data={barra as any}
+          onClose={() => setRecetaId(null)}
+          onSaved={() => { utils.insumos.estado.invalidate(); setRecetaId(null); }}
+          onChanged={() => utils.insumos.estado.invalidate()}
+        />
+      )}
 
       <ProductSheet
         open={!!sheet}
