@@ -130,3 +130,14 @@ describe('CSV', () => {
     expect(planCartaImport('', [], 'consumo').errors[0]).toMatch(/vacío/);
   });
 });
+
+describe('porciones por insumos', () => {
+  it('si el producto tiene porciones por insumos, mandan sobre el stock manual', async () => {
+    const { remaining, stockLevel } = await import('./carta');
+    const p = { totalStock: 100, soldCount: 10, status: 'active', portions: 3 };
+    expect(remaining(p)).toBe(3);
+    expect(stockLevel(p)).toBe('bajo');
+    expect(remaining({ ...p, portions: 0 })).toBe(0);
+    expect(remaining({ ...p, portions: null })).toBe(90);
+  });
+});

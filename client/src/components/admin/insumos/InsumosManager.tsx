@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { DatabaseZap, Plus } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
+import { useTonightEvent } from '@/hooks/useTonightEvent';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AdminPasswordDialog } from '@/components/admin/AdminPasswordDialog';
 import { WriteButton } from '@/components/admin/WriteButton';
@@ -31,15 +32,8 @@ const chipBase = 'shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-sm fo
 /** Admin → Eventos → Stock de barra: insumos, recetas, lista de compras y conteos. */
 export function InsumosManager() {
   const isDemo = useIsDemo();
-  const { data: events } = trpc.events.listAll.useQuery();
-  const [eventId, setEventId] = useState<number | null>(null);
-  // Por defecto, la próxima fiesta (la más cercana que no pasó); si no hay, la última.
-  const defaultId = useMemo(() => {
-    const list = (events ?? []) as any[];
-    const upcoming = list.filter((e) => new Date(e.eventDate).getTime() > Date.now() - 12 * 3_600_000 && e.slug !== 'pruebas-caja');
-    return (upcoming.length ? upcoming[upcoming.length - 1] : list[0])?.id ?? null;
-  }, [events]);
-  const activeId = eventId ?? defaultId;
+  // Arranca en el evento real de esta noche (nunca en la cuenta de prueba) y recuerda el que elijas.
+  const { events, eventId: activeId, setSelected: setEventId } = useTonightEvent();
   const [tab, setTab] = useState<Tab>('stock');
   const [dialog, setDialog] = useState<InsumoFormValue | null>(null);
   const [dosierOpen, setDosierOpen] = useState(false);
