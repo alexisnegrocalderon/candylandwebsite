@@ -46,7 +46,7 @@ describe("missingPartySteps (0137)", () => {
   const profileNew = new Map([...Array.from(profileOld.entries()), ["superLikeCredits", "int"], ["superLikeBought", "int"], ["superLikeCap", "int"], ["likesUnlocked", "int"], ["affinityAlerts", "int"]]);
   const wallet = (value: boolean) => new Map([["reason", value ? "enum('earn_web','spend_playmatch')" : "enum('earn_web')"]]);
   const prepaid = (value: boolean) => new Map([["reason", value ? "enum('topup_web','spend_playmatch')" : "enum('topup_web')"]]);
-  const staff = (value: boolean) => new Map([["cargo", value ? "enum('caja','anfitrion_playmatch')" : "enum('caja')"]]);
+  const staff = (value: boolean) => new Map([["cargo", value ? "enum('caja','anfitrion_playmatch','animador')" : "enum('caja')"]]);
   const full = (): PartySnapshot => ({
     columns: new Map([["partyProfiles", profileNew], ["playcoinsLedger", wallet(true)], ["prepaidLedger", prepaid(true)], ["staffMembers", staff(true)], ["partyCharges", new Map([["id", "int"]])], ["partyEventConfig", new Map([["eventId", "int"]])]]),
     tables: new Set(["partyCharges", "partyEventConfig"]),
@@ -66,7 +66,7 @@ describe("missingPartySteps (0137)", () => {
     expect(labels).toEqual(expect.arrayContaining([
       "partyProfiles.superLikeCredits", "partyProfiles.superLikeBought", "partyProfiles.superLikeCap", "partyProfiles.likesUnlocked", "partyProfiles.affinityAlerts",
       "tabla partyCharges", "tabla partyEventConfig", "índice partyCharges.opId",
-      "playcoinsLedger spend_playmatch", "prepaidLedger spend_playmatch", "staffMembers.cargo anfitrion_playmatch",
+      "playcoinsLedger spend_playmatch", "prepaidLedger spend_playmatch", "staffMembers.cargo anfitrion_playmatch", "staffMembers.cargo animador",
     ]));
     // El orden importa: la tabla antes que sus índices.
     expect(labels.indexOf("tabla partyCharges")).toBeLessThan(labels.indexOf("índice partyCharges.opId"));

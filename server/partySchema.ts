@@ -112,6 +112,10 @@ const STEPS: Step[] = [
     group: 'staff', label: 'staffMembers.cargo anfitrion_playmatch', done: hasValue('staffMembers', 'cargo', 'anfitrion_playmatch'),
     statement: "ALTER TABLE `staffMembers` MODIFY `cargo` enum('caja','barra','puerta','cocina','guardarropia','supervisor','dj','rrpp','produccion','otro','anfitrion_playmatch')",
   },
+  {
+    group: 'staff', label: 'staffMembers.cargo animador', done: hasValue('staffMembers', 'cargo', 'animador'),
+    statement: "ALTER TABLE `staffMembers` MODIFY `cargo` enum('caja','barra','puerta','cocina','guardarropia','supervisor','dj','rrpp','produccion','otro','anfitrion_playmatch','animador')",
+  },
 ];
 
 const TABLES = ['partyProfiles', 'playcoinsLedger', 'prepaidLedger', 'staffMembers'];

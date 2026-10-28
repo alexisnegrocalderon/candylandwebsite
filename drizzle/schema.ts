@@ -2742,7 +2742,7 @@ export const staffMembers = mysqlTable("staffMembers", {
   email: varchar("email", { length: 320 }),
   // Qué hace (shared/staffCargos.ts): define a qué pantalla entra. `role`
   // queda como el título que se muestra (texto libre).
-  cargo: mysqlEnum("cargo", ["caja", "barra", "puerta", "cocina", "guardarropia", "supervisor", "dj", "rrpp", "produccion", "otro", "anfitrion_playmatch"]),
+  cargo: mysqlEnum("cargo", ["caja", "barra", "puerta", "cocina", "guardarropia", "supervisor", "dj", "rrpp", "produccion", "otro", "anfitrion_playmatch", "animador"]),
   // PIN que la persona eligió en su app; se copia a sus `operators`.
   pinHash: varchar("pinHash", { length: 255 }),
   pinSetAt: timestamp("pinSetAt"),

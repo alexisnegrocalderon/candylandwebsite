@@ -2,7 +2,7 @@ import { Component, Fragment, useEffect, useRef, useState, type ReactNode } from
 import { createPortal } from 'react-dom';
 import { AnimatePresence, MotionConfig, motion, useDragControls } from 'framer-motion';
 import { toast } from 'sonner';
-import { BadgeCheck, Calendar, Check, Copy, Crown, Gift, LogOut, Sparkles, Ticket as TicketIcon, ArrowRight, Loader2, QrCode, CreditCard, Wallet, Plus, RefreshCw, Bell, ChevronLeft, ChevronRight, Heart, History, User, WifiOff, ScanFace, CircleHelp, Shirt, MessageCircle, FileText, BookOpen } from 'lucide-react';
+import { BadgeCheck, Calendar, Check, Copy, Crown, Gift, LogOut, Sparkles, Ticket as TicketIcon, ArrowRight, Loader2, QrCode, CreditCard, Wallet, Plus, RefreshCw, Bell, ChevronLeft, ChevronRight, Heart, History, User, WifiOff, ScanFace, CircleHelp, Shirt, MessageCircle, FileText, BookOpen, Mic } from 'lucide-react';
 import { Link } from 'wouter';
 import { trpc } from '@/lib/trpc';
 import type { inferRouterOutputs } from '@trpc/server';
@@ -28,6 +28,7 @@ import { SolteroAccess, solteroRowSub, useSolteroStatus } from '@/components/sit
 import { StaffAccount, StaffBanner, useStaffPortal } from '@/components/site/StaffAccount';
 import { StaffDosier, useStaffDosier } from '@/components/site/StaffDosier';
 import { StaffPlaymatchHost, useStaffPlaymatchHost } from '@/components/site/StaffPlaymatchHost';
+import { StaffAnimador, useStaffAnimador } from '@/components/site/StaffAnimador';
 import { PlaymatchTab } from '@/components/site/PlaymatchTab';
 import { PlayCardStack } from '@/components/site/PlayCardStack';
 import { anyLive, type NightEvent } from '@shared/nightExtras';
@@ -707,6 +708,8 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
   const dosier = useStaffDosier();
   // Los anfitriones de Playmatch (cargo propio en el Staff): su pantalla de trabajo.
   const host = useStaffPlaymatchHost();
+  // Los animadores (cargo «Animador / MC»): su pauta de dinámicas, guion y señales con cámara.
+  const animador = useStaffAnimador();
   const tabs = TABS;
   // El aviso de contenido nuevo (`?tab=embajador`) abre directo la pantalla Embajador, una sola vez.
   const openEmb = useRef(initial.open === 'embajador' && new URLSearchParams(window.location.search).get('tab') === 'embajador');
@@ -739,7 +742,7 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
   const [dir, setDir] = useState(1);
   // Sub-hojas de «Más» y de «Puntos» (cada tema grande abre la suya, para que ninguna pantalla crezca).
   const [giftOpen, setGiftOpen] = useState(false);
-  const [sheet, setSheet] = useEntryState<null | 'tarjetas' | 'beneficios' | 'avisos' | 'movimientos' | 'entradas' | 'embajador' | 'staff' | 'dosier' | 'anfitrion' | 'faceid' | 'soltero'>('cuenta.sheet', null);
+  const [sheet, setSheet] = useEntryState<null | 'tarjetas' | 'beneficios' | 'avisos' | 'movimientos' | 'entradas' | 'embajador' | 'staff' | 'dosier' | 'anfitrion' | 'animador' | 'faceid' | 'soltero'>('cuenta.sheet', null);
   // Preguntas frecuentes, dress code, etc. en hojas de la app (antes había que ir al sitio).
   const [info, setInfo] = useEntryState<InfoKind | null>('cuenta.info', null);
   // Face ID: recién entró con el código y este teléfono puede → se le ofrece una vez, después de ver su app.
@@ -862,6 +865,19 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
                       <span className="block truncate text-footnote text-white/60">{host.funnel.profiles}/{host.goal.profiles} perfiles · {host.funnel.matches} matches</span>
                     </span>
                     <ArrowRight className="h-5 w-5 shrink-0 text-pink-300" />
+                  </span>
+                </button>
+              )}
+              {/* Animadores: la pauta de dinámicas de la noche. */}
+              {animador && (
+                <button type="button" onClick={() => { tapHaptic(); setSheet('animador'); }} className="block w-full rounded-[24px] bg-gradient-to-r from-fuchsia-500/80 via-pink-500/60 to-amber-400/70 p-[1.5px] text-left interactive">
+                  <span className="flex items-center gap-3 rounded-[23px] bg-[#0d0712] px-4 py-3.5">
+                    <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-fuchsia-400/15 text-xl">🎤</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-callout font-bold leading-tight">Pauta del animador</span>
+                      <span className="block truncate text-footnote text-white/60">{animador.dinamicas.length} dinámicas · guion · cámara</span>
+                    </span>
+                    <ArrowRight className="h-5 w-5 shrink-0 text-fuchsia-300" />
                   </span>
                 </button>
               )}
@@ -1009,6 +1025,7 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
                     // El correo del administrador tiene su acceso al panel acá también (además de la tarjeta de Perfil).
                     ...(me.isAdmin ? [{ key: 'admin', label: 'Panel admin', icon: Crown, href: '/admin' }] : []),
                     ...(host ? [{ key: 'anfitrion', label: 'Anfitrión', icon: Heart, onClick: () => { setMore(false); setSheet('anfitrion'); } }] : []),
+                    ...(animador ? [{ key: 'animador', label: 'Animador', icon: Mic, onClick: () => { setMore(false); setSheet('animador'); } }] : []),
                     ...(dosier ? [{ key: 'dosier', label: 'Dosier', icon: BookOpen, onClick: () => { setMore(false); setSheet('dosier'); } }] : []),
                     { key: 'entradas', label: 'Mis entradas', icon: TicketIcon, onClick: () => { setMore(false); setSheet('entradas'); } },
                     { key: 'movimientos', label: 'Movimientos', icon: History, onClick: () => { setMore(false); setSheet('movimientos'); } },
@@ -1046,6 +1063,7 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
       <InfoSheet kind={info} onClose={() => setInfo(null)} />
       <BottomSheet open={sheet === 'tarjetas'} onClose={() => setSheet(null)} title="Mis tarjetas"><SavedCardsSection /></BottomSheet>
       {dosier && <AppScreen open={sheet === 'dosier'} title="Dosier de barra" onClose={() => setSheet(null)}><StaffDosier dosier={dosier} /></AppScreen>}
+      {animador && <AppScreen open={sheet === 'animador'} title="Pauta del animador" onClose={() => setSheet(null)}><StaffAnimador /></AppScreen>}
       {host && <AppScreen open={sheet === 'anfitrion'} title="Anfitrión Playmatch" onClose={() => setSheet(null)}><StaffPlaymatchHost /></AppScreen>}
       {staff && <AppScreen open={sheet === 'staff'} title="Staff" onClose={() => setSheet(null)}><StaffAccount staff={staff} /></AppScreen>}
       <AppScreen open={sheet === 'soltero'} title="Acceso Soltero" onClose={() => setSheet(null)}><SolteroAccess /></AppScreen>

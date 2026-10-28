@@ -59,6 +59,15 @@ describe('cargos del staff', () => {
   });
 });
 
+describe('animador', () => {
+  it('es un cargo sin pantalla de trabajo y se reconoce por el texto libre', () => {
+    expect(STAFF_CARGOS.find((c) => c.key === 'animador')?.operatorRole).toBeNull();
+    expect(cargoFromRole('Animador')).toBe('animador');
+    expect(cargoFromRole('MC de la noche')).toBe('animador');
+    expect(cargoFromRole('DJ')).toBe('dj');
+  });
+});
+
 describe('anfitrión de Playmatch', () => {
   it('está entre los cargos, no usa ninguna pantalla de trabajo y no se confunde con la puerta', () => {
     expect(STAFF_CARGOS.find((c) => c.key === 'anfitrion_playmatch')?.operatorRole).toBeNull();

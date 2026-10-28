@@ -967,6 +967,13 @@
       "when": 1793760000000,
       "tag": "0137_playmatch_mercado",
       "breakpoints": true
+    },
+    {
+      "idx": 138,
+      "version": "5",
+      "when": 1793770000000,
+      "tag": "0138_cargo_animador",
+      "breakpoints": true
     }
   ]
 }
