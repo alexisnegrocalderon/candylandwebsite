@@ -2169,7 +2169,7 @@ export const appRouter = router({
   // El botón «Llamar a los organizadores» de arriba de todas las pantallas de trabajo: llega al celular del administrador y de
   // los supervisores. Cualquier persona con su PIN adentro puede usarlo; un aviso cada ~20 s por persona.
   terminal: router({
-    call: anyOperatorProcedure.input(z.object({
+    alertOrganizers: anyOperatorProcedure.input(z.object({
       area: z.enum(['caja', 'puerta', 'cocina', 'guardarropia', 'barra']),
       reason: z.enum(STAFF_CALL_KEYS),
       note: z.string().max(STAFF_CALL_NOTE_MAX * 2).nullish(),

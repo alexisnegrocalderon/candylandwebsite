@@ -245,7 +245,7 @@ function CallSheet({ area, onClose }: { area: StaffSystemKey; onClose: () => voi
     window.addEventListener('online', on); window.addEventListener('offline', off);
     return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); };
   }, []);
-  const call = trpc.terminal.call.useMutation({
+  const call = trpc.terminal.alertOrganizers.useMutation({
     onSuccess: () => { setSent(true); vibrateAlert(60); },
     onError: (e) => toast.error(e.message || 'No se pudo avisar. Llámalos por teléfono.', { duration: 8000 }),
   });
