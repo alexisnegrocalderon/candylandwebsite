@@ -12,6 +12,7 @@ import {
   AlertDialogFooter, AlertDialogTitle, AlertDialogDescription, AlertDialogAction, AlertDialogCancel,
 } from '@/components/ui/alert-dialog';
 import { Loader2, Sparkles, Plus, X, Send, RotateCcw, AlertTriangle, Clock } from 'lucide-react';
+import { ANNIVERSARY_PRESETS, type AnniversaryPreset } from '@shared/anniversaryCampaigns';
 
 /** Cuánto trocea el cliente la selección antes de mandarla al server -- cada
  * request de mailing.sendBatch procesa este número de emails secuencialmente
@@ -32,6 +33,10 @@ type MailingContent = {
   ctaText?: string;
   highlightLabel?: string;
   highlightValue?: string;
+  /** Prueba A/B: la otra mitad de la lista recibe este asunto. */
+  subjectB?: string;
+  /** Look del aniversario (sin valor = el de siempre). */
+  theme?: 'oro' | 'neon';
 };
 
 type SendResult = { customerId: number; email: string; success: boolean; reason?: string };
@@ -52,6 +57,8 @@ export function MailingComposer({
   ctaUrl,
   campaignTag,
   eventId,
+  eventSlug,
+  onSuggestName,
   onDone,
 }: {
   audience: { ids: number[]; count: number; description: string };
@@ -61,9 +68,16 @@ export function MailingComposer({
   // mailingCampaigns.eventId para que el cron pueda saltar a quien compre
   // mientras espera en la cola (ver server/mailing.ts processMailingCronBatch).
   eventId?: number | null;
+  /** Slug del evento, para armar el link de compra de los textos listos del aniversario. */
+  eventSlug?: string | null;
+  /** Los textos listos sugieren un nombre de campaña (es la etiqueta de cada destinatario). */
+  onSuggestName?: (name: string) => void;
   onDone: () => void;
 }) {
   const [step, setStep] = useState<Step>('objective');
+  // Link del botón: el de la audiencia por defecto, o el que trae un texto listo (la entrada o la instalación de la app).
+  const [ctaOverride, setCtaOverride] = useState<string | null>(null);
+  const baseCta = ctaOverride ?? ctaUrl;
   const [objective, setObjective] = useState('');
   const [content, setContent] = useState<MailingContent | null>(null);
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
@@ -75,14 +89,41 @@ export function MailingComposer({
   const renderPreview = trpc.mailing.renderPreview.useMutation();
   const sendBatch = trpc.mailing.sendBatch.useMutation();
   const createAutoCampaign = trpc.mailing.createAutoCampaign.useMutation();
+  const scheduleCampaign = trpc.mailing.scheduleCampaign.useMutation();
+  const previewAudience = trpc.mailing.previewAudience.useMutation();
+  const sendTest = trpc.mailing.sendTest.useMutation();
+  // Programar: la audiencia se calcula a la hora de envío (quien compró entremedio queda fuera).
+  const [scheduledAt, setScheduledAt] = useState('');
+  const [onlyNoTicket, setOnlyNoTicket] = useState(true);
+  const [includeLeads, setIncludeLeads] = useState(true);
+  const [withoutApp, setWithoutApp] = useState(false);
+  const [testTo, setTestTo] = useState('');
+  const [liveCount, setLiveCount] = useState<number | null>(null);
+  const audienceFilters = {
+    notPurchasedEventId: onlyNoTicket && eventId ? eventId : undefined,
+    includeLeads: includeLeads || undefined,
+    withoutApp: withoutApp || undefined,
+  };
 
   const resetComposer = () => {
     setStep('objective');
     setObjective('');
+    setCtaOverride(null);
     setContent(null);
     setPreviewHtml(null);
     setProgress({ sent: 0, total: 0 });
     setResults([]);
+  };
+
+  // Textos listos del aniversario: cargan el contenido (editable), el link del botón y un nombre de campaña sugerido.
+  const loadPreset = (p: AnniversaryPreset) => {
+    const origin = (() => { try { return new URL(ctaUrl).origin; } catch { return window.location.origin; } })();
+    const path = p.ctaPath === '/app' ? '/app' : `/checkout/${eventSlug || '2do-aniversario-playroom'}`;
+    setContent(p.content);
+    setCtaOverride(`${origin}${path}`);
+    onSuggestName?.(p.campaignName);
+    setStep('review');
+    toast.success(`Texto «${p.label}» cargado. Programarlo: ${p.when}. ${p.audienceHint}`, { duration: 12000 });
   };
 
   const handleGenerate = async () => {
@@ -104,7 +145,7 @@ export function MailingComposer({
   const handlePreview = async () => {
     if (!content) return;
     try {
-      const { html } = await renderPreview.mutateAsync({ content, ctaUrl, eventSections });
+      const { html } = await renderPreview.mutateAsync({ content, ctaUrl: baseCta, eventSections, eventId: eventId ?? undefined });
       setPreviewHtml(html);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'No se pudo generar la vista previa.');
@@ -119,7 +160,7 @@ export function MailingComposer({
     const timer = setTimeout(() => { handlePreview(); }, 600);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, content, eventSections]);
+  }, [step, content, eventSections, baseCta]);
 
   const runSend = async (ids: number[]) => {
     if (!content || ids.length === 0) return;
@@ -132,7 +173,7 @@ export function MailingComposer({
 
     for (const batch of batches) {
       try {
-        const { results: batchResults } = await sendBatch.mutateAsync({ customerIds: batch, content, ctaUrl, campaignTag: campaignTag || undefined, eventSections });
+        const { results: batchResults } = await sendBatch.mutateAsync({ customerIds: batch, content, ctaUrl: baseCta, campaignTag: campaignTag || undefined, eventSections });
         newResults.push(...batchResults);
       } catch (err) {
         // Todo el lote falló (ej. error de red) -- se marca cada id como fallido y se sigue con el resto.
@@ -162,7 +203,7 @@ export function MailingComposer({
         audienceDescription: audience.description,
         customerIds: audience.ids,
         content,
-        ctaUrl,
+        ctaUrl: baseCta,
         eventSections,
         eventId: eventId ?? undefined,
       });
@@ -171,6 +212,46 @@ export function MailingComposer({
       onDone();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'No se pudo guardar la campaña.');
+    }
+  };
+
+  const scheduledIso = scheduledAt ? new Date(scheduledAt).toISOString() : null;
+  const scheduleOk = !!scheduledIso && new Date(scheduledIso).getTime() > Date.now();
+
+  // Cuántos recibirían la campaña si saliera ahora con estos filtros (se vuelve a calcular a la hora de envío).
+  const handleCountAudience = async () => {
+    try { setLiveCount((await previewAudience.mutateAsync(audienceFilters)).count); }
+    catch (err) { toast.error(err instanceof Error ? err.message : 'No se pudo contar la audiencia.'); }
+  };
+
+  const handleSchedule = async () => {
+    if (!content || !scheduledIso) return;
+    try {
+      await scheduleCampaign.mutateAsync({
+        name: campaignTag,
+        audienceDescription: `${audience.description} · se calcula a la hora de envío`,
+        audienceFilters,
+        content,
+        ctaUrl: baseCta,
+        eventSections,
+        eventId: eventId ?? undefined,
+        scheduledAt: scheduledIso,
+      });
+      toast.success(`Campaña "${campaignTag}" programada para el ${new Date(scheduledIso).toLocaleString('es-CL', { timeZone: 'America/Santiago', weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', hour12: false })}. Sigue el progreso en Historial.`, { duration: 10000 });
+      resetComposer();
+      onDone();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'No se pudo programar la campaña.');
+    }
+  };
+
+  const handleSendTest = async () => {
+    if (!content || !testTo.trim()) return;
+    try {
+      const r = await sendTest.mutateAsync({ to: testTo.trim(), content, ctaUrl: baseCta, eventSections, eventId: eventId ?? undefined });
+      toast.success(`Prueba enviada a ${testTo.trim()} (${r.sent}/${r.total}). Revisa la bandeja y el spam.`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'No se pudo enviar la prueba.');
     }
   };
 
@@ -201,6 +282,19 @@ export function MailingComposer({
             />
             <p className="text-xs text-muted-foreground">Cuéntanos qué quieres lograr, con tus palabras -- la IA arma el asunto y el cuerpo del mail con el estilo de marca del sitio.</p>
           </div>
+          <div className="space-y-2 rounded-xl border border-border/50 p-3">
+            <Label>O usa un texto listo del 2º aniversario</Label>
+            <div className="grid gap-2 sm:grid-cols-3">
+              {ANNIVERSARY_PRESETS.map((p) => (
+                <button key={p.key} type="button" disabled={step === 'generating'} onClick={() => loadPreset(p)}
+                  className="rounded-xl border border-border p-3 text-left text-sm hover:bg-secondary/20 interactive">
+                  <span className="block font-semibold">{p.label}</span>
+                  <span className="block text-xs text-muted-foreground">{p.when}</span>
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground">Vienen con dos asuntos para la prueba A/B y el estilo del aniversario. El precio de cada acceso lo toma el correo de la base al momento de enviar.</p>
+          </div>
           <WriteButton onClick={handleGenerate} disabled={step === 'generating'} className="w-full interactive">
             {step === 'generating' ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Generando…</> : <><Sparkles className="w-4 h-4 mr-2" /> Generar con IA</>}
           </WriteButton>
@@ -212,6 +306,19 @@ export function MailingComposer({
           <div className="space-y-2">
             <Label>Asunto</Label>
             <Input value={content.subject} onChange={(e) => setContent({ ...content, subject: e.target.value })} />
+          </div>
+          <div className="space-y-2">
+            <Label>Asunto B -- prueba A/B (opcional)</Label>
+            <Input value={content.subjectB ?? ''} onChange={(e) => setContent({ ...content, subjectB: e.target.value || undefined })} placeholder="Si lo llenas, la mitad de la lista recibe este asunto y la otra mitad el de arriba" />
+          </div>
+          <div className="space-y-2">
+            <Label>Estilo del mail</Label>
+            <div className="flex flex-wrap gap-2">
+              {([[undefined, 'Clásico'], ['oro', '2º aniversario · dorado'], ['neon', '2º aniversario · neón']] as const).map(([value, label]) => (
+                <Button key={label} type="button" size="sm" variant={content.theme === value ? 'default' : 'outline'} onClick={() => setContent({ ...content, theme: value })}>{label}</Button>
+              ))}
+            </div>
+            {content.theme && <p className="text-xs text-muted-foreground">Con el estilo del aniversario el mail muestra el precio de hoy de cada acceso (de la base, siempre al día){eventId ? '' : ' -- elige un evento en el filtro de audiencia para que aparezca'}.</p>}
           </div>
           <div className="space-y-2">
             <Label>Preheader (preview en la bandeja de entrada, opcional)</Label>
@@ -242,6 +349,10 @@ export function MailingComposer({
             >
               <Plus className="w-3 h-3 mr-1" /> Agregar párrafo
             </Button>
+          </div>
+          <div className="space-y-2">
+            <Label>Link del botón</Label>
+            <Input value={baseCta} onChange={(e) => setCtaOverride(e.target.value)} />
           </div>
           <div className="space-y-2">
             <Label>Texto del botón</Label>
@@ -291,6 +402,57 @@ export function MailingComposer({
               Resend free permite ~{RESEND_FREE_DAILY_LIMIT} emails/día y estás por mandar a {audience.count}. Con "Enviar" ahora, si se corta a mitad de camino, lo ya enviado queda tageado con "{campaignTag || '(sin nombre)'}" y mañana puedes retomar excluyendo esa etiqueta -- o usa "Guardar para envío automático" y no tienes que volver a entrar.
             </p>
           )}
+
+          <div className="space-y-3 rounded-xl border border-border/50 p-3">
+            <Label>Probar y programar</Label>
+            <div className="flex flex-wrap gap-2">
+              <Input className="max-w-xs" type="email" value={testTo} onChange={(e) => setTestTo(e.target.value)} placeholder="Tu correo para recibir una prueba" />
+              <WriteButton type="button" variant="outline" onClick={handleSendTest} disabled={!testTo.trim() || sendTest.isPending}>
+                {sendTest.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Send className="w-4 h-4 mr-2" />} Enviarme una prueba
+              </WriteButton>
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <Checkbox id="aud-noticket" checked={onlyNoTicket} disabled={!eventId} onCheckedChange={(c) => setOnlyNoTicket(c === true)} />
+                <Label htmlFor="aud-noticket" className="font-normal cursor-pointer">Solo quienes NO tienen entrada de este evento{eventId ? '' : ' (elige un evento en el filtro de audiencia)'}</Label>
+              </div>
+              <div className="flex items-center gap-2">
+                <Checkbox id="aud-leads" checked={includeLeads} onCheckedChange={(c) => setIncludeLeads(c === true)} />
+                <Label htmlFor="aud-leads" className="font-normal cursor-pointer">Sumar a quienes dejaron su correo sin comprar (leads)</Label>
+              </div>
+              <div className="flex items-center gap-2">
+                <Checkbox id="aud-noapp" checked={withoutApp} onCheckedChange={(c) => setWithoutApp(c === true)} />
+                <Label htmlFor="aud-noapp" className="font-normal cursor-pointer">Solo quienes todavía no tienen la app</Label>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Input className="max-w-[16rem]" type="datetime-local" value={scheduledAt} onChange={(e) => setScheduledAt(e.target.value)} />
+              <Button type="button" variant="outline" size="sm" onClick={handleCountAudience} disabled={previewAudience.isPending}>
+                {previewAudience.isPending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : null} Contar audiencia ahora
+              </Button>
+              {liveCount !== null && <span className="text-sm font-semibold">{liveCount} cliente{liveCount !== 1 ? 's' : ''} hoy</span>}
+            </div>
+            <p className="text-xs text-muted-foreground">La lista se calcula a la hora de envío: quien compre antes queda fuera, y quien se dé de baja no recibe nada. Hora de Chile.</p>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <WriteButton type="button" disabled={!scheduleOk || !campaignTag.trim() || scheduleCampaign.isPending} className="interactive">
+                  {scheduleCampaign.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Clock className="w-4 h-4 mr-2" />} Programar envío
+                </WriteButton>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>¿Programar esta campaña?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Sale el {scheduledIso ? new Date(scheduledIso).toLocaleString('es-CL', { timeZone: 'America/Santiago', weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', hour12: false }) : ''} (hora de Chile) a quienes cumplan los filtros en ese momento{liveCount !== null ? ` -- hoy serían ${liveCount}` : ''}. Puedes cancelarla en Historial antes de que salga.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleSchedule}>Sí, programar</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
 
           <div className="flex flex-wrap gap-2 pt-2">
             <WriteButton type="button" variant="outline" onClick={handlePreview} disabled={renderPreview.isPending}>

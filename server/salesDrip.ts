@@ -24,7 +24,7 @@
  */
 import {
   getFeaturedEvent, listCustomers, getSalesDripSettings, hasApprovedOrderForEvent,
-  countTandaPromoEmailsSentToday, getLastSalesDripByCustomer,
+  countTandaPromoEmailsSentToday, getLastSalesDripByCustomer, hasMailingCampaignToday,
 } from './db';
 import { sendMailingBatch, type MailingContent } from './mailing';
 import { resolveCurrentOffer, type Tanda2Offer } from './tanda2Promo';
@@ -39,7 +39,7 @@ export const SALES_DRIP_DAILY_TARGET = Number(process.env.SALES_DRIP_DAILY_CAP) 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export type SalesDripRunResult =
-  | { ran: false; reason: 'disabled' | 'no-event' | 'event-over' | 'no-price' | 'daily-cap-reached' | 'nobody-due' }
+  | { ran: false; reason: 'disabled' | 'campaign-today' | 'no-event' | 'event-over' | 'no-price' | 'daily-cap-reached' | 'nobody-due' }
   | { ran: true; eventTitle: string; daysLeft: number; priceFrom: number; dueCount: number; sent: number; failed: number; skipped: number };
 
 type DripEvent = {
@@ -159,6 +159,9 @@ export async function selectDueCustomers(eventId: number, intervalDays: number, 
 export async function runSalesDripDaily(now: Date = new Date()): Promise<SalesDripRunResult> {
   const settings = await getSalesDripSettings();
   if (!settings.enabled) return { ran: false, reason: 'disabled' };
+  // Un día con campaña programada (ej. el último día de preventa) el aviso diario se pausa: la campaña ya le escribe
+  // a esa misma gente, y dos correos el mismo día queman la lista.
+  if (await hasMailingCampaignToday(now)) return { ran: false, reason: 'campaign-today' };
 
   const event = await getFeaturedEvent();
   if (!event) return { ran: false, reason: 'no-event' };

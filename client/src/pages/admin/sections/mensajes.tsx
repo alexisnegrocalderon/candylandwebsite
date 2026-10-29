@@ -464,6 +464,9 @@ export function MailingSection() {
     return parts.length > 0 ? parts.join(', ') : 'toda la base de clientes';
   })();
 
+  // El evento de la campaña: aquel del que se EXCLUYE a los compradores (lo normal en una campaña de venta) o, si no, el filtrado.
+  const effectiveEventId: number | null = excludeBuyersOfEventId !== 'none' ? Number(excludeBuyersOfEventId) : eventFilter === 'all' ? null : Number(eventFilter);
+
   const mailingCtaUrl = (() => {
     const origin = window.location.origin;
     if (eventFilter !== 'all') {
@@ -699,7 +702,9 @@ export function MailingSection() {
             audience={{ ids: Array.from(selectedIds), count: selectedIds.size, description: audienceDescription }}
             ctaUrl={mailingCtaUrl}
             campaignTag={campaignTag}
-            eventId={eventFilter === 'all' ? null : Number(eventFilter)}
+            eventId={effectiveEventId}
+            eventSlug={events.find((e: any) => e.id === effectiveEventId)?.slug ?? null}
+            onSuggestName={setCampaignTag}
             onDone={() => setSelectedIds(new Set())}
           />
         </CardContent>
@@ -796,6 +801,32 @@ export function ImmediateSendBatches() {
  * envíos inmediatos (aviso de primeros cupos + "Enviar a N clientes") tienen
  * su propia sección arriba (ImmediateSendBatches) -- log aparte, no se
  * mezclan con estas campañas encoladas. */
+/** Aviso de Resend por variante de asunto: personas distintas que recibieron, abrieron, hicieron clic, rebotaron o marcaron spam.
+ * Las aperturas no son del todo fiables (Apple las infla): el clic es la señal que importa. */
+function CampaignStats({ campaignName, subjectB }: { campaignName: string; subjectB: boolean }) {
+  const { data } = trpc.mailing.campaignStats.useQuery({ campaignName }, { refetchInterval: 60_000 });
+  if (!data || data.length === 0) return <p className="text-xs text-muted-foreground">Sin avisos de Resend todavía (activa el webhook para ver aperturas y clics).</p>;
+  const label = (v: string) => (v === 'A' ? (subjectB ? 'Asunto A' : 'Todos') : v === 'B' ? 'Asunto B' : 'Sin variante');
+  return (
+    <div className="rounded-lg border border-border/50 divide-y text-xs">
+      {data.map((row: { variant: string; counts: Record<string, number> }) => {
+        const d = row.counts.delivered ?? 0;
+        const pct = (n?: number) => (d > 0 && n ? ` (${Math.round((n / d) * 100)}%)` : '');
+        return (
+          <div key={row.variant} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2">
+            <span className="font-semibold w-20">{label(row.variant)}</span>
+            <span>{d} entregados</span>
+            <span>{row.counts.opened ?? 0} abrieron{pct(row.counts.opened)}</span>
+            <span className="font-semibold text-primary">{row.counts.clicked ?? 0} clics{pct(row.counts.clicked)}</span>
+            {(row.counts.bounced ?? 0) > 0 && <span className="text-destructive">{row.counts.bounced} rebotes</span>}
+            {(row.counts.complained ?? 0) > 0 && <span className="text-destructive">{row.counts.complained} spam</span>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function MailingHistoryView() {
   const { data: campaignsData, refetch } = trpc.mailing.listCampaigns.useQuery(undefined, {
     refetchInterval: 30_000,
@@ -846,9 +877,11 @@ export function MailingHistoryView() {
                     <p className="text-xs text-muted-foreground">{c.audienceDescription} · creada el {new Date(c.createdAt).toLocaleDateString('es-CL', { timeZone: 'America/Santiago' })}</p>
                   </div>
                   <span className={`text-xs px-2 py-0.5 rounded-full font-medium whitespace-nowrap ${
-                    c.status === 'done' ? 'bg-primary/10 text-primary' : c.status === 'cancelled' ? 'bg-muted text-muted-foreground' : 'bg-amber-500/10 text-amber-600'
+                    c.status === 'done' ? 'bg-primary/10 text-primary' : c.status === 'cancelled' ? 'bg-muted text-muted-foreground' : c.status === 'scheduled' ? 'bg-sky-500/10 text-sky-600' : 'bg-amber-500/10 text-amber-600'
                   }`}>
-                    {c.status === 'done' ? 'Terminada' : c.status === 'cancelled' ? 'Cancelada' : 'Enviando…'}
+                    {c.status === 'done' ? 'Terminada' : c.status === 'cancelled' ? 'Cancelada'
+                      : c.status === 'scheduled' ? `Programada · ${c.scheduledAt ? new Date(c.scheduledAt).toLocaleString('es-CL', { timeZone: 'America/Santiago', weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false }) : ''}`
+                      : 'Enviando…'}
                   </span>
                 </div>
 
@@ -860,10 +893,13 @@ export function MailingHistoryView() {
                   {c.failedCount > 0 && <span className="text-destructive font-medium">{c.failedCount} fallidos</span>}
                   {c.skippedCount > 0 && <span className="text-muted-foreground">{c.skippedCount} ya habían comprado</span>}
                   <span>{c.totalRecipients} en total</span>
-                  {c.status === 'sending' && <span>· sigue mañana con lo que falte</span>}
+                  {c.status === 'sending' && <span>· sigue en la próxima corrida con lo que falte</span>}
+                  {c.status === 'scheduled' && <span>· la lista se arma a la hora de envío</span>}
                 </div>
 
-                {c.status === 'sending' && (
+                {(c.status === 'done' || c.status === 'sending') && c.sentCount > 0 && <CampaignStats campaignName={c.name} subjectB={!!(c.content as any)?.subjectB} />}
+
+                {(c.status === 'sending' || c.status === 'scheduled') && (
                   confirmingCancelId === c.id ? (
                     <div className="flex items-center gap-2">
                       <span className="text-xs text-muted-foreground">¿Cancelar? No se manda el resto de los destinatarios.</span>

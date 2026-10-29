@@ -2,7 +2,11 @@ import { z } from "zod";
 import { nanoid } from "nanoid";
 import { formatChileDate, formatChileTime } from "../shared/chileDate";
 import { invokeLLM, extractContent } from "./_core/llm";
-import { sendEmail, buildMailingBlastEmail, type MailingEventInfo, type MailingEventSections, type MailingPriceRow } from "./email";
+import { sendEmail, sendMarketingEmailBatch, resendTagValue, EMAIL_BATCH_MAX, buildMailingBlastEmail, type MailingEventInfo, type MailingEventSections, type MailingPriceRow } from "./email";
+import { customerWhere, type CustomerPageFilters } from "./customerFilters";
+import { appUserEmails } from "./appDevices";
+import { syncLeadsAsMailingAudience } from "./leadsMailing";
+import { customers } from "../drizzle/schema";
 import * as db from "./db";
 import { getMission300Status } from "./webhooks";
 import { isMissionActiveForEvent, MISSION_300_DEPOSIT_PER_PERSON } from "../shared/mission300";
@@ -49,8 +53,21 @@ export const MailingContentSchema = z.object({
   ctaText: z.string().max(40).optional(),
   highlightLabel: z.string().max(60).optional(),
   highlightValue: z.string().max(60).optional(),
+  // Prueba A/B de asunto: la mitad de la lista (por id de cliente, par/impar) recibe `subject` y la otra mitad `subjectB`.
+  subjectB: z.string().min(4).max(90).optional(),
+  // Look del correo (campañas del aniversario); sin valor = el de siempre.
+  theme: z.enum(["oro", "neon"]).optional(),
 });
 export type MailingContent = z.infer<typeof MailingContentSchema>;
+
+/** Variante A/B de un cliente: determinista (par = A, impar = B), así el mismo cliente siempre cae en la misma. */
+export function mailingVariantFor(customerId: number): "A" | "B" {
+  return customerId % 2 === 0 ? "A" : "B";
+}
+
+export function mailingSubjectFor(content: { subject: string; subjectB?: string }, customerId: number): string {
+  return mailingVariantFor(customerId) === "B" && content.subjectB ? content.subjectB : content.subject;
+}
 
 export const MAILING_JSON_SCHEMA = {
   name: "mailing_template",
@@ -238,18 +255,14 @@ export async function createAutoMailingCampaign(input: {
   });
 }
 
-/** Cuánto puede durar como máximo una corrida del cron antes de cortar y
- * dejar el resto para la corrida de mañana -- deja margen bajo el
- * maxDuration:60 de la función serverless (ver vercel.json). Cortar a mitad
- * de camino no pierde nada: cada destinatario se marca sent/failed apenas se
- * manda (markMailingRecipientResult), así que lo que no se alcanzó a tocar
- * sigue 'pending' para la próxima corrida. */
-const CRON_TIME_BUDGET_MS = 50_000;
+/** Cuánto puede durar como máximo una corrida del cron antes de cortar y dejar el resto para la próxima (la función
+ * serverless permite 300 s, ver vercel.json). Cortar a mitad de camino no pierde nada: cada lote se marca
+ * sent/failed apenas sale, y lo que no se alcanzó a tocar sigue 'pending' para la próxima corrida. */
+const CRON_TIME_BUDGET_MS = Number(process.env.MAILING_CRON_BUDGET_MS) || 240_000;
 
-/** Tope de emails por corrida. Con el cron corriendo cada 15 minutos (Vercel
- * Pro) esto ya NO es el tope del día: es solo cuánto se manda de una vez para
- * no pasarse del presupuesto de tiempo de la función. */
-const CRON_MAX_PER_RUN = Number(process.env.MAILING_CRON_RUN_CAP) || 25;
+/** Tope de emails por corrida. Con el envío en lotes de 100 (Resend `/emails/batch`) una corrida manda varios
+ * miles dentro del presupuesto de tiempo; el tope diario (abajo) sigue siendo el freno real. */
+const CRON_MAX_PER_RUN = Number(process.env.MAILING_CRON_RUN_CAP) || 500;
 
 /** Tope de emails automáticos POR DÍA, compartido entre el mailing masivo y
  * los recordatorios de carrito abandonado.
@@ -275,21 +288,104 @@ export type MailingCronResult = {
   campaignsTouched: number;
 };
 
-/** Corrida diaria del cron (server/cronRoutes.ts): manda la próxima tanda de
- * pendientes de las campañas automáticas 'sending', de la más vieja a la más
- * nueva -- una campaña grande no le "roba" el turno a una chica creada
- * después, pero tampoco hace falta terminar una entera antes de empezar la
- * siguiente si el presupuesto de tiempo/cupo se agota primero.
- *
- * El "próximo evento destacado" se resuelve UNA sola vez por corrida (no por
- * destinatario ni por campaña) -- alcanza para que el contador de Misión 300
- * salga al día en cada tanda diaria, sin pegarle una consulta a la base por
- * cada email. */
+/** Precio de hoy de cada acceso (y cupos) del evento de la campaña, siempre de la base: el correo del aniversario
+ * muestra «último día a este valor» y no puede quedar con un precio que ya cambió. Import dinámico porque
+ * tanda2Promo importa este módulo. Null si el evento no tiene accesos con precio. */
+export async function getCampaignOffer(eventId: number | null | undefined): Promise<{ priceList: MailingPriceRow[]; remaining: number | null } | null> {
+  if (!eventId) return null;
+  const { resolveCurrentOffer } = await import("./tanda2Promo");
+  const offer = await resolveCurrentOffer(eventId);
+  return offer ? { priceList: offer.prices, remaining: offer.remaining } : null;
+}
+
+/** A quién va una campaña programada. Se resuelve RECIÉN cuando llega la hora (ver `materializeDueCampaigns`). */
+export const AudienceFiltersSchema = z.object({
+  /** Quienes NO tienen entrada aprobada de este evento. */
+  notPurchasedEventId: z.number().int().optional(),
+  /** Suma a quienes dejaron su correo (leads) y todavía no compraron. */
+  includeLeads: z.boolean().optional(),
+  /** Solo quienes todavía no tienen la app. */
+  withoutApp: z.boolean().optional(),
+  excludeTags: z.array(z.string().max(100)).max(20).optional(),
+});
+export type AudienceFilters = z.infer<typeof AudienceFiltersSchema>;
+
+/** Los clientes que cumplen los filtros AHORA (sin baja, sin cuentas internas, sin entrada del evento). */
+export async function resolveAudienceCustomerIds(filters: AudienceFilters, now: Date = new Date()): Promise<number[]> {
+  const rawDb = await db.getDb();
+  if (!rawDb) throw new Error("Base de datos no disponible");
+  if (filters.includeLeads) await syncLeadsAsMailingAudience(rawDb, filters.notPurchasedEventId ? { eventId: filters.notPurchasedEventId } : {});
+  const pageFilters: CustomerPageFilters = {
+    forMailing: true,
+    notPurchasedEventId: filters.notPurchasedEventId,
+    excludeTags: filters.excludeTags,
+    withoutApp: filters.withoutApp,
+  };
+  const where = customerWhere(pageFilters, now, filters.withoutApp ? await appUserEmails() : undefined);
+  const rows = await rawDb.select({ id: customers.id }).from(customers).where(where).orderBy(customers.id);
+  return rows.map((r: { id: number }) => r.id);
+}
+
+/** Guarda una campaña PROGRAMADA: sin destinatarios todavía, salen a `scheduledAt` según `audienceFilters`. */
+export async function scheduleMailingCampaign(input: {
+  name: string;
+  audienceDescription: string;
+  audienceFilters: AudienceFilters;
+  content: MailingContent;
+  ctaUrl: string;
+  eventSections?: MailingEventSections;
+  eventId?: number | null;
+  scheduledAt: Date;
+}): Promise<{ campaignId: number }> {
+  const name = input.name.trim();
+  if (!name) throw new Error("Falta el nombre de la campaña.");
+  if (!(input.scheduledAt.getTime() > Date.now() - 60_000)) throw new Error("La hora de envío ya pasó.");
+  return db.createScheduledMailingCampaign({
+    name,
+    audienceDescription: input.audienceDescription,
+    content: input.content,
+    ctaUrl: input.ctaUrl,
+    eventSections: input.eventSections ?? null,
+    eventId: input.eventId ?? input.audienceFilters.notPurchasedEventId ?? null,
+    scheduledAt: input.scheduledAt,
+    audienceFilters: input.audienceFilters,
+  });
+}
+
+/** Las campañas programadas que ya cumplieron su hora pasan a 'sending' con la audiencia de ESE momento: así el
+ * recordatorio de la tarde y el del viernes dejan fuera a quien compró entremedio. Solo una corrida toma cada
+ * campaña (`claimScheduledCampaign`); si armar la lista falla, vuelve a quedar programada para reintentar. */
+export async function materializeDueCampaigns(now: Date = new Date()): Promise<{ campaigns: number; recipients: number }> {
+  const due = await db.listDueScheduledCampaigns(now);
+  let recipients = 0;
+  let campaigns = 0;
+  for (const campaign of due) {
+    if (!(await db.claimScheduledCampaign(campaign.id))) continue;
+    try {
+      const filters = AudienceFiltersSchema.parse(campaign.audienceFilters ?? {});
+      const ids = await resolveAudienceCustomerIds(filters, now);
+      await db.insertMailingRecipients(campaign.id, ids);
+      recipients += ids.length;
+      campaigns++;
+    } catch (err) {
+      console.error(`[Mailing] No se pudo armar la audiencia de la campaña ${campaign.id}, se reintenta:`, err);
+      await db.revertScheduledCampaign(campaign.id);
+    }
+  }
+  return { campaigns, recipients };
+}
+
+/** Corrida del cron (server/cronRoutes.ts, cada pocos minutos): primero arma las campañas programadas que ya
+ * llegaron a su hora y después manda los pendientes de las campañas 'sending', de la más vieja a la más nueva, en
+ * lotes de 100 por la API batch de Resend. Se saltan (sin gastar cupo) quienes ya compraron el evento de la campaña
+ * o pidieron la baja mientras esperaban. El evento destacado se resuelve UNA vez por corrida. */
 export async function processMailingCronBatch(): Promise<MailingCronResult> {
   const start = Date.now();
 
-  // Presupuesto diario compartido: la frecuencia alta sirve para que un
-  // correo salga PRONTO, no para mandar más. Ver AUTOMATED_EMAIL_DAILY_CAP.
+  // Si la migración 0139 todavía no se corrió, armar campañas programadas falla: no debe frenar la cola de siempre.
+  try { await materializeDueCampaigns(); } catch (err) { console.error('[Mailing] No se pudieron armar las campañas programadas (¿falta la migración 0139?):', err); }
+
+  // Presupuesto diario compartido: ver AUTOMATED_EMAIL_DAILY_CAP.
   const sentToday = await db.countAutomatedEmailsSentToday();
   const dailyRemaining = AUTOMATED_EMAIL_DAILY_CAP - sentToday;
   if (dailyRemaining <= 0) {
@@ -300,69 +396,79 @@ export async function processMailingCronBatch(): Promise<MailingCronResult> {
 
   let sent = 0;
   let failed = 0;
+  let skipped = 0;
   const campaignsTouched = new Set<number>();
   let eventInfo: MailingEventInfo | null | undefined;
+  const buyersByEvent = new Map<number, Set<string>>();
 
-  let skipped = 0;
+  // Los pendientes llegan ordenados por campaña: se procesa una campaña a la vez.
+  const byCampaign = new Map<number, typeof pending>();
+  for (const r of pending) byCampaign.set(r.campaignId, [...(byCampaign.get(r.campaignId) ?? []), r]);
 
-  for (const recipient of pending) {
+  for (const [campaignId, rows] of Array.from(byCampaign.entries())) {
     if (Date.now() - start > CRON_TIME_BUDGET_MS) break;
+    campaignsTouched.add(campaignId);
 
-    // Pedido explícito del dueño (14/09): si mientras esperaba en la cola
-    // ya compró la entrada del evento de esta campaña, no tiene sentido
-    // seguir ofreciéndosela -- se saltea sin gastar cupo diario ni contar
-    // como enviado/fallado. Campañas sin `campaignEventId` (no hablan de un
-    // evento puntual) nunca entran acá.
-    if (recipient.campaignEventId && await db.hasApprovedOrderForEvent(recipient.email, recipient.campaignEventId)) {
-      await db.markMailingRecipientSkipped(recipient.id, recipient.campaignId);
-      campaignsTouched.add(recipient.campaignId);
-      skipped++;
-      continue;
+    // Compró mientras esperaba (pedido del dueño, 14/09) o pidió la baja: se salta, sin gastar cupo.
+    const eventId = rows[0].campaignEventId;
+    let buyers: Set<string> | undefined;
+    if (eventId) {
+      buyers = buyersByEvent.get(eventId) ?? await db.approvedBuyerEmailsForEvent(eventId);
+      buyersByEvent.set(eventId, buyers);
     }
+    const skipBought = rows.filter((r) => buyers?.has(r.email.trim().toLowerCase()));
+    const skipOptOut = rows.filter((r) => !skipBought.includes(r) && r.emailOptOut);
+    await db.markMailingRecipientsSkipped(campaignId, skipBought.map((r) => r.id), 'Ya había comprado esta entrada');
+    await db.markMailingRecipientsSkipped(campaignId, skipOptOut.map((r) => r.id), 'Pidió no recibir correos');
+    skipped += skipBought.length + skipOptOut.length;
+    const toSend = rows.filter((r) => !skipBought.includes(r) && !skipOptOut.includes(r));
+    if (toSend.length === 0) continue;
 
-    // Misma regla que en sendMailingBatch: una baja pedida mientras esperaba
-    // en la cola se respeta, sin gastar cupo ni contar como fallo.
-    if (await db.isCustomerEmailOptedOut(recipient.customerId)) {
-      await db.markMailingRecipientSkipped(recipient.id, recipient.campaignId, 'Pidió no recibir correos');
-      campaignsTouched.add(recipient.campaignId);
-      skipped++;
-      continue;
-    }
+    const content = toSend[0].content as MailingContent;
+    const eventSections = (toSend[0].eventSections ?? undefined) as MailingEventSections | undefined;
+    if (eventSections && eventInfo === undefined) eventInfo = await getMailingEventInfo();
+    const campaignTag = resendTagValue(toSend[0].campaignName);
+    // Con look de aniversario el precio de cada acceso se lee de la base en cada corrida.
+    const offer = content.theme ? await getCampaignOffer(eventId) : null;
 
-    const content = recipient.content as MailingContent;
-    const eventSections = (recipient.eventSections ?? undefined) as MailingEventSections | undefined;
-    if (eventSections && eventInfo === undefined) {
-      eventInfo = await getMailingEventInfo();
-    }
-
-    const html = buildMailingBlastEmail({
-      buyerName: recipient.fullName ?? "",
-      preheader: content.preheader,
-      headline: content.headline,
-      paragraphs: content.paragraphs,
-      ctaText: content.ctaText,
-      ctaUrl: recipient.ctaUrl,
-      highlightLabel: content.highlightLabel,
-      highlightValue: content.highlightValue,
-      eventInfo: eventSections ? eventInfo : null,
-      eventSections,
-    });
-    const result = await sendEmail({ to: recipient.email, subject: content.subject, html, marketing: true });
-    await db.markMailingRecipientResult(recipient.id, recipient.campaignId, result.success, result.reason);
-    campaignsTouched.add(recipient.campaignId);
-
-    if (result.success) {
-      sent++;
+    for (let i = 0; i < toSend.length; i += EMAIL_BATCH_MAX) {
+      if (Date.now() - start > CRON_TIME_BUDGET_MS) break;
+      const chunk = toSend.slice(i, i + EMAIL_BATCH_MAX);
+      const results = await sendMarketingEmailBatch(chunk.map((recipient) => ({
+        to: recipient.email,
+        subject: mailingSubjectFor(content, recipient.customerId),
+        html: buildMailingBlastEmail({
+          buyerName: recipient.fullName ?? "",
+          preheader: content.preheader,
+          headline: content.headline,
+          paragraphs: content.paragraphs,
+          ctaText: content.ctaText,
+          ctaUrl: recipient.ctaUrl,
+          highlightLabel: content.highlightLabel,
+          highlightValue: content.highlightValue,
+          eventInfo: eventSections ? eventInfo : null,
+          eventSections,
+          theme: content.theme,
+          priceList: offer?.priceList,
+          remaining: offer?.remaining,
+        }),
+        marketing: true,
+        tags: [
+          { name: "campaign", value: campaignTag },
+          { name: "variant", value: mailingVariantFor(recipient.customerId) },
+        ],
+      })));
+      const marked = chunk.map((recipient, idx) => ({ recipientId: recipient.id, success: results[idx].success, reason: results[idx].reason }));
+      await db.markMailingRecipientsResults(campaignId, marked);
+      const okIds = chunk.filter((_, idx) => results[idx].success).map((r) => r.customerId);
+      sent += okIds.length;
+      failed += chunk.length - okIds.length;
       try {
-        await db.addCustomerTag(recipient.customerId, recipient.campaignName);
+        await db.bulkAddCustomerTag(okIds, toSend[0].campaignName);
       } catch (err) {
-        console.error('[Mailing] No se pudo taguear al cliente tras el envío automático:', err);
+        console.error('[Mailing] No se pudo taguear a los clientes tras el envío automático:', err);
       }
-    } else {
-      failed++;
     }
-
-    await sleep(THROTTLE_MS);
   }
 
   return { processed: sent + failed, sent, failed, skipped, campaignsTouched: campaignsTouched.size };

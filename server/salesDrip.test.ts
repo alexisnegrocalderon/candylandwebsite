@@ -11,6 +11,7 @@ vi.mock("./db", () => ({
   hasApprovedOrderForEvent: vi.fn(),
   countTandaPromoEmailsSentToday: vi.fn(),
   getLastSalesDripByCustomer: vi.fn(),
+  hasMailingCampaignToday: vi.fn(async () => false),
 }));
 vi.mock("./tandaAutoAdvance", () => ({ checkAndAdvanceTandaIfNeeded: vi.fn() }));
 vi.mock("./tanda2Promo", () => ({ resolveCurrentOffer: vi.fn() }));

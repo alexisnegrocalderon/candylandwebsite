@@ -169,7 +169,7 @@ import { askFinance, buildNightSummary, buildWeeklySummary } from "./financeDire
 import { comparisonPdf as budgetComparisonPdf, singlePdf as budgetSinglePdf, loadSims as loadBudgetSims, slug as budgetSlug } from "./budgetReport";
 import { compareSimulations, formatPercent } from "../shared/budgetInsights";
 import { computeBudgetResult } from "../shared/eventBudget";
-import { sendEmail, buildShiftCloseEmail, buildMailingBlastEmail, buildKitchenVendorEmail, buildSimpleReportEmail, buildOrderEmail, buildMissionTopupEmail, buildPendingReminderEmail, buildGiftEmail, buildGiftDrinkEmail, buildTopupCodeEmail, buildPinChangedEmail, buildMemberCodeEmail } from "./email";
+import { sendEmail, resendTagValue, buildShiftCloseEmail, buildMailingBlastEmail, buildKitchenVendorEmail, buildSimpleReportEmail, buildOrderEmail, buildMissionTopupEmail, buildPendingReminderEmail, buildGiftEmail, buildGiftDrinkEmail, buildTopupCodeEmail, buildPinChangedEmail, buildMemberCodeEmail } from "./email";
 import { currentLoginCode, verifyLoginCode, signTopupSession, verifyTopupSession, normalizeEmail } from "./topupAccess";
 import { identityFromTicketCode, identityFromEmail, getTopupOptions, createTopupOrder, resetCardPin, maskEmail, type TopupIdentity } from "./playcardTopup";
 import { formatChileDate, formatChileTime } from "../shared/chileDate";
@@ -253,7 +253,7 @@ import { runAdminDigest } from "./adminDigest";
 import { buildShiftClosePdf } from "./caja/shiftReportPdf";
 import { buildKitchenVendorPdf } from "./caja/kitchenVendorPdf";
 import { buildVentasReportPdf, buildGastosReportPdf } from "./caja/reportsPdf";
-import { generateMailingTemplate, sendMailingBatch, getMailingEventInfo, createAutoMailingCampaign, MailingContentSchema, MAILING_BATCH_MAX } from "./mailing";
+import { generateMailingTemplate, sendMailingBatch, getMailingEventInfo, createAutoMailingCampaign, scheduleMailingCampaign, resolveAudienceCustomerIds, getCampaignOffer, AudienceFiltersSchema, MailingContentSchema, MAILING_BATCH_MAX } from "./mailing";
 import { getFoundersPromoStatus, runFoundersPromoDaily, buildFoundersPromoContent } from "./foundersPromo";
 import { listDriveMedia } from "./googleDrive";
 import { getSalesDripStatus, runSalesDripDaily, buildSalesDripContent } from "./salesDrip";
@@ -4934,6 +4934,14 @@ export const appRouter = router({
       }
       return { maskedEmail: members.maskMemberEmail(email) };
     }),
+    // Bono por instalar la app: «Mi cuenta» lo llama al abrirse desde la app instalada (`standalone`). Un cupón personal
+    // por persona y fiesta, de monto fijo y con vencimiento a la hora que fijó el dueño (Admin → App → Cupones).
+    claimAppBonus: publicProcedure.input(z.object({ standalone: z.boolean() })).mutation(async ({ ctx, input }) => {
+      const email = getMemberEmail(ctx.req);
+      if (!email) return { status: 'no_session' as const };
+      if (!input.standalone) return { status: 'not_installed' as const };
+      return members.claimAppBonus(email);
+    }),
     // Canjea el código por la sesión (cookie de 90 días). Los cupones de bienvenida/nivel/cumpleaños se entregan acá.
     verifyCode: publicProcedure.input(z.object({
       email: z.string().email().max(200).optional(),
@@ -7425,10 +7433,12 @@ export const appRouter = router({
       ctaUrl: z.string(),
       sampleName: z.string().optional(),
       eventSections: mailingEventSectionsSchema,
+      eventId: z.number().optional(),
     })).mutation(async ({ input }) => {
       const eventInfo = Object.values(input.eventSections).some(Boolean) ? await getMailingEventInfo() : null;
+      const offer = input.content.theme ? await getCampaignOffer(input.eventId) : null;
       return {
-        html: buildMailingBlastEmail({ ...input.content, buyerName: input.sampleName || 'Camila', ctaUrl: input.ctaUrl, eventInfo, eventSections: input.eventSections }),
+        html: buildMailingBlastEmail({ ...input.content, buyerName: input.sampleName || 'Camila', ctaUrl: input.ctaUrl, eventInfo, eventSections: input.eventSections, priceList: offer?.priceList, remaining: offer?.remaining }),
       };
     }),
     sendBatch: adminProcedure.input(z.object({
@@ -7459,6 +7469,50 @@ export const appRouter = router({
       } catch (err) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo crear la campaña.' });
       }
+    }),
+    // Campaña PROGRAMADA: sale a `scheduledAt` (ISO) y la audiencia se resuelve recién a esa hora (quien compró
+    // entremedio queda fuera). El cron la toma sola.
+    scheduleCampaign: adminProcedure.input(z.object({
+      name: z.string().min(1),
+      audienceDescription: z.string(),
+      audienceFilters: AudienceFiltersSchema,
+      content: MailingContentSchema,
+      ctaUrl: z.string(),
+      eventSections: mailingEventSectionsSchema,
+      eventId: z.number().optional(),
+      scheduledAt: z.string().datetime(),
+    })).mutation(async ({ input }) => {
+      try {
+        return await scheduleMailingCampaign({ ...input, scheduledAt: new Date(input.scheduledAt) });
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo programar la campaña.' });
+      }
+    }),
+    // Cuántos recibirían la campaña si saliera ahora (con los mismos filtros que se resuelven a la hora de envío). Es una
+    // mutación porque, con leads, deja a los leads como clientes (igual que al enviar).
+    previewAudience: adminProcedure.input(AudienceFiltersSchema).mutation(async ({ input }) => {
+      const ids = await resolveAudienceCustomerIds(input);
+      return { count: ids.length };
+    }),
+    // Prueba: manda la campaña (variantes A y B del asunto) a un correo, sin tocar a ningún cliente.
+    sendTest: adminProcedure.input(z.object({
+      to: z.string().email(),
+      content: MailingContentSchema,
+      ctaUrl: z.string(),
+      eventSections: mailingEventSectionsSchema,
+      eventId: z.number().optional(),
+    })).mutation(async ({ input }) => {
+      const eventInfo = Object.values(input.eventSections).some(Boolean) ? await getMailingEventInfo() : null;
+      const offer = input.content.theme ? await getCampaignOffer(input.eventId) : null;
+      const html = buildMailingBlastEmail({ ...input.content, buyerName: 'Prueba', ctaUrl: input.ctaUrl, eventInfo, eventSections: input.eventSections, priceList: offer?.priceList, remaining: offer?.remaining });
+      const subjects = [`[PRUEBA A] ${input.content.subject}`, ...(input.content.subjectB ? [`[PRUEBA B] ${input.content.subjectB}`] : [])];
+      const results = [];
+      for (const subject of subjects) results.push(await sendEmail({ to: input.to, subject, html, marketing: true }));
+      return { sent: results.filter((r) => r.success).length, total: results.length };
+    }),
+    // Aviso de Resend por campaña y variante (entregados, aperturas, clics, rebotes, quejas) para elegir el mejor asunto.
+    campaignStats: adminReadProcedure.input(z.object({ campaignName: z.string().min(1) })).query(async ({ input }) => {
+      return db.getCampaignEmailStats(resendTagValue(input.campaignName));
     }),
     listCampaigns: adminReadProcedure.query(async () => {
       return db.listMailingCampaigns();

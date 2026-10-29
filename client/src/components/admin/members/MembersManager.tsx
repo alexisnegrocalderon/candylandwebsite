@@ -18,7 +18,7 @@ const RULES: { key: RuleKey; title: string; help: string }[] = [
   { key: 'vip', title: 'Cliente VIP', help: 'Un cupón al mes mientras sea VIP.' },
   { key: 'birthday', title: 'Cumpleaños', help: 'Desde 7 días antes de su cumpleaños (necesita su fecha en la ficha). Uno por año.' },
 ];
-const KIND: Record<string, string> = { bienvenida: 'Bienvenida', nivel: 'Nivel', cumpleanos: 'Cumpleaños', manual: 'Regalo' };
+const KIND: Record<string, string> = { bienvenida: 'Bienvenida', nivel: 'Nivel', cumpleanos: 'Cumpleaños', manual: 'Regalo', appbono: 'Bono de la app' };
 const STATUS: Record<string, string> = { disponible: 'Disponible', usado: 'Usado', vencido: 'Vencido' };
 
 function Stat({ value, label }: { value: number | string; label: string }) {
@@ -26,6 +26,48 @@ function Stat({ value, label }: { value: number | string; label: string }) {
     <div className="admin-clay rounded-2xl px-4 py-3">
       <p className="text-xl font-bold tabular-nums">{value}</p>
       <p className="text-xs text-muted-foreground">{label}</p>
+    </div>
+  );
+}
+
+/** `datetime-local` trabaja en hora del navegador (la del dueño, Chile); el servidor guarda el instante en ISO. */
+const toLocalInput = (iso: string | null) => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
+/** Bono en pesos por instalar la app (promo de una fiesta): un cupón personal, de un solo uso, que vence a la hora exacta. */
+function AppBonusCard({ cfg, setCfg, demo }: { cfg: MemberConfig; setCfg: React.Dispatch<React.SetStateAction<MemberConfig>>; demo: boolean }) {
+  const { data: events } = trpc.events.listAll.useQuery();
+  const b = cfg.appBonus;
+  const patch = (p: Partial<MemberConfig['appBonus']>) => setCfg((prev) => ({ ...prev, appBonus: { ...prev.appBonus, ...p } }));
+  const upcoming = (events ?? []).filter((e: any) => new Date(e.eventDate).getTime() > Date.now() - 2 * 86_400_000)
+    .sort((a: any, c: any) => new Date(a.eventDate).getTime() - new Date(c.eventDate).getTime());
+  return (
+    <div className="rounded-2xl border border-border bg-card/60 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="font-semibold">🎁 Bono por instalar la app</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">Quien abre «Mi cuenta» desde la app instalada recibe un cupón de pesos para la entrada, de un solo uso, que vence a la hora que pongas. No se da a quien ya tiene entrada de esa fiesta.</p>
+        </div>
+        <Switch checked={b.enabled} disabled={demo} onCheckedChange={(v) => patch({ enabled: v })} />
+      </div>
+      {b.enabled && (
+        <div className="mt-3 grid gap-3 text-sm sm:grid-cols-3">
+          <label className="space-y-1"><span className="text-xs text-muted-foreground">Monto ($)</span>
+            <Input type="number" min={1000} max={200000} step={1000} value={b.amountClp} disabled={demo} onChange={(e) => patch({ amountClp: Number(e.target.value) })} /></label>
+          <label className="space-y-1"><span className="text-xs text-muted-foreground">Fiesta</span>
+            <select className="h-9 w-full rounded-md border border-border bg-background px-2 text-sm" value={b.eventId ?? ''} disabled={demo} onChange={(e) => patch({ eventId: e.target.value ? Number(e.target.value) : null })}>
+              <option value="">Elige la fiesta…</option>
+              {upcoming.map((e: any) => <option key={e.id} value={e.id}>{e.title}</option>)}
+            </select></label>
+          <label className="space-y-1"><span className="text-xs text-muted-foreground">Vence (día y hora)</span>
+            <Input type="datetime-local" value={toLocalInput(b.validUntil)} disabled={demo} onChange={(e) => patch({ validUntil: e.target.value ? new Date(e.target.value).toISOString() : null })} /></label>
+          {(!b.eventId || !b.validUntil) && <p className="text-xs text-amber-500 sm:col-span-3">Falta elegir la fiesta y la hora de vencimiento: sin eso el bono no se entrega.</p>}
+        </div>
+      )}
     </div>
   );
 }
@@ -109,6 +151,7 @@ export function MembersManager() {
             </label>
           ))}
         </div>
+        <AppBonusCard cfg={cfg} setCfg={setCfg} demo={demo} />
         <WriteButton disabled={!dirty || save.isPending} onClick={() => save.mutate(cfg as any)}>Guardar beneficios</WriteButton>
       </section>
 

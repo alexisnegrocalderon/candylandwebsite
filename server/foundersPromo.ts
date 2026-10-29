@@ -30,7 +30,7 @@
  * presupuesto conservador, no una garantía matemática.
  */
 import { eq, and } from 'drizzle-orm';
-import { getDb, getFeaturedEvent, getStockPoolRemaining, listCustomers, getSiteSettings, updateSiteSettings } from './db';
+import { getDb, getFeaturedEvent, getStockPoolRemaining, listCustomers, getSiteSettings, updateSiteSettings, hasMailingCampaignToday } from './db';
 import { ticketTypes } from '../drizzle/schema';
 import { sendMailingBatch, type MailingContent } from './mailing';
 import { EMAIL_BASE_URL } from './emailLayout';
@@ -45,7 +45,7 @@ export const FOUNDERS_PROMO_TAG = 'promo-primeros-cupos';
 export const FOUNDERS_PROMO_DAILY_TARGET = Number(process.env.FOUNDERS_PROMO_DAILY_CAP) || 50;
 
 export type FoundersPromoRunResult =
-  | { ran: false; reason: 'disabled' | 'no-event' | 'no-shared-pool' | 'sold-out' | 'audience-exhausted' }
+  | { ran: false; reason: 'disabled' | 'campaign-today' | 'no-event' | 'no-shared-pool' | 'sold-out' | 'audience-exhausted' }
   | { ran: true; eventTitle: string; remaining: number; audienceSize: number; sent: number; failed: number };
 
 /** Mismo criterio de detección de pool que `checkAndAdvanceTandaIfNeeded`
@@ -91,6 +91,8 @@ export function buildFoundersPromoContent(remaining: number, event: { title: str
 export async function runFoundersPromoDaily(): Promise<FoundersPromoRunResult> {
   const settings = await getSiteSettings();
   if (!settings.foundersPromoEnabled) return { ran: false, reason: 'disabled' };
+  // Día con campaña programada: se pausa para no escribirle dos veces a la misma gente.
+  if (await hasMailingCampaignToday()) return { ran: false, reason: 'campaign-today' };
 
   const event = await getFeaturedEvent();
   if (!event) return { ran: false, reason: 'no-event' };

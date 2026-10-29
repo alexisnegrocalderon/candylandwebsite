@@ -7,7 +7,7 @@
  * siempre, y la ficha de cliente se crea recién al confirmar el código (createSignupCustomer), así un
  * correo mal escrito no deja fichas vacías. Los límites por correo e IP están en server/routers.ts. */
 import { and, desc, eq, gte, inArray, isNotNull, ne, or, sql } from 'drizzle-orm';
-import { getDb, getSiteSettings } from './db';
+import { getDb, getSiteSettings, hasApprovedOrderForEvent } from './db';
 import { listMyGiftPasses } from './accessCredit';
 import { giftMessageOf } from '../shared/giftFlow';
 import { sendEmail, buildMemberCodeEmail } from './email';
@@ -19,7 +19,7 @@ import { currentMemberCode, normalizeMemberEmail, randomCouponCode } from './mem
 import { cajaOpIsMine } from './memberCajaOps';
 import { customers, discountCodes, events, kitchenTickets, lockerItems, memberCoupons, orders, playcoinsLedger, prepaidLedger, tickets, ticketTypes } from '../drizzle/schema';
 import { computeCustomerLevel, daysUntilBirthday } from '../shared/customerInsights';
-import { couponStatus, normalizeMemberConfig, type CouponRule, type MemberConfig } from '../shared/memberConfig';
+import { appBonusOpen, couponStatus, normalizeMemberConfig, type CouponRule, type MemberConfig } from '../shared/memberConfig';
 import { chileParts } from '../shared/pushSchedule';
 import { firstName } from '../shared/pushText';
 import { sortByKind, ticketKind, ticketKindLabel, type TicketKind } from '../shared/ticketKind';
@@ -179,7 +179,7 @@ export interface GrantedCoupon { kind: string; title: string; percent: number; d
 /** Regala un cupón de un solo uso. Idempotente por `grantKey`: devuelve null si ya se regaló. */
 /* `percent` es el valor del descuento: % o, con discountType 'fixed', pesos. Los automáticos son siempre %
  * y sin evento; los regalados desde el panel pueden ser monto fijo y valer solo para una fiesta. */
-async function grantCoupon(input: { email: string; kind: 'bienvenida' | 'nivel' | 'cumpleanos' | 'manual'; grantKey: string; title: string; percent: number; days: number; discountType?: CouponGiftType; eventId?: number | null }): Promise<GrantedCoupon | null> {
+async function grantCoupon(input: { email: string; kind: 'bienvenida' | 'nivel' | 'cumpleanos' | 'manual' | 'appbono'; grantKey: string; title: string; percent: number; days: number; discountType?: CouponGiftType; eventId?: number | null; /** Hora exacta de vencimiento (pisa a `days`). */ validUntil?: Date }): Promise<GrantedCoupon | null> {
   const db = await getDb();
   if (!db) return null;
   const [seen] = await db.select({ id: memberCoupons.id }).from(memberCoupons).where(eq(memberCoupons.grantKey, input.grantKey)).limit(1);
@@ -194,7 +194,7 @@ async function grantCoupon(input: { email: string; kind: 'bienvenida' | 'nivel' 
     throw err;
   }
   try {
-    const validUntil = new Date(Date.now() + input.days * 86_400_000);
+    const validUntil = input.validUntil ?? new Date(Date.now() + input.days * 86_400_000);
     for (let attempt = 0; attempt < 6; attempt++) {
       const code = randomCouponCode();
       try {
@@ -236,6 +236,36 @@ async function grantDueCoupons(customer: CustomerRow, config: MemberConfig, now:
   const until = daysUntilBirthday(customer.birthDate, today);
   if (until !== null && until <= 7) await push(config.birthday, 'cumpleanos', `cumple:${chileParts(now).day.slice(0, 4)}:${email}`, `${money(config.birthday.percent)} por tu cumpleaños 🎂`);
   return out;
+}
+
+export type AppBonusResult =
+  | { status: 'granted'; code: string; title: string; amountClp: number; validUntil: string; eventTitle: string | null }
+  | { status: 'already' | 'ended' | 'disabled' | 'has_ticket' | 'no_account' };
+
+/** Bono por instalar la app: quien abre «Mi cuenta» desde la app instalada recibe un cupón personal de monto fijo, de un
+ * solo uso, para UNA fiesta y con vencimiento a la hora exacta que fijó el dueño. Uno por persona y fiesta (`grantKey`).
+ * No se entrega a quien ya tiene entrada de esa fiesta: no le sirve y gastaría la promo. */
+export async function claimAppBonus(email: string, now = new Date()): Promise<AppBonusResult> {
+  const config = (await getMemberConfig()).appBonus;
+  if (!config.enabled) return { status: 'disabled' };
+  if (!appBonusOpen(config, now)) return { status: 'ended' };
+  const customer = await findCustomer(email);
+  if (!customer) return { status: 'no_account' };
+  const eventId = config.eventId!;
+  const key = customer.email.toLowerCase();
+  if (await hasApprovedOrderForEvent(key, eventId)) return { status: 'has_ticket' };
+  const validUntil = new Date(config.validUntil!);
+  const title = `${defaultCouponTitle('fixed', config.amountClp)} por instalar la app`;
+  const eventTitle = await eventTitleOf(eventId);
+  const granted = await grantCoupon({ email: key, kind: 'appbono', grantKey: `app-bono:${eventId}:${key}`, title, percent: config.amountClp, days: 1, discountType: 'fixed', eventId, validUntil });
+  if (!granted) return { status: 'already' };
+  try {
+    const hours = Math.max(1, Math.ceil((validUntil.getTime() - now.getTime()) / 3_600_000));
+    await pushToEmail(customer.email, { title: '🎁 Tu bono de la app está listo', body: `${firstName(customer.fullName) ? `${firstName(customer.fullName)}, t` : 'T'}ienes ${defaultCouponTitle('fixed', config.amountClp)} para tu entrada${eventTitle ? ` de ${eventTitle}` : ''}. Úsalo en las próximas ${hours} h.`, url: '/cuenta' });
+  } catch (err) {
+    console.warn('[Bono app] No se pudo avisar por notificación:', err);
+  }
+  return { status: 'granted', code: granted.code, title, amountClp: config.amountClp, validUntil: validUntil.toISOString(), eventTitle };
 }
 
 /** Entrada exitosa a la cuenta: marca al cliente como socio y le entrega los cupones que le tocan. */
