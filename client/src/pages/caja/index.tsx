@@ -19,7 +19,6 @@ import {
   type CajaAttendee, type CajaBarra, type CajaCatalogItem, type CajaStaffComp, type QueuedOp,
 } from './db';
 import { diagnosticoProducto, idSustitucion, nivelInsumo, sugerirReemplazos, tragosDisponibles, tragosPorInsumo, type DiagnosticoProducto, type Reemplazo } from '@shared/insumos';
-import { BarraCount } from './BarraCount';
 import { BarraStock } from './BarraStock';
 import { BarraDosier } from './BarraDosier';
 import { forgetOffline, useOfflineFallback } from './offlineGate';
@@ -225,8 +224,6 @@ function ShiftGate({ operator }: { operator: { operatorId: number; name: string;
           { duration: 10000 },
         );
       }
-      // Turno nuevo: el conteo de barra de inicio es solo del staff de barra (CajaHome lo muestra una vez); la caja solo lleva la plata.
-      if (!opened.alreadyOpen && operator.role === 'barra') localStorage.setItem(BARRA_APERTURA_PENDING, '1');
       localStorage.setItem('caja_shift_opened', '1');
       setShiftStarted(true);
     } catch (err: any) {
@@ -292,10 +289,6 @@ function ShiftGate({ operator }: { operator: { operatorId: number; name: string;
     </div>
   );
 }
-
-/** "Falta el conteo de barra de inicio de este turno" -- se marca al abrir un
- * turno nuevo y se borra al contar o saltarlo (sobrevive a un refresh). */
-const BARRA_APERTURA_PENDING = 'caja_barra_apertura_pendiente';
 
 /** Efectivo inicial del turno (cuadre de caja): se pide antes de vender
  * nada, para poder restarlo automáticamente del conteo final al cerrar. */
@@ -614,13 +607,6 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
   const [sheetVersion, setSheetVersion] = useState(0); // fuerza refresco de la ficha tras un canje local
   const [showCloseForm, setShowCloseForm] = useState(false);
   const [scanning, setScanning] = useState(false);
-  // Conteo de barra: al abrir un turno nuevo y antes del cuadre de cierre.
-  const [barraCount, setBarraCount] = useState<'apertura' | 'cierre' | null>(() => (operator.role === 'barra' && localStorage.getItem(BARRA_APERTURA_PENDING) === '1' ? 'apertura' : null));
-  const finishBarraCount = useCallback(() => {
-    if (barraCount === 'apertura') localStorage.removeItem(BARRA_APERTURA_PENDING);
-    if (barraCount === 'cierre') setShowCloseForm(true);
-    setBarraCount(null);
-  }, [barraCount]);
 
   const refreshPending = useCallback(() => { pendingOpsCount().then(setPending); }, []);
 
@@ -848,10 +834,8 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
       setView('rejected');
       return;
     }
-    // Inventario de barra: solo lo cuenta el staff de barra (si el evento no usa insumos, se salta solo).
-    // La caja (y supervisor/admin) cierra solo la plata: parte directo del conteo de efectivo.
-    if (operator.role === 'barra') setBarraCount('cierre');
-    else setShowCloseForm(true);
+    // La caja solo lleva la plata: el inventario de barra se cuenta en la app del staff de barra, no acá.
+    setShowCloseForm(true);
   };
 
   // `fixed inset-0` (no `min-h-screen`) a propósito en TODAS las pantallas de
@@ -908,9 +892,6 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
         </div>
       )}
 
-      {barraCount && (
-        <BarraCount eventId={localEvent.id} registerId={registerId} kind={barraCount} canSkip={isSupervisor} onDone={finishBarraCount} onSkip={finishBarraCount} />
-      )}
 
       {showCloseForm && (
         <ShiftCloseForm
