@@ -5,6 +5,7 @@ import { randomBytes } from "crypto";
 import { normalizeStatusCounts } from "../shared/ordersPagination";
 import { creditAvailability, creditDiscount, giftPassError, normalizeCreditCode, parseGiftNote, type CreditAvailability } from "../shared/accessCredit";
 import { computeCodeDiscount } from "../shared/discountCode";
+import { cardPaymentProblem } from "../shared/addon";
 import { classifyHandoffNoise } from "../shared/agentKnowledge";
 import { BLOCK_BY_LABEL, blockedKeysFor, hasHardKey, matchBlocked, type BlockedRow, type BlockMatchBy, type Identity } from "../shared/blockedMatch";
 import { firstPurchaseProblem, parseDuoComposicion, solteroGateProblem } from "../shared/soltero";
@@ -1791,10 +1792,6 @@ export async function createOrder(input: {
       pendingCodeUse = undefined;
     }
   }
-  if (pendingCodeUse !== undefined) {
-    await db.update(discountCodes).set({ usedCount: sql`usedCount + 1` }).where(eq(discountCodes.id, pendingCodeUse));
-  }
-
   // Confirm community access code (Soltero / Dúo Dos Hombres) — defense in depth,
   // el checkout ya lo valida en vivo antes de dejar avanzar.
   let communityCodeId: number | undefined;
@@ -1826,6 +1823,10 @@ export async function createOrder(input: {
   const serviceFeePercent = Number(settings.serviceFeePercent ?? 0);
   const serviceFee = serviceFeePercent > 0 ? Math.round(feeBase * serviceFeePercent / 100) : 0;
   const total = preTotal + serviceFee;
+  // Un total entre $1 y el mínimo no se puede cobrar con tarjeta (Mercado Pago lo rechaza y la
+  // persona se queda sin poder pagar): se avisa acá, con un mensaje claro, antes de crear la orden.
+  const totalProblem = cardPaymentProblem(total);
+  if (totalProblem) throw new Error(totalProblem);
   const orderNumber = `MP-${Date.now().toString(36).toUpperCase()}-${nanoid(4).toUpperCase()}`;
   // El checkout manda el mismo código en discountCode y ambassadorCode: si era un
   // crédito, no es un código de embajador y no debe quedar como atribución.
@@ -1858,6 +1859,19 @@ export async function createOrder(input: {
   });
 
   const orderId = orderResult.insertId;
+  // Uso del código de descuento: un solo UPDATE condicional (revisa el tope y suma a la vez), así dos
+  // compras simultáneas no pasan con un código de 1 uso. Se hace con la orden ya creada y no antes: si
+  // algo falla antes de este punto, el código no queda gastado. Si el tope se llenó justo ahora, se
+  // descarta la orden y se avisa.
+  if (pendingCodeUse !== undefined) {
+    const [claim] = await db.update(discountCodes)
+      .set({ usedCount: sql`usedCount + 1` })
+      .where(and(eq(discountCodes.id, pendingCodeUse), sql`(${discountCodes.maxUses} IS NULL OR ${discountCodes.maxUses} = 0 OR ${discountCodes.usedCount} < ${discountCodes.maxUses})`));
+    if (Number((claim as unknown as { affectedRows?: number }).affectedRows ?? 0) === 0) {
+      await db.delete(orders).where(eq(orders.id, orderId));
+      throw new Error('Código agotado');
+    }
+  }
   if (accessCreditId) await attachAccessCreditToOrder(accessCreditId, orderId);
   if (partnerCampaign) await recordPartnerOrder(orderId, partnerCampaign.id, normalizePartnerRef(partnerCampaign.slug, input.partnerRef));
 

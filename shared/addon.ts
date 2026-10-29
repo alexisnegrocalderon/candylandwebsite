@@ -86,3 +86,9 @@ export function addonBackUrls(baseUrl: string, orderNumber: string, returnPath?:
     pending: `${baseUrl}/pago/exito?order=${orderNumber}&pending=true`,
   };
 }
+
+/** Un total entre $1 y el mínimo no se puede cobrar con tarjeta. $0 es válido: la orden es gratis y no pasa por Mercado Pago. */
+export function cardPaymentProblem(total: number): string | null {
+  if (total <= 0 || total >= MIN_ADDON_PAYMENT) return null;
+  return `El total de la compra ($${total}) es menor al mínimo que se puede pagar con tarjeta ($${MIN_ADDON_PAYMENT}). Escríbenos por Instagram o WhatsApp y te ayudamos.`;
+}
