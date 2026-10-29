@@ -1,7 +1,7 @@
 import '@/admin.css';
 import { useDarkGlassDocument } from '@/components/admin/shell/AdminShell';
 import { OPERATOR_ROLE_LABELS } from '@shared/cajaRoles';
-import { AreaGuard } from '@/components/terminal/TerminalShell';
+import { AreaGuard, CallOrganizersButton } from '@/components/terminal/TerminalShell';
 import { openedFromApp, preselectedOperatorId } from '@/lib/staffLink';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useHideSplashWhenSettled } from '@/lib/splash';
@@ -856,6 +856,7 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
             <p className="truncate font-heading text-lg leading-tight">{localEvent.title}</p>
             <p className="truncate text-xs text-white/60">{operator.name} · {OPERATOR_ROLE_LABELS[operator.role] ?? operator.role}</p>
           </div>
+          <CallOrganizersButton area="caja" />
           <SyncBadge online={isOnline} pending={pending} />
         </div>
       </header>

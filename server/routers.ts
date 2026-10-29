@@ -4,7 +4,7 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { pushTitle } from "../shared/pushText";
 import { sdk, ADMIN_LOCAL_OPEN_ID, VIEWER_LOCAL_OPEN_ID } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, protectedProcedure, adminReadProcedure, giftProcedure, partnerProcedure, operatorProcedure, supervisorProcedure, deviceProcedure, doorProcedure, kitchenProcedure, guardarropiaProcedure, barraProcedure, router } from "./_core/trpc";
+import { publicProcedure, protectedProcedure, adminReadProcedure, giftProcedure, partnerProcedure, operatorProcedure, supervisorProcedure, deviceProcedure, doorProcedure, kitchenProcedure, guardarropiaProcedure, barraProcedure, anyOperatorProcedure, router } from "./_core/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { teachFromOwner, listKnowledge, setKnowledgeStatus, updateKnowledgeText, deleteKnowledge } from "./agentLearning";
@@ -229,7 +229,10 @@ import { COUPON_BATCH_MAX } from "../shared/couponGift";
 import { canGift } from "../shared/gifts";
 import { cleanGiftMessage, giftMessageData, GIFT_MESSAGE_MAX } from "../shared/giftFlow";
 import { VETO_NOTE_MAX } from "../shared/veto";
+import { PARTIAL_ITEM_MAX } from "../shared/locker";
 import * as vetoSvc from "./veto";
+import { STAFF_CALL_COOLDOWN_MS, STAFF_CALL_KEYS, STAFF_CALL_NOTE_MAX } from "../shared/staffCall";
+import { callOrganizers, notifyOrganizers } from "./staffCall";
 import { ANY_ACCESS_SLUG, giftPassError } from "../shared/accessCredit";
 import { previewCustomerMerge, mergeCustomers } from "./customerMerge";
 import { getMemberHistory } from "./memberHistory";
@@ -2163,6 +2166,25 @@ export const appRouter = router({
   // Pantalla aparte de /caja a propósito: el anfitrión no es cajero, no
   // debería ver el menú de venta, y escanea con su propio teléfono. Lo
   // único que puede hacer con esta sesión es marcar entradas.
+  // El botón «Llamar a los organizadores» de arriba de todas las pantallas de trabajo: llega al celular del administrador y de
+  // los supervisores. Cualquier persona con su PIN adentro puede usarlo; un aviso cada ~20 s por persona.
+  terminal: router({
+    alertOrganizers: anyOperatorProcedure.input(z.object({
+      area: z.enum(['caja', 'puerta', 'cocina', 'guardarropia', 'barra']),
+      reason: z.enum(STAFF_CALL_KEYS),
+      note: z.string().max(STAFF_CALL_NOTE_MAX * 2).nullish(),
+    })).mutation(async ({ input, ctx }) => {
+      const key = `staff-call:${ctx.operator.operatorId}`;
+      if (!(await db.checkIpRateLimit(key))) throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Ya avisaste hace un momento. Espera unos segundos.' });
+      await db.recordIpAttempt(key, 1, STAFF_CALL_COOLDOWN_MS);
+      const rawDb = await db.getDb();
+      if (!rawDb) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Base de datos no disponible' });
+      const eventId = ctx.operator.eventId ?? (await db.getActiveEventForCaja())?.id ?? null;
+      const r = await callOrganizers(rawDb, { eventId, area: input.area, reason: input.reason, note: input.note, operatorId: ctx.operator.operatorId, operatorName: ctx.operator.name ?? 'Alguien del equipo' });
+      return { ok: true as const, supervisors: r.supervisors };
+    }),
+  }),
+
   puerta: router({
     // Público como el de caja: solo devuelve nombres y roles, nunca PINs.
     // La puerta no exige dispositivo enrolado (doorProcedure), así que no hay
@@ -2261,7 +2283,8 @@ export const appRouter = router({
         opId: input.opId, eventId: input.eventId, operatorId: ctx.operator.operatorId, operatorName: ctx.operator.name ?? 'La puerta',
         reason: input.reason, note: input.note, ticketCode: input.ticketCode, buyerName: input.buyerName, clientAt: new Date(),
       });
-      await sendPushToAdminsAlways(push);
+      // Al administrador y también a los supervisores.
+      await notifyOrganizers(input.eventId, push);
       return { ok: true as const };
     }),
 
@@ -2557,12 +2580,15 @@ export const appRouter = router({
       opId: z.string(),
       eventId: z.number(),
       tagNumber: z.string(),
-      to: z.enum(['pendiente', 'guardado', 'retirado']),
+      to: z.enum(['pendiente', 'guardado', 'parcial', 'retirado']),
+      // Qué sacaron, en un retiro parcial.
+      note: z.string().max(PARTIAL_ITEM_MAX + 20).nullish(),
       clientAt: z.string(),
     })).mutation(async ({ input, ctx }) => {
       const rawDb = await db.getDb();
       if (!rawDb) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Base de datos no disponible' });
       return updateLockerItem(rawDb, {
+        note: input.note,
         opId: input.opId,
         eventId: input.eventId,
         tagNumber: input.tagNumber,

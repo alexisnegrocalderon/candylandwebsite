@@ -1346,7 +1346,10 @@ export const lockerItems = mysqlTable("lockerItems", {
   // nuevo para un reingreso.
   // 'anulado' = la venta de caja que la cobró se anuló con clave admin
   // (server/caja/voidSale.ts) -- la fila nunca se borra.
-  status: mysqlEnum("status", ["pendiente", "guardado", "retirado", "anulado"]).default("pendiente").notNull(),
+  // 'parcial' = retiraron algo pero no todo (queda anotado qué en `partialNote`): amarillo en /guardarropia.
+  status: mysqlEnum("status", ["pendiente", "guardado", "parcial", "retirado", "anulado"]).default("pendiente").notNull(),
+  // Qué sacaron en un retiro parcial («chaqueta; bolso»). Se vacía al volver a guardarse todo o al retirarse todo.
+  partialNote: varchar("partialNote", { length: 255 }),
   chargedAt: timestamp("chargedAt").defaultNow().notNull(),
   // Se pisan en cada ciclo -- siempre reflejan el último "Recibido"/
   // "Entregado", no un historial completo (igual que kitchenTickets con

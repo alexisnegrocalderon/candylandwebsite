@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { BellRing, Check, ChefHat, Inbox, Minus, Package, Plus, Search, Undo2, Volume2, VolumeX, WifiOff, X, LogOut } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { useSeo } from '@/hooks/useSeo';
-import { AreaGuard, TerminalFrame, TerminalLogin, TerminalSpinner, beep, loginErrorToast, useWakeLock, vibrateAlert } from '@/components/terminal/TerminalShell';
+import { AreaGuard, CallOrganizersButton, TerminalFrame, TerminalLogin, TerminalSpinner, beep, loginErrorToast, useWakeLock, vibrateAlert } from '@/components/terminal/TerminalShell';
 import { OPERATOR_ROLE_LABELS } from '@shared/cajaRoles';
 import { averageWaitSeconds, formatElapsed, summarizeKitchenItems, type KitchenTicketStatus } from '@shared/kitchen';
 import { normalizeSearch } from '@shared/locker';
@@ -312,6 +312,7 @@ function Board({ operatorName, operatorRole }: { operatorName: string; operatorR
             <p className="truncate font-heading text-lg leading-tight">{event?.title ?? 'Cocina'}</p>
             <p className="truncate text-xs text-white/60">{operatorName} · {OPERATOR_ROLE_LABELS[operatorRole] ?? operatorRole}</p>
           </div>
+          <CallOrganizersButton area="cocina" />
           <button onClick={toggleMute} className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-white/70 active:bg-white/10" aria-label={muted ? 'Activar sonido' : 'Silenciar'}>
             {muted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
           </button>

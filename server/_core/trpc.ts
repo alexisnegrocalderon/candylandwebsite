@@ -153,6 +153,18 @@ export const doorProcedure = t.procedure.use(
   }),
 );
 
+/** Cualquier pantalla de trabajo (Caja, Puerta, Cocina, Guardarropía, Barra): sesión de operador con cualquier rol. Solo para lo
+ * que todas comparten y no toca plata ni datos de clientes, como el botón «Llamar a los organizadores». */
+export const anyOperatorProcedure = t.procedure.use(
+  t.middleware(async opts => {
+    const { ctx, next } = opts;
+    if (!ctx.operator) {
+      throw new TRPCError({ code: "UNAUTHORIZED", message: "Entra con tu PIN para avisar" });
+    }
+    return next({ ctx: { ...ctx, operator: ctx.operator } });
+  }),
+);
+
 /** Pantalla de cocina (/cocina): sesión de operador con rol de cocina,
  * SIN exigir dispositivo enrolado -- mismo trade-off que `doorProcedure`
  * (§13 del doc de arquitectura, ya asumido ahí): el equipo de cocina usa la

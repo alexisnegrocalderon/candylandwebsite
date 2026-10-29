@@ -10,21 +10,44 @@ export function formatLockerTagNumber(registerId: number | null, counter: number
   return `${registerId ?? 0}-${String(counter).padStart(3, "0")}`;
 }
 
-export type LockerItemStatus = "pendiente" | "guardado" | "retirado";
+export type LockerItemStatus = "pendiente" | "guardado" | "parcial" | "retirado";
 
-/** Transiciones válidas de una prenda: pendiente -> guardado (primera
- * confirmación física en /guardarropia, recién cobrada en caja) ->
- * retirado -> guardado -> retirado ... -- la misma persona puede entrar y
- * sacar su prenda las veces que quiera en la noche, siempre con el mismo
- * `tagNumber`. `retirado -> guardado` sirve doble función: reingreso real, o
- * "deshacer" un Entregado apretado por error (mismo criterio que
- * canTransitionKitchenTicket). `guardado -> pendiente` es solo el "Deshacer"
- * de un Recibido apretado por error: la prenda vuelve a la cola de por
- * recibir (el servidor borra quién/cuándo la recibió). Desde 'retirado' no se
- * vuelve a 'pendiente': esa prenda ya estuvo en el mostrador. */
+/** Los colores de la pantalla: rojo = todo guardado, amarillo = retiraron algo pero no todo, verde = todo retirado. */
+export const LOCKER_TONE: Record<"guardado" | "parcial" | "retirado", { label: string; short: string; dot: string }> = {
+  guardado: { label: "Todo guardado", short: "Guardado", dot: "bg-red-500" },
+  parcial: { label: "Retiró una parte", short: "Parcial", dot: "bg-amber-400" },
+  retirado: { label: "Todo retirado", short: "Retirado", dot: "bg-emerald-500" },
+};
+
+export const PARTIAL_NOTE_MAX = 255;
+export const PARTIAL_ITEM_MAX = 60;
+
+/** Suma lo que sacaron ahora a lo que ya habían sacado («chaqueta» + «bolso» → «chaqueta; bolso»), sin repetir y hasta 255. */
+export function mergePartialNote(previous: string | null | undefined, added: string | null | undefined): string | null {
+  const clean = (t: string | null | undefined) => (t ?? "").replace(/\s+/g, " ").trim().slice(0, PARTIAL_ITEM_MAX);
+  const parts = [...(previous ?? "").split(";"), ...(added ?? "").split(";").map(clean)].map((p) => p.replace(/\s+/g, " ").trim()).filter(Boolean);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const part of parts) {
+    const key = part.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(part);
+  }
+  const joined = out.join("; ").slice(0, PARTIAL_NOTE_MAX);
+  return joined || null;
+}
+
+/** Transiciones válidas de una prenda: pendiente -> guardado (primera confirmación física en /guardarropia, recién
+ * cobrada en caja) -> parcial (retiraron algo, no todo; se puede repetir si sacan más) -> retirado (todo) -> guardado ... -- la
+ * misma persona puede entrar y sacar sus cosas las veces que quiera en la noche, siempre con el mismo `tagNumber`.
+ * `retirado -> guardado` y `parcial -> guardado` sirven doble función: reingreso real, o «deshacer» un retiro apretado por
+ * error. `guardado -> pendiente` es solo el «Deshacer» de un Recibido apretado por error (vuelve a la cola de por recibir).
+ * Desde 'retirado' no se vuelve a 'pendiente' ni a 'parcial': esa prenda ya estuvo en el mostrador y salió entera. */
 export function canTransitionLockerItem(from: LockerItemStatus, to: LockerItemStatus): boolean {
   if (from === "pendiente") return to === "guardado";
-  if (from === "guardado") return to === "retirado" || to === "pendiente";
+  if (from === "guardado") return to === "parcial" || to === "retirado" || to === "pendiente";
+  if (from === "parcial") return to === "parcial" || to === "retirado" || to === "guardado";
   if (from === "retirado") return to === "guardado";
   return false;
 }
