@@ -23,7 +23,7 @@
 import { eq, and, asc } from 'drizzle-orm';
 import {
   getDb, getFeaturedEvent, listCustomers, getSiteSettings, updateSiteSettings,
-  hasApprovedOrderForEvent, countTandaPromoEmailsSentToday, getStockPoolRemaining,
+  hasApprovedOrderForEvent, countTandaPromoEmailsSentToday, getStockPoolRemaining, hasMailingCampaignToday,
 } from './db';
 import type { MailingPriceRow } from './email';
 import { ticketTypes } from '../drizzle/schema';
@@ -42,7 +42,7 @@ export const TANDA2_PHASE_INDEX = 1;
 export const TANDA2_PROMO_DAILY_TARGET = Number(process.env.TANDA2_PROMO_DAILY_CAP) || 300;
 
 export type Tanda2PromoRunResult =
-  | { ran: false; reason: 'disabled' | 'no-event' | 'wrong-phase' | 'phase-ended' | 'no-price' | 'audience-exhausted' | 'daily-cap-reached' }
+  | { ran: false; reason: 'disabled' | 'campaign-today' | 'no-event' | 'wrong-phase' | 'phase-ended' | 'no-price' | 'audience-exhausted' | 'daily-cap-reached' }
   | { ran: true; eventTitle: string; priceFrom: number; audienceSize: number; sent: number; failed: number; skipped: number };
 
 const formatClp = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
@@ -105,6 +105,8 @@ export function buildTanda2PromoContent(priceFrom: number, event: { title: strin
 export async function runTanda2PromoDaily(): Promise<Tanda2PromoRunResult> {
   const settings = await getSiteSettings();
   if (!settings.tanda2PromoEnabled) return { ran: false, reason: 'disabled' };
+  // Día con campaña programada: se pausa para no escribirle dos veces a la misma gente.
+  if (await hasMailingCampaignToday()) return { ran: false, reason: 'campaign-today' };
 
   const event = await getFeaturedEvent();
   if (!event) return { ran: false, reason: 'no-event' };

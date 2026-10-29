@@ -13,7 +13,7 @@ import { findExistingMatch, mergeFields, type ImportFields } from "../shared/blo
 import { ambassadorBuyerDiscount, bestBuyerDiscount, effectiveBuyerDiscountPercent, type GeneralBuyerDiscount } from "../shared/ambassadorDiscount";
 import { normalizeIgHandle, saysAlreadyBought, type BuyerCandidate } from "../shared/igCustomerLink";
 import { computeFans, FAN_WINDOW_DAYS } from "../shared/igEngagement";
-import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyCharges, partyEventConfig, partyConnections, partyMessages, partyBlocks, partyReports, partyPhotos, partySwipes, partyCostumeVotes, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog, eventSurveys, eventSurveySettings, accessCredits, type AccessCredit, igComments, type IgComment, igReferrals, type IgReferralRow, igLinkClicks, staffMembers, staffShifts, aiUsage, attendeeContacts } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyCharges, partyEventConfig, partyConnections, partyMessages, partyBlocks, partyReports, partyPhotos, partySwipes, partyCostumeVotes, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog, emailEvents, eventSurveys, eventSurveySettings, accessCredits, type AccessCredit, igComments, type IgComment, igReferrals, type IgReferralRow, igLinkClicks, staffMembers, staffShifts, aiUsage, attendeeContacts } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { ensurePartyIdentitySchema } from './partySchema';
 import { FREE_SUPER_LIKES, DEFAULT_PLAYMATCH_CONFIG, affinityPercent, normalizePlaymatchConfig, superLikePlan, type PlaymatchConfig } from '../shared/playmatchMarket';
@@ -6446,7 +6446,7 @@ export async function cancelMailingCampaign(campaignId: number) {
   if (!db) throw new Error("Database not available");
   const [campaign] = await db.select().from(mailingCampaigns).where(eq(mailingCampaigns.id, campaignId)).limit(1);
   if (!campaign) throw new Error("Esa campaña no existe");
-  if (campaign.status !== 'sending') throw new Error("Esa campaña ya terminó o ya está cancelada");
+  if (campaign.status !== 'sending' && campaign.status !== 'scheduled') throw new Error("Esa campaña ya terminó o ya está cancelada");
   await db.update(mailingCampaigns).set({ status: 'cancelled' }).where(eq(mailingCampaigns.id, campaignId));
   return { success: true };
 }
@@ -6633,6 +6633,7 @@ export async function getPendingMailingRecipients(limit: number) {
     // Para el chequeo de "¿ya compró mientras esperaba en la cola?" (ver
     // hasApprovedOrderForEvent / markMailingRecipientSkipped más abajo).
     campaignEventId: mailingCampaigns.eventId,
+    emailOptOut: customers.emailOptOut,
   }).from(mailingRecipients)
     .innerJoin(mailingCampaigns, eq(mailingCampaigns.id, mailingRecipients.campaignId))
     .innerJoin(customers, eq(customers.id, mailingRecipients.customerId))
@@ -8831,6 +8832,17 @@ export async function logEmailSent(input: { to: string; subject?: string; succes
   });
 }
 
+/** Varios envíos de una vez (lotes de mailing): una sola inserción en vez de una por correo. */
+export async function logEmailsSent(rows: { to: string; subject?: string; success: boolean }[]) {
+  const db = await getDb();
+  if (!db || rows.length === 0) return;
+  for (let i = 0; i < rows.length; i += 500) {
+    await db.insert(emailLog).values(rows.slice(i, i + 500).map((r) => ({
+      to: r.to, subject: r.subject ? r.subject.slice(0, 255) : null, success: r.success ? 1 : 0,
+    })));
+  }
+}
+
 /** Cuántos correos salieron HOY (hora de Chile), de cualquier tipo --
  * confirmaciones de compra, tickets, recordatorios, mailing, lo que sea. Es
  * el número real contra el que hay que cuidar el cupo diario del plan de
@@ -8898,6 +8910,174 @@ export async function markMailingRecipientSkipped(recipientId: number, campaignI
     .where(and(eq(mailingRecipients.campaignId, campaignId), eq(mailingRecipients.status, 'pending')));
   if (Number(remaining.count) === 0) {
     await db.update(mailingCampaigns).set({ status: 'done' }).where(eq(mailingCampaigns.id, campaignId));
+  }
+}
+
+// --- Campañas programadas y envío en lote (server/mailing.ts) ---------------------------------------------------------
+
+/** Guarda una campaña PROGRAMADA: sin destinatarios todavía; se arman al llegar `scheduledAt` con `audienceFilters`. */
+export async function createScheduledMailingCampaign(input: {
+  name: string; audienceDescription: string; content: unknown; ctaUrl: string; eventSections: unknown;
+  eventId?: number | null; scheduledAt: Date; audienceFilters: unknown;
+}): Promise<{ campaignId: number }> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const [result] = await db.insert(mailingCampaigns).values({
+    name: input.name, audienceDescription: input.audienceDescription, content: input.content, ctaUrl: input.ctaUrl,
+    eventSections: input.eventSections, eventId: input.eventId ?? null, totalRecipients: 0,
+    status: 'scheduled', scheduledAt: input.scheduledAt, audienceFilters: input.audienceFilters,
+  });
+  return { campaignId: result.insertId };
+}
+
+export async function listDueScheduledCampaigns(now: Date) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(mailingCampaigns)
+    .where(and(eq(mailingCampaigns.status, 'scheduled'), lte(mailingCampaigns.scheduledAt, now)))
+    .orderBy(mailingCampaigns.scheduledAt, mailingCampaigns.id);
+}
+
+/** Toma una campaña programada ('scheduled' → 'sending'). Solo UNA corrida del cron lo logra: devuelve false si otra ya la tomó. */
+export async function claimScheduledCampaign(campaignId: number): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  const [res] = await db.update(mailingCampaigns).set({ status: 'sending' })
+    .where(and(eq(mailingCampaigns.id, campaignId), eq(mailingCampaigns.status, 'scheduled'))) as any;
+  return Number(res?.affectedRows ?? 0) === 1;
+}
+
+/** Si armar los destinatarios falló a medio camino, la campaña vuelve a 'scheduled' sin destinatarios a medias. */
+export async function revertScheduledCampaign(campaignId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(mailingRecipients).where(eq(mailingRecipients.campaignId, campaignId));
+  await db.update(mailingCampaigns).set({ status: 'scheduled', totalRecipients: 0 }).where(eq(mailingCampaigns.id, campaignId));
+}
+
+/** Inserta los destinatarios de una campaña ya tomada, en tandas, y fija el total (sin destinatarios = terminada). */
+export async function insertMailingRecipients(campaignId: number, customerIds: number[]) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  for (let i = 0; i < customerIds.length; i += 1000) {
+    await db.insert(mailingRecipients).values(customerIds.slice(i, i + 1000).map((customerId) => ({ campaignId, customerId })));
+  }
+  await db.update(mailingCampaigns).set({
+    totalRecipients: customerIds.length,
+    ...(customerIds.length === 0 ? { status: 'done' as const } : {}),
+  }).where(eq(mailingCampaigns.id, campaignId));
+}
+
+/** Resultado de varios destinatarios de una campaña en pocas consultas (en vez de tres por destinatario). */
+export async function markMailingRecipientsResults(campaignId: number, rows: { recipientId: number; success: boolean; reason?: string }[]) {
+  const db = await getDb();
+  if (!db || rows.length === 0) return;
+  const okIds = rows.filter((r) => r.success).map((r) => r.recipientId);
+  if (okIds.length) await db.update(mailingRecipients).set({ status: 'sent', reason: null, sentAt: new Date() }).where(inArray(mailingRecipients.id, okIds));
+  for (const r of rows.filter((x) => !x.success)) {
+    await db.update(mailingRecipients).set({ status: 'failed', reason: (r.reason ?? 'Error desconocido').slice(0, 500), sentAt: null }).where(eq(mailingRecipients.id, r.recipientId));
+  }
+  await db.update(mailingCampaigns).set({
+    sentCount: sql`sentCount + ${okIds.length}`,
+    failedCount: sql`failedCount + ${rows.length - okIds.length}`,
+  }).where(eq(mailingCampaigns.id, campaignId));
+  await finishMailingCampaignIfDone(campaignId);
+}
+
+/** Saltados en bloque (ya compraron o pidieron la baja mientras esperaban en la cola). */
+export async function markMailingRecipientsSkipped(campaignId: number, recipientIds: number[], reason: string) {
+  const db = await getDb();
+  if (!db || recipientIds.length === 0) return;
+  await db.update(mailingRecipients).set({ status: 'skipped', reason }).where(inArray(mailingRecipients.id, recipientIds));
+  await db.update(mailingCampaigns).set({ skippedCount: sql`skippedCount + ${recipientIds.length}` }).where(eq(mailingCampaigns.id, campaignId));
+  await finishMailingCampaignIfDone(campaignId);
+}
+
+async function finishMailingCampaignIfDone(campaignId: number) {
+  const db = await getDb();
+  if (!db) return;
+  const [remaining] = await db.select({ count: sql<number>`COUNT(*)` }).from(mailingRecipients)
+    .where(and(eq(mailingRecipients.campaignId, campaignId), eq(mailingRecipients.status, 'pending')));
+  if (Number(remaining.count) === 0) await db.update(mailingCampaigns).set({ status: 'done' }).where(and(eq(mailingCampaigns.id, campaignId), eq(mailingCampaigns.status, 'sending')));
+}
+
+/** Correos con orden APROBADA del evento (en minúsculas), de una sola consulta: el cron los usa para saltar a quien
+ * compró mientras esperaba, en vez de una consulta por destinatario. */
+export async function approvedBuyerEmailsForEvent(eventId: number): Promise<Set<string>> {
+  const db = await getDb();
+  if (!db) return new Set();
+  const rows = await db.select({ email: sql<string>`LOWER(${orders.buyerEmail})` }).from(orders)
+    .where(and(eq(orders.eventId, eventId), eq(orders.paymentStatus, 'approved')));
+  return new Set(rows.map((r) => r.email));
+}
+
+/** Agrega una etiqueta a varios clientes a la vez (los que ya la tienen quedan igual). */
+export async function bulkAddCustomerTag(customerIds: number[], tag: string) {
+  const db = await getDb();
+  const clean = tag.trim();
+  if (!db || !clean || customerIds.length === 0) return;
+  for (let i = 0; i < customerIds.length; i += 500) {
+    await db.update(customers)
+      .set({ tags: sql`JSON_ARRAY_APPEND(COALESCE(${customers.tags}, JSON_ARRAY()), '$', ${clean})` })
+      .where(and(inArray(customers.id, customerIds.slice(i, i + 500)), sql`COALESCE(JSON_CONTAINS(${customers.tags}, ${JSON.stringify(clean)}), 0) = 0`));
+  }
+}
+
+/** Guarda un aviso de Resend (server/resendWebhook.ts). Devuelve false si ya estaba (Resend reintenta). */
+export async function recordEmailEvent(e: { svixId: string; resendId?: string | null; type: string; email: string; campaign?: string | null; variant?: string | null; url?: string | null }): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  try {
+    await db.insert(emailEvents).values({
+      svixId: e.svixId.slice(0, 100), resendId: e.resendId?.slice(0, 64) ?? null, type: e.type.slice(0, 40), email: e.email.slice(0, 320).toLowerCase(),
+      campaign: e.campaign?.slice(0, 255) ?? null, variant: e.variant?.slice(0, 4) ?? null, url: e.url?.slice(0, 500) ?? null,
+    });
+    return true;
+  } catch (err: any) {
+    if ((err?.code ?? err?.cause?.code) === 'ER_DUP_ENTRY') return false;
+    throw err;
+  }
+}
+
+/** Por variante de asunto: personas distintas que recibieron, abrieron, hicieron clic, rebotaron o marcaron spam. */
+export async function getCampaignEmailStats(campaignTag: string) {
+  const db = await getDb();
+  if (!db) return [];
+  try {
+    const rows = await db.select({
+      variant: emailEvents.variant, type: emailEvents.type, people: sql<number>`COUNT(DISTINCT ${emailEvents.email})`,
+    }).from(emailEvents).where(eq(emailEvents.campaign, campaignTag)).groupBy(emailEvents.variant, emailEvents.type);
+    const by = new Map<string, Record<string, number>>();
+    for (const r of rows) {
+      const key = r.variant ?? '-';
+      by.set(key, { ...(by.get(key) ?? {}), [r.type]: Number(r.people) });
+    }
+    return Array.from(by.entries()).map(([variant, counts]) => ({ variant, counts }));
+  } catch (err) {
+    console.warn('[Database] No se pudieron leer los avisos de Resend (¿falta la migración 0139?):', err);
+    return [];
+  }
+}
+
+/** ¿Hay una campaña programada o saliendo hoy (hora de Chile)? El aviso diario de ventas (salesDrip) se pausa ese día
+ * para no escribirle dos veces a la misma gente. */
+export async function hasMailingCampaignToday(now: Date = new Date()): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  try {
+    const dayStart = startOfChileDay(now);
+    const dayEnd = new Date(dayStart.getTime() + 86_400_000);
+    const [row] = await db.select({ id: mailingCampaigns.id }).from(mailingCampaigns).where(and(
+      inArray(mailingCampaigns.status, ['scheduled', 'sending', 'done']),
+      or(
+        and(gte(mailingCampaigns.scheduledAt, dayStart), lt(mailingCampaigns.scheduledAt, dayEnd)),
+        and(isNull(mailingCampaigns.scheduledAt), gte(mailingCampaigns.createdAt, dayStart)),
+      ),
+    )).limit(1);
+    return !!row;
+  } catch (err) {
+    console.warn('[Database] No se pudo revisar si hay campaña hoy:', err);
+    return false;
   }
 }
 

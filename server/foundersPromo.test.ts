@@ -11,6 +11,7 @@ vi.mock("./db", () => ({
   listCustomers: vi.fn(),
   getSiteSettings: vi.fn(),
   updateSiteSettings: vi.fn(),
+  hasMailingCampaignToday: vi.fn(async () => false),
 }));
 
 vi.mock("./mailing", async () => {

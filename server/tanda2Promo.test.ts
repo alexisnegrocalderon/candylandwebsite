@@ -13,6 +13,7 @@ vi.mock("./db", () => ({
   getStockPoolRemaining: vi.fn(),
   hasApprovedOrderForEvent: vi.fn(),
   countTandaPromoEmailsSentToday: vi.fn(),
+  hasMailingCampaignToday: vi.fn(async () => false),
 }));
 
 vi.mock("./mailing", async () => {

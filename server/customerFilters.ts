@@ -9,7 +9,7 @@ import { escapeLikePattern } from '../shared/sqlLike';
 import { PLACEHOLDER_BUYER_EMAILS } from '../shared/parking';
 import { getDb, looksLikeRutSearch, rutDigits, type CustomerListFilters } from './db';
 
-export type CustomerPageFilters = CustomerListFilters & { hasApp?: boolean };
+export type CustomerPageFilters = CustomerListFilters & { hasApp?: boolean; withoutApp?: boolean };
 
 const MS_PER_DAY = 86_400_000;
 
@@ -57,7 +57,11 @@ export function customerWhere(filters: CustomerPageFilters, now: Date, appEmails
   if (filters.accessType) c.push(jsonHas(customers.accessTypes, filters.accessType));
   if (filters.tag) c.push(jsonHas(customers.tags, filters.tag));
   for (const tag of filters.excludeTags ?? []) c.push(sql`NOT (${jsonHas(customers.tags, tag)})`);
-  if (filters.forMailing) c.push(eq(customers.emailOptOut, 0));
+  if (filters.forMailing) {
+    c.push(eq(customers.emailOptOut, 0));
+    // Las cuentas internas (caja, invitaciones) no son personas: nunca van en un mailing.
+    c.push(sql`LOWER(${customers.email}) NOT IN (${sql.join(Array.from(PLACEHOLDER_BUYER_EMAILS).map((e) => sql`${e}`), sql`, `)})`);
+  }
   if (filters.optedOut === 'email') c.push(sql`${customers.emailOptOut} <> 0`);
   if (filters.optedOut === 'any') c.push(or(sql`${customers.emailOptOut} <> 0`, sql`${customers.whatsappOptOut} <> 0`)!);
   const city = filters.city?.trim().toLowerCase();
@@ -78,6 +82,11 @@ export function customerWhere(filters: CustomerPageFilters, now: Date, appEmails
   if (filters.hasApp) {
     const emails = Array.from(appEmails ?? []);
     c.push(emails.length ? inArray(sql`LOWER(${customers.email})`, emails) : sql`1 = 0`);
+  }
+  // Quien todavía NO tiene la app (la campaña del bono por instalarla no tiene sentido para quien ya la tiene).
+  if (filters.withoutApp) {
+    const emails = Array.from(appEmails ?? []);
+    if (emails.length) c.push(sql`LOWER(${customers.email}) NOT IN (${sql.join(emails.map((e) => sql`${e}`), sql`, `)})`);
   }
   return c.length ? and(...c) : undefined;
 }

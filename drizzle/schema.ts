@@ -1510,7 +1510,13 @@ export const mailingCampaigns = mysqlTable("mailingCampaigns", {
   // de drenar todos los destinatarios `pending` -- esas filas de
   // `mailingRecipients` quedan huérfanas sin más acción (el cron ya
   // filtra por `status = 'sending'`, ver getPendingMailingRecipients).
-  status: mysqlEnum("status", ["sending", "done", "cancelled"]).default("sending").notNull(),
+  // 'scheduled' = programada: todavía no tiene destinatarios, se arman al llegar `scheduledAt` (ver
+  // `audienceFilters` y materializeDueCampaigns en server/mailing.ts).
+  status: mysqlEnum("status", ["sending", "done", "cancelled", "scheduled"]).default("sending").notNull(),
+  // Cuándo sale (null = en cuanto el cron la ve) y a quién: los filtros se resuelven RECIÉN a esa hora,
+  // así quien compró entremedio ya no recibe el recordatorio.
+  scheduledAt: timestamp("scheduledAt"),
+  audienceFilters: json("audienceFilters"),
   // Evento al que se refiere esta campaña (pedido explícito del dueño,
   // 14/09): nullable porque no toda campaña habla de un evento puntual (ej.
   // un newsletter general) -- cuando SÍ está seteado, el cron lo usa para
@@ -2534,6 +2540,25 @@ export const emailLog = mysqlTable("emailLog", {
 }));
 
 export type EmailLogRow = typeof emailLog.$inferSelect;
+
+/** Eventos que Resend avisa por webhook (server/resendWebhook.ts): entregado, rebotó, lo marcaron como spam, abrió,
+ * hizo clic. `svixId` evita guardar dos veces el mismo aviso si Resend reintenta. `campaign` y `variant` vienen
+ * de las etiquetas con que se envió cada correo. */
+export const emailEvents = mysqlTable("emailEvents", {
+  id: int("id").autoincrement().primaryKey(),
+  svixId: varchar("svixId", { length: 100 }).notNull(),
+  resendId: varchar("resendId", { length: 64 }),
+  type: varchar("type", { length: 40 }).notNull(),
+  email: varchar("email", { length: 320 }).notNull(),
+  campaign: varchar("campaign", { length: 255 }),
+  variant: varchar("variant", { length: 4 }),
+  url: varchar("url", { length: 500 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  svixIdx: uniqueIndex("email_events_svix_idx").on(table.svixId),
+  campaignIdx: index("email_events_campaign_idx").on(table.campaign, table.type),
+  emailIdx: index("email_events_email_idx").on(table.email),
+}));
 
 // Encuesta post-fiesta (server/eventSurvey.ts): una invitación por comprador
 // que asistió (entrada escaneada en la puerta), con el token secreto que va

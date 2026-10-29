@@ -9,9 +9,10 @@ import {
   pastelButton, glassButton, unsubscribeFooterHtml,
 } from './emailLayout';
 import { isEmailOptedOut, unsubscribeOneClickUrl, unsubscribePageUrl } from './unsubscribe';
-import { logEmailSent } from './db';
+import { logEmailSent, logEmailsSent } from './db';
 import { checkEmailQuotaAlert } from './emailQuotaAlert';
 import { ORACLE_TEASER_CARDS } from '../shared/costumeOracle';
+import { buildAnniversaryBlastEmail, type AnniversaryTheme } from './emailAniversario';
 
 interface SendEmailInput {
   /** Correo de promociones / mailing / concurso: lleva link y header de baja y no
@@ -27,6 +28,19 @@ interface SendEmailInput {
   // PDF de cierre de turno (pedido explícito del usuario) -- Resend acepta
   // adjuntos nativamente en base64, no hace falta ningún servicio aparte.
   attachments?: { filename: string; content: Buffer | string }[];
+  /** Adónde llegan las respuestas (por defecto `RESEND_REPLY_TO`, si está configurada). */
+  replyTo?: string;
+  /** Etiquetas de Resend (campaña, variante…): vuelven en los avisos del webhook. */
+  tags?: { name: string; value: string }[];
+}
+
+/** Resend solo acepta letras, números, guion y guion bajo en las etiquetas (máx. 256). */
+export function resendTagValue(text: string): string {
+  return text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 100) || 'x';
+}
+
+function resolveReplyTo(input: { replyTo?: string }): string | undefined {
+  return input.replyTo?.trim() || process.env.RESEND_REPLY_TO?.trim() || undefined;
 }
 
 export const BRAND_NAME = BRAND.nombre;
@@ -60,6 +74,8 @@ function postToResend(apiKey: string, from: string, input: SendEmailInput, extra
       html: html ?? input.html,
       ...(extraHeaders ? { headers: extraHeaders } : {}),
       ...(input.cc ? { cc: input.cc } : {}),
+      ...(resolveReplyTo(input) ? { reply_to: resolveReplyTo(input) } : {}),
+      ...(input.tags?.length ? { tags: input.tags } : {}),
       ...(input.attachments?.length ? {
         attachments: input.attachments.map((a) => ({
           filename: a.filename,
@@ -125,6 +141,86 @@ export async function sendEmail(input: SendEmailInput) {
     await logSendAttempt(input, false);
     return { success: false, reason: 'Network error' };
   }
+}
+
+/** El correo de promoción tal como sale: pie de baja en el HTML y headers de baja de un clic. */
+function marketingParts(input: SendEmailInput): { html: string; headers: Record<string, string> } {
+  return {
+    html: injectUnsubscribeFooter(input.html, unsubscribePageUrl(input.to)),
+    headers: {
+      'List-Unsubscribe': `<${unsubscribeOneClickUrl(input.to)}>, <mailto:${resolveFromAddress()}?subject=baja>`,
+      'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+    },
+  };
+}
+
+/** Resend recibe hasta 100 correos por llamada en `/emails/batch`. */
+export const EMAIL_BATCH_MAX = 100;
+
+export interface BatchEmailResult { to: string; success: boolean; reason?: string }
+
+/** Manda correos de PROMOCIÓN en lote (mailing): una llamada por hasta 100 destinatarios en vez de un correo cada
+ * 550 ms. Cada uno lleva su propio pie y headers de baja, igual que `sendEmail({ marketing: true })`, y respeta la
+ * baja. Si Resend rechaza un lote entero (por ejemplo un correo inválido), ese lote se reenvía de a uno para aislar
+ * al culpable. Devuelve un resultado por correo, en el mismo orden. */
+export async function sendMarketingEmailBatch(inputs: SendEmailInput[]): Promise<BatchEmailResult[]> {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    console.warn('[Email] RESEND_API_KEY no configurada, no se envía el lote');
+    return inputs.map((i) => ({ to: i.to, success: false, reason: 'No API configured' }));
+  }
+  const from = resolveFromHeader();
+  const results: BatchEmailResult[] = new Array(inputs.length);
+  const logRows: { to: string; subject?: string; success: boolean }[] = [];
+
+  // Quien pidió la baja no recibe nada (ni gasta cupo).
+  const sendable: { index: number; input: SendEmailInput }[] = [];
+  for (let i = 0; i < inputs.length; i++) {
+    if (await isEmailOptedOut(inputs[i].to)) results[i] = { to: inputs[i].to, success: false, reason: 'Pidió no recibir correos' };
+    else sendable.push({ index: i, input: inputs[i] });
+  }
+
+  for (let start = 0; start < sendable.length; start += EMAIL_BATCH_MAX) {
+    const chunk = sendable.slice(start, start + EMAIL_BATCH_MAX);
+    const payload = chunk.map(({ input }) => {
+      const { html, headers } = marketingParts(input);
+      return {
+        from, to: input.to, subject: input.subject, html, headers,
+        ...(resolveReplyTo(input) ? { reply_to: resolveReplyTo(input) } : {}),
+        ...(input.tags?.length ? { tags: input.tags } : {}),
+      };
+    });
+    let ok = false;
+    try {
+      let response = await fetch('https://api.resend.com/emails/batch', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` }, body: JSON.stringify(payload),
+      });
+      for (let retry = 0; retry < 2 && response.status === 429; retry++) {
+        await new Promise((resolve) => setTimeout(resolve, 1000 * (retry + 1)));
+        response = await fetch('https://api.resend.com/emails/batch', {
+          method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` }, body: JSON.stringify(payload),
+        });
+      }
+      ok = response.ok;
+      if (!ok) console.error('[Email] Resend rechazó el lote, se reenvía de a uno:', await response.text());
+    } catch (error) {
+      console.error('[Email] Error de red en el lote, se reenvía de a uno:', error);
+    }
+    if (ok) {
+      for (const { index, input } of chunk) { results[index] = { to: input.to, success: true }; logRows.push({ to: input.to, subject: input.subject, success: true }); }
+    } else {
+      for (const { index, input } of chunk) {
+        const r = await sendEmail({ ...input, marketing: true });
+        results[index] = { to: input.to, success: r.success, reason: r.success ? undefined : r.reason };
+        await new Promise((resolve) => setTimeout(resolve, 550));
+      }
+    }
+  }
+
+  // Los envíos del lote que salieron bien cuentan en el contador diario (los de a uno ya se registraron solos).
+  try { await logEmailsSent(logRows); } catch (err) { console.error('[Email] No se pudo registrar el lote en el contador diario:', err); }
+  await checkEmailQuotaAlert();
+  return results;
 }
 
 /** Registra el intento en `emailLog` para el contador diario del admin (ver
@@ -1934,7 +2030,16 @@ export function buildMailingBlastEmail(data: {
   remaining?: number | null;
   /** Sección "Oráculo de Disfraces" al pie (default: sí). */
   showOracle?: boolean;
+  /** Look del aniversario (ver server/emailAniversario.ts); sin valor = el de siempre. */
+  theme?: AnniversaryTheme;
 }) {
+  if (data.theme) {
+    return buildAnniversaryBlastEmail({
+      theme: data.theme, buyerName: data.buyerName, preheader: data.preheader, headline: data.headline, paragraphs: data.paragraphs,
+      ctaText: data.ctaText, ctaUrl: data.ctaUrl, highlightLabel: data.highlightLabel, highlightValue: data.highlightValue,
+      priceList: data.priceList, remaining: data.remaining, eventInfo: data.eventInfo, eventSections: data.eventSections,
+    });
+  }
   const H = HALLOWEEN;
   const greeting = data.buyerName ? `¡Hola, ${data.buyerName}!` : '¡Hola!';
   const eventInfo = data.eventInfo;
