@@ -683,6 +683,15 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
   const total_pasos = pasos.length;
   const pasoActual = pasos[Math.min(paso, total_pasos - 1)];
 
+  // Con las entradas ya cargadas, un acceso guardado (borrador/link) que no existe se descarta y se vuelve
+  // a elegir: así no queda un resumen de $0 sin nombre que parece comprable.
+  useEffect(() => {
+    if (!liveTicketsData || useConfig || !accesoSlug || accesoId || expressBusy) return;
+    setAccesoSlug('');
+    const idx = pasos.findIndex((p) => p.id === 'acceso');
+    if (idx >= 0 && paso > idx) setPaso(idx, { replace: true });
+  }, [liveTicketsData, useConfig, accesoSlug, accesoId, expressBusy]);
+
   /* ── Formulario (todos los campos, validación por paso) ──── */
   const allFields = useMemo(() => {
     const buyer = CAMPOS_COMPRADOR.map((f) => ({ key: `buyer__${f.name}`, field: f }));
@@ -976,6 +985,16 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
       ...(isPartner ? { partner: { slug: partnerSlug, ...partnerChecks, aceptadoEn: new Date().toISOString() } } : {}),
     });
 
+    // Sin un acceso real elegido (borrador viejo, link con un acceso que ya no existe, tanda que cambió) el
+    // total sale en $0 y se mandaba `ticketTypeId: 0` ("Ticket type 0 not found"): no se crea nada y se
+    // vuelve a elegir el acceso.
+    if (!useConfig && (!accesoId || !acceso || !Number.isFinite(Number(accesoId)) || Number(accesoId) <= 0)) {
+      setAccesoSlug('');
+      const idx = pasos.findIndex((p) => p.id === 'acceso');
+      if (idx >= 0) setPaso(idx);
+      setSubmitError('El acceso que habías elegido ya no está disponible. Elige tu acceso de nuevo para continuar.');
+      return;
+    }
     if (useConfig) {
       setSubmitError('Este evento todavía no está cargado en la base de datos — no se puede procesar el pago. Contáctanos para completar tu compra.');
       return;
