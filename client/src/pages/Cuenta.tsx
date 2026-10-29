@@ -36,7 +36,7 @@ import { MovementsScreen } from '@/components/site/MovementsScreen';
 import { QrViewer, holderLabels, tapHaptic, useCountdown, type MeEvent, type Movement } from '@/components/site/walletParts';
 import { canEnterParty } from '@shared/party';
 import { TICKET_KIND_META, type TicketKind } from '@shared/ticketKind';
-import { reportAppOpen, useCustomerPush } from '@/lib/customerPush';
+import { isStandalone, reportAppOpen, useCustomerPush } from '@/lib/customerPush';
 import { avisosNotice } from '@/lib/pushPromptView';
 import { useIsMobile } from '@/hooks/useMobile';
 import { MemberLogin, type LoginDone } from '@/components/site/MemberLogin';
@@ -53,7 +53,7 @@ import { firstName } from '@shared/pushText';
  * correo (sin contraseña) y ver saldo, Playcoins, entradas y cupones. Nadie la
  * necesita para comprar: es para quien quiere sus beneficios. */
 
-const KIND_LABEL: Record<string, string> = { bienvenida: 'Bienvenida', nivel: 'Por tu nivel', cumpleanos: 'Cumpleaños', manual: 'De regalo' };
+const KIND_LABEL: Record<string, string> = { bienvenida: 'Bienvenida', nivel: 'Por tu nivel', cumpleanos: 'Cumpleaños', manual: 'De regalo', appbono: 'Bono de la app' };
 
 /* Paleta propia (siempre oscura, como el panel): la página no depende del tema claro/oscuro del teléfono. */
 const GLASS = 'account-glass rounded-3xl';
@@ -1102,6 +1102,24 @@ export default function Cuenta() {
   const linkedDevice = useRef(false);
   useEffect(() => {
     if (data && !linkedDevice.current) { linkedDevice.current = true; reportAppOpen(undefined, true); }
+  }, [data]);
+
+  // Bono por instalar la app: solo se reclama abriendo la cuenta desde la app instalada (una vez por sesión; el servidor
+  // lo entrega una sola vez por persona).
+  const claimBonus = trpc.member.claimAppBonus.useMutation();
+  const bonusAsked = useRef(false);
+  useEffect(() => {
+    if (!data || bonusAsked.current || !isStandalone()) return;
+    bonusAsked.current = true;
+    claimBonus.mutate({ standalone: true }, {
+      onSuccess: (r) => {
+        if (r.status !== 'granted') return;
+        const until = new Date(r.validUntil).toLocaleString('es-CL', { timeZone: 'America/Santiago', weekday: 'long', hour: '2-digit', minute: '2-digit', hour12: false });
+        toast.success(`🎁 ${r.title}${r.eventTitle ? ` para ${r.eventTitle}` : ''}. Vale hasta el ${until}. Lo ves en tus cupones.`, { duration: 12000 });
+        utils.member.me.invalidate();
+      },
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
 
   useEffect(() => {

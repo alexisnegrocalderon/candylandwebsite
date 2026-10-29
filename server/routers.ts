@@ -4934,6 +4934,14 @@ export const appRouter = router({
       }
       return { maskedEmail: members.maskMemberEmail(email) };
     }),
+    // Bono por instalar la app: «Mi cuenta» lo llama al abrirse desde la app instalada (`standalone`). Un cupón personal
+    // por persona y fiesta, de monto fijo y con vencimiento a la hora que fijó el dueño (Admin → App → Cupones).
+    claimAppBonus: publicProcedure.input(z.object({ standalone: z.boolean() })).mutation(async ({ ctx, input }) => {
+      const email = getMemberEmail(ctx.req);
+      if (!email) return { status: 'no_session' as const };
+      if (!input.standalone) return { status: 'not_installed' as const };
+      return members.claimAppBonus(email);
+    }),
     // Canjea el código por la sesión (cookie de 90 días). Los cupones de bienvenida/nivel/cumpleaños se entregan acá.
     verifyCode: publicProcedure.input(z.object({
       email: z.string().email().max(200).optional(),
@@ -7480,8 +7488,9 @@ export const appRouter = router({
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo programar la campaña.' });
       }
     }),
-    // Cuántos recibirían la campaña si saliera ahora (con los mismos filtros que se resuelven a la hora de envío).
-    previewAudience: adminReadProcedure.input(AudienceFiltersSchema).query(async ({ input }) => {
+    // Cuántos recibirían la campaña si saliera ahora (con los mismos filtros que se resuelven a la hora de envío). Es una
+    // mutación porque, con leads, deja a los leads como clientes (igual que al enviar).
+    previewAudience: adminProcedure.input(AudienceFiltersSchema).mutation(async ({ input }) => {
       const ids = await resolveAudienceCustomerIds(input);
       return { count: ids.length };
     }),

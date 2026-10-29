@@ -13,7 +13,8 @@ import { findExistingMatch, mergeFields, type ImportFields } from "../shared/blo
 import { ambassadorBuyerDiscount, bestBuyerDiscount, effectiveBuyerDiscountPercent, type GeneralBuyerDiscount } from "../shared/ambassadorDiscount";
 import { normalizeIgHandle, saysAlreadyBought, type BuyerCandidate } from "../shared/igCustomerLink";
 import { computeFans, FAN_WINDOW_DAYS } from "../shared/igEngagement";
-import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyCharges, partyEventConfig, partyConnections, partyMessages, partyBlocks, partyReports, partyPhotos, partySwipes, partyCostumeVotes, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog, emailEvents, eventSurveys, eventSurveySettings, accessCredits, type AccessCredit, igComments, type IgComment, igReferrals, type IgReferralRow, igLinkClicks, staffMembers, staffShifts, aiUsage, attendeeContacts } from "../drizzle/schema";
+import { reservedCouponUses } from '../shared/couponReservation';
+import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, memberCoupons, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyCharges, partyEventConfig, partyConnections, partyMessages, partyBlocks, partyReports, partyPhotos, partySwipes, partyCostumeVotes, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog, emailEvents, eventSurveys, eventSurveySettings, accessCredits, type AccessCredit, igComments, type IgComment, igReferrals, type IgReferralRow, igLinkClicks, staffMembers, staffShifts, aiUsage, attendeeContacts } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { ensurePartyIdentitySchema } from './partySchema';
 import { FREE_SUPER_LIKES, DEFAULT_PLAYMATCH_CONFIG, affinityPercent, normalizePlaymatchConfig, superLikePlan, type PlaymatchConfig } from '../shared/playmatchMarket';
@@ -684,6 +685,24 @@ export async function getOrderExtras(orderId: number) {
 }
 
 // Discount Codes
+/** Cupones personales de socio (memberCoupons): si el contador dice «usado» pero ninguna orden lo respalda (aprobada o
+ * pendiente reciente), la reserva venció y el uso se libera. Los códigos generales no se tocan. Devuelve el código con el
+ * contador al día. */
+async function releaseStaleMemberCouponUse<T extends { id: number; usedCount: number; maxUses: number | null }>(db: NonNullable<Awaited<ReturnType<typeof getDb>>>, discount: T): Promise<T> {
+  try {
+    const [personal] = await db.select({ id: memberCoupons.id }).from(memberCoupons).where(eq(memberCoupons.discountCodeId, discount.id)).limit(1);
+    if (!personal) return discount;
+    const used = await db.select({ paymentStatus: orders.paymentStatus, createdAt: orders.createdAt }).from(orders).where(eq(orders.discountCodeId, discount.id));
+    const real = reservedCouponUses(used);
+    if (real >= discount.usedCount) return discount;
+    await db.update(discountCodes).set({ usedCount: real }).where(and(eq(discountCodes.id, discount.id), eq(discountCodes.usedCount, discount.usedCount)));
+    return { ...discount, usedCount: real };
+  } catch (err) {
+    console.warn('[Cupones] No se pudo revisar la reserva del cupón:', err);
+    return discount;
+  }
+}
+
 export async function validateDiscountCode(code: string, eventId: number) {
   const db = await getDb();
   if (!db) return { valid: false, message: 'Service unavailable' };
@@ -691,9 +710,13 @@ export async function validateDiscountCode(code: string, eventId: number) {
   const result = await db.select().from(discountCodes).where(eq(discountCodes.code, code.trim().toUpperCase())).limit(1);
   if (result.length === 0) return { valid: false, message: 'Código no encontrado' };
 
-  const discount = result[0];
+  let discount = result[0];
   if (!discount.isActive) return { valid: false, message: 'Código inactivo' };
-  if (discount.maxUses && discount.usedCount >= discount.maxUses) return { valid: false, message: 'Código agotado' };
+  if (discount.maxUses && discount.usedCount >= discount.maxUses) {
+    // Un cupón personal que alguien reservó al abrir el pago y nunca pagó vuelve a estar disponible.
+    discount = await releaseStaleMemberCouponUse(db, discount);
+    if (discount.maxUses && discount.usedCount >= discount.maxUses) return { valid: false, message: 'Código agotado' };
+  }
   if (discount.validUntil && new Date(discount.validUntil) < new Date()) return { valid: false, message: 'Código expirado' };
   if (discount.validFrom && new Date(discount.validFrom) > new Date()) return { valid: false, message: 'Código aún no válido' };
   if (discount.eventId && discount.eventId !== eventId) return { valid: false, message: 'Código no válido para este evento' };
