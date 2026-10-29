@@ -298,12 +298,13 @@ export async function setStaffArrival(eventId: number, staffId: number, arrivedA
 
 /** Los sistemas en que esta persona tiene acceso en el evento activo (Caja → Accesos). Sin evento o
  * sin base: ninguno (las herramientas del cargo igual se muestran). */
-async function operatorSystems(staffId: number, email: string) {
+async function operatorSystems(staffId: number, email: string, cargo?: string | null) {
   try {
     const event = await getActiveEventForCaja();
     if (!event) return [];
     const ops = await listOperatorsForStaff(event.id, staffId, email);
-    return staffSystemsFor(ops.map((o: any) => ({ id: o.id as number, role: o.role as string })));
+    // Solo el área de su cargo (Supervisor y Admin ven todas): un operador de otra área, aunque exista, no se muestra.
+    return staffSystemsFor(ops.map((o: any) => ({ id: o.id as number, role: o.role as string })), operatorRoleForCargo(cargo as any) ?? 'ninguno');
   } catch {
     return [];
   }
@@ -377,7 +378,7 @@ export async function getStaffPortal(email: string, now: Date = new Date()) {
   const qrImageUrl = credential ? await QRCode.toDataURL(credential.code, { type: 'image/png', width: 400, margin: 2, errorCorrectionLevel: 'M', color: { dark: '#000000', light: '#FFFFFF' } }) : null;
 
   const cargo = cargoDef(staff.cargo);
-  const tools = linkStaffTools([], await operatorSystems(staff.id, staff.email ?? email));
+  const tools = linkStaffTools([], await operatorSystems(staff.id, staff.email ?? email, staff.cargo));
   // Tareas de la barra (conteo inicial / cierre) del próximo evento: solo para quien tiene la herramienta de barra.
   const barraTasks = next && tools.some((t) => t.key === 'barra')
     ? await barraTareasDelEvento(next.eventId, now).catch(() => [])

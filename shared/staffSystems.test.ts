@@ -12,8 +12,8 @@ describe('sección «Staff» de la App', () => {
   });
   it('con varios operadores, cada sistema usa el que sirve', () => {
     const r = staffSystemsFor([{ id: 7, role: 'guardarropia' }, { id: 8, role: 'barra' }]);
+    // Barra ya no entra a la caja: solo cuenta el inventario.
     expect(r).toEqual([
-      { key: 'caja', label: 'Caja', path: '/caja', operatorId: 8 },
       { key: 'guardarropia', label: 'Guardarropía', path: '/guardarropia', operatorId: 7 },
       { key: 'barra', label: 'Conteo de barra', path: '/barra', operatorId: 8 },
     ]);

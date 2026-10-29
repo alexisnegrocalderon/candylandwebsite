@@ -32,12 +32,12 @@ beforeEach(() => {
   vi.mocked(db.getOpenShift).mockResolvedValue(null as any);
 });
 
-describe('solo caja, barra, supervisor y admin usan la caja', () => {
-  it.each(['caja', 'barra', 'supervisor', 'admin'])('%s entra', async (role) => {
+describe('solo caja, supervisor y admin usan la caja', () => {
+  it.each(['caja', 'supervisor', 'admin'])('%s entra', async (role) => {
     await expect(caller(role).caja.dashboard({ eventId: REAL_EVENT })).resolves.toEqual({ ok: true });
   });
 
-  it.each(['acceso', 'cocina', 'guardarropia'])('%s (misma cookie, otra pantalla) no puede vender', async (role) => {
+  it.each(['barra', 'acceso', 'cocina', 'guardarropia'])('%s (misma cookie, otra pantalla) no puede vender', async (role) => {
     await expect(caller(role).caja.dashboard({ eventId: REAL_EVENT })).rejects.toMatchObject({ code: 'FORBIDDEN' });
     await expect(caller(role).caja.sale({
       opId: 'x', eventId: REAL_EVENT, items: [{ ticketTypeId: 1, quantity: 1 }], paymentMethod: 'efectivo', clientAt: new Date().toISOString(),
@@ -50,7 +50,7 @@ describe('solo caja, barra, supervisor y admin usan la caja', () => {
       { id: 3, name: 'Cata', role: 'barra' }, { id: 4, name: 'Dani', role: 'acceso' },
     ] as any);
     const list = await caller(null).caja.listOperators();
-    expect(list.map((o) => o.name)).toEqual(['Ana', 'Cata']);
+    expect(list.map((o) => o.name)).toEqual(['Ana']);
   });
 });
 
