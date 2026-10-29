@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canUseCaja, staffSystemsFor, STAFF_SYSTEMS } from './cajaRoles';
+import { canEnterArea, canUseCaja, ownArea, staffSystemsFor, STAFF_SYSTEMS } from './cajaRoles';
 
 describe('cada área es de su rol', () => {
   it('solo Caja, Supervisor y Admin usan la caja: Barra no', () => {
@@ -36,5 +36,30 @@ describe('staffSystemsFor: lo que ve cada persona en la App', () => {
   });
   it('sin cargo (uso interno) se mantiene lo de siempre', () => {
     expect(staffSystemsFor(ops).map((s) => s.key)).toEqual(['caja', 'guardarropia', 'barra']);
+  });
+});
+
+describe('cada persona entra directo a su pantalla', () => {
+  it('ownArea: la única pantalla de cada rol; Supervisor y Admin no tienen una sola', () => {
+    expect(ownArea('barra')).toMatchObject({ key: 'barra', path: '/barra' });
+    expect(ownArea('caja')).toMatchObject({ key: 'caja', path: '/caja' });
+    expect(ownArea('acceso')).toMatchObject({ key: 'puerta', path: '/puerta' });
+    expect(ownArea('cocina')).toMatchObject({ key: 'cocina', path: '/cocina' });
+    expect(ownArea('guardarropia')).toMatchObject({ key: 'guardarropia', path: '/guardarropia' });
+    expect(ownArea('supervisor')).toBeNull();
+    expect(ownArea('admin')).toBeNull();
+    expect(ownArea(null)).toBeNull();
+  });
+  it('canEnterArea: nadie entra a la pantalla de otra área, salvo Supervisor y Admin', () => {
+    expect(canEnterArea('barra', 'barra')).toBe(true);
+    expect(canEnterArea('barra', 'caja')).toBe(false);
+    expect(canEnterArea('barra', 'guardarropia')).toBe(false);
+    expect(canEnterArea('caja', 'puerta')).toBe(false);
+    expect(canEnterArea('guardarropia', 'cocina')).toBe(false);
+    for (const key of ['caja', 'puerta', 'cocina', 'guardarropia', 'barra'] as const) {
+      expect(canEnterArea('supervisor', key)).toBe(true);
+      expect(canEnterArea('admin', key)).toBe(true);
+    }
+    expect(canEnterArea(undefined, 'caja')).toBe(false);
   });
 });

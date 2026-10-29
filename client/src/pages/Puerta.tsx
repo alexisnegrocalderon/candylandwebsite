@@ -6,7 +6,7 @@ import { trpc } from '@/lib/trpc';
 import { useSeo } from '@/hooks/useSeo';
 import { useInstallableApp } from '@/hooks/useInstallableApp';
 import { QrScanner } from '@/components/QrScanner';
-import { TerminalFrame, TerminalLogin, TerminalSpinner, loginErrorToast, playTone, useWakeLock, vibrateAlert } from '@/components/terminal/TerminalShell';
+import { AreaGuard, TerminalFrame, TerminalLogin, TerminalSpinner, loginErrorToast, playTone, useWakeLock, vibrateAlert } from '@/components/terminal/TerminalShell';
 import { OPERATOR_ROLE_LABELS } from '@shared/cajaRoles';
 import { parseTicketCodeFromQr } from '@shared/qr';
 import { personasForTicket } from '@shared/mission300';
@@ -121,7 +121,7 @@ function Gate() {
   const me = trpc.puerta.me.useQuery();
   if (me.isLoading) return <TerminalSpinner />;
   if (!me.data) return <Login onDone={() => me.refetch()} />;
-  return <Scanner operatorName={me.data.name} operatorRole={me.data.role} />;
+  return <AreaGuard area="puerta" role={me.data.role}><Scanner operatorName={me.data.name} operatorRole={me.data.role} /></AreaGuard>;
 }
 
 /* --- Login ---------------------------------------------------------------- */

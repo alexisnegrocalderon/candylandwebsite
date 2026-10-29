@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { LogOut } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { useSeo } from '@/hooks/useSeo';
-import { TerminalFrame, TerminalLogin, TerminalSpinner, loginErrorToast } from '@/components/terminal/TerminalShell';
+import { AreaGuard, TerminalFrame, TerminalLogin, TerminalSpinner, loginErrorToast } from '@/components/terminal/TerminalShell';
 import { BarraCount } from '@/components/barra/BarraCount';
 import { openedFromApp } from '@/lib/staffLink';
 import { barraTareaEstado, type BarraConteoKind } from '@shared/barraConteo';
@@ -27,7 +27,7 @@ function Gate() {
   const me = trpc.barra.me.useQuery();
   if (me.isLoading) return <TerminalSpinner />;
   if (!me.data) return <Login onDone={() => me.refetch()} />;
-  return <Home operatorName={me.data.name} />;
+  return <AreaGuard area="barra" role={me.data.role}><Home operatorName={me.data.name} /></AreaGuard>;
 }
 
 function Login({ onDone }: { onDone: () => void }) {

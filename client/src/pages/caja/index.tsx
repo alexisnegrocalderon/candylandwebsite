@@ -1,6 +1,7 @@
 import '@/admin.css';
 import { useDarkGlassDocument } from '@/components/admin/shell/AdminShell';
 import { OPERATOR_ROLE_LABELS } from '@shared/cajaRoles';
+import { AreaGuard } from '@/components/terminal/TerminalShell';
 import { openedFromApp, preselectedOperatorId } from '@/lib/staffLink';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useHideSplashWhenSettled } from '@/lib/splash';
@@ -154,7 +155,7 @@ function OperatorGate() {
   }
 
   if (!operator) return <PinLogin />;
-  return <ShiftGate operator={operator} />;
+  return <AreaGuard area="caja" role={operator.role}><ShiftGate operator={operator} /></AreaGuard>;
 }
 
 /** Apertura de turno (§10.2.1, §14 Fase 5): elegir la caja física, declarar

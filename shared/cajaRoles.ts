@@ -52,3 +52,17 @@ export function staffSystemsFor(operators: { id: number; role: string }[], ownRo
   }
   return out;
 }
+
+/** ¿Este rol puede entrar a esta pantalla? (Supervisor y Admin entran a todas, para mirar.) */
+export function canEnterArea(role: string | null | undefined, area: StaffSystemKey): boolean {
+  const sys = STAFF_SYSTEMS.find((s) => s.key === area);
+  return !!role && !!sys && (sys.roles as readonly string[]).includes(role);
+}
+
+/** La pantalla propia de un rol: la única a la que entra (Puerta → /puerta, Barra → /barra…). Supervisor y Admin no tienen una
+ * sola (entran a todas): `null`. */
+export function ownArea(role: string | null | undefined): { key: StaffSystemKey; label: string; path: string } | null {
+  if (!role || (ALL_AREAS_ROLES as readonly string[]).includes(role)) return null;
+  const sys = STAFF_SYSTEMS.find((s) => (s.roles as readonly string[]).includes(role));
+  return sys ? { key: sys.key, label: sys.label, path: sys.path } : null;
+}
