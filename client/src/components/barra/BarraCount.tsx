@@ -12,13 +12,13 @@ type Line = { closed: Record<number, number>; open: { size: number; portions: nu
 
 const emptyLine = (): Line => ({ closed: {}, open: [] });
 // v2: el borrador de antes (sin tamaños de botella) no sirve.
-const draftKey = (eventId: number, kind: Kind) => `caja_conteo2_${kind}_${eventId}`;
+const draftKey = (eventId: number, kind: Kind) => `caja_conteo2_${kind}_${eventId}`; // mismo borrador de siempre: un conteo a medias de antes no se pierde
 
 function loadDraft(eventId: number, kind: Kind): Record<number, Line> {
   try { return JSON.parse(localStorage.getItem(draftKey(eventId, kind)) ?? '{}'); } catch { return {}; }
 }
 
-/** Conteo de barra al abrir y al cerrar turno: una tarjeta por insumo con las
+/** Conteo de barra del staff (inicial y de cierre, desde /barra): una tarjeta por insumo con las
  * botellas cerradas de cada tamaño (750 ml, 1 L, 1,5 L…, −/+) y cada botella
  * abierta con su tamaño y porcionada en 10 (5/10 = a la mitad).
  *
@@ -26,17 +26,15 @@ function loadDraft(eventId: number, kind: Kind): Record<number, Line> {
  * de guardar, para que nadie cuente "lo que debería haber". Lo que no se toca
  * no se manda (ese insumo queda como estaba). El borrador se guarda en el
  * dispositivo, así se puede contar a medias sin perderlo. */
-export function BarraCount({ eventId, registerId, kind, canSkip, onDone, onSkip }: {
+export function BarraCount({ eventId, kind, onDone, onBack }: {
   eventId: number;
-  registerId: number | null;
   kind: Kind;
-  /** El conteo es obligatorio: solo un supervisor (o la falta de señal) deja saltarlo. */
-  canSkip: boolean;
   onDone: () => void;
-  onSkip: () => void;
+  /** Salir sin guardar (el borrador queda en el dispositivo). */
+  onBack: () => void;
 }) {
-  const estado = trpc.caja.barraEstado.useQuery({ eventId }, { retry: 1 });
-  const save = trpc.caja.conteoBarra.useMutation();
+  const estado = trpc.barra.estado.useQuery({ eventId }, { retry: 1 });
+  const save = trpc.barra.conteo.useMutation();
   const [lines, setLines] = useState<Record<number, Line>>(() => loadDraft(eventId, kind));
   const [summary, setSummary] = useState<{ name: string; diff: number; pct: number; insumoId: number }[] | null>(null);
 
@@ -45,10 +43,7 @@ export function BarraCount({ eventId, registerId, kind, canSkip, onDone, onSkip 
   }, [eventId, kind, lines]);
 
   const insumos = estado.data?.ready ? estado.data.insumos : [];
-  // Sin insumos cargados (o la base sin las tablas) no hay nada que contar.
-  useEffect(() => {
-    if (estado.data && (!estado.data.ready || estado.data.insumos.length === 0)) onDone();
-  }, [estado.data, onDone]);
+  const nothingToCount = !!estado.data && (!estado.data.ready || estado.data.insumos.length === 0);
 
   // Lo más importante primero: los insumos que más tragos usan (los licores base) arriba y los sueltos al final,
   // así si hay apuro no se quedan sin contar los que más pesan.
@@ -59,7 +54,7 @@ export function BarraCount({ eventId, registerId, kind, canSkip, onDone, onSkip 
 
   const submit = async () => {
     const counted = insumos.filter((i) => lines[i.id] !== undefined);
-    if (counted.length === 0) { toast.error('Todavía no contaste nada. Toca cada insumo o usa «Saltar».'); return; }
+    if (counted.length === 0) { toast.error('Todavía no contaste nada. Toca cada insumo para contarlo.'); return; }
     const unmarked = counted.find((i) => lines[i.id].open.some((o) => o.portions === null));
     if (unmarked) { toast.error(`${unmarked.name}: marca cuánto le queda a la botella abierta (o quítala).`); return; }
     if (counted.length < insumos.length && !window.confirm(`Faltan ${insumos.length - counted.length} sin contar: esos quedan como estaban. ¿Guardar igual?`)) return;
@@ -69,7 +64,7 @@ export function BarraCount({ eventId, registerId, kind, canSkip, onDone, onSkip 
       open: lines[i.id].open.map((o) => ({ size: o.size, portions: o.portions ?? 0 })),
     }));
     try {
-      const res = await save.mutateAsync({ eventId, registerId: registerId ?? undefined, kind, lines: toSend });
+      const res = await save.mutateAsync({ eventId, kind, lines: toSend });
       try { localStorage.removeItem(draftKey(eventId, kind)); } catch { /* nada */ }
       const off = res.lines.filter((l) => Math.abs(l.pct) >= 5 && l.diff !== 0);
       if (res.test) toast.info('Modo prueba: el conteo quedó guardado pero no cambia el stock real.');
@@ -107,11 +102,15 @@ export function BarraCount({ eventId, registerId, kind, canSkip, onDone, onSkip 
     );
   }
 
-  if (estado.isLoading || !estado.data?.ready) {
+  if (estado.isLoading || !estado.data?.ready || nothingToCount) {
     return (
       <div className={`${shell} items-center justify-center gap-4 p-6 text-center`}>
-        <p className="text-white/60 text-sm">{estado.isError ? 'Sin conexión: el conteo de barra necesita señal.' : 'Cargando insumos de la barra…'}</p>
-        {estado.isError && <button onClick={onSkip} className="text-white/60 text-sm underline">Sin señal: saltar y contar después</button>}
+        <p className="text-white/60 text-sm">
+          {estado.isError ? 'Sin conexión: el conteo de barra necesita señal.'
+            : estado.isLoading ? 'Cargando insumos de la barra…'
+            : 'Todavía no hay insumos cargados para contar. Avisa a un admin.'}
+        </p>
+        {!estado.isLoading && <button onClick={onBack} className="text-white/60 text-sm underline">← Volver</button>}
       </div>
     );
   }
@@ -121,7 +120,7 @@ export function BarraCount({ eventId, registerId, kind, canSkip, onDone, onSkip 
   return (
     <div className={shell}>
       <div className="shrink-0 p-4 pb-2 max-w-lg w-full mx-auto">
-        <p className="text-white/60 text-xs uppercase tracking-wide">{kind === 'apertura' ? 'Inicio de turno' : 'Cierre de turno'}</p>
+        <p className="text-white/60 text-xs uppercase tracking-wide">{kind === 'apertura' ? 'Conteo inicial' : 'Inventario de cierre'}</p>
         <h1 className="text-xl font-bold">Conteo de barra</h1>
         <p className="text-sm text-white/60">Cuenta lo que hay en la barra y en la bodega: las botellas cerradas de cada tamaño y, de cada botella abierta, cuántas porciones le quedan (del 1 al 9). Parte por lo más importante.</p>
         {previous && (
@@ -200,9 +199,7 @@ export function BarraCount({ eventId, registerId, kind, canSkip, onDone, onSkip 
         <Button className="w-full h-14 text-base bg-primary hover:bg-primary/90" disabled={save.isPending} onClick={submit}>
           {save.isPending ? 'Guardando…' : 'Guardar conteo'}
         </Button>
-        {canSkip
-          ? <button type="button" onClick={onSkip} className="w-full text-center text-white/50 text-sm py-2">Saltar (solo supervisor)</button>
-          : <p className="text-center text-xs text-white/40 py-1">El conteo es obligatorio. Si algo no se puede, pídele a un supervisor que lo salte.</p>}
+        <button type="button" onClick={onBack} className="w-full text-center text-white/50 text-sm py-2">← Volver (lo contado queda guardado en este celular)</button>
       </div>
     </div>
   );

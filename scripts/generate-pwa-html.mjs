@@ -39,6 +39,7 @@ const SCREENS = [
   // que el sitio); su HTML existe solo para abrir con el mismo arranque oscuro.
   { file: 'cocina.html', title: 'Cocina', ...DARK },
   { file: 'guardarropia.html', title: 'Guardarropía', ...DARK },
+  { file: 'barra.html', title: 'Barra', ...DARK },
   // Ícono propio: con las cuatro apps instaladas en la misma pantalla de
   // inicio, el isotipo genérico las hacía indistinguibles a simple vista.
   // Vidrio oscuro como el panel: barra de estado oscura desde el primer

@@ -14,10 +14,10 @@ describe('app del staff', () => {
 
   it('da las herramientas según el rol, escrito como sea', () => {
     expect(staffToolsForRole('Puerta').map((t) => t.key)).toEqual(['puerta']);
-    expect(staffToolsForRole('Bartender').map((t) => t.key)).toEqual(['caja']);
+    expect(staffToolsForRole('Bartender').map((t) => t.key)).toEqual(['caja', 'barra']);
     expect(staffToolsForRole('Cocinera').map((t) => t.key)).toEqual(['cocina']);
     expect(staffToolsForRole('Guardarropía').map((t) => t.key)).toEqual(['guardarropia']);
-    expect(staffToolsForRole('Supervisora').map((t) => t.key)).toEqual(['puerta', 'caja', 'cocina', 'guardarropia']);
+    expect(staffToolsForRole('Supervisora').map((t) => t.key)).toEqual(['puerta', 'caja', 'cocina', 'guardarropia', 'barra']);
     expect(staffToolsForRole('DJ')).toEqual([]);
     expect(staffToolsForRole(null)).toEqual([]);
   });

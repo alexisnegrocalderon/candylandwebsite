@@ -31,6 +31,7 @@ export const STAFF_SYSTEMS = [
   { key: 'puerta', label: 'Puerta', path: '/puerta', roles: ['acceso', 'supervisor', 'admin'] },
   { key: 'cocina', label: 'Cocina', path: '/cocina', roles: ['cocina', 'supervisor', 'admin'] },
   { key: 'guardarropia', label: 'Guardarropía', path: '/guardarropia', roles: ['guardarropia', 'supervisor', 'admin'] },
+  { key: 'barra', label: 'Conteo de barra', path: '/barra', roles: ['barra', 'supervisor', 'admin'] },
 ] as const;
 
 export type StaffSystemKey = (typeof STAFF_SYSTEMS)[number]['key'];
