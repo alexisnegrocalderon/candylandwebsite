@@ -382,7 +382,8 @@ export async function materializeDueCampaigns(now: Date = new Date()): Promise<{
 export async function processMailingCronBatch(): Promise<MailingCronResult> {
   const start = Date.now();
 
-  await materializeDueCampaigns();
+  // Si la migración 0139 todavía no se corrió, armar campañas programadas falla: no debe frenar la cola de siempre.
+  try { await materializeDueCampaigns(); } catch (err) { console.error('[Mailing] No se pudieron armar las campañas programadas (¿falta la migración 0139?):', err); }
 
   // Presupuesto diario compartido: ver AUTOMATED_EMAIL_DAILY_CAP.
   const sentToday = await db.countAutomatedEmailsSentToday();
