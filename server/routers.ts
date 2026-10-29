@@ -6995,6 +6995,31 @@ export const appRouter = router({
       if (!rawDb) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Base de datos no disponible' });
       return findCustomersForCaja(rawDb, input.query);
     }),
+    // Estado de la tarjeta al identificar al cliente: saldo en PLATA (el que gasta «Saldo»), Playcoins, si tiene PIN y
+    // cuántos intentos le quedan. La caja lo consulta sola para que la cajera sepa de entrada si alcanza y si hay PIN.
+    cardStatus: operatorProcedure.input(z.object({ eventId: z.number().optional(), email: z.string().email() })).query(async ({ input }) => {
+      const s = await db.getCardPinStatus(input.email);
+      return s ? { found: true as const, ...s, lockedUntil: s.lockedUntil?.toISOString() ?? null } : { found: false as const };
+    }),
+    // Supervisores/admin del evento, para que el cajero elija quién autoriza un cobro sin PIN.
+    listSupervisors: operatorProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
+      const all = await db.listActiveOperatorsPublic(input.eventId);
+      return all.filter((o: any) => o.role === 'supervisor' || o.role === 'admin').map((o: any) => ({ id: o.id, name: o.name }));
+    }),
+    // Cliente que olvidó el PIN: un supervisor/admin pone SU PIN de operador y se emite un token de un solo uso
+    // (2 min, ligado al correo, con tope por venta) que `sale` acepta en lugar del PIN de la tarjeta.
+    authorizeCardPay: operatorProcedure.input(z.object({
+      eventId: z.number(), email: z.string().email(), supervisorId: z.number(), pin: z.string().regex(/^\d{4,8}$/),
+    })).mutation(async ({ input, ctx }) => {
+      if (!(await members.getMemberConfig()).payments.cajaPay) throw new TRPCError({ code: 'BAD_REQUEST', message: 'El pago con la app no está activado' });
+      const supervisor = await verifyOperatorPinOrThrow(ctx, input.supervisorId, input.pin);
+      if (supervisor.role !== 'supervisor' && supervisor.role !== 'admin') throw new TRPCError({ code: 'FORBIDDEN', message: 'Esa persona no es supervisor' });
+      const customer = await members.findCustomer(input.email);
+      if (!customer) throw new TRPCError({ code: 'BAD_REQUEST', message: 'No encontramos la cuenta de ese cliente' });
+      console.warn(`[caja] cobro sin PIN autorizado: supervisor #${supervisor.id} (${supervisor.name}), cajero #${ctx.operator.operatorId}, cliente ${customer.email}`);
+      const { token, expiresAt } = await memberPay.createSupervisorPayToken(customer.email, supervisor.id);
+      return { token, expiresAt: expiresAt.toISOString(), supervisorName: supervisor.name as string, maxClp: memberPay.SUPERVISOR_PAY_MAX_CLP };
+    }),
     sale: operatorProcedure.input(z.object({
       opId: z.string(),
       eventId: z.number(),

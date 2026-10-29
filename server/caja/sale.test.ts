@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { ops, orders, orderItems, ticketTypes, lockerItems, discountCodes, kitchenTickets } from "../../drizzle/schema";
+import { ops, orders, orderItems, ticketTypes, lockerItems, discountCodes, kitchenTickets, customers } from "../../drizzle/schema";
 
 // `createCajaSale` toca Playcoins, saldo prepagado y descuentos vía ../db,
 // que abre conexión real. Acá solo se prueba la lógica de la venta (precio,
@@ -8,7 +8,7 @@ import { ops, orders, orderItems, ticketTypes, lockerItems, discountCodes, kitch
 const validateDiscountCode = vi.fn(async (_code: string, _eventId: number) => ({ valid: false, message: "Código no encontrado" }));
 const redeemPlaycoinsAuthoritative = vi.fn(async () => ({ ok: true as const, redeemed: 0, balanceAfter: 0 }));
 const verifyCardPin = vi.fn(async (_p: { email: string; pin: string }) => ({ ok: true as const, customerId: 1 }));
-const spendPrepaidAuthoritative = vi.fn(async (_p: { customerId: number; amountClp: number; reason: string; opId: string }) => ({ ok: true as const, balanceAfter: 0 }));
+const spendPrepaidAuthoritative = vi.fn(async (_p: { customerId: number; amountClp: number; reason: string; opId: string; note?: string }) => ({ ok: true as const, balanceAfter: 0 }));
 const ensureCustomerIdForEmail = vi.fn(async (email?: string | null) => (email ? 7 : null));
 vi.mock("../db", () => ({
   ensureCustomerIdForEmail: (...args: [string | null | undefined]) => ensureCustomerIdForEmail(...args),
@@ -16,7 +16,17 @@ vi.mock("../db", () => ({
   redeemPlaycoinsAuthoritative: (...args: any[]) => redeemPlaycoinsAuthoritative(...(args as [])),
   validateDiscountCode: (...args: [string, number]) => validateDiscountCode(...args),
   verifyCardPin: (...args: [{ email: string; pin: string }]) => verifyCardPin(...args),
-  spendPrepaidAuthoritative: (...args: [{ customerId: number; amountClp: number; reason: string; opId: string }]) => spendPrepaidAuthoritative(...args),
+  spendPrepaidAuthoritative: (...args: [{ customerId: number; amountClp: number; reason: string; opId: string; note?: string }]) => spendPrepaidAuthoritative(...args),
+}));
+
+// El QR/token de pago vive en la base: se simula consumir/liberar y se deja real lo puro (parseo del token de
+// supervisor y su tope).
+const consumePayToken = vi.fn(async (_t: string, email: string, _opId: string) => ({ ok: true as const, email }));
+const releasePayToken = vi.fn(async () => {});
+vi.mock("../memberPay", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../memberPay")>()),
+  consumePayToken: (...args: [string, string, string]) => consumePayToken(...args),
+  releasePayToken: (...args: []) => releasePayToken(...args),
 }));
 
 // El descuento de insumos tiene sus propias pruebas (shared/insumos.test.ts):
@@ -64,6 +74,7 @@ function makeFakeDb(state: {
           if (table === ops) return state.existingOp ? [state.existingOp] : [];
           if (table === lockerItems) return state.existingLockerTag ? [{ id: 1 }] : [];
           if (table === kitchenTickets) return state.existingKitchenTicketNumber ? [{ id: 1 }] : [];
+          if (table === customers) return [{ id: 42 }];
           return [];
         },
       };
@@ -380,6 +391,54 @@ describe("createCajaSale", () => {
         customerId: 42, amountClp: 5000, reason: "spend_caja", opId: baseParams.opId,
       });
       expect(calls.order).toMatchObject({ paymentMethod: "saldo", total: "5000", customerId: 42 });
+    });
+
+    describe("autorización de supervisor (cliente que olvidó el PIN)", () => {
+      const supToken = "PLAYPAY:v1:SUPAUTH_12_AbCdEfGhIjKlMnOp.ZyXwVuTsRqPoNmLkJiHgFe";
+
+      it("cobra sin PIN, deja nota con el supervisor y no verifica el PIN de la tarjeta", async () => {
+        consumePayToken.mockClear();
+        verifyCardPin.mockClear();
+        spendPrepaidAuthoritative.mockResolvedValueOnce({ ok: true, balanceAfter: 1000 });
+        const { db, calls } = makeFakeDb({ products: [piscola] });
+
+        const res = await createCajaSale(db, {
+          ...baseParams, paymentMethod: "saldo", buyerEmail: "cliente@test.cl", payToken: supToken,
+          items: [{ ticketTypeId: 1, quantity: 1 }],
+        });
+
+        expect(res.result).toBe("applied");
+        expect(verifyCardPin).not.toHaveBeenCalled();
+        expect(spendPrepaidAuthoritative).toHaveBeenLastCalledWith(
+          expect.objectContaining({ customerId: 42, amountClp: 5000, note: "Sin PIN: autorizado por supervisor #12" }),
+        );
+        expect(calls.order).toMatchObject({ paymentMethod: "saldo", customerId: 42 });
+      });
+
+      it("rechaza sobre el tope por venta sin consumir el token ni cobrar", async () => {
+        consumePayToken.mockClear();
+        spendPrepaidAuthoritative.mockClear();
+        const { db, calls } = makeFakeDb({ products: [piscola] });
+
+        await expect(
+          createCajaSale(db, { ...baseParams, paymentMethod: "saldo", buyerEmail: "cliente@test.cl", payToken: supToken, items: [{ ticketTypeId: 1, quantity: 11 }] })
+        ).rejects.toThrow(/hasta \$50\.000/);
+        expect(consumePayToken).not.toHaveBeenCalled();
+        expect(spendPrepaidAuthoritative).not.toHaveBeenCalled();
+        expect(calls.order).toBeNull();
+      });
+
+      it("un QR normal de la app no lleva nota ni tope de supervisor", async () => {
+        spendPrepaidAuthoritative.mockClear();
+        spendPrepaidAuthoritative.mockResolvedValueOnce({ ok: true, balanceAfter: 0 });
+        const { db } = makeFakeDb({ products: [piscola] });
+
+        await createCajaSale(db, {
+          ...baseParams, paymentMethod: "saldo", buyerEmail: "cliente@test.cl",
+          payToken: "PLAYPAY:v1:AbCdEfGhIjKlMnOp.ZyXwVuTsRqPoNmLkJiHgFe", items: [{ ticketTypeId: 1, quantity: 11 }],
+        });
+        expect(spendPrepaidAuthoritative).toHaveBeenLastCalledWith(expect.objectContaining({ amountClp: 55000, note: undefined }));
+      });
     });
 
     it("rechaza sin email o sin PIN, sin llegar a verificar nada ni crear la orden", async () => {

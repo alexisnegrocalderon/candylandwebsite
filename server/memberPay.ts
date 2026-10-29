@@ -47,6 +47,29 @@ export async function createPayToken(email: string, now = new Date()): Promise<{
   return { token: `${PAY_QR_PREFIX}${nonce}.${sign(nonce, clean)}`, expiresAt };
 }
 
+/** Autorización de supervisor para cobrar con saldo SIN el PIN de la tarjeta (cliente que lo olvidó). Usa la misma tabla,
+ * vigencia (2 min) y un solo uso que el QR de la app; el id del supervisor viaja en el nonce (va firmado) para auditar. */
+const SUPERVISOR_NONCE_PREFIX = 'SUPAUTH_';
+/** Tope por venta: más que esto sin PIN ni teléfono del socio no se autoriza desde la caja. */
+export const SUPERVISOR_PAY_MAX_CLP = 50_000;
+
+export async function createSupervisorPayToken(email: string, supervisorId: number, now = new Date()): Promise<{ token: string; expiresAt: Date }> {
+  const db = await getDb();
+  if (!db) throw new Error('Base de datos no disponible');
+  const clean = normalizeMemberEmail(email);
+  const nonce = `${SUPERVISOR_NONCE_PREFIX}${supervisorId}_${randomBytes(12).toString('base64url')}`;
+  const expiresAt = new Date(now.getTime() + PAY_TOKEN_TTL_MS);
+  await db.insert(memberPayTokens).values({ nonce, email: clean, expiresAt });
+  return { token: `${PAY_QR_PREFIX}${nonce}.${sign(nonce, clean)}`, expiresAt };
+}
+
+/** Id del supervisor que autorizó, si el token es de los suyos (la firma ya se valida en consumePayToken). */
+export function supervisorIdFromPayToken(raw: string): number | null {
+  const parsed = parsePayToken(raw);
+  const m = parsed?.nonce.startsWith(SUPERVISOR_NONCE_PREFIX) ? /^SUPAUTH_(\d+)_/.exec(parsed.nonce) : null;
+  return m ? Number(m[1]) : null;
+}
+
 export type PayTokenCheck = { ok: true; email: string } | { ok: false; reason: string };
 
 /** Valida firma, vigencia y que no esté usado. No lo consume. */
