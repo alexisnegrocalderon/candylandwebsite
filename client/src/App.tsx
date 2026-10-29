@@ -77,6 +77,7 @@ const CostumeOracle = lazy(() => import("./pages/CostumeOracle"));
 const Recargar = lazy(() => import("./pages/Recargar"));
 const Puerta = lazy(() => import("./pages/Puerta"));
 const Cocina = lazy(() => import("./pages/Cocina"));
+const Barra = lazy(() => import("./pages/Barra"));
 const Guardarropia = lazy(() => import("./pages/Guardarropia"));
 const Prices = lazy(() => import("./pages/Prices"));
 const RefundPolicy = lazy(() => import("./pages/RefundPolicy"));
@@ -245,6 +246,7 @@ function Router() {
           <Route path="/embajador/:code" component={Ambassador} />
           <Route path="/puerta" component={Puerta} />
           <Route path="/cocina" component={Cocina} />
+          <Route path="/barra" component={Barra} />
           <Route path="/guardarropia" component={Guardarropia} />
           <Route path="/entradas" component={Prices} />
           <Route path="/politica-de-reembolso" component={RefundPolicy} />

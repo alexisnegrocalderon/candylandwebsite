@@ -5,7 +5,7 @@ import { openedFromApp, preselectedOperatorId } from '@/lib/staffLink';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useHideSplashWhenSettled } from '@/lib/splash';
 import { toast } from 'sonner';
-import { Camera, Check, Delete, X, ShoppingCart, Search, LayoutDashboard, AlertTriangle, LogOut, Receipt, Wine, BookOpen } from 'lucide-react';
+import { Camera, Check, Delete, X, ShoppingCart, Search, LayoutDashboard, AlertTriangle, LogOut, Receipt, Wine, BookOpen, Eye, EyeOff } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { useSeo } from '@/hooks/useSeo';
 import { Button } from '@/components/ui/button';
@@ -19,7 +19,6 @@ import {
   type CajaAttendee, type CajaBarra, type CajaCatalogItem, type CajaStaffComp, type QueuedOp,
 } from './db';
 import { diagnosticoProducto, idSustitucion, nivelInsumo, sugerirReemplazos, tragosDisponibles, tragosPorInsumo, type DiagnosticoProducto, type Reemplazo } from '@shared/insumos';
-import { BarraCount } from './BarraCount';
 import { BarraStock } from './BarraStock';
 import { BarraDosier } from './BarraDosier';
 import { forgetOffline, useOfflineFallback } from './offlineGate';
@@ -225,8 +224,6 @@ function ShiftGate({ operator }: { operator: { operatorId: number; name: string;
           { duration: 10000 },
         );
       }
-      // Turno nuevo: lo primero es el conteo de barra (CajaHome lo muestra una vez).
-      if (!opened.alreadyOpen) localStorage.setItem(BARRA_APERTURA_PENDING, '1');
       localStorage.setItem('caja_shift_opened', '1');
       setShiftStarted(true);
     } catch (err: any) {
@@ -293,17 +290,12 @@ function ShiftGate({ operator }: { operator: { operatorId: number; name: string;
   );
 }
 
-/** "Falta el conteo de barra de inicio de este turno" -- se marca al abrir un
- * turno nuevo y se borra al contar o saltarlo (sobrevive a un refresh). */
-const BARRA_APERTURA_PENDING = 'caja_barra_apertura_pendiente';
-
 /** Efectivo inicial del turno (cuadre de caja): se pide antes de vender
  * nada, para poder restarlo automáticamente del conteo final al cerrar. */
 /** Denominaciones de efectivo chileno para el conteo paso a paso (pedido
  * explícito del usuario: contar de a una denominación es mucho más rápido y
  * confiable que estimar un monto total a ojo). */
 const DENOMINATIONS = [
-  { value: 10, label: 'Moneda de $10' },
   { value: 50, label: 'Moneda de $50' },
   { value: 100, label: 'Moneda de $100' },
   { value: 500, label: 'Moneda de $500' },
@@ -615,13 +607,6 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
   const [sheetVersion, setSheetVersion] = useState(0); // fuerza refresco de la ficha tras un canje local
   const [showCloseForm, setShowCloseForm] = useState(false);
   const [scanning, setScanning] = useState(false);
-  // Conteo de barra: al abrir un turno nuevo y antes del cuadre de cierre.
-  const [barraCount, setBarraCount] = useState<'apertura' | 'cierre' | null>(() => (localStorage.getItem(BARRA_APERTURA_PENDING) === '1' ? 'apertura' : null));
-  const finishBarraCount = useCallback(() => {
-    if (barraCount === 'apertura') localStorage.removeItem(BARRA_APERTURA_PENDING);
-    if (barraCount === 'cierre') setShowCloseForm(true);
-    setBarraCount(null);
-  }, [barraCount]);
 
   const refreshPending = useCallback(() => { pendingOpsCount().then(setPending); }, []);
 
@@ -849,8 +834,8 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
       setView('rejected');
       return;
     }
-    // Primero el conteo de barra (si el evento no usa insumos, se salta solo).
-    setBarraCount('cierre');
+    // La caja solo lleva la plata: el inventario de barra se cuenta en la app del staff de barra, no acá.
+    setShowCloseForm(true);
   };
 
   // `fixed inset-0` (no `min-h-screen`) a propósito en TODAS las pantallas de
@@ -907,9 +892,6 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
         </div>
       )}
 
-      {barraCount && (
-        <BarraCount eventId={localEvent.id} registerId={registerId} kind={barraCount} canSkip={isSupervisor} onDone={finishBarraCount} onSkip={finishBarraCount} />
-      )}
 
       {showCloseForm && (
         <ShiftCloseForm
@@ -1416,6 +1398,19 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
   // QR de «Pagar en caja» de la app del socio: reemplaza al PIN (vence en 2 min, un solo uso).
   const [payToken, setPayToken] = useState<string | null>(null);
   const resolvePayToken = trpc.caja.resolvePayToken.useMutation();
+  // Estado de la tarjeta del cliente identificado: saldo en plata (el que gasta «Saldo»), si tiene PIN y cuántos intentos le quedan.
+  type CardStatus = { found: true; prepaidBalance: number; playcoins: number; hasPin: boolean; attemptsLeft: number; lockedUntil: string | null } | { found: false };
+  const [cardStatus, setCardStatus] = useState<CardStatus | null>(null);
+  const [showPin, setShowPin] = useState(false);
+  // Último error de PIN de la venta (intentos restantes / bloqueo), en línea en vez de un toast que se va.
+  const [pinError, setPinError] = useState<string | null>(null);
+  // Cobro sin PIN autorizado por un supervisor (cliente que olvidó el PIN).
+  const [supervisorOpen, setSupervisorOpen] = useState(false);
+  const [supervisorId, setSupervisorId] = useState<number | null>(null);
+  const [supervisorPin, setSupervisorPin] = useState('');
+  const [supervisorName, setSupervisorName] = useState<string | null>(null);
+  const { data: supervisors } = trpc.caja.listSupervisors.useQuery({ eventId }, { enabled: supervisorOpen && isOnline });
+  const authorizeCardPay = trpc.caja.authorizeCardPay.useMutation();
   const [associatedName, setAssociatedName] = useState<string | null>(null);
   const [scanningCustomer, setScanningCustomer] = useState(false);
   // Buscador por nombre entre quienes YA ENTRARON a la fiesta -- para sumar
@@ -1681,18 +1676,53 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   ), [productsInTab, cart, favorites, editingFavorites, flashPromoActive, flashPromo, tab, barraLeft]);
 
-  const checkBalance = async () => {
-    if (!buyerEmail.trim()) return;
+  const loadCardStatus = async (email: string, silent = false) => {
     setCheckingBalance(true);
     try {
-      const r = await utils.playcoins.getBalanceByEmail.fetch({ email: buyerEmail.trim() });
-      setBalance(r?.playcoins ?? 0);
+      const r = await utils.caja.cardStatus.fetch({ eventId, email }, { staleTime: 0 });
+      setCardStatus(r);
+      setBalance(r.found ? r.playcoins : 0);
     } catch {
-      toast.error('No se pudo consultar el saldo (¿sin conexión?)');
+      setCardStatus(null);
+      if (!silent) toast.error('No se pudo consultar el saldo (¿sin conexión?)');
     } finally {
       setCheckingBalance(false);
     }
   };
+  const checkBalance = () => { if (buyerEmail.trim()) void loadCardStatus(buyerEmail.trim()); };
+
+  // Consulta sola apenas hay un email válido (lista, QR o tipeado): la cajera ve el saldo sin tocar nada.
+  useEffect(() => {
+    const email = buyerEmail.trim();
+    if (!isOnline || !/^\S+@\S+\.\S+$/.test(email)) { setCardStatus(null); return; }
+    const t = setTimeout(() => { void loadCardStatus(email, true); }, 400);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [buyerEmail, isOnline]);
+
+  // Un PIN o un error de otro cliente no debe quedar pegado al siguiente.
+  useEffect(() => { setCardPin(''); setPinError(null); setSupervisorOpen(false); setSupervisorPin(''); setSupervisorName(null); }, [buyerEmail]);
+
+  const startSupervisorAuth = async () => {
+    if (supervisorId == null || !/^\d{4,8}$/.test(supervisorPin)) { toast.error('Elige al supervisor y escribe su PIN'); return; }
+    try {
+      const r = await authorizeCardPay.mutateAsync({ eventId, email: buyerEmail.trim(), supervisorId, pin: supervisorPin });
+      setPayToken(r.token);
+      setSupervisorName(r.supervisorName);
+      setSupervisorOpen(false);
+      setSupervisorPin('');
+      setPinError(null);
+      toast.success(`Autorizado por ${r.supervisorName} ✓ · hasta $${r.maxClp.toLocaleString('es-CL')} por venta`);
+    } catch (err: any) {
+      setSupervisorPin('');
+      toast.error(err?.message ?? 'No se pudo autorizar');
+    }
+  };
+
+  const prepaid = cardStatus?.found ? cardStatus.prepaidBalance : null;
+  const saldoShort = paymentMethod === 'saldo' && prepaid != null && total > prepaid;
+  const noCardPin = paymentMethod === 'saldo' && cardStatus?.found === true && !cardStatus.hasPin && !payToken;
+  const cardLocked = cardStatus?.found === true && cardStatus.lockedUntil != null;
 
   // Validaciones del carrito antes de mostrar la pantalla de cobro (tarjeta
   // o efectivo) -- si algo falta, ni siquiera se abre esa pantalla.
@@ -1703,6 +1733,8 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
     if (paymentMethod === 'saldo') {
       if (!isOnline) { toast.error('Pagar con saldo necesita conexión'); return; }
       if (!buyerEmail.trim()) { toast.error('Falta el email de la tarjeta'); return; }
+      if (saldoShort) { toast.error(`Saldo insuficiente: faltan $${(total - (prepaid ?? 0)).toLocaleString('es-CL')}`); return; }
+      if (noCardPin) { toast.error('Esta tarjeta no tiene PIN: cobra con el QR de la app o con un supervisor'); return; }
       if (!payToken && !/^\d{4}$/.test(cardPin)) { toast.error('El PIN de la tarjeta tiene que tener 4 dígitos'); return; }
     }
     if (paymentMethod === 'debito' || paymentMethod === 'credito') { setPaymentStep('card'); return; }
@@ -1770,10 +1802,14 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
         payToken ?? undefined,
       );
     } catch (err: any) {
-      toast.error(
-        err?.message ?? 'No se pudo registrar la venta. El carrito queda como está -- intenta de nuevo.',
-        { duration: 10000 },
-      );
+      const msg: string = err?.message ?? 'No se pudo registrar la venta. El carrito queda como está -- intenta de nuevo.';
+      if (method === 'saldo' && /PIN|bloquead/i.test(msg)) {
+        // Error de PIN: se muestra en línea con los intentos que quedan y se limpia lo digitado.
+        setPinError(msg);
+        setCardPin('');
+        if (buyerEmail.trim()) void loadCardStatus(buyerEmail.trim(), true);
+      }
+      toast.error(msg, { duration: 10000 });
       return;
     }
     if (!kitchenTicketNumber && !lockerTag) {
@@ -1789,6 +1825,9 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
     setBalance(null);
     setRedeemInput('');
     setCardPin('');
+    setPinError(null);
+    setCardStatus(null);
+    setSupervisorName(null);
     setPayToken(null);
     setShowEmailStep(false);
     setAssociatedName(null);
@@ -2097,19 +2136,81 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
                     placeholder="email@cliente.cl"
                     className="h-10 bg-white/10 border-white/15 text-white placeholder:text-white/60"
                   />
-                  {payToken && <p className="text-xs font-semibold text-emerald-300">✓ Autorizado por la app: cobra con saldo sin PIN</p>}
-                  {paymentMethod === 'saldo' && !payToken && (
-                    <Input
-                      type="tel" inputMode="numeric" maxLength={4}
-                      value={cardPin}
-                      onChange={(e) => setCardPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                      placeholder="PIN de la tarjeta (4 dígitos)"
-                      className="h-10 bg-white/10 border-white/15 text-white placeholder:text-white/60 tracking-[0.3em] text-center"
-                    />
+                  {/* Saldo en plata (el que gasta «Saldo») a la vista apenas se identifica al cliente. */}
+                  {checkingBalance && !cardStatus && <p className="text-xs text-white/60">Consultando saldo…</p>}
+                  {cardStatus?.found === false && <p className="text-xs font-semibold text-amber-300">No hay una cuenta con ese email.</p>}
+                  {cardStatus?.found && (
+                    <div className={`rounded-xl border px-3 py-2 ${saldoShort ? 'border-red-400/40 bg-red-400/10' : 'border-emerald-400/30 bg-emerald-400/10'}`}>
+                      <p className={`text-sm font-bold ${saldoShort ? 'text-red-300' : 'text-emerald-300'}`}>
+                        Saldo ${cardStatus.prepaidBalance.toLocaleString('es-CL')}
+                        {total > 0 && (saldoShort
+                          ? ` · faltan $${(total - cardStatus.prepaidBalance).toLocaleString('es-CL')}`
+                          : ' · alcanza')}
+                      </p>
+                      <p className="text-[11px] text-white/60">{cardStatus.hasPin ? 'Tiene PIN' : 'Sin PIN definido'} · {cardStatus.playcoins} Playcoins</p>
+                    </div>
+                  )}
+                  {payToken && (
+                    <p className="text-xs font-semibold text-emerald-300">
+                      {supervisorName ? `✓ Autorizado por ${supervisorName}: cobra con saldo sin PIN` : '✓ Autorizado por la app: cobra con saldo sin PIN'}
+                    </p>
+                  )}
+                  {paymentMethod === 'saldo' && !payToken && !noCardPin && !cardLocked && (
+                    <div className="relative">
+                      <Input
+                        type={showPin ? 'text' : 'password'} inputMode="numeric" pattern="[0-9]*" maxLength={4}
+                        autoComplete="new-password" name="caja-card-pin"
+                        value={cardPin}
+                        onChange={(e) => { setCardPin(e.target.value.replace(/\D/g, '').slice(0, 4)); setPinError(null); }}
+                        placeholder="PIN de la tarjeta (4 dígitos)"
+                        className="h-10 bg-white/10 border-white/15 text-white placeholder:text-white/60 tracking-[0.3em] text-center pr-10"
+                      />
+                      <button type="button" onClick={() => setShowPin((v) => !v)} aria-label={showPin ? 'Ocultar PIN' : 'Mostrar PIN'}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-white/60">
+                        {showPin ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                  )}
+                  {noCardPin && <p className="text-xs font-semibold text-amber-300">Esta tarjeta todavía no tiene PIN: el cliente lo crea en su próxima recarga. Cobra con la app (QR) o con un supervisor.</p>}
+                  {cardLocked && !payToken && <p className="text-xs font-semibold text-red-300">PIN bloqueado por intentos fallidos. Usa el QR de la app o un supervisor.</p>}
+                  {pinError && !payToken && <p className="text-xs font-semibold text-red-300">{pinError}</p>}
+                  {/* ¿Olvidó el PIN? Dos salidas rápidas, sin salir de la pantalla de cobro. */}
+                  {paymentMethod === 'saldo' && !payToken && buyerEmail.trim() && (
+                    <div className="space-y-2">
+                      <p className="text-[11px] uppercase tracking-wide text-white/50">¿Olvidó el PIN?</p>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button type="button" onClick={() => setScanningCustomer(true)} className="rounded-xl border border-emerald-400/30 bg-emerald-400/10 px-2 py-2 text-xs font-semibold text-emerald-300">
+                          📷 QR de la app
+                        </button>
+                        <button type="button" onClick={() => setSupervisorOpen((v) => !v)} disabled={!isOnline} className="rounded-xl border border-white/15 bg-white/5 px-2 py-2 text-xs font-semibold text-white/80 disabled:opacity-40">
+                          🛡️ Supervisor
+                        </button>
+                      </div>
+                      {supervisorOpen && (
+                        <div className="space-y-2 rounded-xl border border-white/15 bg-white/5 p-2">
+                          <select
+                            value={supervisorId ?? ''} onChange={(e) => setSupervisorId(e.target.value ? Number(e.target.value) : null)}
+                            className="h-9 w-full rounded-lg border border-white/15 bg-white/10 px-2 text-sm text-white"
+                          >
+                            <option value="" className="text-black">¿Quién autoriza?</option>
+                            {(supervisors ?? []).map((s) => <option key={s.id} value={s.id} className="text-black">{s.name}</option>)}
+                          </select>
+                          <Input
+                            type="password" inputMode="numeric" pattern="[0-9]*" maxLength={8} autoComplete="new-password" name="caja-supervisor-pin"
+                            value={supervisorPin} onChange={(e) => setSupervisorPin(e.target.value.replace(/\D/g, '').slice(0, 8))}
+                            placeholder="PIN del supervisor"
+                            className="h-9 bg-white/10 border-white/15 text-white placeholder:text-white/60 tracking-[0.3em] text-center"
+                          />
+                          <Button size="sm" className="w-full" disabled={authorizeCardPay.isPending} onClick={startSupervisorAuth}>
+                            {authorizeCardPay.isPending ? 'Autorizando…' : 'Autorizar cobro sin PIN'}
+                          </Button>
+                        </div>
+                      )}
+                    </div>
                   )}
                   <div className="flex items-center gap-3">
                     <Button size="sm" variant="outline" className="border-white/15 text-white" disabled={!buyerEmail.trim() || checkingBalance} onClick={checkBalance}>
-                      {checkingBalance ? 'Consultando…' : 'Consultar saldo'}
+                      {checkingBalance ? 'Consultando…' : cardStatus ? 'Actualizar saldo' : 'Consultar saldo'}
                     </Button>
                     {paymentMethod !== 'saldo' && (
                       <button
@@ -2120,7 +2221,7 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
                       </button>
                     )}
                   </div>
-                  {balance != null && (
+                  {balance != null && paymentMethod !== 'saldo' && (
                     canRedeem(balance) ? (
                       <div>
                         <p className="text-xs text-white/50">Saldo: {balance} Playcoins (${balance.toLocaleString('es-CL')})</p>
@@ -2209,7 +2310,7 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
 
             <Button
               className="w-full h-14 rounded-2xl text-base font-bold"
-              disabled={!hasItems || tooManyLockers || (paymentMethod === 'saldo' && !isOnline) || (confirming && paymentMethod === 'saldo')}
+              disabled={!hasItems || tooManyLockers || (paymentMethod === 'saldo' && (!isOnline || saldoShort || noCardPin)) || (confirming && paymentMethod === 'saldo')}
               onClick={startCheckout}
             >
               {paymentMethod === 'efectivo' ? 'Cobrar en efectivo'

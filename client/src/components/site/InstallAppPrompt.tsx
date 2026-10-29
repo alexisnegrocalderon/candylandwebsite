@@ -18,7 +18,7 @@ const DISMISS_MS = 3 * 86_400_000;
 const SHOW_AFTER_MS = 4000;
 
 /** Rutas donde el aviso estorbaría (pagando, ya en /app, pantallas internas). */
-const QUIET = [/^\/checkout/, /^\/pago/, /^\/app$/, /^\/admin/, /^\/caja/, /^\/puerta/, /^\/fiesta/, /^\/gastos/, /^\/cocina/, /^\/guardarropia/, /^\/verificar/, /^\/recargar/, /^\/playmatch\/afiche/];
+const QUIET = [/^\/checkout/, /^\/pago/, /^\/app$/, /^\/admin/, /^\/caja/, /^\/puerta/, /^\/fiesta/, /^\/gastos/, /^\/cocina/, /^\/barra/, /^\/guardarropia/, /^\/verificar/, /^\/recargar/, /^\/playmatch\/afiche/];
 
 function dismissedRecently(): boolean {
   try {

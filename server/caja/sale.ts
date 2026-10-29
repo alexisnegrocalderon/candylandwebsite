@@ -1,4 +1,4 @@
-import { consumePayToken, releasePayToken } from '../memberPay';
+import { consumePayToken, releasePayToken, supervisorIdFromPayToken, SUPERVISOR_PAY_MAX_CLP } from '../memberPay';
 import { eq, sql, inArray, and, ne, desc } from "drizzle-orm";
 import { orders, orderItems, ticketTypes, discountCodes, lockerItems, kitchenTickets, customers } from "../../drizzle/schema";
 import { applyOp } from "./ops";
@@ -241,6 +241,10 @@ export async function createCajaSale(
           throw new Error('Pagar con saldo necesita el email y el PIN de la tarjeta (o el QR de la app)');
         }
         let customerId: number;
+        const supervisorId = params.payToken ? supervisorIdFromPayToken(params.payToken) : null;
+        if (supervisorId != null && totalAfterDiscount > SUPERVISOR_PAY_MAX_CLP) {
+          throw new Error(`Sin PIN solo se autoriza hasta $${SUPERVISOR_PAY_MAX_CLP.toLocaleString('es-CL')} por venta`);
+        }
         if (params.payToken) {
           // QR de la app: se consume ANTES de cobrar (una sola vez); si el cobro falla, se libera.
           const used = await consumePayToken(params.payToken, params.buyerEmail, params.opId);
@@ -257,6 +261,7 @@ export async function createCajaSale(
         const spend = await spendPrepaidAuthoritative({
           customerId, amountClp: totalAfterDiscount,
           reason: 'spend_caja', opId: params.opId,
+          note: supervisorId != null ? `Sin PIN: autorizado por supervisor #${supervisorId}` : undefined,
         });
         if (!spend.ok) {
           if (params.payToken) await releasePayToken(params.payToken, params.opId);

@@ -196,6 +196,25 @@ export const guardarropiaProcedure = t.procedure.use(
   }),
 );
 
+/** Pantalla de barra (/barra): conteo de inventario inicial y de cierre del staff de barra. Mismo trade-off que
+ * `kitchenProcedure` -- sesión de operador sin exigir dispositivo enrolado (se usa desde el celular), acotado a
+ * contar insumos; nunca vende ni cobra. */
+export const barraProcedure = t.procedure.use(
+  t.middleware(async opts => {
+    const { ctx, next } = opts;
+
+    if (!ctx.operator) {
+      throw new TRPCError({ code: "UNAUTHORIZED", message: "Sesión de barra requerida" });
+    }
+    const role = ctx.operator.role;
+    if (role !== 'barra' && role !== 'supervisor' && role !== 'admin') {
+      throw new TRPCError({ code: "FORBIDDEN", message: "Tu usuario no tiene acceso al conteo de barra" });
+    }
+
+    return next({ ctx: { ...ctx, operator: ctx.operator } });
+  }),
+);
+
 /** Id del evento de pruebas de caja (slug fijo 'pruebas-caja'), cacheado
  * una vez encontrado: no cambia mientras el servidor vive. */
 let cajaTestEventId: number | null = null;

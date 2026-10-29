@@ -5907,7 +5907,7 @@ export async function creditPrepaid(params: { email: string; amountClp: number; 
  * se detecta ANTES del UPDATE con un SELECT al ledger -- barato, y no es lo
  * que garantiza "nunca negativo" (eso lo da el UPDATE condicional). */
 export async function spendPrepaidAuthoritative(params: {
-  customerId: number; amountClp: number; reason: 'spend_caja' | 'spend_puerta'; opId: string;
+  customerId: number; amountClp: number; reason: 'spend_caja' | 'spend_puerta'; opId: string; note?: string;
 }): Promise<{ ok: true; balanceAfter: number } | { ok: false; conflictNote: string }> {
   const db = await getDb();
   if (!db) return { ok: false, conflictNote: 'Base de datos no disponible' };
@@ -5934,7 +5934,7 @@ export async function spendPrepaidAuthoritative(params: {
   // convivir en la misma fila (ver comentario del schema).
   await db.insert(prepaidLedger).values({
     customerId: params.customerId, delta: -params.amountClp, reason: params.reason,
-    opId: params.opId, balanceAfter,
+    opId: params.opId, balanceAfter, note: params.note,
   });
   return { ok: true, balanceAfter };
 }
@@ -5994,9 +5994,31 @@ export async function verifyCardPin(params: { email: string; pin: string }): Pro
   if (!(await checkIpRateLimit(rateLimitKey))) return { ok: false, reason: 'Demasiados intentos -- espera unos minutos' };
   if (!verifyPin(params.pin, customer.cardPinHash)) {
     await recordIpAttempt(rateLimitKey, CARD_PIN_MAX_ATTEMPTS, CARD_PIN_LOCKOUT_MS);
-    return { ok: false, reason: 'PIN incorrecto' };
+    const left = (await getCardPinStatus(email))?.attemptsLeft;
+    return { ok: false, reason: left === 0 ? 'PIN incorrecto -- tarjeta bloqueada unos minutos, usa el QR de la app' : left != null ? `PIN incorrecto -- quedan ${left} intentos` : 'PIN incorrecto' };
   }
   return { ok: true, customerId: customer.id };
+}
+
+/** Estado de la tarjeta para la caja: saldo en plata (el que gasta «Saldo»), Playcoins, si tiene PIN y cuántos intentos
+ * le quedan antes del bloqueo. Nunca expone el hash. Null si no existe el cliente. */
+export async function getCardPinStatus(email: string): Promise<{
+  email: string; fullName: string | null; prepaidBalance: number; playcoins: number;
+  hasPin: boolean; attemptsLeft: number; lockedUntil: Date | null;
+} | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const clean = email.trim().toLowerCase();
+  const [customer] = await db.select().from(customers).where(eq(customers.email, clean)).limit(1);
+  if (!customer) return null;
+  const [row] = await db.select().from(rateLimits).where(eq(rateLimits.key, `cardpin:${customer.id}`)).limit(1);
+  const lockedUntil = row?.lockedUntil && new Date(row.lockedUntil).getTime() > Date.now() ? new Date(row.lockedUntil) : null;
+  // Bloqueo vigente = 0 intentos; bloqueo ya vencido = el conteo arranca de nuevo (igual que recordIpAttempt).
+  const used = lockedUntil ? CARD_PIN_MAX_ATTEMPTS : row?.lockedUntil ? 0 : (row?.attempts ?? 0);
+  return {
+    email: customer.email, fullName: customer.fullName, prepaidBalance: customer.prepaidBalance, playcoins: customer.playcoins,
+    hasPin: !!customer.cardPinHash, attemptsLeft: Math.max(0, CARD_PIN_MAX_ATTEMPTS - used), lockedUntil,
+  };
 }
 
 /** Revierte una carga de saldo al anular la orden que la originó -- llamada

@@ -42,6 +42,10 @@
       "destination": "/cocina.html"
     },
     {
+      "source": "/barra(/.*)?",
+      "destination": "/barra.html"
+    },
+    {
       "source": "/guardarropia(/.*)?",
       "destination": "/guardarropia.html"
     },

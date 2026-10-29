@@ -19,6 +19,7 @@ import { staffSystemsFor } from '../shared/cajaRoles';
 import { puedeVerDosier } from '../shared/staffPortal';
 import { buildStaffShiftEmail, buildStaffWelcomeEmail, sendEmail } from './email';
 import { formatChileDate } from '../shared/chileDate';
+import { barraTareasDelEvento } from './barraTareas';
 import { pushToEmail } from './customerPush';
 import { honorariosBreakdown } from '../shared/honorarios';
 import { monthKeyFor } from '../shared/ambassadorProgram';
@@ -376,6 +377,11 @@ export async function getStaffPortal(email: string, now: Date = new Date()) {
   const qrImageUrl = credential ? await QRCode.toDataURL(credential.code, { type: 'image/png', width: 400, margin: 2, errorCorrectionLevel: 'M', color: { dark: '#000000', light: '#FFFFFF' } }) : null;
 
   const cargo = cargoDef(staff.cargo);
+  const tools = linkStaffTools([], await operatorSystems(staff.id, staff.email ?? email));
+  // Tareas de la barra (conteo inicial / cierre) del próximo evento: solo para quien tiene la herramienta de barra.
+  const barraTasks = next && tools.some((t) => t.key === 'barra')
+    ? await barraTareasDelEvento(next.eventId, now).catch(() => [])
+    : [];
   return {
     name: staff.name,
     role: cargoTitle(staff.cargo, staff.role),
@@ -383,7 +389,8 @@ export async function getStaffPortal(email: string, now: Date = new Date()) {
     // PIN de las pantallas de trabajo: solo para los cargos que usan una.
     pin: cargo?.operatorRole || staff.pinHash ? { set: !!staff.pinHash, setAt: staff.pinSetAt ?? null } : null,
     // Solo las pantallas donde de verdad tiene acceso esta noche (nada de botones que llevan a un login sin su nombre).
-    tools: linkStaffTools([], await operatorSystems(staff.id, staff.email ?? email)),
+    tools,
+    barraTasks,
     credential: credential ? { ...credential, qrImageUrl } : null,
     shifts,
   };

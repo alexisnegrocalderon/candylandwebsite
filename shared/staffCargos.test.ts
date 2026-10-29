@@ -23,9 +23,10 @@ describe('cargos del staff', () => {
 
   it('las herramientas por cargo calzan con las de antes', () => {
     expect(staffToolsForRole('puerta').map((t) => t.key)).toEqual(['puerta']);
-    expect(staffToolsForRole('barra').map((t) => t.key)).toEqual(['caja']);
+    expect(staffToolsForRole('barra').map((t) => t.key)).toEqual(['caja', 'barra']);
+    expect(staffToolsForRole('caja').map((t) => t.key)).toEqual(['caja']);
     expect(staffToolsForRole('guardarropia').map((t) => t.key)).toEqual(['guardarropia']);
-    expect(staffToolsForRole('supervisor')).toHaveLength(4);
+    expect(staffToolsForRole('supervisor')).toHaveLength(5);
   });
 
   it('pasa el rol escrito a mano al cargo', () => {

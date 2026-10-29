@@ -4,7 +4,7 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { pushTitle } from "../shared/pushText";
 import { sdk, ADMIN_LOCAL_OPEN_ID, VIEWER_LOCAL_OPEN_ID } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, protectedProcedure, adminReadProcedure, giftProcedure, partnerProcedure, operatorProcedure, supervisorProcedure, deviceProcedure, doorProcedure, kitchenProcedure, guardarropiaProcedure, router } from "./_core/trpc";
+import { publicProcedure, protectedProcedure, adminReadProcedure, giftProcedure, partnerProcedure, operatorProcedure, supervisorProcedure, deviceProcedure, doorProcedure, kitchenProcedure, guardarropiaProcedure, barraProcedure, router } from "./_core/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { teachFromOwner, listKnowledge, setKnowledgeStatus, updateKnowledgeText, deleteKnowledge } from "./agentLearning";
@@ -28,6 +28,8 @@ import { applyInsumoSchema, applyManualSchema, applyStaffSchema, insumoSchemaSta
 import * as insumoSvc from "./insumos";
 import { describirBotellas } from "../shared/insumos";
 import { alertConteoDescuadre } from "./caja/alerts";
+import { barraTareasDelEvento } from "./barraTareas";
+import { barraConteoVentana } from "../shared/barraConteo";
 import * as staffManualSvc from "./staffManuals";
 import { recordDoorAlert } from "./caja/doorAlert";
 import { DOOR_ALERT_COOLDOWN_MS, DOOR_ALERT_KEYS, DOOR_ALERT_NOTE_MAX } from "../shared/doorAlert";
@@ -565,7 +567,7 @@ async function verifyOperatorPinOrThrow(ctx: any, operatorId: number, pin: strin
 /** PIN de las pantallas sin dispositivo enrolado (puerta, cocina, guardarropía): el rol tiene que ser
  * de esa pantalla (shared/cajaRoles.ts STAFF_SYSTEMS) y el operador del evento de esta noche (el mismo
  * que lista `listOperators`) o del de pruebas -- igual que la caja exige el evento de su dispositivo. */
-async function verifyScreenPinOrThrow(ctx: any, operatorId: number, pin: string, screen: 'puerta' | 'cocina' | 'guardarropia') {
+async function verifyScreenPinOrThrow(ctx: any, operatorId: number, pin: string, screen: 'puerta' | 'cocina' | 'guardarropia' | 'barra') {
   const operator = await verifyOperatorPinOrThrow(ctx, operatorId, pin);
   const system = STAFF_SYSTEMS.find((x) => x.key === screen)!;
   if (!(system.roles as readonly string[]).includes(operator.role)) {
@@ -582,6 +584,7 @@ async function verifyScreenPinOrThrow(ctx: any, operatorId: number, pin: string,
 const verifyDoorPinOrThrow = (ctx: any, operatorId: number, pin: string) => verifyScreenPinOrThrow(ctx, operatorId, pin, 'puerta');
 const verifyKitchenPinOrThrow = (ctx: any, operatorId: number, pin: string) => verifyScreenPinOrThrow(ctx, operatorId, pin, 'cocina');
 const verifyGuardarropiaPinOrThrow = (ctx: any, operatorId: number, pin: string) => verifyScreenPinOrThrow(ctx, operatorId, pin, 'guardarropia');
+const verifyBarraPinOrThrow = (ctx: any, operatorId: number, pin: string) => verifyScreenPinOrThrow(ctx, operatorId, pin, 'barra');
 
 
 /** Clave de límite por IP del panel de administración, separada de la del
@@ -2307,6 +2310,88 @@ export const appRouter = router({
   // dos, esta pantalla SÍ necesita red -- el pedido nace en otra tablet
   // (la caja) y no hay forma de que cocina se entere sin consultar al
   // servidor, así que no tiene sentido una cola offline acá.
+  // Conteo de barra del staff (inicial y de cierre), desde /barra: el inventario NO se cuenta en /caja, que solo lleva la
+  // plata. Sesión por PIN de operador sin dispositivo enrolado, como cocina; el evento sale del operador.
+  barra: router({
+    listOperators: publicProcedure.query(async () => {
+      const event = await db.getActiveEventForCaja();
+      if (!event) return [];
+      const all = await db.listActiveOperatorsPublic(event.id);
+      return all.filter((o: any) => o.role === 'barra' || o.role === 'supervisor' || o.role === 'admin');
+    }),
+
+    login: publicProcedure.input(z.object({ operatorId: z.number(), pin: z.string().min(4).max(8) }))
+      .mutation(async ({ input, ctx }) => {
+        const operator = await verifyBarraPinOrThrow(ctx, input.operatorId, input.pin);
+        const sessionToken = await signOperatorSession({ operatorId: operator.id, role: operator.role, name: operator.name });
+        const cookieOptions = getSessionCookieOptions(ctx.req);
+        ctx.res.cookie(CAJA_COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: CAJA_SESSION_MS });
+        return { id: operator.id, name: operator.name, role: operator.role };
+      }),
+
+    logout: publicProcedure.mutation(({ ctx }) => {
+      const cookieOptions = getSessionCookieOptions(ctx.req);
+      ctx.res.clearCookie(CAJA_COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+      return { success: true } as const;
+    }),
+
+    me: publicProcedure.query(({ ctx }) => ctx.operator),
+
+    // El evento del operador (respaldo para un operador viejo sin evento: el activo de la caja).
+    activeEvent: barraProcedure.query(async ({ ctx }) => {
+      if (ctx.operator?.eventId) return (await db.getEventById(ctx.operator.eventId)) ?? undefined;
+      return db.getActiveEventForCaja();
+    }),
+
+    // Las dos tareas de la noche con su ventana horaria y quién ya las hizo.
+    tareas: barraProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => barraTareasDelEvento(input.eventId)),
+
+    estado: barraProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
+      const estado = await insumoSvc.estadoBarra(input.eventId);
+      if (!estado.ready) return { ready: false as const, insumos: [], ultimaApertura: null, ultimoCierre: null };
+      const [ultimaApertura, ultimoCierre] = await Promise.all([
+        insumoSvc.ultimoConteo(input.eventId, 'apertura'), insumoSvc.ultimoConteo(input.eventId, 'cierre'),
+      ]);
+      return { ready: true as const, insumos: estado.insumos, ultimaApertura, ultimoCierre };
+    }),
+
+    conteo: barraProcedure.input(z.object({
+      eventId: z.number(), kind: z.enum(['apertura', 'cierre']),
+      lines: z.array(z.object({
+        insumoId: z.number(),
+        closed: z.array(z.object({ size: z.number().int().min(1).max(1_000_000), count: z.number().int().min(0).max(10000) })).max(20).optional(),
+        open: z.array(z.object({ size: z.number().int().min(1).max(1_000_000), portions: z.number().min(0).max(10) })).max(50).optional(),
+      })).min(1).max(500),
+    })).mutation(async ({ input, ctx }) => {
+      if (ctx.operator.eventId && ctx.operator.eventId !== input.eventId) throw new TRPCError({ code: 'FORBIDDEN', message: 'Tu acceso es de otro evento' });
+      const event = await db.getEventById(input.eventId);
+      if (!event) throw new TRPCError({ code: 'NOT_FOUND', message: 'No encontramos el evento' });
+      const isChief = ctx.operator.role === 'supervisor' || ctx.operator.role === 'admin';
+      const test = await db.getEventBySlug('pruebas-caja');
+      // Quien no es supervisor/admin solo cuenta dentro de la ventana y una vez por noche; el evento de pruebas no tiene límites.
+      if (!isChief && event.id !== test?.id) {
+        const ventana = barraConteoVentana(event)[input.kind];
+        if (ventana !== 'abierta') {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: ventana === 'aun_no'
+            ? (input.kind === 'apertura' ? 'Todavía no es el día del evento' : 'El inventario de cierre se abre cuando termina la fiesta')
+            : (input.kind === 'apertura' ? 'El conteo inicial ya cerró (la fiesta ya empezó). Avisa a un supervisor.' : 'El inventario de cierre ya cerró. Avisa a un supervisor.') });
+        }
+        const ya = await insumoSvc.ultimoConteo(input.eventId, input.kind);
+        if (ya) throw new TRPCError({ code: 'BAD_REQUEST', message: `Ya lo hizo ${ya.operatorName ?? 'alguien de la barra'}. Si hay que corregirlo, avisa a un supervisor.` });
+      }
+      try {
+        const result = await insumoSvc.crearConteo({
+          eventId: input.eventId, registerId: null, shiftId: null, kind: input.kind,
+          operatorId: ctx.operator.operatorId, operatorName: ctx.operator.name, lines: input.lines,
+        });
+        if (input.kind === 'cierre' && !result.test) await alertConteoDescuadre(input.eventId, result.conteoId, ctx.operator.name, result.forAlerts);
+        return { conteoId: result.conteoId, test: result.test, lines: result.lines };
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo guardar el conteo' });
+      }
+    }),
+  }),
+
   cocina: router({
     listOperators: publicProcedure.query(async () => {
       const event = await db.getActiveEventForCaja();
@@ -7000,6 +7085,31 @@ export const appRouter = router({
       const rawDb = await db.getDb();
       if (!rawDb) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Base de datos no disponible' });
       return findCustomersForCaja(rawDb, input.query);
+    }),
+    // Estado de la tarjeta al identificar al cliente: saldo en PLATA (el que gasta «Saldo»), Playcoins, si tiene PIN y
+    // cuántos intentos le quedan. La caja lo consulta sola para que la cajera sepa de entrada si alcanza y si hay PIN.
+    cardStatus: operatorProcedure.input(z.object({ eventId: z.number().optional(), email: z.string().email() })).query(async ({ input }) => {
+      const s = await db.getCardPinStatus(input.email);
+      return s ? { found: true as const, ...s, lockedUntil: s.lockedUntil?.toISOString() ?? null } : { found: false as const };
+    }),
+    // Supervisores/admin del evento, para que el cajero elija quién autoriza un cobro sin PIN.
+    listSupervisors: operatorProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
+      const all = await db.listActiveOperatorsPublic(input.eventId);
+      return all.filter((o: any) => o.role === 'supervisor' || o.role === 'admin').map((o: any) => ({ id: o.id, name: o.name }));
+    }),
+    // Cliente que olvidó el PIN: un supervisor/admin pone SU PIN de operador y se emite un token de un solo uso
+    // (2 min, ligado al correo, con tope por venta) que `sale` acepta en lugar del PIN de la tarjeta.
+    authorizeCardPay: operatorProcedure.input(z.object({
+      eventId: z.number(), email: z.string().email(), supervisorId: z.number(), pin: z.string().regex(/^\d{4,8}$/),
+    })).mutation(async ({ input, ctx }) => {
+      if (!(await members.getMemberConfig()).payments.cajaPay) throw new TRPCError({ code: 'BAD_REQUEST', message: 'El pago con la app no está activado' });
+      const supervisor = await verifyOperatorPinOrThrow(ctx, input.supervisorId, input.pin);
+      if (supervisor.role !== 'supervisor' && supervisor.role !== 'admin') throw new TRPCError({ code: 'FORBIDDEN', message: 'Esa persona no es supervisor' });
+      const customer = await members.findCustomer(input.email);
+      if (!customer) throw new TRPCError({ code: 'BAD_REQUEST', message: 'No encontramos la cuenta de ese cliente' });
+      console.warn(`[caja] cobro sin PIN autorizado: supervisor #${supervisor.id} (${supervisor.name}), cajero #${ctx.operator.operatorId}, cliente ${customer.email}`);
+      const { token, expiresAt } = await memberPay.createSupervisorPayToken(customer.email, supervisor.id);
+      return { token, expiresAt: expiresAt.toISOString(), supervisorName: supervisor.name as string, maxClp: memberPay.SUPERVISOR_PAY_MAX_CLP };
     }),
     sale: operatorProcedure.input(z.object({
       opId: z.string(),

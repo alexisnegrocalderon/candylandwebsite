@@ -8,6 +8,7 @@ import type { inferRouterOutputs } from '@trpc/server';
 import type { AppRouter } from '../../../../server/routers';
 import { formatChileDate, formatChileTime } from '@shared/chileDate';
 import { dialable } from '@shared/staffPortal';
+import { barraTareaEstado, type BarraTarea } from '@shared/barraConteo';
 import { useAmbassadorPanel } from './AmbassadorAccount';
 import { StaffArrival } from './StaffArrival';
 
@@ -86,6 +87,40 @@ function Block({ icon, title, children }: { icon: React.ReactNode; title: string
       <h3 className="mb-2 flex items-center gap-2 text-footnote font-semibold uppercase tracking-wider text-white/55">{icon}{title}</h3>
       {children}
     </section>
+  );
+}
+
+/** Las tareas de la barra de la noche: conteo inicial (antes de abrir puertas) e inventario de cierre (al terminar la
+ * fiesta). Cada una dice si está lista (y quién la hizo), pendiente ahora, o todavía no le toca. */
+function BarraTasksCard({ tasks, href }: { tasks: BarraTarea[]; href: string }) {
+  const pendiente = tasks.some((t) => barraTareaEstado(t) === 'pendiente');
+  return (
+    <Block icon={<span aria-hidden>🍸</span>} title="Tareas de barra">
+      <div className="divide-y divide-white/10">
+        {tasks.map((t) => {
+          const estado = barraTareaEstado(t);
+          return (
+            <div key={t.kind} className="flex items-center gap-3 py-2.5">
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-subhead font-semibold">{t.label}</p>
+                <p className="truncate text-footnote text-white/55">
+                  {estado === 'listo' ? `Lo hizo ${t.hecho?.por ?? 'alguien de la barra'} a las ${formatChileTime(t.hecho!.a)}`
+                    : estado === 'pendiente' ? (t.kind === 'apertura' ? 'Antes de abrir puertas' : 'La fiesta terminó')
+                    : estado === 'aun_no' ? (t.kind === 'apertura' ? 'Se abre el día del evento' : 'Se abre cuando termina la fiesta')
+                    : 'Ya cerró: avisa a un supervisor'}
+                </p>
+              </div>
+              <p className={`shrink-0 text-caption2 font-semibold ${estado === 'listo' ? 'text-emerald-300' : estado === 'pendiente' ? 'text-amber-300' : 'text-white/45'}`}>
+                {estado === 'listo' ? 'Listo ✓' : estado === 'pendiente' ? 'Pendiente' : estado === 'aun_no' ? 'Todavía no' : 'Vencida'}
+              </p>
+            </div>
+          );
+        })}
+      </div>
+      {pendiente && (
+        <Link href={href} className="mt-3 flex h-12 items-center justify-center rounded-full bg-violet-500 text-subhead font-bold interactive">Hacer el conteo</Link>
+      )}
+    </Block>
   );
 }
 
@@ -285,6 +320,8 @@ export function StaffAccount({ staff }: { staff: StaffPortal }) {
       <SalesLinkCard />
 
       {staff.pin && <StaffPinCard pin={staff.pin} />}
+
+      {staff.barraTasks.length > 0 && <BarraTasksCard tasks={staff.barraTasks} href={staff.tools.find((t) => t.key === 'barra')?.href ?? '/barra?desde=app'} />}
 
       {staff.tools.length > 0 && (
         <Block icon={<Wrench className="h-4 w-4" />} title="Tus herramientas">

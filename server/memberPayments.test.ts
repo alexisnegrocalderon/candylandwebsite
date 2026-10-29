@@ -5,7 +5,7 @@ vi.mock('./memberCards', () => ({ storedMpCustomerId: vi.fn(async () => 'cus_123
 
 import { getMemberConfig } from './members';
 import { memberCardContext } from './webhooks';
-import { parsePayToken } from './memberPay';
+import { parsePayToken, supervisorIdFromPayToken } from './memberPay';
 import { isPayQr, parseTicketCodeFromQr, PAY_QR_PREFIX } from '../shared/qr';
 import { normalizeMemberConfig, DEFAULT_MEMBER_CONFIG } from '../shared/memberConfig';
 
@@ -45,5 +45,13 @@ describe('QR de «Pagar en caja»', () => {
     expect(parsePayToken('PLAYPAY:v1:sinfirma')).toBeNull();
     expect(parsePayToken('PLAYPAY:v1:a.b')).toBeNull();
     expect(parsePayToken('MP-ABC123')).toBeNull();
+  });
+});
+
+describe('token de supervisor (cobro sin PIN)', () => {
+  it('lleva el id del supervisor en el nonce y un QR normal no', () => {
+    expect(supervisorIdFromPayToken(`${PAY_QR_PREFIX}SUPAUTH_12_AbCdEfGhIjKlMnOp.ZyXwVuTsRqPoNmLkJiHgFe`)).toBe(12);
+    expect(supervisorIdFromPayToken(`${PAY_QR_PREFIX}AbCdEfGhIjKlMnOp.ZyXwVuTsRqPoNmLkJiHgFe`)).toBeNull();
+    expect(supervisorIdFromPayToken('MP-ABC123')).toBeNull();
   });
 });

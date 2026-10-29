@@ -18,7 +18,7 @@ export function isStaffCode(code: string | null | undefined): boolean {
   return parseStaffCode(code) !== null;
 }
 
-export type StaffToolKey = 'puerta' | 'caja' | 'cocina' | 'guardarropia';
+export type StaffToolKey = 'puerta' | 'caja' | 'cocina' | 'guardarropia' | 'barra';
 export interface StaffTool { key: StaffToolKey; label: string; href: string; emoji: string }
 
 const TOOLS: Record<StaffToolKey, StaffTool> = {
@@ -26,6 +26,7 @@ const TOOLS: Record<StaffToolKey, StaffTool> = {
   caja: { key: 'caja', label: 'Caja', href: '/caja', emoji: '💳' },
   cocina: { key: 'cocina', label: 'Cocina', href: '/cocina', emoji: '🍔' },
   guardarropia: { key: 'guardarropia', label: 'Guardarropía', href: '/guardarropia', emoji: '🧥' },
+  barra: { key: 'barra', label: 'Conteo de barra', href: '/barra', emoji: '🍸' },
 };
 
 function plain(text: string | null | undefined): string {
@@ -43,6 +44,8 @@ export function staffToolsForRole(role: string | null | undefined): StaffTool[] 
   const out: StaffTool[] = [];
   if (/(puerta|acceso|seguridad|guardia|anfitri|host|recepci)/.test(r)) out.push(TOOLS.puerta);
   if (/(caja|cajer|barra|bar\b|bartender|barman|copero)/.test(r)) out.push(TOOLS.caja);
+  // El inventario de barra (conteo inicial y de cierre) lo hace el staff de barra, no la caja.
+  if (/(barra|bar\b|bartender|barman|copero)/.test(r)) out.push(TOOLS.barra);
   if (/(cocina|cociner|comida|chef)/.test(r)) out.push(TOOLS.cocina);
   if (/(guardarrop|locker|ropero)/.test(r)) out.push(TOOLS.guardarropia);
   return out;
