@@ -1777,7 +1777,13 @@ export const appRouter = router({
       }
       // Descuento del 100%: la orden ya quedó aprobada en createOrder (sin
       // pasar por Mercado Pago) — acá solo falta el email de bienvenida+QR.
-      if (result.isFree) await confirmFreeOrder(result.orderNumber);
+      // La orden ya está aprobada: si el correo falla no se le muestra un error a la persona (reintentaría
+      // y crearía otra orden). El envío se reintenta solo con "reenviar correo" desde el admin.
+      if (result.isFree) {
+        try { await confirmFreeOrder(result.orderNumber); } catch (err) {
+          console.error(`[Orders] Orden gratis ${result.orderNumber} aprobada, pero falló el correo/QR:`, err);
+        }
+      }
       return result;
     }),
     // Cobra una orden ya creada con el Payment Brick (tarjeta embebida, sin

@@ -589,6 +589,9 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
   const [ordenPago, setOrdenPago] = useState<{ orderNumber: string; total: number } | null>(null);
   const [pagoResultado, setPagoResultado] = useState<'approved' | 'rejected' | 'pending' | null>(null);
   const [pagoErrorMsg, setPagoErrorMsg] = useState('');
+  // Error al crear la orden o datos que faltan: se muestra en pantalla encima del botón de pagar.
+  // Antes iba en `alert()`, que el navegador interno de Instagram (y otros WebViews) ignora: el botón parecía muerto.
+  const [submitError, setSubmitError] = useState('');
   // PIN de la tarjeta de membresía (pedido explícito del dueño): se define
   // acá, al comprar una carga de saldo -- pagar de verdad con Mercado Pago
   // ES la prueba de identidad, nunca antes. Solo se pide si el carrito tiene
@@ -940,11 +943,22 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
     else navigate('/');
   };
 
+  /** El formulario no pasó la validación: lleva al primer paso con un dato en error y lo dice en pantalla. */
+  const onInvalid = (errs: Record<string, any>) => {
+    const bad = Object.keys(errs);
+    const idx = pasos.findIndex((p) => p.keys.some((k) => bad.includes(k)));
+    const target = idx >= 0 && idx !== pasos.findIndex((p) => p.id === pasoActual.id) ? idx : -1;
+    if (target >= 0) setPaso(target);
+    setSubmitError(target >= 0 ? 'Falta revisar algunos datos. Te llevamos al paso con el error.' : 'Revisa lo marcado en rojo para poder pagar.');
+    console.warn('[Checkout] validación fallida:', bad);
+  };
+
   const onSubmit = async (values: Record<string, any>) => {
+    setSubmitError('');
     // Con carga de saldo, el PIN se define en esta misma pantalla (antes había una pantalla aparte después de crear la orden).
     if (hasTopupInCart) {
-      if (!/^\d{4}$/.test(cardPin)) { setCardPinError('El PIN tiene que tener 4 dígitos'); return; }
-      if (cardPin !== cardPinConfirm) { setCardPinError('Los dos PIN no coinciden'); return; }
+      if (!/^\d{4}$/.test(cardPin)) { setCardPinError('El PIN tiene que tener 4 dígitos'); setSubmitError('Define el PIN de tu tarjeta (4 dígitos) para continuar.'); return; }
+      if (cardPin !== cardPinConfirm) { setCardPinError('Los dos PIN no coinciden'); setSubmitError('Los dos PIN no coinciden.'); return; }
     }
     const extrasElegidos = useDbExtras
       ? extraTickets.filter((t: any) => (dbExtraQty[t.id] || 0) > 0).map((t: any) => ({ nombre: t.name, cantidad: dbExtraQty[t.id] }))
@@ -963,7 +977,7 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
     });
 
     if (useConfig) {
-      alert('Este evento todavía no está cargado en la base de datos — no se puede procesar el pago. Contáctanos para completar tu compra.');
+      setSubmitError('Este evento todavía no está cargado en la base de datos — no se puede procesar el pago. Contáctanos para completar tu compra.');
       return;
     }
 
@@ -1021,7 +1035,7 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
     } catch (err: any) {
       setIsProcessing(false);
       if (isPartner && err?.message === PARTNER_EXISTING_CUSTOMER_MESSAGE) { setYaCliente(true); return; }
-      alert(err.message || 'Error al procesar la orden');
+      setSubmitError(err?.message || 'No pudimos procesar tu compra. Revisa tu conexión e intenta de nuevo.');
     }
   };
 
@@ -1317,7 +1331,7 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
         <form
           id="checkout-form" className="relative"
           // Solo el resumen paga; un Enter en cualquier otro paso avanza.
-          onSubmit={(e) => { if (pasoActual.id !== 'resumen') { e.preventDefault(); void continuar(); return; } void handleSubmit(onSubmit)(e); }}
+          onSubmit={(e) => { if (pasoActual.id !== 'resumen') { e.preventDefault(); void continuar(); return; } void handleSubmit(onSubmit, onInvalid)(e); }}
         >
           {/* Antes esto usaba AnimatePresence con mode="popLayout" para animar
            * también la salida del paso anterior — pero eso es un bug
@@ -1882,6 +1896,9 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
           <div className="fixed inset-x-0 bottom-0 z-40 px-4 pt-3" style={{ paddingBottom: 'max(14px, calc(10px + env(safe-area-inset-bottom)))' }}>
             <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#0b0612] via-[#0b0612]/90 to-transparent" aria-hidden />
             <div className="relative mx-auto max-w-lg">
+              {submitError && (
+                <div className="mb-3 rounded-2xl border border-red-400/40 bg-red-500/15 text-red-200 px-4 py-3 text-sm font-medium" role="alert">{submitError}</div>
+              )}
               {pasoActual.id === 'resumen' ? (
                 <button key="pagar" type="submit" form="checkout-form" disabled={isProcessing} className="flex h-14 w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-pink-500 via-fuchsia-500 to-sky-500 text-headline font-semibold text-white shadow-[0_10px_30px_-8px_rgba(236,72,153,0.6),inset_0_1px_0_rgba(255,255,255,0.35)] interactive disabled:opacity-60">
                   {isProcessing ? <><Loader2 className="h-5 w-5 animate-spin" /> Procesando…</> : <>Pagar {formatCLP(total)}</>}
@@ -1900,7 +1917,11 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
         style={{ paddingBottom: 'max(0.75rem, calc(0.75rem + env(safe-area-inset-bottom)))' }}
       >
 
-        <div className="container max-w-lg flex items-center gap-3">
+        <div className="container max-w-lg">
+        {submitError && (
+          <div className="mb-3 rounded-2xl border border-destructive/30 bg-destructive/10 text-destructive px-4 py-3 text-sm font-medium" role="alert">{submitError}</div>
+        )}
+        <div className="flex items-center gap-3">
           {paso > 0 && (
             <button type="button" onClick={volver} className="px-6 h-13 py-3.5 rounded-full border border-border text-sm font-semibold hover:border-primary/50 interactive shrink-0">
               Volver
@@ -1931,6 +1952,7 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
                   : <>Continuar <ArrowRight className="w-4 h-4" /></>}
             </button>
           ) : null}
+        </div>
         </div>
       </div>
       )}
