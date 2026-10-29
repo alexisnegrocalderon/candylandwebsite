@@ -1,7 +1,7 @@
 import '@/admin.css';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { AlertTriangle, BellRing, Banknote, Phone, Camera, Car, Check, ChevronRight, CreditCard, Flashlight, ListChecks, LogOut, ScanLine, Search, ShoppingBag, Ticket, Users, Volume2, VolumeX, WifiOff, X } from 'lucide-react';
+import { AlertTriangle, BellRing, Ban, Banknote, Phone, Camera, Car, Check, ChevronRight, CreditCard, Flashlight, ListChecks, LogOut, ScanLine, Search, ShoppingBag, Ticket, Users, Volume2, VolumeX, WifiOff, X } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { useSeo } from '@/hooks/useSeo';
 import { useInstallableApp } from '@/hooks/useInstallableApp';
@@ -18,6 +18,7 @@ import {
 } from './caja/db';
 import { dialable, isStaffCode, parseStaffCode } from '@shared/staffPortal';
 import { DOOR_ALERT_NOTE_MAX, DOOR_ALERT_REASONS, type DoorAlertReason } from '@shared/doorAlert';
+import { VETO_NOTE_MAX, VETO_REASONS, vetoReasonText, type VetoReasonKey } from '@shared/veto';
 
 /* Pantalla de puerta: el anfitrión en la entrada del estacionamiento (se usa
  * desde su celular). Mismo vidrio oscuro que /caja, el panel admin y los
@@ -160,6 +161,7 @@ function Scanner({ operatorName, operatorRole }: { operatorName: string; operato
   const [parkingRecords, setParkingRecords] = useState<ParkingRecord[]>([]);
   const [reviewing, setReviewing] = useState(false);
   // Aviso urgente a los organizadores: `ctx` es la ficha abierta (si hay), para que sepan de quién se trata.
+  const [vetoing, setVetoing] = useState<{ ticketCode: string; people: string[] } | null>(null);
   const [alerting, setAlerting] = useState<{ ticketCode?: string; buyerName?: string } | null>(null);
   const [contacts, setContacts] = useState<{ label: string; phone: string }[]>([]);
   const [staffScan, setStaffScan] = useState<{ code: string; staff: DoorStaff | null } | null>(null);
@@ -541,9 +543,14 @@ function Scanner({ operatorName, operatorRole }: { operatorName: string; operato
           onAceptar={() => darAcceso(ficha)}
           onCerrar={cerrar}
           onAvisar={() => setAlerting({ ticketCode: ficha.ticketCode, buyerName: ficha.attendees[0]?.name || ficha.buyerName })}
+          onVetar={() => setVetoing({ ticketCode: ficha.ticketCode, people: ficha.attendees.map((a) => a.name).filter(Boolean).length ? ficha.attendees.map((a) => a.name).filter(Boolean) : [ficha.buyerName] })}
           parkingInfo={parkingInfo}
           onCobrarEstacionamiento={(opcion, metodo) => cobrarEstacionamiento(ficha, opcion, metodo)}
         />
+      )}
+
+      {vetoing && localEvent && (
+        <VetoSheet eventId={localEvent.id} ctx={vetoing} isOnline={isOnline} onClose={() => setVetoing(null)} onDone={() => { setVetoing(null); cerrar(); }} />
       )}
 
       {alerting && localEvent && (
@@ -612,11 +619,13 @@ function StaffCredencial({ scan, eventId, isOnline, onCerrar }: { scan: { code: 
 
 /* --- Ficha de verificación ------------------------------------------------ */
 
-function FichaVerificacion({ ficha, onAceptar, onCerrar, onAvisar, parkingInfo, onCobrarEstacionamiento }: {
+function FichaVerificacion({ ficha, onAceptar, onCerrar, onAvisar, onVetar, parkingInfo, onCobrarEstacionamiento }: {
   ficha: Ficha;
   onAceptar: () => void;
   onCerrar: () => void;
   onAvisar: () => void;
+  /** Retirar y vetar a esta persona y a sus acompañantes. */
+  onVetar: () => void;
   parkingInfo: ParkingInfo | null;
   onCobrarEstacionamiento: (opcion: DoorParkingOption | null, metodo: DoorParkingMethod) => Promise<ParkingRecord>;
 }) {
@@ -659,6 +668,11 @@ function FichaVerificacion({ ficha, onAceptar, onCerrar, onAvisar, parkingInfo, 
           <button onClick={onCerrar} className={`h-16 w-full rounded-full text-lg font-bold active:scale-[0.99] ${tono.btn}`}>
             Entendido — no dar acceso
           </button>
+          {ficha.typeName && (
+            <button onClick={onVetar} className="mt-2 flex h-12 w-full items-center justify-center gap-2 rounded-full border border-red-400/50 bg-red-500/15 text-sm font-semibold text-red-100 active:scale-[0.99]">
+              <Ban className="h-4 w-4" /> Retirar y vetar
+            </button>
+          )}
         </div>
       </div>
     );
@@ -809,6 +823,9 @@ function FichaVerificacion({ ficha, onAceptar, onCerrar, onAvisar, parkingInfo, 
         <button onClick={onAvisar} className="flex h-12 w-full items-center justify-center gap-2 rounded-full border border-red-400/40 bg-red-500/10 text-sm font-semibold text-red-200 active:scale-[0.99]">
           <BellRing className="h-4 w-4" /> Avisar a los organizadores
         </button>
+        <button onClick={onVetar} className="flex h-12 w-full items-center justify-center gap-2 rounded-full border border-red-400/50 bg-red-500/15 text-sm font-semibold text-red-100 active:scale-[0.99]">
+          <Ban className="h-4 w-4" /> Retirar y vetar
+        </button>
       </div>
 
       {cobrandoAbierto && (
@@ -819,6 +836,90 @@ function FichaVerificacion({ ficha, onAceptar, onCerrar, onAvisar, parkingInfo, 
           onClose={() => setCobrandoAbierto(false)}
         />
       )}
+    </div>
+  );
+}
+
+/* --- Retirar y vetar -------------------------------------------------------- */
+
+/** «Retirar y vetar»: la persona incumplió y se le pide salir. Se veta al titular y a todos los acompañantes de la compra: al
+ * instante quedan en la lista de bloqueados (no pueden entrar ni volver a comprar), sus entradas se anulan y salen de
+ * Playmatch. El veto queda pendiente de que el dueño lo confirme, y a él le llega el aviso al celular. Necesita señal. */
+function VetoSheet({ eventId, ctx, isOnline, onClose, onDone }: {
+  eventId: number; ctx: { ticketCode: string; people: string[] }; isOnline: boolean; onClose: () => void; onDone: () => void;
+}) {
+  const [reason, setReason] = useState<VetoReasonKey | null>(null);
+  const [note, setNote] = useState('');
+  const [armed, setArmed] = useState(false);
+  const [done, setDone] = useState<{ people: string[]; ticketsCancelled: number } | null>(null);
+  const opId = useRef(newOpId());
+  const veto = trpc.puerta.veto.useMutation({
+    onSuccess: (r) => { setDone({ people: r.people, ticketsCancelled: r.ticketsCancelled }); vibrateAlert(80); },
+    onError: (e) => { setArmed(false); toast.error(e.message || 'No se pudo vetar. Avisa a los organizadores.', { duration: 8000 }); },
+  });
+  const ready = !!reason && !!vetoReasonText(reason, note);
+  const send = () => { if (reason && ready) veto.mutate({ opId: opId.current, eventId, ticketCode: ctx.ticketCode, reasonKey: reason, note: note.trim() || null }); };
+
+  return (
+    <div role="dialog" aria-label="Retirar y vetar" className="fixed inset-0 z-[70] flex flex-col bg-black/75 backdrop-blur-sm" onClick={done ? undefined : onClose}>
+      <div className="mt-auto max-h-[94dvh] overflow-y-auto overscroll-contain rounded-t-3xl bg-[#140c1f] p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]" onClick={(e) => e.stopPropagation()}>
+        <div className="mx-auto w-full max-w-lg">
+          {done ? (
+            <div className="py-6 text-center">
+              <span className="mx-auto mb-4 grid h-20 w-20 place-items-center rounded-full bg-red-500 text-white"><Ban className="h-11 w-11" /></span>
+              <p className="font-heading text-2xl font-extrabold">Vetado</p>
+              <p className="mt-2 text-white/80">{done.people.join(', ')}</p>
+              <p className="mt-3 text-sm text-white/60">Quedaron bloqueados para siempre{done.ticketsCancelled ? ` y se anularon ${done.ticketsCancelled} ${done.ticketsCancelled === 1 ? 'entrada' : 'entradas'}` : ''}. Los organizadores ya recibieron el aviso para confirmarlo. Pídeles amablemente que se retiren.</p>
+              <button onClick={onDone} className="mt-6 h-14 w-full rounded-full bg-white/15 text-lg font-bold active:scale-[0.99]">Listo</button>
+            </div>
+          ) : (
+            <>
+              <div className="mb-3 flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-xs uppercase tracking-widest text-red-300">Retirar y vetar</p>
+                  <p className="font-heading text-xl font-extrabold leading-tight">¿Vetar para siempre?</p>
+                </div>
+                <button onClick={onClose} className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-white/70 active:bg-white/10" aria-label="Cerrar"><X className="h-6 w-6" /></button>
+              </div>
+              <div className="mb-4 rounded-2xl border border-red-400/30 bg-red-500/10 p-3">
+                <p className="mb-1 text-xs uppercase tracking-widest text-white/50">Se vetan {ctx.people.length === 1 ? 'a esta persona' : `estas ${ctx.people.length} personas`} de la compra</p>
+                {ctx.people.map((n, i) => <p key={i} className="text-base font-semibold">{n}</p>)}
+                <p className="mt-2 text-xs text-white/60">No podrán volver a entrar ni a comprar, y sus entradas quedan anuladas.</p>
+              </div>
+              {!isOnline && <p className="mb-3 rounded-2xl border border-amber-400/40 bg-amber-400/10 p-3 text-sm text-amber-100">Sin señal: no se puede vetar. Pídeles que se retiren y avisa a los organizadores.</p>}
+              <p className="mb-2 text-xs uppercase tracking-widest text-white/50">Motivo</p>
+              <div className="mb-3 grid gap-2">
+                {VETO_REASONS.map((r) => (
+                  <button key={r.key} onClick={() => { setReason(r.key); setArmed(false); }} aria-pressed={reason === r.key}
+                    className={`flex h-14 items-center gap-3 rounded-2xl border px-4 text-left text-base font-bold active:scale-[0.99] ${reason === r.key ? 'border-red-400/70 bg-red-500/20' : 'border-white/10 bg-white/5'}`}>
+                    <span className="text-2xl" aria-hidden>{r.emoji}</span>{r.label}
+                  </button>
+                ))}
+              </div>
+              {reason && (
+                <input value={note} onChange={(e) => setNote(e.target.value.slice(0, VETO_NOTE_MAX))} maxLength={VETO_NOTE_MAX} aria-label="Detalle del motivo"
+                  placeholder={reason === 'otro' ? 'Cuenta qué pasó (obligatorio)' : 'Detalle (opcional)'}
+                  className="mb-4 h-12 w-full rounded-2xl bg-white/10 px-4 text-base text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-primary/60" />
+              )}
+              {!armed ? (
+                <button onClick={() => setArmed(true)} disabled={!ready || !isOnline}
+                  className="h-16 w-full rounded-full bg-red-500 text-lg font-bold text-white shadow-[0_0_24px_-6px_rgba(239,68,68,0.9)] active:scale-[0.99] disabled:opacity-35 disabled:shadow-none">
+                  {!reason ? 'Elige un motivo' : !ready ? 'Cuenta qué pasó' : 'Vetar'}
+                </button>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-center text-sm font-semibold text-red-200">¿Seguro? Es para siempre.</p>
+                  <button onClick={send} disabled={veto.isPending}
+                    className="h-16 w-full rounded-full bg-red-600 text-lg font-bold text-white shadow-[0_0_28px_-4px_rgba(239,68,68,1)] active:scale-[0.99] disabled:opacity-50">
+                    {veto.isPending ? 'Vetando…' : 'Sí, vetar y retirar'}
+                  </button>
+                  <button onClick={() => setArmed(false)} disabled={veto.isPending} className="h-12 w-full rounded-full bg-white/10 font-semibold active:scale-[0.99]">No, cancelar</button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

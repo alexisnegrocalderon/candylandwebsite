@@ -12,6 +12,7 @@ import { foldText } from '@shared/igCustomerLink';
 import { hasHardKey, type BlockedRow } from '@shared/blockedMatch';
 import { BlockedSheet, emptyBlockedForm, formFromBlocked, payloadFromBlockedForm, type BlockedForm } from './BlockedSheet';
 import { BlockedImportDialog } from './BlockedImportDialog';
+import { VetoPanel } from './VetoPanel';
 
 const onErr = (e: unknown) => toast.error((e as { message?: string })?.message || 'No se pudo guardar');
 
@@ -71,6 +72,8 @@ export function BlockedManager() {
           Si alguien compra o llega con el <strong>RUT, teléfono, Instagram o correo</strong> de un bloqueado, no se le permite la entrada (compra web, accesos manuales y puerta). Con solo el nombre se avisa «posible bloqueado» y decides tú. Cada ficha se va completando a medida que haya más datos.
         </p>
       </div>
+
+      <VetoPanel onChanged={refetch} />
 
       <div className="flex items-center gap-2">
         <div className="relative min-w-0 flex-1">

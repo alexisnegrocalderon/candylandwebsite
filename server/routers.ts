@@ -228,6 +228,8 @@ import { pageCustomers, findCustomersForCaja, quickSearchCustomers } from "./cus
 import { COUPON_BATCH_MAX } from "../shared/couponGift";
 import { canGift } from "../shared/gifts";
 import { cleanGiftMessage, giftMessageData, GIFT_MESSAGE_MAX } from "../shared/giftFlow";
+import { VETO_NOTE_MAX } from "../shared/veto";
+import * as vetoSvc from "./veto";
 import { ANY_ACCESS_SLUG, giftPassError } from "../shared/accessCredit";
 import { previewCustomerMerge, mergeCustomers } from "./customerMerge";
 import { getMemberHistory } from "./memberHistory";
@@ -2261,6 +2263,22 @@ export const appRouter = router({
       });
       await sendPushToAdminsAlways(push);
       return { ok: true as const };
+    }),
+
+    // Retirar y vetar desde la puerta: se escaneó el QR, se eligió un motivo. Rige al instante (lista de bloqueados, entradas
+    // anuladas, fuera de Playmatch) y queda pendiente de que el dueño lo confirme; a él le llega el aviso al celular.
+    veto: doorProcedure.input(z.object({
+      opId: z.string().min(8).max(64), eventId: z.number(), ticketCode: z.string().min(1).max(40),
+      reasonKey: z.enum(['agresion', 'normas', 'drogas', 'otro']), note: z.string().max(VETO_NOTE_MAX + 20).nullish(),
+    })).mutation(async ({ input, ctx }) => {
+      const key = `door-veto:${ctx.operator.operatorId}`;
+      if (!(await db.checkIpRateLimit(key))) throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Acabas de vetar a alguien. Espera unos segundos.' });
+      await db.recordIpAttempt(key, 1, 8_000);
+      try {
+        return await vetoSvc.vetoTicket({ ticketCode: input.ticketCode, reasonKey: input.reasonKey, note: input.note, by: { kind: 'puerta', name: ctx.operator.name ?? 'La puerta' }, ip: clientIp(ctx) });
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo vetar.' });
+      }
     }),
 
     // Vaciado de la cola offline. Solo acepta check-in y cobro de
@@ -5975,6 +5993,26 @@ export const appRouter = router({
       const r = await db.importBlockedRows(input.rows, { sourceBy: input.sourceBy ?? null });
       await db.recordAdminAudit({ action: 'blockedCustomers.import', targetType: 'blockedCustomer', payload: r, ip: clientIp(ctx) });
       return r;
+    }),
+    // Vetos hechos en el momento (por la puerta o por ti): los pendientes de confirmar primero.
+    vetoList: adminReadProcedure.query(() => vetoSvc.listVetos()),
+    // Vetar a alguien con el código de su entrada (o el QR): titular y acompañantes. Rige confirmado.
+    vetoTicket: adminProcedure.input(z.object({
+      ticketCode: z.string().min(1).max(40), reasonKey: z.enum(['agresion', 'normas', 'drogas', 'otro']), note: z.string().max(VETO_NOTE_MAX + 20).nullish(),
+    })).mutation(async ({ input, ctx }) => {
+      try {
+        return await vetoSvc.vetoTicket({ ticketCode: input.ticketCode, reasonKey: input.reasonKey, note: input.note, by: { kind: 'admin', name: ctx.user.name || 'Admin' }, ip: clientIp(ctx) });
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo vetar.' });
+      }
+    }),
+    vetoConfirm: adminProcedure.input(z.object({ ticketCode: z.string().min(1).max(40) })).mutation(async ({ input, ctx }) => {
+      try { return { people: await vetoSvc.confirmVeto(input.ticketCode, { name: ctx.user.name || 'Admin', ip: clientIp(ctx) }) }; }
+      catch (err) { throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo confirmar.' }); }
+    }),
+    vetoLift: adminProcedure.input(z.object({ ticketCode: z.string().min(1).max(40) })).mutation(async ({ input, ctx }) => {
+      try { return await vetoSvc.liftVeto(input.ticketCode, { name: ctx.user.name || 'Admin', ip: clientIp(ctx) }); }
+      catch (err) { throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo levantar.' }); }
     }),
     /** Compras y clientes que ya existen y coinciden con la lista (para revisar; no cancela nada). */
     existingMatches: adminReadProcedure.query(() => db.listBlockedExistingMatches()),
