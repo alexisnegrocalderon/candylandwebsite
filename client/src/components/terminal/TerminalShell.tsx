@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { useDarkGlassDocument } from '@/components/admin/shell/AdminShell';
-import { OPERATOR_ROLE_LABELS } from '@shared/cajaRoles';
+import { OPERATOR_ROLE_LABELS, STAFF_SYSTEMS, canEnterArea, ownArea, type StaffSystemKey } from '@shared/cajaRoles';
+import { trpc } from '@/lib/trpc';
 import { openedFromApp, preselectedOperatorId } from '@/lib/staffLink';
 import { useHideSplashWhenSettled } from '@/lib/splash';
 
@@ -193,4 +194,27 @@ export function TerminalLogin({ title, operators, emptyText, pending, onSubmit }
 /** Aviso de error de login común a los terminales. */
 export function loginErrorToast(e: { message: string }) {
   toast.error(e.message);
+}
+
+/** Cada persona solo entra a SU pantalla. Todas las pantallas de trabajo comparten la misma sesión, así que si alguien abre
+ * otra (un enlace guardado, un cambio de URL), en vez de mostrarle una pantalla que no es suya —con errores por todos lados—
+ * se le dice cuál es la suya y se le lleva directo. Supervisor y Admin entran a todas. */
+export function AreaGuard({ area, role, children }: { area: StaffSystemKey; role: string; children: React.ReactNode }) {
+  const logout = trpc.puerta.logout.useMutation({ onSettled: () => window.location.reload() });
+  if (canEnterArea(role, area)) return <>{children}</>;
+  const mine = ownArea(role);
+  const here = STAFF_SYSTEMS.find((s) => s.key === area)?.label ?? 'esta pantalla';
+  return (
+    <div role="alert" className="fixed inset-0 flex flex-col items-center justify-center gap-6 overflow-y-auto p-6 text-center text-white">
+      <img src="/candyland/logo-isotipo-transparent.png" alt="" className="h-14 w-14 object-contain" />
+      <div className="max-w-sm space-y-2">
+        <h1 className="font-heading text-2xl font-extrabold">Esta pantalla no es la tuya</h1>
+        <p className="text-white/70">{here} es de otra área. {mine ? `Tu pantalla es ${mine.label}.` : 'No tienes una pantalla de trabajo asignada.'}</p>
+      </div>
+      <div className="w-full max-w-sm space-y-2">
+        {mine && <a href={mine.path} className="flex h-16 w-full items-center justify-center rounded-full bg-primary text-lg font-bold text-primary-foreground active:scale-[0.99]">Ir a {mine.label}</a>}
+        <button type="button" onClick={() => logout.mutate()} disabled={logout.isPending} className="h-14 w-full rounded-full bg-white/10 font-semibold active:scale-[0.99] disabled:opacity-50">Cerrar sesión</button>
+      </div>
+    </div>
+  );
 }

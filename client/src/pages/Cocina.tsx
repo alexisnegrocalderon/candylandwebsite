@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { BellRing, Check, ChefHat, Inbox, Minus, Package, Plus, Search, Undo2, Volume2, VolumeX, WifiOff, X, LogOut } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { useSeo } from '@/hooks/useSeo';
-import { TerminalFrame, TerminalLogin, TerminalSpinner, beep, loginErrorToast, useWakeLock, vibrateAlert } from '@/components/terminal/TerminalShell';
+import { AreaGuard, TerminalFrame, TerminalLogin, TerminalSpinner, beep, loginErrorToast, useWakeLock, vibrateAlert } from '@/components/terminal/TerminalShell';
 import { OPERATOR_ROLE_LABELS } from '@shared/cajaRoles';
 import { averageWaitSeconds, formatElapsed, summarizeKitchenItems, type KitchenTicketStatus } from '@shared/kitchen';
 import { normalizeSearch } from '@shared/locker';
@@ -43,7 +43,7 @@ function Gate() {
   const me = trpc.cocina.me.useQuery();
   if (me.isLoading) return <TerminalSpinner />;
   if (!me.data) return <Login onDone={() => me.refetch()} />;
-  return <Board operatorName={me.data.name} operatorRole={me.data.role} />;
+  return <AreaGuard area="cocina" role={me.data.role}><Board operatorName={me.data.name} operatorRole={me.data.role} /></AreaGuard>;
 }
 
 /* --- Login ---------------------------------------------------------------- */

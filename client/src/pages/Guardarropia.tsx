@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { Archive, BellRing, Delete, Hash, Inbox, LogOut, Search, Undo2, Volume2, VolumeX, WifiOff, X } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { useSeo } from '@/hooks/useSeo';
-import { TerminalFrame, TerminalLogin, TerminalSpinner, beep, loginErrorToast, useWakeLock, vibrateAlert } from '@/components/terminal/TerminalShell';
+import { AreaGuard, TerminalFrame, TerminalLogin, TerminalSpinner, beep, loginErrorToast, useWakeLock, vibrateAlert } from '@/components/terminal/TerminalShell';
 import { compareLockerTags, lockerMatchesSearch, lockerTagMatchesDigits, type LockerItemStatus } from '@shared/locker';
 import { OPERATOR_ROLE_LABELS } from '@shared/cajaRoles';
 
@@ -43,7 +43,7 @@ function Gate() {
     return <TerminalSpinner />;
   }
   if (!me.data) return <Login onDone={() => me.refetch()} />;
-  return <Board operatorName={me.data.name} operatorRole={me.data.role} />;
+  return <AreaGuard area="guardarropia" role={me.data.role}><Board operatorName={me.data.name} operatorRole={me.data.role} /></AreaGuard>;
 }
 
 /* --- Login ---------------------------------------------------------------- */

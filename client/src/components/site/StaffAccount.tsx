@@ -324,14 +324,19 @@ export function StaffAccount({ staff }: { staff: StaffPortal }) {
       {staff.barraTasks.length > 0 && <BarraTasksCard tasks={staff.barraTasks} href={staff.tools.find((t) => t.key === 'barra')?.href ?? '/barra?desde=app'} />}
 
       {staff.tools.length > 0 && (
-        <Block icon={<Wrench className="h-4 w-4" />} title="Tus herramientas">
-          <div className="grid grid-cols-2 gap-2">
+        <Block icon={<Wrench className="h-4 w-4" />} title={staff.tools.length === 1 ? 'Tu pantalla de trabajo' : 'Tus herramientas'}>
+          {/* Cada persona entra directo a SU área (Supervisor y Admin ven todas, para mirar). */}
+          <div className={staff.tools.length === 1 ? 'grid grid-cols-1 gap-2' : 'grid grid-cols-2 gap-2'}>
             {staff.tools.map((t) => t.key === 'caja' && !cajaHere ? (
               // La caja solo abre en los equipos enrolados de la barra: en un celular personal no se manda a una pantalla de error.
               <div key={t.key} className="flex min-h-14 items-center gap-2 rounded-2xl bg-white/[0.04] px-3 py-2 text-subhead font-semibold text-white/70">
                 <span className="text-xl" aria-hidden>{t.emoji}</span>
                 <span className="min-w-0 leading-tight">{t.label}<span className="block text-caption2 font-normal text-white/50">En el equipo de la barra</span></span>
               </div>
+            ) : staff.tools.length === 1 ? (
+              <Link key={t.key} href={t.href} className="flex h-16 items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-pink-500 to-sky-500 px-4 text-body font-bold text-white interactive">
+                <span className="text-2xl" aria-hidden>{t.emoji}</span> Entrar a {t.label}
+              </Link>
             ) : (
               <Link key={t.key} href={t.href} className="flex h-14 items-center gap-2 rounded-2xl bg-white/[0.07] px-3 text-subhead font-semibold interactive">
                 <span className="text-xl" aria-hidden>{t.emoji}</span> {t.label}
