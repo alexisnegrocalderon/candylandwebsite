@@ -3,10 +3,10 @@ export const OPERATOR_ROLES = ['admin', 'supervisor', 'caja', 'barra', 'acceso',
 export type OperatorRole = (typeof OPERATOR_ROLES)[number];
 
 /** Roles de operador que pueden usar la caja (/caja): vender, canjear,
- * marcar entradas y abrir/cerrar turno. Acceso, cocina y guardarropía tienen
- * sus propias pantallas y comparten la misma cookie de sesión, así que el
- * servidor tiene que cerrarles la caja explícitamente. */
-export const CAJA_ROLES = ['caja', 'barra', 'supervisor', 'admin'] as const;
+ * marcar entradas y abrir/cerrar turno. Cada área tiene su propia pantalla y todas comparten la misma cookie de
+ * sesión, así que el servidor le cierra la caja explícitamente a Puerta, Cocina, Guardarropía y Barra: la caja vende
+ * (solo Caja); Barra prepara y solo cuenta el inventario (/barra) y ve el dosier. Supervisor y Admin entran a todo. */
+export const CAJA_ROLES = ['caja', 'supervisor', 'admin'] as const;
 
 export function canUseCaja(role: string | null | undefined): boolean {
   return !!role && (CAJA_ROLES as readonly string[]).includes(role);
@@ -36,12 +36,18 @@ export const STAFF_SYSTEMS = [
 
 export type StaffSystemKey = (typeof STAFF_SYSTEMS)[number]['key'];
 
-/** A qué sistemas entra cada operador de una persona, con el operador con que entra a cada uno (el
- * primero que sirve). Una persona puede tener más de un operador en el mismo evento. */
-export function staffSystemsFor(operators: { id: number; role: string }[]): { key: StaffSystemKey; label: string; path: string; operatorId: number }[] {
+/** Roles con acceso a todas las pantallas (para mirar y supervisar). */
+export const ALL_AREAS_ROLES = ['supervisor', 'admin'] as const;
+
+/** A qué sistemas entra cada operador de una persona, con el operador con que entra a cada uno (el primero que sirve).
+ * Con `ownRole` (el rol de su cargo), una persona ve SOLO su área aunque tenga operadores de otras: ningún área se mezcla;
+ * solo Supervisor y Admin ven todas. */
+export function staffSystemsFor(operators: { id: number; role: string }[], ownRole?: string | null): { key: StaffSystemKey; label: string; path: string; operatorId: number }[] {
   const out: { key: StaffSystemKey; label: string; path: string; operatorId: number }[] = [];
+  const seesAll = !ownRole || (ALL_AREAS_ROLES as readonly string[]).includes(ownRole);
+  const mine = seesAll ? operators : operators.filter((o) => o.role === ownRole);
   for (const sys of STAFF_SYSTEMS) {
-    const op = operators.find((o) => (sys.roles as readonly string[]).includes(o.role));
+    const op = mine.find((o) => (sys.roles as readonly string[]).includes(o.role));
     if (op) out.push({ key: sys.key, label: sys.label, path: sys.path, operatorId: op.id });
   }
   return out;

@@ -18,8 +18,8 @@ export interface StaffCargoDef {
 }
 
 export const STAFF_CARGOS: StaffCargoDef[] = [
-  { key: 'caja', label: 'Caja', emoji: '💳', operatorRole: 'caja', hint: 'Vende en /caja (en el equipo de la barra).' },
-  { key: 'barra', label: 'Barra', emoji: '🍸', operatorRole: 'barra', hint: 'Bartender: canjea y vende en /caja y cuenta el inventario en /barra.' },
+  { key: 'caja', label: 'Caja', emoji: '💳', operatorRole: 'caja', hint: 'Vende y canjea en /caja: es la única área que vende.' },
+  { key: 'barra', label: 'Barra', emoji: '🍸', operatorRole: 'barra', hint: 'Prepara los pedidos: ve el dosier de barra y cuenta el inventario al abrir y al cerrar el turno (/barra). No usa la caja.' },
   { key: 'puerta', label: 'Puerta / Seguridad', emoji: '🚪', operatorRole: 'acceso', hint: 'Escanea entradas en /puerta.' },
   { key: 'cocina', label: 'Cocina', emoji: '🍔', operatorRole: 'cocina', hint: 'Recibe los pedidos en /cocina.' },
   { key: 'guardarropia', label: 'Guardarropía', emoji: '🧥', operatorRole: 'guardarropia', hint: 'Recibe y entrega en /guardarropia.' },
