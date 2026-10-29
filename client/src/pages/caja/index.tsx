@@ -225,8 +225,8 @@ function ShiftGate({ operator }: { operator: { operatorId: number; name: string;
           { duration: 10000 },
         );
       }
-      // Turno nuevo: lo primero es el conteo de barra (CajaHome lo muestra una vez).
-      if (!opened.alreadyOpen) localStorage.setItem(BARRA_APERTURA_PENDING, '1');
+      // Turno nuevo: el conteo de barra de inicio es solo del staff de barra (CajaHome lo muestra una vez); la caja solo lleva la plata.
+      if (!opened.alreadyOpen && operator.role === 'barra') localStorage.setItem(BARRA_APERTURA_PENDING, '1');
       localStorage.setItem('caja_shift_opened', '1');
       setShiftStarted(true);
     } catch (err: any) {
@@ -303,7 +303,6 @@ const BARRA_APERTURA_PENDING = 'caja_barra_apertura_pendiente';
  * explícito del usuario: contar de a una denominación es mucho más rápido y
  * confiable que estimar un monto total a ojo). */
 const DENOMINATIONS = [
-  { value: 10, label: 'Moneda de $10' },
   { value: 50, label: 'Moneda de $50' },
   { value: 100, label: 'Moneda de $100' },
   { value: 500, label: 'Moneda de $500' },
@@ -616,7 +615,7 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
   const [showCloseForm, setShowCloseForm] = useState(false);
   const [scanning, setScanning] = useState(false);
   // Conteo de barra: al abrir un turno nuevo y antes del cuadre de cierre.
-  const [barraCount, setBarraCount] = useState<'apertura' | 'cierre' | null>(() => (localStorage.getItem(BARRA_APERTURA_PENDING) === '1' ? 'apertura' : null));
+  const [barraCount, setBarraCount] = useState<'apertura' | 'cierre' | null>(() => (operator.role === 'barra' && localStorage.getItem(BARRA_APERTURA_PENDING) === '1' ? 'apertura' : null));
   const finishBarraCount = useCallback(() => {
     if (barraCount === 'apertura') localStorage.removeItem(BARRA_APERTURA_PENDING);
     if (barraCount === 'cierre') setShowCloseForm(true);
@@ -849,8 +848,10 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
       setView('rejected');
       return;
     }
-    // Primero el conteo de barra (si el evento no usa insumos, se salta solo).
-    setBarraCount('cierre');
+    // Inventario de barra: solo lo cuenta el staff de barra (si el evento no usa insumos, se salta solo).
+    // La caja (y supervisor/admin) cierra solo la plata: parte directo del conteo de efectivo.
+    if (operator.role === 'barra') setBarraCount('cierre');
+    else setShowCloseForm(true);
   };
 
   // `fixed inset-0` (no `min-h-screen`) a propósito en TODAS las pantallas de
