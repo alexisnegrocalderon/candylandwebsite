@@ -210,7 +210,7 @@ export function ManualAccessSection() {
             </div>
             <div className="space-y-2">
               <Label>WhatsApp (opcional)</Label>
-              <Input value={buyerPhone} onChange={(e) => setBuyerPhone(e.target.value)} />
+              <Input type="tel" inputMode="tel" autoComplete="off" maxLength={20} placeholder="+56 9 1234 5678" value={buyerPhone} onChange={(e) => setBuyerPhone(e.target.value)} />
             </div>
             <div className="space-y-2">
               <Label>RUT (opcional)</Label>

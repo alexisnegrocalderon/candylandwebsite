@@ -2026,7 +2026,7 @@ export const appRouter = router({
       eventSlug: z.string(),
       buyerName: z.string().min(1),
       buyerEmail: z.string().email(),
-      buyerPhone: z.string().optional(),
+      buyerPhone: z.string().trim().max(20, 'El WhatsApp es un teléfono (máx. 20 caracteres), no un nombre.').optional(),
       items: z.array(z.object({
         ticketTypeId: z.number(),
         quantity: z.number().min(1),
