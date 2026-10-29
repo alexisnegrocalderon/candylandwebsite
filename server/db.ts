@@ -17,6 +17,7 @@ import { reservedCouponUses } from '../shared/couponReservation';
 import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, memberCoupons, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyCharges, partyEventConfig, partyConnections, partyMessages, partyBlocks, partyReports, partyPhotos, partySwipes, partyCostumeVotes, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog, emailEvents, eventSurveys, eventSurveySettings, accessCredits, type AccessCredit, igComments, type IgComment, igReferrals, type IgReferralRow, igLinkClicks, staffMembers, staffShifts, aiUsage, attendeeContacts } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { ensurePartyIdentitySchema } from './partySchema';
+import { ensureLockerSchema } from './lockerSchema';
 import { FREE_SUPER_LIKES, DEFAULT_PLAYMATCH_CONFIG, affinityPercent, normalizePlaymatchConfig, superLikePlan, type PlaymatchConfig } from '../shared/playmatchMarket';
 import { nanoid } from 'nanoid';
 import { extrasDeMetadata, opcionesDeMetadata } from '../shared/insumos';
@@ -74,6 +75,8 @@ export async function getDb() {
   // Playmatch: columnas, tablas y valores nuevos (drizzle/0136 y 0137) si la migración no se corrió. Se lanza sin esperarla:
   // el resto del sitio nunca queda detenido por esto; solo Playmatch espera (getPartyActor y server/playmatchMarket.ts).
   if (_db) void ensurePartyIdentitySchema(_db);
+  // Guardarropía: columna y estado del retiro parcial (drizzle/0138), por si la migración no se corrió.
+  if (_db) void ensureLockerSchema(_db);
   return _db;
 }
 

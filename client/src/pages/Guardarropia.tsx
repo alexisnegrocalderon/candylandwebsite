@@ -4,8 +4,8 @@ import { toast } from 'sonner';
 import { Archive, BellRing, Delete, Hash, Inbox, LogOut, Search, Undo2, Volume2, VolumeX, WifiOff, X } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { useSeo } from '@/hooks/useSeo';
-import { AreaGuard, TerminalFrame, TerminalLogin, TerminalSpinner, beep, loginErrorToast, useWakeLock, vibrateAlert } from '@/components/terminal/TerminalShell';
-import { compareLockerTags, lockerMatchesSearch, lockerTagMatchesDigits, type LockerItemStatus } from '@shared/locker';
+import { AreaGuard, CallOrganizersButton, TerminalFrame, TerminalLogin, TerminalSpinner, beep, loginErrorToast, useWakeLock, vibrateAlert } from '@/components/terminal/TerminalShell';
+import { LOCKER_TONE, PARTIAL_ITEM_MAX, compareLockerTags, lockerMatchesSearch, lockerTagMatchesDigits, type LockerItemStatus } from '@shared/locker';
 import { OPERATOR_ROLE_LABELS } from '@shared/cajaRoles';
 
 /* Terminal de guardarropía (se usa desde el celular): recibe/entrega las
@@ -72,10 +72,12 @@ type LockerItemRow = {
   chargedAt: string;
   receivedAt: string | null;
   retrievedAt: string | null;
+  /** Qué sacaron en un retiro parcial. */
+  partialNote?: string | null;
 };
 
 type Tab = 'recibir' | 'guardadas' | 'entregar';
-type ListFilter = 'guardado' | 'retirado' | 'todas';
+type ListFilter = 'guardado' | 'parcial' | 'retirado' | 'todas';
 
 /** Lo último que se movió, para ofrecer "Deshacer" unos segundos. */
 type LastMove = { tagNumber: string; name: string; from: LockerItemStatus; to: LockerItemStatus; at: number };
@@ -83,6 +85,7 @@ type LastMove = { tagNumber: string; name: string; from: LockerItemStatus; to: L
 const MOVE_LABEL: Record<LockerItemStatus, string> = {
   pendiente: 'devuelta a por recibir',
   guardado: 'recibida',
+  parcial: 'retiro parcial anotado',
   retirado: 'entregada',
 };
 
@@ -138,14 +141,15 @@ function Board({ operatorName, operatorRole }: { operatorName: string; operatorR
     [items],
   );
   const stored = useMemo(() => items.filter((i) => i.status === 'guardado'), [items]);
+  const partial = useMemo(() => items.filter((i) => i.status === 'parcial'), [items]);
   const delivered = useMemo(() => items.filter((i) => i.status === 'retirado'), [items]);
 
   // Lista de consulta: por número de percha (del 1 en adelante), filtrada por
   // estado y por el buscador (nombre sin tildes o número).
   const listed = useMemo(() => {
-    const base = listFilter === 'guardado' ? stored : listFilter === 'retirado' ? delivered : items.filter((i) => i.status !== 'pendiente');
+    const base = listFilter === 'guardado' ? stored : listFilter === 'parcial' ? partial : listFilter === 'retirado' ? delivered : items.filter((i) => i.status !== 'pendiente');
     return base.filter((i) => lockerMatchesSearch(i, search)).sort((a, b) => compareLockerTags(a.tagNumber, b.tagNumber));
-  }, [items, stored, delivered, listFilter, search]);
+  }, [items, stored, partial, delivered, listFilter, search]);
 
   const pendingFiltered = useMemo(() => pending.filter((i) => lockerMatchesSearch(i, search)), [pending, search]);
 
@@ -196,12 +200,12 @@ function Board({ operatorName, operatorRole }: { operatorName: string; operatorR
     return () => clearTimeout(id);
   }, [lastMove]);
 
-  const doUpdate = (item: Pick<LockerItemRow, 'tagNumber' | 'customerName' | 'status'>, to: LockerItemStatus, isUndo = false) => {
+  const doUpdate = (item: Pick<LockerItemRow, 'tagNumber' | 'customerName' | 'status'>, to: LockerItemStatus, isUndo = false, note?: string) => {
     if (!event || busyTag) return;
     const from = item.status;
     setBusyTag(item.tagNumber);
     update.mutate(
-      { opId: newOpId(), eventId: event.id, tagNumber: item.tagNumber, to, clientAt: new Date().toISOString() },
+      { opId: newOpId(), eventId: event.id, tagNumber: item.tagNumber, to, note: note ?? null, clientAt: new Date().toISOString() },
       {
         onSuccess: (res) => {
           if (res.result === 'conflict' || res.result === 'rejected') {
@@ -223,7 +227,9 @@ function Board({ operatorName, operatorRole }: { operatorName: string; operatorR
     if (!lastMove) return;
     // El estado actual de la prenda (por si otro celular ya la movió).
     const current = items.find((i) => i.tagNumber === lastMove.tagNumber);
-    doUpdate({ tagNumber: lastMove.tagNumber, customerName: current?.customerName ?? lastMove.name, status: current?.status ?? lastMove.to }, lastMove.from, true);
+    // Deshacer un «entregó todo» que venía de un retiro parcial: la prenda vuelve a guardada (hay que anotar de nuevo qué salió).
+    const back = lastMove.from === 'parcial' && current?.status === 'retirado' ? 'guardado' : lastMove.from;
+    doUpdate({ tagNumber: lastMove.tagNumber, customerName: current?.customerName ?? lastMove.name, status: current?.status ?? lastMove.to }, back, true);
   };
 
   const flashing = !!flash && flash.until > now - 1000;
@@ -237,6 +243,7 @@ function Board({ operatorName, operatorRole }: { operatorName: string; operatorR
             <p className="truncate font-heading text-lg leading-tight">{event?.title ?? 'Guardarropía'}</p>
             <p className="truncate text-xs text-white/60">{operatorName} · {OPERATOR_ROLE_LABELS[operatorRole] ?? operatorRole}</p>
           </div>
+          <CallOrganizersButton area="guardarropia" />
           <button onClick={toggleMute} className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-white/70 active:bg-white/10" aria-label={muted ? 'Activar sonido' : 'Silenciar'}>
             {muted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
           </button>
@@ -278,7 +285,7 @@ function Board({ operatorName, operatorRole }: { operatorName: string; operatorR
               {pendingFiltered.length === 0 ? (
                 <Empty text={search ? 'Nada coincide con la búsqueda.' : 'No hay prendas esperando confirmación.'} />
               ) : pendingFiltered.map((item) => (
-                <ItemRow key={item.id} item={item} now={now} busy={busyTag === item.tagNumber} disabled={!!busyTag} onMove={(to) => doUpdate(item, to)} />
+                <ItemRow key={item.id} item={item} now={now} busy={busyTag === item.tagNumber} disabled={!!busyTag} onMove={(to, note) => doUpdate(item, to, false, note)} />
               ))}
             </div>
           </>
@@ -288,7 +295,7 @@ function Board({ operatorName, operatorRole }: { operatorName: string; operatorR
           <>
             <SearchBox value={search} onChange={setSearch} />
             <div className="shrink-0 flex gap-2 pb-2">
-              {([['guardado', 'Guardadas', stored.length], ['retirado', 'Entregadas', delivered.length], ['todas', 'Todas', stored.length + delivered.length]] as const).map(([value, label, count]) => (
+              {([['guardado', 'Guardadas', stored.length], ['parcial', 'Parciales', partial.length], ['retirado', 'Entregadas', delivered.length], ['todas', 'Todas', stored.length + partial.length + delivered.length]] as const).map(([value, label, count]) => (
                 <button
                   key={value}
                   onClick={() => setListFilter(value)}
@@ -301,9 +308,9 @@ function Board({ operatorName, operatorRole }: { operatorName: string; operatorR
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain space-y-2 pb-3">
               {listed.length === 0 ? (
-                <Empty text={search ? 'Nada coincide con la búsqueda.' : listFilter === 'retirado' ? 'Todavía no se ha entregado ninguna prenda.' : 'Todavía no hay prendas guardadas.'} />
+                <Empty text={search ? 'Nada coincide con la búsqueda.' : listFilter === 'retirado' ? 'Todavía no se ha entregado ninguna prenda.' : listFilter === 'parcial' ? 'Nadie ha retirado solo una parte.' : 'Todavía no hay prendas guardadas.'} />
               ) : listed.map((item) => (
-                <ItemRow key={item.id} item={item} now={now} busy={busyTag === item.tagNumber} disabled={!!busyTag} onMove={(to) => doUpdate(item, to)} />
+                <ItemRow key={item.id} item={item} now={now} busy={busyTag === item.tagNumber} disabled={!!busyTag} onMove={(to, note) => doUpdate(item, to, false, note)} />
               ))}
             </div>
           </>
@@ -316,7 +323,7 @@ function Board({ operatorName, operatorRole }: { operatorName: string; operatorR
             matches={quickMatches}
             now={now}
             busyTag={busyTag}
-            onMove={(item, to) => doUpdate(item, to)}
+            onMove={(item, to, note) => doUpdate(item, to, false, note)}
           />
         )}
       </main>
@@ -398,44 +405,105 @@ function Empty({ text }: { text: string }) {
   return <p className="py-10 text-center text-sm text-white/50">{text}</p>;
 }
 
-/** Una prenda: número de percha grande (lo que la persona muestra o dice),
- * nombre, estado y la acción que toca según ese estado. */
+/** Cosas que suelen dejar: para anotar rápido qué sacaron en un retiro parcial. */
+const QUICK_ITEMS = ['Chaqueta', 'Abrigo', 'Bolso', 'Mochila', 'Cartera', 'Sombrero'];
+
+/** Una prenda: número de percha grande (lo que la persona muestra o dice), nombre y un interruptor de tres posiciones:
+ * 🔴 todo guardado · 🟡 retiró una parte (se anota qué) · 🟢 todo retirado. Una prenda recién cobrada espera su «Recibido». */
 function ItemRow({ item, now, busy, disabled, onMove }: {
   item: LockerItemRow;
   now: number;
   busy: boolean;
   disabled: boolean;
-  onMove: (to: LockerItemStatus) => void;
+  onMove: (to: LockerItemStatus, note?: string) => void;
 }) {
-  const badge = item.status === 'pendiente'
-    ? { label: 'Sin confirmar', className: 'bg-amber-500/15 text-amber-300', since: item.chargedAt }
-    : item.status === 'guardado'
-    ? { label: 'Guardada', className: 'bg-emerald-500/15 text-emerald-300', since: item.receivedAt ?? item.chargedAt }
-    : { label: 'Entregada', className: 'bg-white/10 text-white/60', since: item.retrievedAt ?? item.chargedAt };
+  const [askPartial, setAskPartial] = useState(false);
+  const since = item.status === 'pendiente' ? item.chargedAt : item.status === 'guardado' ? (item.receivedAt ?? item.chargedAt) : (item.retrievedAt ?? item.chargedAt);
 
-  const action = item.status === 'pendiente'
-    ? { label: 'Recibido', busyLabel: 'Recibiendo…', to: 'guardado' as const, className: 'bg-primary text-primary-foreground' }
-    : item.status === 'guardado'
-    ? { label: 'Entregar', busyLabel: 'Entregando…', to: 'retirado' as const, className: 'bg-emerald-500 text-black' }
-    : { label: 'Reingresar', busyLabel: 'Guardando…', to: 'guardado' as const, className: 'bg-white/12 text-white' };
+  // Cada posición del interruptor: color, y a qué estado lleva.
+  const positions = [
+    { to: 'guardado' as const, label: 'Guardado', on: 'bg-red-500 text-white', dot: 'bg-red-500' },
+    { to: 'parcial' as const, label: 'Parcial', on: 'bg-amber-400 text-black', dot: 'bg-amber-400' },
+    { to: 'retirado' as const, label: 'Retirado', on: 'bg-emerald-500 text-black', dot: 'bg-emerald-500' },
+  ];
 
   return (
-    <div className="admin-tile flex items-center gap-3 rounded-2xl px-3 py-3">
-      <div className="min-w-0 flex-1">
-        <p className="font-mono text-2xl font-bold leading-none tracking-tight">{item.tagNumber}</p>
-        <p className="mt-1.5 truncate text-base font-semibold text-white">{item.customerName || 'Sin nombre'}</p>
-        <p className="mt-1 flex items-center gap-1.5 text-xs text-white/60">
-          <span className={`rounded-full px-2 py-0.5 font-medium ${badge.className}`}>{badge.label}</span>
-          <span>{agoLabel(badge.since, now)}</span>
-        </p>
+    <div className="admin-tile rounded-2xl px-3 py-3">
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="font-mono text-2xl font-bold leading-none tracking-tight">{item.tagNumber}</p>
+          <p className="mt-1.5 truncate text-base font-semibold text-white">{item.customerName || 'Sin nombre'}</p>
+          <p className="mt-1 text-xs text-white/60">
+            {item.status === 'pendiente' ? 'Sin confirmar' : LOCKER_TONE[item.status as 'guardado' | 'parcial' | 'retirado'].label} · {agoLabel(since, now)}
+          </p>
+        </div>
+        {item.status === 'pendiente' && (
+          <button onClick={() => onMove('guardado')} disabled={disabled}
+            className="h-14 min-w-[7.5rem] shrink-0 rounded-2xl bg-primary px-4 text-base font-bold text-primary-foreground active:scale-95 transition-transform disabled:opacity-50 disabled:active:scale-100">
+            {busy ? 'Recibiendo…' : 'Recibido'}
+          </button>
+        )}
       </div>
-      <button
-        onClick={() => onMove(action.to)}
-        disabled={disabled}
-        className={`h-14 min-w-[7.5rem] shrink-0 rounded-2xl px-4 text-base font-bold active:scale-95 transition-transform disabled:opacity-50 disabled:active:scale-100 ${action.className}`}
-      >
-        {busy ? action.busyLabel : action.label}
-      </button>
+
+      {item.status === 'parcial' && item.partialNote && (
+        <p className="mt-2 rounded-xl bg-amber-400/15 px-3 py-2 text-sm font-semibold text-amber-200">Sacó: {item.partialNote}</p>
+      )}
+
+      {item.status !== 'pendiente' && (
+        <div className="mt-3 grid grid-cols-3 gap-1.5 rounded-2xl bg-black/30 p-1" role="group" aria-label={`Estado de la percha ${item.tagNumber}`}>
+          {positions.map((p) => {
+            const active = item.status === p.to;
+            // «Parcial» se puede repetir (sacan más); «Guardado» solo vuelve desde parcial o retirado; «Retirado», desde guardado o parcial.
+            return (
+              <button key={p.to} type="button" aria-pressed={active} disabled={disabled || (active && p.to !== 'parcial')}
+                onClick={() => (p.to === 'parcial' ? setAskPartial(true) : onMove(p.to))}
+                className={`flex h-12 items-center justify-center gap-1.5 rounded-xl text-sm font-bold active:scale-95 transition disabled:active:scale-100 ${active ? p.on : 'text-white/70 active:bg-white/10'} ${busy ? 'opacity-60' : ''}`}>
+                {!active && <span className={`h-2.5 w-2.5 rounded-full ${p.dot}`} aria-hidden />}
+                {p.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {askPartial && <PartialSheet tag={item.tagNumber} name={item.customerName} already={item.partialNote ?? null} onClose={() => setAskPartial(false)} onSave={(note) => { setAskPartial(false); onMove('parcial', note); }} />}
+    </div>
+  );
+}
+
+/** «Retiró una parte»: se anota qué sacó (con atajos). Si ya había sacado algo antes, se suma a lo anotado. */
+function PartialSheet({ tag, name, already, onClose, onSave }: { tag: string; name: string | null; already: string | null; onClose: () => void; onSave: (note: string) => void }) {
+  const [picked, setPicked] = useState<string[]>([]);
+  const [text, setText] = useState('');
+  const note = [...picked, text.trim()].filter(Boolean).join('; ');
+  const toggle = (it: string) => setPicked((p) => (p.includes(it) ? p.filter((x) => x !== it) : [...p, it]));
+  return (
+    <div role="dialog" aria-label="Retiro parcial" className="fixed inset-0 z-[70] flex flex-col bg-black/75 backdrop-blur-sm" onClick={onClose}>
+      <div className="mt-auto max-h-[92dvh] overflow-y-auto overscroll-contain rounded-t-3xl bg-[#140c1f] p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]" onClick={(e) => e.stopPropagation()}>
+        <div className="mx-auto w-full max-w-lg">
+          <div className="mb-3 flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-xs uppercase tracking-widest text-amber-300">Retiró una parte</p>
+              <p className="truncate font-heading text-xl font-extrabold leading-tight">Percha {tag}{name ? ` · ${name}` : ''}</p>
+              {already && <p className="mt-1 text-sm text-white/60">Ya había sacado: {already}</p>}
+            </div>
+            <button onClick={onClose} className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-white/70 active:bg-white/10" aria-label="Cerrar"><X className="h-6 w-6" /></button>
+          </div>
+          <p className="mb-2 text-xs uppercase tracking-widest text-white/50">¿Qué sacó ahora?</p>
+          <div className="mb-3 flex flex-wrap gap-2">
+            {QUICK_ITEMS.map((it) => (
+              <button key={it} type="button" aria-pressed={picked.includes(it)} onClick={() => toggle(it)}
+                className={`h-12 rounded-full px-4 text-base font-semibold active:scale-95 ${picked.includes(it) ? 'bg-amber-400 text-black' : 'bg-white/10 text-white'}`}>{it}</button>
+            ))}
+          </div>
+          <input value={text} onChange={(e) => setText(e.target.value.slice(0, PARTIAL_ITEM_MAX))} maxLength={PARTIAL_ITEM_MAX} placeholder="Otra cosa (opcional)" aria-label="Qué sacó"
+            className="mb-4 h-12 w-full rounded-2xl bg-white/10 px-4 text-base text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-amber-400/60" />
+          <button onClick={() => onSave(note)} disabled={!note}
+            className="h-16 w-full rounded-full bg-amber-400 text-lg font-bold text-black active:scale-[0.99] disabled:opacity-35">
+            {note ? 'Anotar retiro parcial' : 'Elige o escribe qué sacó'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -448,7 +516,7 @@ function QuickDeliver({ digits, setDigits, matches, now, busyTag, onMove }: {
   matches: LockerItemRow[];
   now: number;
   busyTag: string | null;
-  onMove: (item: LockerItemRow, to: LockerItemStatus) => void;
+  onMove: (item: LockerItemRow, to: LockerItemStatus, note?: string) => void;
 }) {
   return (
     <div className="flex-1 min-h-0 flex flex-col gap-2 pb-2">
@@ -458,7 +526,7 @@ function QuickDeliver({ digits, setDigits, matches, now, busyTag, onMove }: {
         ) : matches.length === 0 ? (
           <Empty text="No hay ninguna percha con ese número." />
         ) : matches.map((item) => (
-          <ItemRow key={item.id} item={item} now={now} busy={busyTag === item.tagNumber} disabled={!!busyTag} onMove={(to) => onMove(item, to)} />
+          <ItemRow key={item.id} item={item} now={now} busy={busyTag === item.tagNumber} disabled={!!busyTag} onMove={(to, note) => onMove(item, to, note)} />
         ))}
       </div>
 

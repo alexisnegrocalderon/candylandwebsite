@@ -96,12 +96,12 @@ export function groupDetail(g: TicketGroup): string {
 
 /* --- Guardarropía y cocina ------------------------------------------------ */
 
-const LOCKER_STATE: Record<string, string> = { pendiente: 'Entrega tu abrigo en la guardarropía', guardado: 'Guardado', retirado: 'Retirado' };
+const LOCKER_STATE: Record<string, string> = { pendiente: 'Entrega tu abrigo en la guardarropía', guardado: 'Guardado', parcial: 'Retiraste una parte', retirado: 'Retirado' };
 const KITCHEN_STATE: Record<string, string> = { pendiente: 'En la cola de cocina', aprobado: 'Se está preparando', entregado: 'Entregado' };
 
 export function lockerStatusLabel(l: NightLocker): string {
   const base = LOCKER_STATE[l.status] ?? l.status;
-  const when = l.status === 'retirado' ? l.retrievedAt : l.status === 'guardado' ? l.receivedAt : null;
+  const when = l.status === 'retirado' || l.status === 'parcial' ? l.retrievedAt : l.status === 'guardado' ? l.receivedAt : null;
   return when ? `${base} · ${formatChileTime(when)}` : base;
 }
 

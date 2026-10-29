@@ -981,6 +981,13 @@
       "when": 1793856400000,
       "tag": "0139_mailing_programado",
       "breakpoints": true
+    },
+    {
+      "idx": 140,
+      "version": "5",
+      "when": 1793942800000,
+      "tag": "0138_guardarropia_parcial",
+      "breakpoints": true
     }
   ]
 }

@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { LogOut } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { useSeo } from '@/hooks/useSeo';
-import { AreaGuard, TerminalFrame, TerminalLogin, TerminalSpinner, loginErrorToast } from '@/components/terminal/TerminalShell';
+import { AreaGuard, CallOrganizersButton, TerminalFrame, TerminalLogin, TerminalSpinner, loginErrorToast } from '@/components/terminal/TerminalShell';
 import { BarraCount } from '@/components/barra/BarraCount';
 import { openedFromApp } from '@/lib/staffLink';
 import { barraTareaEstado, type BarraConteoKind } from '@shared/barraConteo';
@@ -95,6 +95,7 @@ function Home({ operatorName }: { operatorName: string }) {
             : <span />}
           <div className="flex items-center gap-2">
             <span className="text-sm text-white/60">{operatorName}</span>
+            <CallOrganizersButton area="barra" />
             <button onClick={() => logout.mutate()} disabled={logout.isPending} aria-label="Cerrar sesión" className="grid h-11 w-11 place-items-center rounded-full bg-white/10">
               <LogOut className="h-5 w-5" />
             </button>
