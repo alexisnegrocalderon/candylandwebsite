@@ -4,7 +4,7 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { pushTitle } from "../shared/pushText";
 import { sdk, ADMIN_LOCAL_OPEN_ID, VIEWER_LOCAL_OPEN_ID } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, protectedProcedure, adminReadProcedure, giftProcedure, partnerProcedure, operatorProcedure, supervisorProcedure, deviceProcedure, doorProcedure, kitchenProcedure, guardarropiaProcedure, barraProcedure, anyOperatorProcedure, router } from "./_core/trpc";
+import { publicProcedure, protectedProcedure, adminReadProcedure, giftProcedure, partnerProcedure, operatorProcedure, supervisorProcedure, panelStaffProcedure, panelStaffReadProcedure, deviceProcedure, doorProcedure, kitchenProcedure, guardarropiaProcedure, barraProcedure, anyOperatorProcedure, router } from "./_core/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { teachFromOwner, listKnowledge, setKnowledgeStatus, updateKnowledgeText, deleteKnowledge } from "./agentLearning";
@@ -208,6 +208,8 @@ import { normalizeIgHandle } from "../shared/igCustomerLink";
 import { approveComment, restoreSpamComment, suggestOwnComment } from './instagramComments';
 import * as coproductionSvc from './coproduction';
 import { partnerOpenId, normalizeLanding } from '../shared/coproduction';
+import { supervisorOpenId } from '../shared/panelSupervisor';
+import * as supSvc from './panelSupervisor';
 import type { Coproduction } from '../drizzle/schema';
 import { getInstagramInsights } from './instagramInsights';
 import { igReferralLabel, referralUtmContent } from '../shared/igReferral';
@@ -805,6 +807,30 @@ async function issuePartnerSession(ctx: any, cp: Coproduction) {
   ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ADMIN_SESSION_MS });
 }
 
+/** Vale del paso 2 del login de una supervisora (misma idea que el del socio). */
+async function signSupervisorStepTicket(sup: { id: number; sessionVersion: number }): Promise<string> {
+  return sdk.signSession({ openId: `sup-step:${sup.id}:${sup.sessionVersion}`, appId: 'candyland-admin-2fa', name: 'sup-step1' }, { expiresInMs: 5 * 60 * 1000 });
+}
+
+async function requireSupervisorStepTicket(ticket: string) {
+  const payload = await sdk.verifySession(ticket).catch(() => null);
+  const m = /^sup-step:(\d{1,9}):(\d{1,9})$/.exec(payload?.openId ?? '');
+  const sup = m ? await supSvc.getSupervisorById(Number(m[1])) : null;
+  if (!m || !sup || !sup.passwordHash || sup.sessionVersion !== Number(m[2])) {
+    throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Vuelve a ingresar tu contraseña' });
+  }
+  return sup;
+}
+
+async function issueSupervisorSession(ctx: any, sup: { id: number; name: string; sessionVersion: number }) {
+  const sessionToken = await sdk.signSession(
+    { openId: supervisorOpenId(sup.id, sup.sessionVersion), appId: 'candyland-admin', name: sup.name },
+    { expiresInMs: ADMIN_SESSION_MS },
+  );
+  const cookieOptions = getSessionCookieOptions(ctx.req);
+  ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ADMIN_SESSION_MS });
+}
+
 async function issueAdminSession(ctx: any) {
   await db.upsertUser({ openId: ADMIN_LOCAL_OPEN_ID, name: 'Admin', role: 'admin', lastSignedIn: new Date() });
   const sessionToken = await sdk.signSession({ openId: ADMIN_LOCAL_OPEN_ID, appId: 'candyland-admin', name: 'Admin' }, { expiresInMs: ADMIN_SESSION_MS });
@@ -1092,6 +1118,15 @@ export const appRouter = router({
           return { ticket, needsSetup: !partnerCp.totpConfirmedAt, partner: true } as const;
         }
 
+        // Clave de una supervisora (ej. Belén): entra a su panel acotado,
+        // siempre con segundo factor propio.
+        const sup = await supSvc.findSupervisorByPassword(input.password);
+        if (sup) {
+          await db.resetIpRateLimit(ipKey);
+          const ticket = await signSupervisorStepTicket(sup);
+          return { ticket, needsSetup: !sup.totpConfirmedAt, supervisor: true } as const;
+        }
+
         await db.recordIpFailedAttempt(ipKey);
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Contraseña incorrecta' });
       }
@@ -1289,6 +1324,58 @@ export const appRouter = router({
       throw new TRPCError({ code: 'UNAUTHORIZED', message: res.reason === 'reusado' ? 'Ese código ya se usó. Espera al siguiente.' : 'Código incorrecto' });
     }),
 
+    // --- Segundo factor de una supervisora (cuenta propia en el panel) ---
+    supervisorSetupTotp: publicProcedure.input(z.object({ ticket: z.string() })).mutation(async ({ input }) => {
+      const sup = await requireSupervisorStepTicket(input.ticket);
+      if (sup.totpConfirmedAt) throw new TRPCError({ code: 'FORBIDDEN', message: 'El segundo factor ya está configurado' });
+      const secret = sup.totpSecret ?? createTotpSecret();
+      if (!sup.totpSecret) await supSvc.setSupervisorTotp(sup.id, { totpSecret: secret });
+      const qrImageUrl = await QRCode.toDataURL(totpUri(secret, `${sup.name} · Playroom`), { width: 320, margin: 2 });
+      return { secret, qrImageUrl } as const;
+    }),
+    supervisorConfirmTotp: publicProcedure.input(z.object({ ticket: z.string(), code: z.string() })).mutation(async ({ input, ctx }) => {
+      const ipKey = adminIpKey(ctx);
+      if (!(await db.checkIpRateLimit(ipKey))) {
+        throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos. Espera unos minutos.' });
+      }
+      const sup = await requireSupervisorStepTicket(input.ticket);
+      if (sup.totpConfirmedAt) throw new TRPCError({ code: 'FORBIDDEN', message: 'Ya está configurado' });
+      if (!sup.totpSecret) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Primero escanea el código QR' });
+      const res = verifyTotp({ secret: sup.totpSecret, token: input.code });
+      if (!res.ok) {
+        await db.recordIpFailedAttempt(ipKey);
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Ese código no coincide. Revisa que el reloj de tu teléfono esté en hora.' });
+      }
+      const { plain, hashed } = generateBackupCodes();
+      await supSvc.setSupervisorTotp(sup.id, { totpConfirmedAt: new Date(), totpBackupCodes: hashed, totpLastUsedStep: res.timeStep });
+      await issueSupervisorSession(ctx, sup);
+      return { backupCodes: plain } as const;
+    }),
+    supervisorVerifyCode: publicProcedure.input(z.object({ ticket: z.string(), code: z.string() })).mutation(async ({ input, ctx }) => {
+      const ipKey = adminIpKey(ctx);
+      if (!(await db.checkIpRateLimit(ipKey))) {
+        throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos. Espera unos minutos.' });
+      }
+      const sup = await requireSupervisorStepTicket(input.ticket);
+      if (!sup.totpConfirmedAt || !sup.totpSecret) throw new TRPCError({ code: 'BAD_REQUEST', message: 'El segundo factor no está configurado' });
+      const res = verifyTotp({ secret: sup.totpSecret, token: input.code, lastUsedStep: sup.totpLastUsedStep });
+      if (res.ok) {
+        await supSvc.setSupervisorTotp(sup.id, { totpLastUsedStep: res.timeStep });
+        await db.resetIpRateLimit(ipKey);
+        await issueSupervisorSession(ctx, sup);
+        return { success: true } as const;
+      }
+      const backup = consumeBackupCode(parseBackupCodes(sup.totpBackupCodes), input.code);
+      if (backup.ok) {
+        await supSvc.setSupervisorTotp(sup.id, { totpBackupCodes: backup.remaining });
+        await db.resetIpRateLimit(ipKey);
+        await issueSupervisorSession(ctx, sup);
+        return { success: true, backupCodeUsed: true, backupCodesLeft: backup.remaining.length } as const;
+      }
+      await db.recordIpFailedAttempt(ipKey);
+      throw new TRPCError({ code: 'UNAUTHORIZED', message: res.reason === 'reusado' ? 'Ese código ya se usó. Espera al siguiente.' : 'Código incorrecto' });
+    }),
+
     // --- Passkeys (Face ID / Touch ID / Windows Hello) ---
     // Adicionales al login de arriba, no lo reemplazan. Registro: requiere
     // estar logueado (adminProcedure) -- solo el dueño, ya autenticado con
@@ -1418,7 +1505,7 @@ export const appRouter = router({
       return db.getTicketTypesByEventId(event.id);
     }),
     // Admin
-    listAll: adminReadProcedure.query(async () => {
+    listAll: panelStaffReadProcedure.query(async () => {
       return db.getAllEvents();
     }),
     // El mismo criterio que usa /caja, /cocina y /guardarropia para elegir
@@ -1428,7 +1515,7 @@ export const appRouter = router({
     // mano. `listAll` en cambio ordena por creación, así que un evento viejo
     // o de prueba creado después podía terminar como "seleccionado" por
     // defecto aunque no fuera el que /caja estaba usando de verdad.
-    getActiveForCaja: adminReadProcedure.query(async () => {
+    getActiveForCaja: panelStaffReadProcedure.query(async () => {
       return db.getActiveEventForCaja() ?? null;
     }),
     create: adminProcedure.input(z.object({
@@ -1524,8 +1611,10 @@ export const appRouter = router({
       return result;
     }),
     // Ticket types management
-    listTicketTypes: adminReadProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
-      return db.getTicketTypesByEventId(input.eventId);
+    listTicketTypes: panelStaffReadProcedure.input(z.object({ eventId: z.number() })).query(async ({ input, ctx }) => {
+      const rows = await db.getTicketTypesByEventId(input.eventId);
+      // La supervisora no ve costos de los productos.
+      return ctx.user.role === 'supervisor' ? rows.map((r: any) => ({ ...r, costPrice: null })) : rows;
     }),
     createTicketType: adminProcedure.input(z.object({
       eventId: z.number(),
@@ -2022,7 +2111,7 @@ export const appRouter = router({
     // directo, sin pasar por Mercado Pago -- misma info del comprador que el
     // checkout público, y el mismo mail final con QR (confirmFreeOrder ya lo
     // usa el checkout público para el caso de descuento 100%).
-    createManual: adminProcedure.input(z.object({
+    createManual: panelStaffProcedure.input(z.object({
       eventSlug: z.string(),
       buyerName: z.string().min(1),
       buyerEmail: z.string().email(),
@@ -2038,7 +2127,11 @@ export const appRouter = router({
       kind: z.enum(['invitation', 'paid']),
       paymentMethod: z.string().optional(),
       attendeeData: z.string().optional(),
-    })).mutation(async ({ input }) => {
+    })).mutation(async ({ input, ctx }) => {
+      // La supervisora solo manda invitaciones; los accesos pagados (que suman a ventas) son del dueño.
+      if (ctx.user.role === 'supervisor' && input.kind !== 'invitation') {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'Solo puedes enviar invitaciones gratis.' });
+      }
       try {
         const result = await db.createManualOrder(input);
         await confirmFreeOrder(result.orderNumber);
@@ -2047,14 +2140,15 @@ export const appRouter = router({
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo crear el acceso manual.' });
       }
     }),
-    listManual: adminReadProcedure.query(async () => {
-      return db.listManualOrders();
+    listManual: panelStaffReadProcedure.query(async ({ ctx }) => {
+      const rows = await db.listManualOrders();
+      return ctx.user.role === 'supervisor' ? rows.map((r) => ({ ...r, total: '0' })) : rows;
     }),
     // "Invitación especial instantánea" de Accesos Manuales (pedido explícito
     // del usuario): sin ningún dato salvo la cantidad de personas -- para
     // cuando llega un invitado del dueño a la puerta sin QR. Un solo
     // ticket/QR representa a todas las personas (ver createInstantInvite).
-    createInstantInvite: adminProcedure.input(z.object({
+    createInstantInvite: panelStaffProcedure.input(z.object({
       eventSlug: z.string(),
       personas: z.number().int().min(1).max(20),
     })).mutation(async ({ input }) => {
@@ -2067,7 +2161,7 @@ export const appRouter = router({
     // "Invitar consumo gratis a staff" de Accesos Manuales (pedido explícito
     // del usuario): el dueño elige un producto de la Carta de la Fiesta,
     // cuántas unidades y para quién es -- la cajera lo ve y lo canjea en /caja.
-    createStaffComp: adminProcedure.input(z.object({
+    createStaffComp: panelStaffProcedure.input(z.object({
       eventSlug: z.string(),
       ticketTypeId: z.number(),
       quantity: z.number().int().min(1).max(20),
@@ -2120,7 +2214,7 @@ export const appRouter = router({
     }),
     // ¿Esta sesión puede dar regalos? (para mostrar u ocultar los botones).
     canGift: adminReadProcedure.query(({ ctx }) => ({ can: canGift(ctx.user) })),
-    listStaffComps: adminReadProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
+    listStaffComps: panelStaffReadProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
       return db.listStaffComps(input.eventId);
     }),
     // Eliminar una compra (pedido explícito del usuario): irreversible, la
@@ -2916,23 +3010,31 @@ export const appRouter = router({
       return db.setPartyConfig(eventId, patch);
     }),
     // El conteo en vivo de todo lo que pasa en Playmatch.
-    adminStats: adminReadProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => playmatch.adminStats(input.eventId)),
+    adminStats: panelStaffReadProcedure.input(z.object({ eventId: z.number() })).query(async ({ input, ctx }) => {
+      const stats = await playmatch.adminStats(input.eventId);
+      // La supervisora ve cuánta gente y qué pasa, no cuánta plata entró.
+      if (ctx.user.role === 'supervisor' && stats) {
+        const revenue = Object.fromEntries(Object.keys(stats.revenue).map((k) => [k, 0])) as typeof stats.revenue;
+        return { ...stats, revenue };
+      }
+      return stats;
+    }),
     // Cada cobro, regalo, devolución y ajuste (más nuevo primero).
     adminCharges: adminReadProcedure.input(z.object({ eventId: z.number(), limit: z.number().int().min(1).max(2000).optional(), offset: z.number().int().min(0).optional(), profileId: z.number().optional() }))
       .query(async ({ input }) => playmatch.adminCharges(input.eventId, input)),
-    adminPeople: adminReadProcedure.input(z.object({ eventId: z.number(), q: z.string().max(60).default('') })).query(async ({ input }) => playmatch.adminPeople(input.eventId, input.q)),
-    adminPendingSuperLikes: adminReadProcedure.input(z.object({ eventId: z.number(), profileId: z.number() })).query(async ({ input }) => playmatch.adminPendingSuperLikes(input.eventId, input.profileId)),
-    adminGift: adminProcedure.input(z.object({ eventId: z.number(), profileId: z.number(), quantity: z.number().int().min(1).max(50), note: z.string().max(200).optional() }))
+    adminPeople: panelStaffReadProcedure.input(z.object({ eventId: z.number(), q: z.string().max(60).default('') })).query(async ({ input }) => playmatch.adminPeople(input.eventId, input.q)),
+    adminPendingSuperLikes: panelStaffReadProcedure.input(z.object({ eventId: z.number(), profileId: z.number() })).query(async ({ input }) => playmatch.adminPendingSuperLikes(input.eventId, input.profileId)),
+    adminGift: panelStaffProcedure.input(z.object({ eventId: z.number(), profileId: z.number(), quantity: z.number().int().min(1).max(50), note: z.string().max(200).optional() }))
       .mutation(async ({ input, ctx }) => {
         try { return await playmatch.adminGiftSuperLikes({ ...input, actor: ctx.user.name || 'Admin' }); }
         catch (e) { throw new TRPCError({ code: 'BAD_REQUEST', message: e instanceof Error ? e.message : 'No se pudo regalar' }); }
       }),
-    adminReturn: adminProcedure.input(z.object({ eventId: z.number(), connectionId: z.number(), note: z.string().max(200).optional() }))
+    adminReturn: panelStaffProcedure.input(z.object({ eventId: z.number(), connectionId: z.number(), note: z.string().max(200).optional() }))
       .mutation(async ({ input, ctx }) => {
         try { return await playmatch.adminReturnSuperLike({ ...input, actor: ctx.user.name || 'Admin' }); }
         catch (e) { throw new TRPCError({ code: 'BAD_REQUEST', message: e instanceof Error ? e.message : 'No se pudo devolver' }); }
       }),
-    adminSetCap: adminProcedure.input(z.object({ eventId: z.number(), profileId: z.number(), cap: z.number().int().min(0).max(100).nullable() }))
+    adminSetCap: panelStaffProcedure.input(z.object({ eventId: z.number(), profileId: z.number(), cap: z.number().int().min(0).max(100).nullable() }))
       .mutation(async ({ input, ctx }) => {
         try { return await playmatch.adminSetCap({ ...input, actor: ctx.user.name || 'Admin' }); }
         catch (e) { throw new TRPCError({ code: 'BAD_REQUEST', message: e instanceof Error ? e.message : 'No se pudo cambiar' }); }
@@ -3083,17 +3185,17 @@ export const appRouter = router({
       return res;
     }),
     testDelete: adminProcedure.mutation(async () => db.deletePlaymatchTestData()),
-    listAllReports: adminReadProcedure.query(async () => {
+    listAllReports: panelStaffReadProcedure.query(async () => {
       return db.listAllPartyReports();
     }),
     // Expulsar (o reincorporar) a la persona denunciada, solo por esa noche.
-    setProfileBanned: adminProcedure.input(z.object({
+    setProfileBanned: panelStaffProcedure.input(z.object({
       profileId: z.number(),
       banned: z.boolean(),
     })).mutation(async ({ input }) => {
       return db.setPartyProfileBanned(input.profileId, input.banned);
     }),
-    setReportResolved: adminProcedure.input(z.object({
+    setReportResolved: panelStaffProcedure.input(z.object({
       id: z.number(),
       resolved: z.boolean(),
     })).mutation(async ({ input }) => {
@@ -3102,10 +3204,10 @@ export const appRouter = router({
   }),
 
   discounts: router({
-    listAll: adminReadProcedure.query(async () => {
+    listAll: panelStaffReadProcedure.query(async () => {
       return db.getAllDiscountCodes();
     }),
-    create: adminProcedure.input(z.object({
+    create: panelStaffProcedure.input(z.object({
       code: z.string(),
       description: z.string().optional(),
       discountType: z.enum(['percentage', 'fixed']),
@@ -3131,7 +3233,7 @@ export const appRouter = router({
     // Editar un código existente. El texto del código NO se cambia (ya está
     // repartido en links y mensajes); sí tipo, valor, evento, regalo, usos,
     // vencimiento y si está activo. `usedCount` nunca se toca.
-    update: adminProcedure.input(z.object({
+    update: panelStaffProcedure.input(z.object({
       id: z.number(),
       description: z.string().nullable().optional(),
       discountType: z.enum(['percentage', 'fixed']),
@@ -4627,10 +4729,10 @@ export const appRouter = router({
       return db.validateCommunityCode(input.code, input.buyerRut, input.eventId);
     }),
     // Admin
-    listAll: adminReadProcedure.query(async () => {
+    listAll: panelStaffReadProcedure.query(async () => {
       return db.getAllCommunityCodes();
     }),
-    create: adminProcedure.input(z.object({
+    create: panelStaffProcedure.input(z.object({
       code: z.string(),
       label: z.string().optional(),
       maxUses: z.number().optional(),
@@ -4641,7 +4743,7 @@ export const appRouter = router({
     })).mutation(async ({ input }) => {
       return db.createCommunityCode(input);
     }),
-    update: adminProcedure.input(z.object({
+    update: panelStaffProcedure.input(z.object({
       id: z.number(),
       code: z.string().optional(),
       label: z.string().optional(),
@@ -6582,7 +6684,7 @@ export const appRouter = router({
   // Stock de la barra por insumos (server/insumos.ts): insumos, recetas de
   // cada trago, compras, conteos y la lista de compras proyectada.
   insumos: router({
-    schema: adminProcedure.query(() => insumoSchemaStatus()),
+    schema: panelStaffProcedure.query(() => insumoSchemaStatus()),
     schemaApply: adminPasswordProcedure.mutation(async ({ ctx }) => {
       try {
         const r = await applyInsumoSchema();
@@ -6592,7 +6694,14 @@ export const appRouter = router({
         throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: `No se pudo actualizar la base: ${e?.message ?? 'error desconocido'}` });
       }
     }),
-    estado: adminProcedure.input(z.object({ eventId: z.number() })).query(({ input }) => insumoSvc.estadoBarra(input.eventId)),
+    estado: panelStaffProcedure.input(z.object({ eventId: z.number() })).query(async ({ input, ctx }) => {
+      const e = await insumoSvc.estadoBarra(input.eventId);
+      // La supervisora ve el stock, no lo que cuesta cada insumo.
+      if (ctx.user.role === 'supervisor') {
+        return { ...e, insumos: e.insumos.map((i) => ({ ...i, costPerContainer: null })) } as typeof e;
+      }
+      return e;
+    }),
     // Carga del dosier del aniversario: primero se ve qué haría (dosierPlan), después se aplica.
     dosierPlan: adminProcedure.input(z.object({ eventId: z.number() }))
       .query(({ input }) => insumoSvc.dosierPlan(input.eventId)),
@@ -6681,15 +6790,15 @@ export const appRouter = router({
       pasos: z.array(z.string().trim().max(160)).max(12).optional(),
       foto: z.string().url().max(500).nullable().optional(),
     })).mutation(({ input }) => insumoSvc.setReceta(input.ticketTypeId, input.glass, input.lines, input.extras, input.opciones, { pasos: input.pasos, foto: input.foto })),
-    movimiento: adminProcedure.input(z.object({
+    movimiento: panelStaffProcedure.input(z.object({
       insumoId: z.number(), kind: z.enum(['carga', 'compra', 'merma', 'ajuste']), amount: z.number().min(-10_000_000).max(10_000_000),
       eventId: z.number().nullable().optional(), note: z.string().max(255).optional(),
     })).mutation(({ input }) => insumoSvc.addMovimiento(input)),
-    setStock: adminProcedure.input(z.object({ insumoId: z.number(), target: z.number().min(0), eventId: z.number().nullable().optional(), note: z.string().max(255).optional() }))
+    setStock: panelStaffProcedure.input(z.object({ insumoId: z.number(), target: z.number().min(0), eventId: z.number().nullable().optional(), note: z.string().max(255).optional() }))
       .mutation(({ input }) => insumoSvc.setStockTo(input)),
-    movimientos: adminProcedure.input(z.object({ eventId: z.number().optional(), insumoId: z.number().optional(), limit: z.number().int().max(1000).optional() }))
+    movimientos: panelStaffProcedure.input(z.object({ eventId: z.number().optional(), insumoId: z.number().optional(), limit: z.number().int().max(1000).optional() }))
       .query(({ input }) => insumoSvc.listMovimientos(input)),
-    conteos: adminProcedure.input(z.object({ eventId: z.number() })).query(({ input }) => insumoSvc.listConteos(input.eventId)),
+    conteos: panelStaffProcedure.input(z.object({ eventId: z.number() })).query(({ input }) => insumoSvc.listConteos(input.eventId)),
     proyeccion: adminProcedure.input(z.object({
       eventId: z.number(), personas: z.number().int().min(1).max(100_000), factor: z.number().min(0.1).max(5).optional(),
       tragosPorPersona: z.number().min(0).max(50).nullable().optional(), overrides: z.record(z.string(), z.number().min(0)).optional(),
@@ -7252,14 +7361,14 @@ export const appRouter = router({
   solteros: router({
     // Cada solicitud con su cruce contra la lista de bloqueados: «block» (RUT, correo, teléfono o Instagram)
     // o «review» (solo el nombre coincide), para decidir con esa información a la vista.
-    list: adminReadProcedure.query(async () => {
+    list: panelStaffReadProcedure.query(async () => {
       const rows = await solteros.listSolteroApprovals();
       return Promise.all(rows.map(async (r) => {
         const hit = await db.findBlockedMatch([{ name: r.fullName, rut: r.rut, email: r.email, phone: r.phone, instagram: r.instagram }]);
         return { ...r, blocked: hit.block.length > 0 ? 'block' as const : hit.review.length > 0 ? 'review' as const : null };
       }));
     }),
-    review: adminProcedure.input(z.object({
+    review: panelStaffProcedure.input(z.object({
       id: z.number().int().positive(),
       decision: z.enum(['aprobar', 'rechazar', 'revocar']),
       note: z.string().max(500).nullish(),
@@ -7270,7 +7379,7 @@ export const appRouter = router({
         return r;
       } catch (e: any) { throw new TRPCError({ code: 'BAD_REQUEST', message: e?.message ?? 'No se pudo guardar' }); }
     }),
-    approveDirect: adminProcedure.input(z.object({ email: z.string().email().max(320), fullName: z.string().max(255).nullish() })).mutation(async ({ input, ctx }) => {
+    approveDirect: panelStaffProcedure.input(z.object({ email: z.string().email().max(320), fullName: z.string().max(255).nullish() })).mutation(async ({ input, ctx }) => {
       try {
         const r = await solteros.approveSolteroDirect(input.email, input.fullName);
         await db.recordAdminAudit({ action: 'solteros.approveDirect', targetType: 'solteroApproval', payload: { email: r.email }, ip: clientIp(ctx) });
@@ -7327,6 +7436,29 @@ export const appRouter = router({
   }),
 
   // Base de datos de clientes desde /admin (pedido explícito del usuario).
+  // Cuentas de supervisora del panel (Belén, etc.): solo el dueño las crea,
+  // cambia o revoca, siempre con su clave.
+  panelSupervisors: router({
+    list: adminProcedure.query(async () => (await supSvc.listSupervisors()).map((s) => ({
+      id: s.id, name: s.name, hasAccess: !!s.passwordHash, twoFactorReady: !!s.totpConfirmedAt, createdAt: s.createdAt,
+    }))),
+    create: adminPasswordProcedure.input(z.object({ name: z.string().trim().min(2).max(120) })).mutation(async ({ input, ctx }) => {
+      const r = await supSvc.createSupervisor(input.name);
+      await db.recordAdminAudit({ action: 'panelSupervisors.create', targetType: 'panelSupervisor', targetId: r.id, payload: { name: input.name }, ip: clientIp(ctx) });
+      return r;
+    }),
+    resetPassword: adminPasswordProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
+      const password = await supSvc.resetSupervisorPassword(input.id);
+      await db.recordAdminAudit({ action: 'panelSupervisors.resetPassword', targetType: 'panelSupervisor', targetId: input.id, ip: clientIp(ctx) });
+      return { password };
+    }),
+    revoke: adminPasswordProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
+      await supSvc.revokeSupervisor(input.id);
+      await db.recordAdminAudit({ action: 'panelSupervisors.revoke', targetType: 'panelSupervisor', targetId: input.id, ip: clientIp(ctx) });
+      return { ok: true } as const;
+    }),
+  }),
+
   customers: router({
     // Acompañantes de órdenes web (nombre + RUT, sin correo): no son parte de
     // `listAll`, así que nunca entran a una audiencia de mailing.

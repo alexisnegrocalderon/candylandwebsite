@@ -8,6 +8,8 @@ import type { User } from "../../drizzle/schema";
 import * as db from "../db";
 import { getCoproductionBySlug } from "../coproduction";
 import { parsePartnerOpenId } from "../../shared/coproduction";
+import { parseSupervisorOpenId } from "../../shared/panelSupervisor";
+import { getSupervisorById } from "../panelSupervisor";
 import { ENV } from "./env";
 import type {
   ExchangeTokenRequest,
@@ -313,6 +315,18 @@ class SDKServer {
       return { ...buildLocalUser(session.openId, cp.partnerName, "partner"), coproductionId: cp.id };
     }
 
+    // Supervisora con cuenta propia en el panel: sintética como el socio y
+    // validada contra su fila en cada pedido -- si se cambia o revoca su
+    // clave, `sessionVersion` ya no calza y la sesión muere.
+    const sup = parseSupervisorOpenId(session.openId);
+    if (sup) {
+      const row = await getSupervisorById(sup.id);
+      if (!row || !row.passwordHash || !row.totpConfirmedAt || row.sessionVersion !== sup.sessionVersion) {
+        throw ForbiddenError("Supervisor session revoked");
+      }
+      return buildLocalUser(session.openId, row.name, "supervisor");
+    }
+
     const sessionUserId = session.openId;
     const signedInAt = new Date();
     let user = await db.getUserByOpenId(sessionUserId);
@@ -385,7 +399,7 @@ function buildLocalUser(openId: string, name: string, role: AppRole): Authentica
  * hace falta migrar la columna `users.role` -- que en esta base es una
  * operación cara, porque drizzle-kit no puede correr contra el SSL de
  * TiDB Serverless y hay que aplicarla a mano. */
-export type AppRole = User["role"] | "viewer" | "partner";
+export type AppRole = User["role"] | "viewer" | "partner" | "supervisor";
 
 /** Result of `sdk.authenticateRequest`. Cron callbacks set `isCron=true` and `taskUid`; see `references/periodic-updates.md`. */
 export type AuthenticatedUser = Omit<User, "role"> & {

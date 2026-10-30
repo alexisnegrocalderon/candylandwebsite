@@ -29,6 +29,8 @@ export function AdminLoginForm() {
   // La clave era la del socio de una co-producción (ej. Dalmore): mismo
   // flujo de dos pasos, pero contra su propio segundo factor.
   const [isPartner, setIsPartner] = useState(false);
+  // Supervisora con cuenta propia (ej. Belén): mismo flujo de 2 pasos, otras rutas.
+  const [isSupervisor, setIsSupervisor] = useState(false);
   const [setup, setSetup] = useState<{ secret: string; qrImageUrl: string } | null>(null);
   const [backupCodes, setBackupCodes] = useState<string[] | null>(null);
   const [webauthnSupported, setWebauthnSupported] = useState(false);
@@ -89,16 +91,19 @@ export function AdminLoginForm() {
   };
   const adminSetupTotp = trpc.auth.adminSetupTotp.useMutation(setupHandlers);
   const partnerSetupTotp = trpc.auth.partnerSetupTotp.useMutation(setupHandlers);
-  const setupTotp = isPartner ? partnerSetupTotp : adminSetupTotp;
+  const supervisorSetupTotp = trpc.auth.supervisorSetupTotp.useMutation(setupHandlers);
+  const setupTotp = isSupervisor ? supervisorSetupTotp : isPartner ? partnerSetupTotp : adminSetupTotp;
 
   const login = trpc.auth.adminLogin.useMutation({
     onSuccess: (r) => {
       setError('');
       if (r.skipped2fa) { entrar(); return; }
       const partner = 'partner' in r && r.partner === true;
+      const supervisor = 'supervisor' in r && r.supervisor === true;
       setIsPartner(partner);
+      setIsSupervisor(supervisor);
       setTicket(r.ticket);
-      if (r.needsSetup) (partner ? partnerSetupTotp : adminSetupTotp).mutate({ ticket: r.ticket });
+      if (r.needsSetup) (supervisor ? supervisorSetupTotp : partner ? partnerSetupTotp : adminSetupTotp).mutate({ ticket: r.ticket });
     },
     onError: (e) => setError(e.message),
   });
@@ -109,7 +114,7 @@ export function AdminLoginForm() {
   const [emailCodeSent, setEmailCodeSent] = useState(false);
   const [emailCode, setEmailCode] = useState('');
   const adminHint = trpc.auth.adminEmailHint.useQuery(undefined, { retry: false, staleTime: 60_000 });
-  const toSecondFactor = (r: { ticket: string }) => { setError(''); setIsPartner(false); setTicket(r.ticket); setCode(''); };
+  const toSecondFactor = (r: { ticket: string }) => { setError(''); setIsPartner(false); setIsSupervisor(false); setTicket(r.ticket); setCode(''); };
   const emailFromMember = trpc.auth.adminEmailFromMember.useMutation({ onSuccess: toSecondFactor, onError: (e) => setError(e.message) });
   const emailRequest = trpc.auth.adminEmailRequestCode.useMutation({ onSuccess: () => { setError(''); setEmailCodeSent(true); }, onError: (e) => setError(e.message) });
   const emailVerify = trpc.auth.adminEmailVerify.useMutation({ onSuccess: toSecondFactor, onError: (e) => { setError(e.message); setEmailCode(''); } });
@@ -120,7 +125,8 @@ export function AdminLoginForm() {
   };
   const adminConfirmTotp = trpc.auth.adminConfirmTotp.useMutation(confirmHandlers);
   const partnerConfirmTotp = trpc.auth.partnerConfirmTotp.useMutation(confirmHandlers);
-  const confirmTotp = isPartner ? partnerConfirmTotp : adminConfirmTotp;
+  const supervisorConfirmTotp = trpc.auth.supervisorConfirmTotp.useMutation(confirmHandlers);
+  const confirmTotp = isSupervisor ? supervisorConfirmTotp : isPartner ? partnerConfirmTotp : adminConfirmTotp;
 
   const verifyHandlers = {
     onSuccess: (r: { backupCodeUsed?: boolean; backupCodesLeft?: number }) => {
@@ -133,7 +139,8 @@ export function AdminLoginForm() {
   };
   const adminVerify = trpc.auth.adminVerifyCode.useMutation(verifyHandlers);
   const partnerVerify = trpc.auth.partnerVerifyCode.useMutation(verifyHandlers);
-  const verify = isPartner ? partnerVerify : adminVerify;
+  const supervisorVerify = trpc.auth.supervisorVerifyCode.useMutation(verifyHandlers);
+  const verify = isSupervisor ? supervisorVerify : isPartner ? partnerVerify : adminVerify;
 
   // Los códigos de respaldo se muestran UNA sola vez: después solo queda
   // su hash guardado, y ni el sistema puede recuperarlos.
@@ -221,7 +228,7 @@ export function AdminLoginForm() {
             {verify.isPending ? 'Verificando…' : 'Entrar'}
           </Button>
           <button
-            onClick={() => { setTicket(null); setIsPartner(false); setCode(''); setPassword(''); setError(''); }}
+            onClick={() => { setTicket(null); setIsPartner(false); setIsSupervisor(false); setCode(''); setPassword(''); setError(''); }}
             className="text-xs text-muted-foreground mt-4 underline"
           >
             Volver

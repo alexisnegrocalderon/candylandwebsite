@@ -22,7 +22,9 @@ const ACTION_TEXT = {
   merma: { title: 'Registrar merma', help: 'Botella rota, derrame, cortesía sin registrar… Se resta del stock.', button: 'Restar' },
 } as const;
 
-export function StockTab({ eventId, data, onEdit, onChanged }: {
+export function StockTab({ eventId, data, onEdit, onChanged, limited = false }: {
+  /** Supervisora: cuenta, registra merma y compra; no edita, archiva ni toca recetas. */
+  limited?: boolean;
   eventId: number;
   data: BarraData;
   onEdit: (v: Omit<InsumoFormValue, 'initialBySize' | 'initialLoose'>) => void;
@@ -135,9 +137,10 @@ export function StockTab({ eventId, data, onEdit, onChanged }: {
                     <Button variant="ghost" size="icon" aria-label={`Más acciones de ${i.name}`}><MoreHorizontal className="h-5 w-5" /></Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
-                    <DropdownMenuItem onSelect={() => setUso(i)}>Tragos que lo usan</DropdownMenuItem>
+                    {!limited && <DropdownMenuItem onSelect={() => setUso(i)}>Tragos que lo usan</DropdownMenuItem>}
                     <DropdownMenuItem onSelect={() => setAction({ kind: 'merma', insumo: i })}>Registrar merma</DropdownMenuItem>
                     <DropdownMenuItem onSelect={() => setContar(i)}>Contar stock real</DropdownMenuItem>
+                    {!limited && <>
                     <DropdownMenuItem onSelect={() => onEdit({
                       id: i.id, name: i.name, unit: i.unit, containerSize: i.containerSize, containerLabel: i.containerLabel, sizes: insumoSizes(i),
                       costPerContainer: i.costPerContainer ?? null, alertDrinks: i.alertDrinks,
@@ -146,6 +149,7 @@ export function StockTab({ eventId, data, onEdit, onChanged }: {
                     <DropdownMenuItem onSelect={() => { if (window.confirm(`¿Archivar ${i.name}? Deja de aparecer en el stock y en el conteo de la barra.`)) setActive.mutate({ id: i.id, active: false }); }}>
                       Archivar
                     </DropdownMenuItem>
+                    </>}
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>

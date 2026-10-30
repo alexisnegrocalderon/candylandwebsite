@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { AdminPasswordDialog } from '@/components/admin/AdminPasswordDialog';
 import { WriteButton } from '@/components/admin/WriteButton';
 import { Button } from '@/components/ui/button';
-import { useIsDemo } from '@/lib/demoMode';
+import { useIsDemo, useIsSupervisor } from '@/lib/demoMode';
 import { StockTab } from './StockTab';
 import { RecetasTab } from './RecetasTab';
 import { ComprasTab } from './ComprasTab';
@@ -32,6 +32,8 @@ const chipBase = 'shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-sm fo
 /** Admin → Eventos → Stock de barra: insumos, recetas, lista de compras y conteos. */
 export function InsumosManager() {
   const isDemo = useIsDemo();
+  // La supervisora cuenta y corrige stock; recetas, compras, dosier y costos son del dueño.
+  const isSupervisor = useIsSupervisor();
   // Arranca en el evento real de esta noche (nunca en la cuenta de prueba) y recuerda el que elijas.
   const { events, eventId: activeId, setSelected: setEventId } = useTonightEvent();
   const [tab, setTab] = useState<Tab>('stock');
@@ -41,7 +43,7 @@ export function InsumosManager() {
   const [pdfOpen, setPdfOpen] = useState(false);
 
   const utils = trpc.useUtils();
-  const schema = trpc.insumos.schema.useQuery(undefined, { enabled: !isDemo, retry: false, staleTime: 60_000 });
+  const schema = trpc.insumos.schema.useQuery(undefined, { enabled: !isDemo && !isSupervisor, retry: false, staleTime: 60_000 });
   const ready = schema.data?.ready ?? true;
   const estado = trpc.insumos.estado.useQuery({ eventId: activeId! }, { enabled: !!activeId && ready, refetchInterval: 30_000 });
   const refresh = () => { utils.insumos.estado.invalidate(); utils.insumos.movimientos.invalidate(); utils.insumos.proyeccion.invalidate(); };
@@ -73,22 +75,22 @@ export function InsumosManager() {
             {(events ?? []).map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}
           </SelectContent>
         </Select>
-        <Button variant="outline" disabled={!ready || !activeId} onClick={() => setPdfOpen(true)} className="shrink-0 interactive">
+        {!isSupervisor && <Button variant="outline" disabled={!ready || !activeId} onClick={() => setPdfOpen(true)} className="shrink-0 interactive">
           📘 Dosier PDF
-        </Button>
-        <WriteButton variant="outline" disabled={!ready || !activeId || !data} onClick={() => setCompraOpen(true)} className="shrink-0 interactive">
+        </Button>}
+        {!isSupervisor && <WriteButton variant="outline" disabled={!ready || !activeId || !data} onClick={() => setCompraOpen(true)} className="shrink-0 interactive">
           📷 Cargar compra
-        </WriteButton>
-        <WriteButton variant="outline" disabled={!ready || !activeId} onClick={() => setDosierOpen(true)} className="shrink-0 interactive">
+        </WriteButton>}
+        {!isSupervisor && <WriteButton variant="outline" disabled={!ready || !activeId} onClick={() => setDosierOpen(true)} className="shrink-0 interactive">
           Cargar dosier
-        </WriteButton>
-        <WriteButton disabled={!ready} onClick={() => setDialog({ name: '', unit: 'ml', containerSize: 750, containerLabel: 'botella', sizes: [750], costPerContainer: null, alertDrinks: 15, initialBySize: {}, initialLoose: 0 })} className="shrink-0 interactive">
+        </WriteButton>}
+        {!isSupervisor && <WriteButton disabled={!ready} onClick={() => setDialog({ name: '', unit: 'ml', containerSize: 750, containerLabel: 'botella', sizes: [750], costPerContainer: null, alertDrinks: 15, initialBySize: {}, initialLoose: 0 })} className="shrink-0 interactive">
           <Plus className="mr-1 h-4 w-4" /> Insumo
-        </WriteButton>
+        </WriteButton>}
       </div>
 
       <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none]">
-        {TABS.map((t) => (
+        {TABS.filter((t) => !isSupervisor || t.id === 'stock' || t.id === 'historial').map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)} className={`${chipBase} interactive ${tab === t.id ? 'bg-primary text-white' : 'bg-muted text-muted-foreground hover:bg-muted/70'}`}>
             {t.label}
           </button>
@@ -99,7 +101,7 @@ export function InsumosManager() {
       {ready && activeId && !data && <p className="text-sm text-muted-foreground">Cargando…</p>}
       {ready && activeId && data && (
         <>
-          {tab === 'stock' && <StockTab eventId={activeId} data={data} onEdit={(i) => setDialog({ ...i, initialBySize: {}, initialLoose: 0 })} onChanged={refresh} />}
+          {tab === 'stock' && <StockTab eventId={activeId} data={data} limited={isSupervisor} onEdit={(i) => setDialog({ ...i, initialBySize: {}, initialLoose: 0 })} onChanged={refresh} />}
           {tab === 'recetas' && <RecetasTab data={data} onChanged={refresh} />}
           {tab === 'compras' && <ComprasTab eventId={activeId} data={data} />}
           {tab === 'dosier' && <DosierTab eventId={activeId} eventTitle={(events ?? []).find((e: any) => e.id === activeId)?.title ?? ''} data={data} onChanged={refresh} />}

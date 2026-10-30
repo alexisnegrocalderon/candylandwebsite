@@ -16,7 +16,7 @@ import {
   AlertDialogAction,
   AlertDialogCancel,
 } from '@/components/ui/alert-dialog';
-import { useDemoProps } from '@/lib/demoMode';
+import { useDemoProps, useIsSupervisor } from '@/lib/demoMode';
 
 /** Botón de borrar reusado en todo el panel admin.
  *
@@ -57,6 +57,8 @@ export function ConfirmDeleteButton({
   onOpenChange?: (open: boolean) => void;
 }) {
   const demoProps = useDemoProps();
+  // La supervisora nunca borra: el botón ni aparece (el servidor igual lo rechaza).
+  const isSupervisor = useIsSupervisor();
   const [innerOpen, setInnerOpen] = useState(false);
   const open = openProp ?? innerOpen;
   const setOpen = (v: boolean) => { setInnerOpen(v); onOpenChange?.(v); };
@@ -112,6 +114,8 @@ export function ConfirmDeleteButton({
     setWorking(false);
     await run(grant);
   };
+
+  if (isSupervisor) return null;
 
   return (
     <AlertDialog open={open} onOpenChange={(v) => (v ? setOpen(true) : close())}>

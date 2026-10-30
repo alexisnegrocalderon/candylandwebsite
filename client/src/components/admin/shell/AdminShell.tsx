@@ -4,6 +4,7 @@ import { AnimatePresence, motion, useDragControls } from 'framer-motion';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { useIsSupervisor } from '@/lib/demoMode';
 import { ADMIN_HUBS, hubBadgeCount, type AdminHub, type AdminHubId, type ShellSection } from './nav';
 import { CommandPalette } from './CommandPalette';
 import { GiftDialog } from '@/components/admin/staff/GiftDialog';
@@ -82,7 +83,8 @@ export function AdminShell({ sections, activeSection, onOpenSection, badgeCounts
   // «Regalar» a cualquier cliente desde cualquier pantalla: solo lo ve el dueño (shared/gifts.ts).
   const [giftOpen, setGiftOpen] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
-  const { data: giftAccess } = trpc.orders.canGift.useQuery(undefined, { enabled: !isDemo, retry: false, staleTime: 5 * 60_000 });
+  const isSupervisor = useIsSupervisor();
+  const { data: giftAccess } = trpc.orders.canGift.useQuery(undefined, { enabled: !isDemo && !isSupervisor, retry: false, staleTime: 5 * 60_000 });
 
   const current = sections.find((s) => s.id === activeSection) ?? sections[0];
   const activeHub = current.hub;
