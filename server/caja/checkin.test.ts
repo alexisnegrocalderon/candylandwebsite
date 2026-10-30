@@ -129,3 +129,25 @@ describe("checkInTicket", () => {
     expect(calls.updated).toBeNull();
   });
 });
+
+describe("checkInTicket con dos puertas a la vez", () => {
+  it("si otra puerta la marcó primero, responde «ya entró» en vez de dejar pasar a dos", async () => {
+    const { db } = makeFakeDb({ ticket: validTicket, ticketType: acceso });
+    let updates = 0;
+    (db as any).update = () => ({
+      set: () => ({ where: async () => { updates++; return [{ affectedRows: 0 }]; } }),
+    });
+    const res = await checkInTicket(db, baseParams);
+    expect(updates).toBe(1);
+    expect(res.result).toBe("conflict");
+    expect(res.conflictNote).toContain("ya entró");
+  });
+
+  it("la hora de «ya entró» sale en hora de Chile, no en UTC", async () => {
+    const { db } = makeFakeDb({ ticket: { ...validTicket, status: "used", usedAt: new Date("2026-10-31T02:15:00Z") }, ticketType: acceso });
+    const res = await checkInTicket(db, baseParams);
+    expect(res.result).toBe("conflict");
+    expect(res.conflictNote).not.toContain("Z");
+    expect(res.conflictNote).toContain("23:15");
+  });
+});
