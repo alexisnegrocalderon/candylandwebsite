@@ -19,7 +19,7 @@ export function MatchesView({ people, ticketCode, viewerAlias, canPhoto, onPick,
   onDiscover: () => void;
 }) {
   const now = new Date();
-  const matches = trpc.party.myMatches.useQuery({ ticketCode }, { refetchInterval: 8_000 });
+  const matches = trpc.party.myMatches.useQuery({ ticketCode }, { refetchInterval: 15_000 });
   const caramelos = people.filter((p) => p.pendingForMe);
   const list = matches.data ?? [];
   const fresh = list.filter((m) => !m.last);

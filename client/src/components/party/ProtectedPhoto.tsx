@@ -2,9 +2,10 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 /* Caché solo en memoria (se pierde al cerrar la pestaña, nunca va a disco): deja
  * pedir la foto de la siguiente tarjeta mientras se mira la actual, para que el
- * swipe no espere la red en cada tarjeta. Vence a los 60s por si la persona
- * cambió o borró su foto. */
-const PHOTO_CACHE_TTL_MS = 60_000;
+ * swipe no espere la red en cada tarjeta. Vence a los 10 min (antes 60 s): con
+ * cientos de personas en la fiesta, cada foto vista de nuevo era otra descarga
+ * desde la base. Al cambiar las propias se olvidan al tiro (forgetPhotos). */
+const PHOTO_CACHE_TTL_MS = 10 * 60_000;
 const photoCache = new Map<string, { at: number; blob: Promise<Blob> }>();
 
 function fetchPhotoBlob(ticketCode: string, profileId: number, position = 0): Promise<Blob> {
@@ -15,7 +16,7 @@ function fetchPhotoBlob(ticketCode: string, profileId: number, position = 0): Pr
   const blob = fetch(`/api/party/photo/${profileId}/${position}`, { headers: { 'x-ticket-code': ticketCode }, cache: 'no-store' })
     .then((res) => { if (!res.ok) throw new Error('sin foto'); return res.blob(); });
   blob.catch(() => photoCache.delete(key));
-  if (photoCache.size > 40) photoCache.delete(photoCache.keys().next().value as string);
+  if (photoCache.size > 80) photoCache.delete(photoCache.keys().next().value as string);
   photoCache.set(key, { at: Date.now(), blob });
   return blob;
 }

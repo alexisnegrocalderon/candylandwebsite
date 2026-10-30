@@ -7,7 +7,7 @@ import { clp, pushTitle } from '../shared/pushText';
 import { getPaymentInfo, createTopupPreference, createCardPayment } from './mercadopago';
 import { getDb, parseAttendeeNames, getOrderExtras, upsertCustomerFromOrder, upsertAttendeeContactsFromOrder, awardPlaycoins, getCustomerForAttribution, getPartyGiftByOrderId, getPartyProfileContact, markGiftPaid, matchLeadForOrder, getSiteSettings, creditPrepaid, isGiftPerPersonForCode } from './db';
 import { normalizeOrderEmailConfig } from '../shared/emailTemplateConfig';
-import { sendPushToAdmins } from './push';
+import { sendPushToAdmins, sendPushToAdminsAlways } from './push';
 import { attributeAmbassadorSale } from './ambassadorProgram';
 import { checkAndAdvanceTandaIfNeeded } from './tandaAutoAdvance';
 import { orders, orderItems, tickets, ticketTypes, events, referrals, users, customers, discountCodes } from '../drizzle/schema';
@@ -53,6 +53,14 @@ export function mapPaymentStatus(mpStatus: string | undefined): 'approved' | 're
  * Idempotente — se puede llamar más de una vez para el mismo pago sin
  * duplicar nada (tanto el webhook como el endpoint directo del Brick pueden
  * terminar llamándola para el mismo pago). */
+/** Filas que tocó un UPDATE de drizzle/mysql2 (`[ResultSetHeader, ...]`);
+ * `undefined` si el driver no lo informa, para no tratarlo como «nada cambió». */
+function affectedRowsOf(res: unknown): number | undefined {
+  const header = Array.isArray(res) ? res[0] : res;
+  const n = (header as { affectedRows?: unknown } | undefined)?.affectedRows;
+  return typeof n === 'number' ? n : undefined;
+}
+
 export async function applyPaymentResult(input: {
   orderNumber: string;
   paymentId: string;
@@ -70,48 +78,80 @@ export async function applyPaymentResult(input: {
     return { ok: true, alreadyProcessed: true };
   }
 
-  await db.update(orders).set({
+  // Una compra aprobada nunca vuelve atrás por un aviso tardío: si la primera
+  // tarjeta se rechazó y el reintento se aprobó, el aviso del rechazo (otro
+  // paymentId) puede llegar después y dejaba la compra como rechazada -- y la
+  // puerta, que solo baja las aprobadas, no la encontraba. Las devoluciones
+  // se hacen desde el panel, no por acá.
+  if (order.paymentStatus === 'approved' && input.status !== 'approved') {
+    console.warn(`[Webhook] Ignorado: ${input.status} para la orden ${order.orderNumber}, que ya estaba aprobada (pago ${input.paymentId})`);
+    return { ok: true, alreadyProcessed: true, reason: 'already approved' };
+  }
+
+  // El pago del abono de Misión 300 y el pago de la diferencia (topup)
+  // son DOS pagos separados sobre la MISMA orden (mismo orderNumber
+  // como external_reference). Si ya hay un topup pendiente, este pago
+  // aprobado es la diferencia, no una compra nueva.
+  const isTopupPayment = order.missionTopupStatus === 'pending';
+  const isMissionDeposit = order.missionDeposit === 1 && order.missionTopupStatus === 'none';
+
+  // UPDATE condicional: el webhook y la respuesta directa del pago con
+  // tarjeta pueden llegar casi juntos para la misma compra; solo el primero
+  // que la pasa a aprobada suma el stock y genera las entradas.
+  const firstApproval = input.status === 'approved' && !isTopupPayment;
+  const updateRes = await db.update(orders).set({
     paymentStatus: input.status,
     paymentId: input.paymentId,
     paymentMethod: input.paymentMethodId || undefined,
-  }).where(eq(orders.id, order.id));
+  }).where(firstApproval ? and(eq(orders.id, order.id), ne(orders.paymentStatus, 'approved')) : eq(orders.id, order.id));
+  if (firstApproval && affectedRowsOf(updateRes) === 0) {
+    return { ok: true, alreadyProcessed: true };
+  }
 
   if (input.status === 'approved') {
-    // El pago del abono de Misión 300 y el pago de la diferencia (topup)
-    // son DOS pagos separados sobre la MISMA orden (mismo orderNumber
-    // como external_reference). Si ya hay un topup pendiente, este pago
-    // aprobado es la diferencia, no una compra nueva.
-    const isTopupPayment = order.missionTopupStatus === 'pending';
-    const isMissionDeposit = order.missionDeposit === 1 && order.missionTopupStatus === 'none';
-
-    // Recién acá, con el pago confirmado, se suma al stock vendido (y por lo
-    // tanto al contador de Misión 300) — createOrder no lo toca porque en ese
-    // momento la orden todavía puede cancelarse o quedar abandonada. El pago
-    // del topup NO vuelve a sumar: las entradas ya se contaron cuando se
-    // aprobó el abono original.
-    if (!isTopupPayment) {
-      const items = await db.select().from(orderItems).where(eq(orderItems.orderId, order.id));
-      for (const item of items) {
-        await db.update(ticketTypes).set({ soldCount: sql`soldCount + ${item.quantity}` }).where(eq(ticketTypes.id, item.ticketTypeId));
+    try {
+      // Recién acá, con el pago confirmado, se suma al stock vendido (y por lo
+      // tanto al contador de Misión 300) — createOrder no lo toca porque en ese
+      // momento la orden todavía puede cancelarse o quedar abandonada. El pago
+      // del topup NO vuelve a sumar: las entradas ya se contaron cuando se
+      // aprobó el abono original.
+      if (!isTopupPayment) {
+        const items = await db.select().from(orderItems).where(eq(orderItems.orderId, order.id));
+        for (const item of items) {
+          await db.update(ticketTypes).set({ soldCount: sql`soldCount + ${item.quantity}` }).where(eq(ticketTypes.id, item.ticketTypeId));
+        }
+        // Esta compra puede ser justo la que agota el cupo compartido de la
+        // tanda vigente -- chequea acá mismo si toca pasar de fase sola, en
+        // vez de esperar el próximo poll de otro visitante (ver
+        // server/tandaAutoAdvance.ts).
+        if (order.eventId) await checkAndAdvanceTandaIfNeeded(order.eventId);
       }
-      // Esta compra puede ser justo la que agota el cupo compartido de la
-      // tanda vigente -- chequea acá mismo si toca pasar de fase sola, en
-      // vez de esperar el próximo poll de otro visitante (ver
-      // server/tandaAutoAdvance.ts).
-      if (order.eventId) await checkAndAdvanceTandaIfNeeded(order.eventId);
-    }
 
-    if (isMissionDeposit) {
-      // Abono aprobado: todavía no se sabe si se junta la meta, así que no se
-      // genera ticket/QR — solo se avisa que ya está participando.
-      if (!order.depositEmailSent) await sendMissionDepositEmail(order);
-    } else if (isTopupPayment) {
-      // Diferencia pagada: ahora sí se genera el ticket con QR.
-      await db.update(orders).set({ missionTopupStatus: 'paid' }).where(eq(orders.id, order.id));
-      if (!order.emailSent) await processApprovedOrder(order);
-    } else if (!order.emailSent) {
-      // Compra normal a precio general (fuera de la ventana de Misión 300).
-      await processApprovedOrder(order);
+      if (isMissionDeposit) {
+        // Abono aprobado: todavía no se sabe si se junta la meta, así que no se
+        // genera ticket/QR — solo se avisa que ya está participando.
+        if (!order.depositEmailSent) await sendMissionDepositEmail(order);
+      } else if (isTopupPayment) {
+        // Diferencia pagada: ahora sí se genera el ticket con QR. Condicional
+        // por la misma carrera de arriba: solo uno de los dos avisos sigue.
+        const topupRes = await db.update(orders).set({ missionTopupStatus: 'paid' })
+          .where(and(eq(orders.id, order.id), eq(orders.missionTopupStatus, 'pending')));
+        if (affectedRowsOf(topupRes) === 0) return { ok: true, alreadyProcessed: true };
+        if (!order.emailSent) await processApprovedOrder(order);
+      } else if (!order.emailSent) {
+        // Compra normal a precio general (fuera de la ventana de Misión 300).
+        await processApprovedOrder(order);
+      }
+    } catch (err) {
+      // El pago ya quedó aprobado, así que ningún reintento vuelve a generar
+      // las entradas: el dueño tiene que enterarse para resolverlo a mano.
+      console.error(`[Webhook] Pago aprobado pero falló el procesamiento de ${order.orderNumber}:`, err);
+      await sendPushToAdminsAlways({
+        title: '⚠️ Venta web pagada sin entradas',
+        body: `${order.buyerName ?? order.buyerEmail ?? 'Una compra'} (${order.orderNumber}) pagó, pero no se completaron sus entradas o su correo. Revísala en Ventas Web: si ya tiene entradas usa «Reenviar»; si no, créale un acceso manual.`,
+        url: '/admin?section=orders-web',
+      }).catch(() => {});
+      throw err;
     }
   }
 

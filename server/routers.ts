@@ -624,6 +624,14 @@ async function upgradeErrorsAsBadRequest<T>(fn: () => Promise<T>): Promise<T> {
 
 /** Quién recarga la PlayCard: el dueño de un ticket (link de la tarjeta
  * digital) o el correo ya validado con el código (sesión firmada). */
+/** Topes por IP de lo que hacen los clientes en la fiesta. Cientos de personas
+ * pueden salir a internet por la misma IP (el WiFi del local o la misma antena
+ * del celular), así que la IP solo frena abusos masivos; el tope de verdad va
+ * por correo, entrada o compra en cada endpoint. */
+const SHARED_IP_SEND_CAP = 100;
+const SHARED_IP_VERIFY_CAP = 200;
+const SHARED_IP_CREATE_CAP = 150;
+
 async function resolveTopupIdentity(input: { ticketCode?: string; sessionToken?: string; member?: boolean }, req?: Parameters<typeof getMemberEmail>[0]): Promise<TopupIdentity> {
   let identity: TopupIdentity | null = null;
   if (input.member && req) {
@@ -5069,7 +5077,7 @@ export const appRouter = router({
       if (!(await db.checkIpRateLimit(ipKey)) || !(await db.checkIpRateLimit(emailKey))) {
         throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Pediste muchos códigos. Espera un rato e intenta de nuevo.' });
       }
-      await db.recordIpAttempt(ipKey, 10, 60 * 60 * 1000);
+      await db.recordIpAttempt(ipKey, SHARED_IP_SEND_CAP, 60 * 60 * 1000);
       await db.recordIpAttempt(emailKey, 5, 60 * 60 * 1000);
       if (!(await members.sendMemberCode(email))) {
         throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'No pudimos mandar el correo. Revisa que esté bien escrito e intenta de nuevo en un minuto.' });
@@ -5080,7 +5088,7 @@ export const appRouter = router({
     requestCodeForPurchase: publicProcedure.input(z.object({ ticketCode: z.string().max(64).optional(), orderNumber: z.string().max(32).optional() })).mutation(async ({ input, ctx }) => {
       const ipKey = `member-send-ip:${clientIp(ctx)}`;
       if (!(await db.checkIpRateLimit(ipKey))) throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Pediste muchos códigos. Espera un rato e intenta de nuevo.' });
-      await db.recordIpAttempt(ipKey, 10, 60 * 60 * 1000);
+      await db.recordIpAttempt(ipKey, SHARED_IP_SEND_CAP, 60 * 60 * 1000);
       const email = await members.emailForTicketOrOrder(input);
       if (!email) throw new TRPCError({ code: 'NOT_FOUND', message: 'No encontramos esa compra.' });
       const emailKey = `member-send:${email}`;
@@ -5116,7 +5124,7 @@ export const appRouter = router({
       }
       if (!verifyMemberCode(email, input.code)) {
         await db.recordIpAttempt(emailKey, 5, 15 * 60 * 1000);
-        await db.recordIpAttempt(ipKey, 20, 15 * 60 * 1000);
+        await db.recordIpAttempt(ipKey, SHARED_IP_VERIFY_CAP, 15 * 60 * 1000);
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Código incorrecto o vencido.' });
       }
       // Primera vez de alguien que nunca compró: su ficha nace acá, con el correo ya comprobado.
@@ -5470,7 +5478,7 @@ export const appRouter = router({
       const ipKey = `customer-push:${clientIp(ctx)}`;
       if (!(await db.checkIpRateLimit(ipKey))) throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos. Prueba de nuevo en un rato.' });
       // Generoso: en la fiesta mucha gente sale por la misma IP (WiFi del local).
-      await db.recordIpAttempt(ipKey, 200, 30 * 60 * 1000);
+      await db.recordIpAttempt(ipKey, 2000, 30 * 60 * 1000);
       return customerPush.subscribeCustomer(input);
     }),
     link: publicProcedure.input(z.object({ endpoint: z.string().url().max(512), ticketCode: z.string().max(64) })).mutation(async ({ input }) => {
@@ -7912,7 +7920,7 @@ export const appRouter = router({
       if (!(await db.checkIpRateLimit(ipKey)) || !(await db.checkIpRateLimit(emailKey))) {
         throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Pediste muchos códigos. Espera un rato e intenta de nuevo.' });
       }
-      await db.recordIpAttempt(ipKey, 10, 60 * 60 * 1000);
+      await db.recordIpAttempt(ipKey, SHARED_IP_SEND_CAP, 60 * 60 * 1000);
       await db.recordIpAttempt(emailKey, 5, 60 * 60 * 1000);
 
       const identity = await identityFromEmail(email);
@@ -7937,7 +7945,7 @@ export const appRouter = router({
       const identity = await identityFromEmail(email);
       if (!identity || !verifyLoginCode(email, input.code)) {
         await db.recordIpAttempt(emailKey, 5, 15 * 60 * 1000);
-        await db.recordIpAttempt(ipKey, 20, 15 * 60 * 1000);
+        await db.recordIpAttempt(ipKey, SHARED_IP_VERIFY_CAP, 15 * 60 * 1000);
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Código incorrecto o vencido.' });
       }
       return { sessionToken: signTopupSession(email) };
@@ -7956,7 +7964,7 @@ export const appRouter = router({
       if (!(await db.checkIpRateLimit(ipKey)) || !(await db.checkIpRateLimit(emailKey))) {
         throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Pediste muchos códigos. Espera un rato e intenta de nuevo.' });
       }
-      await db.recordIpAttempt(ipKey, 10, 60 * 60 * 1000);
+      await db.recordIpAttempt(ipKey, SHARED_IP_SEND_CAP, 60 * 60 * 1000);
       await db.recordIpAttempt(emailKey, 5, 60 * 60 * 1000);
       const html = buildTopupCodeEmail({ code: currentLoginCode(identity.email), purpose: 'pin' });
       await sendEmail({ to: identity.email, subject: '🔐 Tu código para cambiar el PIN de la PlayCard', html });
@@ -7980,7 +7988,7 @@ export const appRouter = router({
       }
       if (!verifyLoginCode(identity.email, input.code)) {
         await db.recordIpAttempt(emailKey, 5, 15 * 60 * 1000);
-        await db.recordIpAttempt(ipKey, 20, 15 * 60 * 1000);
+        await db.recordIpAttempt(ipKey, SHARED_IP_VERIFY_CAP, 15 * 60 * 1000);
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Código incorrecto o vencido.' });
       }
       try {
@@ -8017,7 +8025,14 @@ export const appRouter = router({
         throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos. Espera un rato e intenta de nuevo.' });
       }
       const identity = await resolveTopupIdentity(input, ctx.req);
-      await db.recordIpAttempt(ipKey, 15, 60 * 60 * 1000);
+      // El tope real es por persona: en la fiesta mucha gente sale a internet
+      // por la misma IP (WiFi o la misma antena del celular).
+      const personKey = `topup-create-p:${identity.email || input.ticketCode || clientIp(ctx)}`;
+      if (!(await db.checkIpRateLimit(personKey))) {
+        throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos. Espera un rato e intenta de nuevo.' });
+      }
+      await db.recordIpAttempt(personKey, 15, 60 * 60 * 1000);
+      await db.recordIpAttempt(ipKey, SHARED_IP_CREATE_CAP, 60 * 60 * 1000);
       try {
         return await createTopupOrder(identity, { ticketTypeId: input.ticketTypeId, pin: input.pin });
       } catch (err) {
@@ -8049,7 +8064,13 @@ export const appRouter = router({
       }
       const orderId = await orderIdFromTicketCode(input.ticketCode);
       if (!orderId) throw new TRPCError({ code: 'NOT_FOUND', message: 'No encontramos esta entrada.' });
-      await db.recordIpAttempt(ipKey, 15, 60 * 60 * 1000);
+      // Tope por compra (no solo por IP compartida): ver topup-create.
+      const orderKey = `addon-create-o:${orderId}`;
+      if (!(await db.checkIpRateLimit(orderKey))) {
+        throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos. Espera un rato e intenta de nuevo.' });
+      }
+      await db.recordIpAttempt(orderKey, 15, 60 * 60 * 1000);
+      await db.recordIpAttempt(ipKey, SHARED_IP_CREATE_CAP, 60 * 60 * 1000);
       try {
         const { addon } = await createAddonRequest({
           orderId,

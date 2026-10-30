@@ -254,8 +254,13 @@ function Scanner({ operatorName, operatorRole }: { operatorName: string; operato
             } else {
               patchParking(opId, { status: 'ok' });
             }
-          } else if (res.result === 'conflict') {
-            toast.warning(res.conflictNote || 'Conflicto al sincronizar');
+          } else if (failed) {
+            // Una entrada que el servidor no aceptó (ya había entrado por otra
+            // puerta, o se anuló) ya pasó por esta: aviso fuerte y que no se
+            // cierre solo, para que el guardia ubique a la persona.
+            playTone('error');
+            vibrateAlert([300, 120, 300]);
+            toast.error(`⚠️ Revisa esta entrada: ${res.conflictNote || 'el servidor no la aceptó'}`, { duration: 30_000 });
           }
         }
         await clearSyncedOps();

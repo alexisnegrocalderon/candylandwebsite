@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { tickets, ticketTypes } from "../../drizzle/schema";
 import { applyOp } from "./ops";
 
@@ -38,7 +38,7 @@ export async function checkInTicket(
       if (ticket.eventId !== params.eventId) return { result: "rejected" as const, conflictNote: "El código no corresponde a este evento" };
       if (ticket.status === "cancelled") return { result: "rejected" as const, conflictNote: "El acceso fue anulado" };
       if (ticket.status === "used") {
-        return { result: "conflict" as const, conflictNote: `Esta persona ya entró el ${ticket.usedAt?.toISOString?.() ?? ticket.usedAt}` };
+        return { result: "conflict" as const, conflictNote: alreadyInNote(ticket.usedAt) };
       }
 
       const [tt] = await db.select().from(ticketTypes).where(eq(ticketTypes.id, ticket.ticketTypeId)).limit(1);
@@ -46,16 +46,32 @@ export async function checkInTicket(
         return { result: "rejected" as const, conflictNote: "Ese código es de un extra, no de un acceso" };
       }
 
-      await db.update(tickets).set({
+      // UPDATE condicional: si dos puertas marcan la misma entrada a la vez (un QR
+      // compartido por pantallazo), solo una pasa de válida a usada; la otra
+      // recibe "ya entró" en vez de dejar pasar a dos personas con un solo QR.
+      const res = await db.update(tickets).set({
         status: "used",
         usedAt: new Date(),
         usedByOperatorId: params.operatorId,
         usedAtRegisterId: params.registerId ?? null,
-      }).where(eq(tickets.id, ticket.id));
+      }).where(and(eq(tickets.id, ticket.id), eq(tickets.status, ticket.status)));
+      const affected = Array.isArray(res) ? res[0]?.affectedRows : res?.affectedRows;
+      if (affected === 0) {
+        const [now] = await db.select().from(tickets).where(eq(tickets.id, ticket.id)).limit(1);
+        return { result: "conflict" as const, conflictNote: alreadyInNote(now?.usedAt) };
+      }
 
       return { result: "applied" as const };
     }
   );
 
   return { result, conflictNote };
+}
+
+/** "Ya entró a las 23:15" en hora de Chile (antes salía en UTC, ej. 2026-10-31T02:15:00.000Z). */
+function alreadyInNote(usedAt: unknown): string {
+  const d = usedAt ? new Date(usedAt as string | Date) : null;
+  if (!d || Number.isNaN(d.getTime())) return 'Esta persona ya entró';
+  const hora = d.toLocaleTimeString('es-CL', { timeZone: 'America/Santiago', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+  return `Esta persona ya entró a las ${hora}`;
 }
