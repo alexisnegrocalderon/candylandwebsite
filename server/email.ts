@@ -2493,3 +2493,41 @@ export function buildContestRankingEmail(data: {
     `,
   });
 }
+
+/** Correo cuando se devuelven solo algunos extras (tragos, estacionamiento…) de una compra: el acceso sigue igual. */
+export function buildExtrasRefundEmail(data: {
+  buyerName: string;
+  eventTitle: string;
+  orderNumber: string;
+  extras: string[];
+  refundAmount: number;
+}) {
+  const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
+  const clp = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
+  const list = data.extras.map((e) => `<li style="margin:0 0 4px;">${esc(e)}</li>`).join('');
+  return emailShell({
+    preheader: `Registramos la devolución de tus extras de ${esc(data.eventTitle)}.`,
+    pageBg: DISCO_BG,
+    hero: emailHero({
+      accent: 'yellow',
+      heroBg: DISCO_HERO_BG,
+      emoji: '💸',
+      title: `Hola, ${esc(data.buyerName)}`,
+      subtitle: 'Registramos la devolución de tus extras.',
+    }),
+    body: `
+      <p style="color:${MUTED};font-size:15px;line-height:1.6;margin:0 0 16px;">
+        De tu compra <strong style="color:${INK};">${esc(data.orderNumber)}</strong> de
+        <strong style="color:${INK};">${esc(data.eventTitle)}</strong> devolvimos estos extras, que ya no se pueden canjear:
+      </p>
+      <ul style="color:${INK};font-size:15px;line-height:1.5;margin:0 0 20px;padding-left:20px;">${list}</ul>
+      ${card(`
+        <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 6px;text-align:center;">Monto a devolver</p>
+        <p style="color:${ACCENT.gold.text};font-size:30px;font-weight:800;margin:0 0 4px;text-align:center;">${clp(data.refundAmount)}</p>
+      `, { glow: 'gold' })}
+      <p style="color:${MUTED};font-size:13px;line-height:1.6;margin:20px 0 0;">
+        La devolución se hace por el mismo medio de pago con el que pagaste. Si tienes dudas, responde este correo o escríbenos por Instagram.
+      </p>
+    `,
+  });
+}

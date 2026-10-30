@@ -201,7 +201,7 @@ import { generateReelScript } from "./reelScript";
 import { generateProfileAudit } from "./profileAudit";
 import { syncInstagramStats } from "./instagramStats";
 import { getInstagramShowcase } from "./instagramFeed";
-import { refundOrder } from "./orderRefund";
+import { refundOrder, refundOrderExtras, listOrderExtras } from "./orderRefund";
 import { cancelGiftPass, issueAccessCreditsForOrder, issueGiftPass, listAccessCredits, listCreditsByOrderIds, listGiftPasses, remindAccessCredit } from "./accessCredit";
 import { AUTOMATION_BUTTON_KINDS, AUTOMATION_BUTTON_TITLE_MAX, isAllowedCustomButtonUrl } from "../shared/automationButton";
 import { normalizeIgHandle } from "../shared/igCustomerLink";
@@ -1758,6 +1758,20 @@ export const appRouter = router({
         return await refundOrder({ ...input, ip: clientIp(ctx) });
       } catch (err) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo registrar la devolución.' });
+      }
+    }),
+    // Devolver solo algunos extras (tragos, estacionamiento…) sin tocar el acceso.
+    extras: adminReadProcedure.input(z.object({ orderId: z.number() })).query(async ({ input }) => listOrderExtras(input.orderId)),
+    refundExtras: adminPasswordProcedure.input(z.object({
+      orderId: z.number(),
+      ticketIds: z.array(z.number()).min(1).max(30),
+      amount: z.number().int().min(1).optional(),
+      reason: z.string().max(300).optional(),
+    })).mutation(async ({ input, ctx }) => {
+      try {
+        return await refundOrderExtras({ ...input, ip: clientIp(ctx) });
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo registrar la devolución de extras.' });
       }
     }),
   }),
