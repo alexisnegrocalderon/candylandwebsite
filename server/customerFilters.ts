@@ -7,6 +7,7 @@ import { customers, orders } from '../drizzle/schema';
 import { INACTIVE_AFTER_DAYS, VIP_SPENT_THRESHOLD_CLP, type CustomerLevel } from '../shared/customerInsights';
 import { escapeLikePattern } from '../shared/sqlLike';
 import { PLACEHOLDER_BUYER_EMAILS } from '../shared/parking';
+import { COMPANION_EMAIL_SUFFIX } from '../shared/companion';
 import { getDb, looksLikeRutSearch, rutDigits, type CustomerListFilters } from './db';
 
 export type CustomerPageFilters = CustomerListFilters & { hasApp?: boolean; withoutApp?: boolean };
@@ -59,6 +60,7 @@ export function customerWhere(filters: CustomerPageFilters, now: Date, appEmails
   for (const tag of filters.excludeTags ?? []) c.push(sql`NOT (${jsonHas(customers.tags, tag)})`);
   if (filters.forMailing) {
     c.push(eq(customers.emailOptOut, 0));
+    c.push(sql`LOWER(${customers.email}) NOT LIKE ${`%${COMPANION_EMAIL_SUFFIX}`}`);
     // Las cuentas internas (caja, invitaciones) no son personas: nunca van en un mailing.
     c.push(sql`LOWER(${customers.email}) NOT IN (${sql.join(Array.from(PLACEHOLDER_BUYER_EMAILS).map((e) => sql`${e}`), sql`, `)})`);
   }

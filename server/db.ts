@@ -42,6 +42,7 @@ import type { AdminAlertsConfig } from '../shared/adminAlertsConfig';
 import { isParkingTicketType, isAnyParkingTicketType, classifyParkingOrigin, summarizeParkingCounts, listDoorParkingOptions, PLACEHOLDER_BUYER_EMAILS } from '../shared/parking';
 import { normalizeRut } from '../shared/rut';
 import { escapeLikePattern } from '../shared/sqlLike';
+import { COMPANION_EMAIL_SUFFIX, COMPANION_TAG } from '../shared/companion';
 import { computeCustomerLevel, hasBirthdayInMonth, mergeFromOrder, parseLockedFields } from '../shared/customerInsights';
 import { generateTicketQR } from './qr';
 import { generateDisplayCode, fallbackInternalCode } from './caja/displayCode';
@@ -5663,6 +5664,7 @@ export async function upsertCustomerFromOrder(order: any, accesoSlugs: string[])
     // attendeeData mal formado -- no bloquea el registro del cliente.
   }
 
+  await absorbCompanionPlaceholder(db, rut);
   const email = order.buyerEmail.trim().toLowerCase();
   const [existing] = await db.select().from(customers).where(eq(customers.email, email)).limit(1);
   const existingAccessTypes: string[] = Array.isArray(existing?.accessTypes) ? existing!.accessTypes as string[] : [];
@@ -5698,8 +5700,65 @@ export async function upsertCustomerFromOrder(order: any, accesoSlugs: string[])
 
 // --- Acompañantes como contactos (sin correo, nunca entran al mailing) ---
 
+export { COMPANION_EMAIL_SUFFIX, COMPANION_TAG };
+
+export function companionCustomerEmail(rutKey: string, name: string): string {
+  const key = rutKey || `n-${foldSearch(name).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60)}`;
+  return `acomp.${key}${COMPANION_EMAIL_SUFFIX}`;
+}
+
+const rutColumnDigits = () => sql`REPLACE(REPLACE(REPLACE(LOWER(${customers.rut}), '.', ''), '-', ''), ' ', '')`;
+
+/** Ficha de cliente propia para un acompañante (con la etiqueta «Acompañante»), para que aparezca en
+ * Clientes y se pueda buscar y etiquetar como cualquiera. Sin correo: queda en baja de correo, así que
+ * ningún mailing le llega. Si esa persona ya es cliente (mismo RUT) no se duplica. */
+async function ensureCompanionCustomer(
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
+  a: { name: string; rut: string | null },
+  order: any,
+) {
+  const rutKey = a.rut ? rutDigits(a.rut) : '';
+  if (rutKey) {
+    const [real] = await db.select({ id: customers.id }).from(customers)
+      .where(and(sql`${rutColumnDigits()} = ${rutKey}`, sql`${customers.email} NOT LIKE ${`%${COMPANION_EMAIL_SUFFIX}`}`)).limit(1);
+    if (real) return;
+  }
+  const email = companionCustomerEmail(rutKey, a.name);
+  const [existing] = await db.select().from(customers).where(eq(customers.email, email)).limit(1);
+  if (existing) {
+    const tags: string[] = Array.isArray(existing.tags) ? (existing.tags as string[]) : [];
+    await db.update(customers).set({
+      tags: tags.includes(COMPANION_TAG) ? tags : [...tags, COMPANION_TAG],
+      rut: existing.rut ?? a.rut,
+      lastSeenAt: new Date(),
+    }).where(eq(customers.id, existing.id));
+    return;
+  }
+  await db.insert(customers).values({
+    email, fullName: a.name, rut: a.rut,
+    accessTypes: [], tags: [COMPANION_TAG],
+    totalOrders: 0, totalSpent: '0',
+    emailOptOut: 1, optOutReason: 'Acompañante sin correo',
+    source: 'acompanante',
+    notes: `Vino como acompañante en la compra de ${order.buyerName ?? order.buyerEmail ?? 'otra persona'} (orden ${order.orderNumber ?? order.id}).`,
+  });
+}
+
+/** Cuando alguien que antes vino de acompañante compra con su propio correo, su ficha real reemplaza a la
+ * inventada (mismo RUT). */
+async function absorbCompanionPlaceholder(db: NonNullable<Awaited<ReturnType<typeof getDb>>>, rut: string | null) {
+  const rutKey = rut ? rutDigits(rut) : '';
+  if (!rutKey) return;
+  try {
+    await db.delete(customers).where(and(like(customers.email, `%${COMPANION_EMAIL_SUFFIX}`), sql`${rutColumnDigits()} = ${rutKey}`));
+  } catch (err) {
+    console.warn('[customers] no se pudo unir la ficha de acompañante con la real', err);
+  }
+}
+
+
 /** Registra a cada acompañante (no al titular) de una orden aprobada en
- * `attendee_contacts`. Une por RUT, o por nombre sin tildes si no dieron RUT;
+ * `attendee_contacts` y le crea su ficha en Clientes (etiqueta «Acompañante»). Une por RUT, o por nombre sin tildes si no dieron RUT;
  * idempotente por orden (reprocesar la misma orden no duplica nada). */
 export async function upsertAttendeeContactsFromOrder(order: any): Promise<number> {
   const db = await getDb();
@@ -5735,6 +5794,7 @@ export async function upsertAttendeeContactsFromOrder(order: any): Promise<numbe
         orderIds: [order.id], eventIds: order.eventId ? [order.eventId] : [],
       });
     }
+    await ensureCompanionCustomer(db, a, order);
     saved++;
   }
   return saved;
@@ -6314,7 +6374,8 @@ export async function listCustomers(filters: CustomerListFilters = {}) {
   if (filters.tag) {
     rows = rows.filter((c: any) => Array.isArray(c.tags) && c.tags.includes(filters.tag));
   }
-  if (filters.forMailing) rows = rows.filter((c: any) => !c.emailOptOut);
+  // Las fichas de acompañantes (correo inventado) quedan fuera aunque alguien les quite la baja.
+  if (filters.forMailing) rows = rows.filter((c: any) => !c.emailOptOut && !String(c.email).endsWith(COMPANION_EMAIL_SUFFIX));
   if (filters.optedOut === 'email') rows = rows.filter((c: any) => !!c.emailOptOut);
   if (filters.optedOut === 'any') rows = rows.filter((c: any) => !!c.emailOptOut || !!c.whatsappOptOut);
   if (filters.city) {
