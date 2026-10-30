@@ -42,6 +42,7 @@ import type { AdminAlertsConfig } from '../shared/adminAlertsConfig';
 import { isParkingTicketType, isAnyParkingTicketType, classifyParkingOrigin, summarizeParkingCounts, listDoorParkingOptions, PLACEHOLDER_BUYER_EMAILS } from '../shared/parking';
 import { normalizeRut } from '../shared/rut';
 import { escapeLikePattern } from '../shared/sqlLike';
+import { COMPANION_EMAIL_SUFFIX, COMPANION_TAG } from '../shared/companion';
 import { computeCustomerLevel, hasBirthdayInMonth, mergeFromOrder, parseLockedFields } from '../shared/customerInsights';
 import { generateTicketQR } from './qr';
 import { generateDisplayCode, fallbackInternalCode } from './caja/displayCode';
@@ -5699,10 +5700,7 @@ export async function upsertCustomerFromOrder(order: any, accesoSlugs: string[])
 
 // --- Acompañantes como contactos (sin correo, nunca entran al mailing) ---
 
-/** Los acompañantes no dan correo: su ficha de cliente lleva uno inventado en un dominio que no existe
- * (`.invalid`), que sirve de clave única y nunca recibe nada. */
-export const COMPANION_EMAIL_SUFFIX = '@sin-correo.invalid';
-export const COMPANION_TAG = 'Acompañante';
+export { COMPANION_EMAIL_SUFFIX, COMPANION_TAG };
 
 export function companionCustomerEmail(rutKey: string, name: string): string {
   const key = rutKey || `n-${foldSearch(name).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60)}`;

@@ -7,7 +7,8 @@ import { customers, orders } from '../drizzle/schema';
 import { INACTIVE_AFTER_DAYS, VIP_SPENT_THRESHOLD_CLP, type CustomerLevel } from '../shared/customerInsights';
 import { escapeLikePattern } from '../shared/sqlLike';
 import { PLACEHOLDER_BUYER_EMAILS } from '../shared/parking';
-import { getDb, looksLikeRutSearch, rutDigits, COMPANION_EMAIL_SUFFIX, type CustomerListFilters } from './db';
+import { COMPANION_EMAIL_SUFFIX } from '../shared/companion';
+import { getDb, looksLikeRutSearch, rutDigits, type CustomerListFilters } from './db';
 
 export type CustomerPageFilters = CustomerListFilters & { hasApp?: boolean; withoutApp?: boolean };
 
