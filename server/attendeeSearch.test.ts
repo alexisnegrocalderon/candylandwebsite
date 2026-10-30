@@ -46,3 +46,17 @@ describe('listAttendeeSlots con pasaporte', () => {
     ]);
   });
 });
+
+import { companionCustomerEmail, COMPANION_EMAIL_SUFFIX } from './db';
+
+describe('correo inventado de la ficha del acompañante', () => {
+  it('con RUT usa los dígitos, igual con cualquier formato', () => {
+    expect(companionCustomerEmail('123456785', 'Luz Soto')).toBe(`acomp.123456785${COMPANION_EMAIL_SUFFIX}`);
+  });
+  it('sin RUT usa el nombre sin tildes ni símbolos', () => {
+    expect(companionCustomerEmail('', 'José Núñez')).toBe(`acomp.n-jose-nunez${COMPANION_EMAIL_SUFFIX}`);
+  });
+  it('nunca es un correo real: el dominio no existe', () => {
+    expect(COMPANION_EMAIL_SUFFIX.endsWith('.invalid')).toBe(true);
+  });
+});

@@ -26,7 +26,7 @@ export function AttendeeContactsPanel({ search }: { search: string }) {
   const { data } = trpc.customers.attendees.useQuery({ search: search || undefined });
   const utils = trpc.useUtils();
   const backfill = trpc.customers.backfillAttendees.useMutation({
-    onSuccess: (r) => { toast.success(`Listo: ${r.contacts} acompañantes en la base (${r.orders} órdenes revisadas).`); utils.customers.attendees.invalidate(); },
+    onSuccess: (r) => { toast.success(`Listo: ${r.contacts} acompañantes con su ficha en Clientes (${r.orders} órdenes revisadas).`); utils.customers.attendees.invalidate(); },
     onError: onMutationError,
   });
   const [open, setOpen] = useState(false);
@@ -38,7 +38,7 @@ export function AttendeeContactsPanel({ search }: { search: string }) {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <h3 className="font-heading text-lg">Acompañantes</h3>
-            <p className="text-sm text-muted-foreground">{rows.length} persona{rows.length !== 1 ? 's' : ''} que vinieron en la compra de otro, con su RUT. No reciben correos.</p>
+            <p className="text-sm text-muted-foreground">{rows.length} persona{rows.length !== 1 ? 's' : ''} que vinieron en la compra de otro, con su RUT. Cada una también tiene su ficha en la lista de arriba, con la etiqueta «Acompañante» (busca por nombre o RUT). No reciben correos.</p>
           </div>
           <Button size="sm" variant="outline" disabled={backfill.isPending} onClick={() => backfill.mutate()}>
             {backfill.isPending ? 'Revisando…' : 'Cargar compras anteriores'}
