@@ -26,3 +26,23 @@ describe('findMatchedAttendee', () => {
     expect(findMatchedAttendee(data, 'Ana Pérez', 'zzz')).toBeNull();
   });
 });
+
+import { listAttendeeSlots } from './db';
+
+describe('listAttendeeSlots con pasaporte', () => {
+  const withPassport = JSON.stringify({
+    campos: {
+      buyer__nombre: 'Ana Pérez', buyer__rut: '11.111.111-1',
+      acceso__acomp1_nombre: 'Joana Silva', acceso__acomp1_rut: 'FH123456', acceso__acomp1_docTipo: 'passport',
+      acceso__acomp2_nombre: 'Luz Soto', acceso__acomp2_rut: '12.345.678-5',
+    },
+  });
+  it('lee el tipo de documento de cada persona (RUT por defecto)', () => {
+    const slots = listAttendeeSlots(withPassport, null);
+    expect(slots.map((s) => [s.fullName, s.docType, s.rut])).toEqual([
+      ['Ana Pérez', 'rut', '11.111.111-1'],
+      ['Joana Silva', 'passport', 'FH123456'],
+      ['Luz Soto', 'rut', '12.345.678-5'],
+    ]);
+  });
+});
