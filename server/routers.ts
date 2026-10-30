@@ -35,7 +35,7 @@ import { recordDoorAlert } from "./caja/doorAlert";
 import { DOOR_ALERT_COOLDOWN_MS, DOOR_ALERT_KEYS, DOOR_ALERT_NOTE_MAX } from "../shared/doorAlert";
 import { MANUAL_LIMITS, isManualKey } from "../shared/staffManuals";
 import * as solteros from "./solteros";
-import { AVATARS_PER_GENDER, DEFAULT_LOOKING_FOR, LOOKING_FOR_KEYS, PAIR_TYPES, ORIENTATIONS, RELATION_STYLES, INTENTS, MAX_INTENTS, serializeIntents, parseIntents, MAX_PARTY_PHOTOS, MAX_REWINDS_PER_EVENT, PARTY_GENDERS, PARTY_ZONES, parseLookingFor, sanitizeCostume, serializeLookingFor, canPreRegister, partyEntryDenial, sanitizeAlias, sanitizeGiftMessage, sanitizeMessage, isPartyWindowOpen, validatePhotoBytes } from "../shared/party";
+import { AVATARS_PER_GENDER, DEFAULT_LOOKING_FOR, LOOKING_FOR_KEYS, PAIR_TYPES, ORIENTATIONS, RELATION_STYLES, INTENTS, MAX_INTENTS, serializeIntents, parseIntents, MAX_PARTY_PHOTOS, MAX_REWINDS_PER_EVENT, PARTY_GENDERS, PARTY_ZONES, parseLookingFor, sanitizeCostume, serializeLookingFor, canPreRegister, partyEntryDenial, sanitizeAlias, sanitizeGiftMessage, sanitizeMessage, isPartyWindowOpen, isCajaWindowOpen, validatePhotoBytes } from "../shared/party";
 import * as ambassadorProgram from "./ambassadorProgram";
 import * as playmatch from "./playmatchMarket";
 import { PLAYMATCH_HOST_CARGO, publicPlaymatchConfig } from "../shared/playmatchMarket";
@@ -6889,8 +6889,8 @@ export const appRouter = router({
     // "published" simultáneos durante el cambio de fiesta. Ahora resuelve
     // directo desde el evento al que el dispositivo fue enrolado -- es un
     // arreglo de comportamiento, no solo plumbing.
-    // Si el evento real del dispositivo está FUERA de su horario de fiesta
-    // (puertas/fin de evento, `isPartyWindowOpen`), se vende contra un
+    // Si el evento real del dispositivo está FUERA de su horario de caja
+    // (90 min antes de puertas hasta 3 h después del fin, `isCajaWindowOpen`), se vende contra un
     // evento de pruebas permanente en su lugar -- así ninguna venta de
     // prueba (probando días antes/después del evento real) contamina el
     // dashboard/P&L del evento real, sin tocar ninguna de esas fórmulas
@@ -6900,7 +6900,7 @@ export const appRouter = router({
     activeEvent: operatorProcedure.query(async ({ ctx }) => {
       if (!ctx.device) throw new TRPCError({ code: 'FORBIDDEN', message: 'Este dispositivo no está enrolado' });
       const real = await db.getEventById(ctx.device.eventId);
-      if (real && isPartyWindowOpen(real)) return real;
+      if (real && isCajaWindowOpen(real)) return real;
       return db.getOrCreateCajaTestEvent();
     }),
     dashboard: operatorProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
