@@ -1481,7 +1481,7 @@ export async function isReturningBuyer(email: string, rut?: string | null): Prom
  * slot, de ahí el `buyer_`. */
 export const BUYER_ATTENDEE_SLOT = 'buyer_';
 
-export type AttendeeSlot = { slot: string; fullName: string; rut: string };
+export type AttendeeSlot = { slot: string; fullName: string; rut: string; docType: 'rut' | 'passport' };
 
 /** Como `parseAttendees`, pero devuelve TAMBIÉN las personas con el nombre
  * vacío (justo las que el dueño necesita corregir) y siempre incluye al
@@ -1496,21 +1496,24 @@ export function listAttendeeSlots(attendeeDataJson: string | null | undefined, b
   }
   const bySlot = new Map<string, AttendeeSlot>();
   for (const [key, value] of Object.entries(campos)) {
-    const m = key.match(/^(.*)_(nombre|rut)$/i);
+    const m = key.match(/^(.*)_(nombre|rut|docTipo)$/i);
     if (!m) continue;
     const [, slot, field] = m;
-    if (!bySlot.has(slot)) bySlot.set(slot, { slot, fullName: '', rut: '' });
+    if (!bySlot.has(slot)) bySlot.set(slot, { slot, fullName: '', rut: '', docType: 'rut' });
     const entry = bySlot.get(slot)!;
     const text = typeof value === 'string' ? value.trim() : '';
-    if (field.toLowerCase() === 'nombre') entry.fullName = text; else entry.rut = text;
+    const f = field.toLowerCase();
+    if (f === 'nombre') entry.fullName = text;
+    else if (f === 'doctipo') entry.docType = text === 'passport' ? 'passport' : 'rut';
+    else entry.rut = text;
   }
-  const buyer = bySlot.get(BUYER_ATTENDEE_SLOT) ?? { slot: BUYER_ATTENDEE_SLOT, fullName: '', rut: '' };
+  const buyer = bySlot.get(BUYER_ATTENDEE_SLOT) ?? { slot: BUYER_ATTENDEE_SLOT, fullName: '', rut: '', docType: 'rut' as const };
   if (!buyer.fullName) buyer.fullName = (buyerName ?? '').trim();
   bySlot.delete(BUYER_ATTENDEE_SLOT);
   return [buyer, ...Array.from(bySlot.values())];
 }
 
-/** Corrige nombre/RUT de titular y acompañantes de una orden (Ventas Web: la
+/** Corrige nombre y documento (RUT o pasaporte) de titular y acompañantes de una orden (Ventas Web: la
  * gente escribe mal su nombre y debe calzar con el carnet para entrar).
  *
  * Reescribe SOLO las claves `<slot>_nombre`/`<slot>_rut` de `attendeeData` y
@@ -1525,7 +1528,7 @@ export function listAttendeeSlots(attendeeDataJson: string | null | undefined, b
  * reintentable desde la misma ventana. */
 export async function updateOrderAttendees(
   orderId: number,
-  people: { slot: string; fullName: string; rut?: string }[],
+  people: { slot: string; fullName: string; rut?: string; docType?: 'rut' | 'passport' }[],
 ) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -1551,6 +1554,8 @@ export async function updateOrderAttendees(
   for (const person of people) {
     campos[`${person.slot}_nombre`] = person.fullName;
     if (person.rut) campos[`${person.slot}_rut`] = person.rut;
+    // RUT o pasaporte (extranjeros): el mismo campo guarda el documento, el tipo va aparte.
+    if (person.docType) campos[`${person.slot}_docTipo`] = person.docType;
   }
   parsed.campos = campos;
 

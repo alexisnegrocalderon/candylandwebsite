@@ -15,8 +15,8 @@ describe("listAttendeeSlots", () => {
       acceso__acomp1_rut: "9.876.543-3",
     }), "Juan");
     expect(out.map((p) => p.slot)).toEqual([BUYER_ATTENDEE_SLOT, "acceso__acomp1"]);
-    expect(out[0]).toEqual({ slot: "buyer_", fullName: "Juan", rut: "12.345.678-5" });
-    expect(out[1]).toEqual({ slot: "acceso__acomp1", fullName: "Ana Soto", rut: "9.876.543-3" });
+    expect(out[0]).toEqual({ slot: "buyer_", fullName: "Juan", rut: "12.345.678-5", docType: "rut" });
+    expect(out[1]).toEqual({ slot: "acceso__acomp1", fullName: "Ana Soto", rut: "9.876.543-3", docType: "rut" });
   });
 
   it("incluye acompañantes con el nombre vacío (justo los que hay que corregir)", () => {
@@ -39,13 +39,13 @@ describe("listAttendeeSlots", () => {
 
   it("órdenes viejas sin attendeeData: el comprador sale con orders.buyerName", () => {
     expect(listAttendeeSlots(null, "Maria Gonzalez")).toEqual([
-      { slot: "buyer_", fullName: "Maria Gonzalez", rut: "" },
+      { slot: "buyer_", fullName: "Maria Gonzalez", rut: "", docType: "rut" },
     ]);
   });
 
   it("JSON dañado no rompe la lista: queda solo el comprador", () => {
     expect(listAttendeeSlots("{no es json", "Pedro")).toEqual([
-      { slot: "buyer_", fullName: "Pedro", rut: "" },
+      { slot: "buyer_", fullName: "Pedro", rut: "", docType: "rut" },
     ]);
   });
 

@@ -13,7 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Home, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, X, Download, Mail, ChevronDown, ChevronUp, MessageCircle, Trash2, Instagram, UserPlus, Receipt, Send, Copy, ArrowUpCircle, CalendarClock, Link2, RotateCcw, Image as ImageIcon } from 'lucide-react';
 import { AdminPasswordDialog } from '@/components/admin/AdminPasswordDialog';
 import { whatsappLinkFor, instagramLinkFor } from '@shared/ambassadorApplication';
-import { isValidRut, formatRutLive } from '@shared/rut';
+import { isValidRut, isValidPassport, formatRutLive } from '@shared/rut';
 import { ordersOutsideFilter } from '@shared/ordersOutsideFilter';
 import { DEFAULT_REFUND_PERCENT, REFUND_DEADLINE_DAYS, isPastRefundDeadline, refundAmountForPercent, refundPercentForAmount } from '@shared/orderRefund';
 import { ORDERS_PAGE_SIZE, ORDERS_REMINDERS_PAGE_SIZE, nextEventId, pageCount, pageRange } from '@shared/ordersPagination';
@@ -330,7 +330,7 @@ export function ReminderDialog({ orders, open, onOpenChange, onSent }: {
   );
 }
 
-export type AttendeeSlotRow = { slot: string; fullName: string; rut: string };
+export type AttendeeSlotRow = { slot: string; fullName: string; rut: string; docType?: 'rut' | 'passport' };
 
 /** Ventana "Editar nombres" de Ventas Web: la gente escribe mal su nombre (o
  * sin apellido) y debe calzar con el carnet para entrar, así que el dueño les
@@ -353,7 +353,8 @@ export function EditAttendeesDialog({ order, onClose, onSaved }: { order: any | 
     setPeople((prev) => prev.map((p, i) => (i === index ? { ...p, ...changes } : p)));
 
   const nameTooShort = (p: AttendeeSlotRow) => p.fullName.trim().length < 3;
-  const rutInvalid = (p: AttendeeSlotRow) => p.rut.trim() !== '' && !isValidRut(p.rut);
+  const isPassport = (p: AttendeeSlotRow) => p.docType === 'passport';
+  const rutInvalid = (p: AttendeeSlotRow) => p.rut.trim() !== '' && (isPassport(p) ? !isValidPassport(p.rut) : !isValidRut(p.rut));
   const canSave = people.length > 0 && !people.some((p) => nameTooShort(p) || rutInvalid(p));
 
   const firstName = (order?.buyerName ?? '').trim().split(/\s+/)[0] || '';
@@ -401,15 +402,30 @@ export function EditAttendeesDialog({ order, onClose, onSaved }: { order: any | 
                       {oneWord && <p className="text-xs text-[var(--admin-warning-text)] mt-1">¿Falta el apellido?</p>}
                     </div>
                     <div>
-                      <Label className="text-xs">RUT</Label>
+                      <div className="flex items-center justify-between gap-2">
+                        <Label className="text-xs">{isPassport(p) ? 'Pasaporte' : 'RUT'}</Label>
+                        <div className="flex gap-1" role="group" aria-label="Tipo de documento">
+                          {(['rut', 'passport'] as const).map((tipo) => (
+                            <button
+                              key={tipo}
+                              type="button"
+                              onClick={() => patch(i, { docType: tipo, rut: tipo === 'passport' ? p.rut.replace(/[.\s]/g, '').toUpperCase() : p.rut })}
+                              className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${(p.docType ?? 'rut') === tipo ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}
+                            >
+                              {tipo === 'rut' ? 'RUT' : 'Pasaporte'}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                       <Input
                         value={p.rut}
-                        onChange={(e) => patch(i, { rut: formatRutLive(e.target.value) })}
-                        placeholder="12.345.678-9"
+                        onChange={(e) => patch(i, { rut: isPassport(p) ? e.target.value.replace(/\s/g, '').toUpperCase() : formatRutLive(e.target.value) })}
+                        placeholder={isPassport(p) ? 'FH123456' : '12.345.678-9'}
                         inputMode="text"
                         autoComplete="off"
+                        maxLength={isPassport(p) ? 15 : undefined}
                       />
-                      {rutInvalid(p) && <p className="text-xs text-destructive mt-1">RUT no válido</p>}
+                      {rutInvalid(p) && <p className="text-xs text-destructive mt-1">{isPassport(p) ? 'Pasaporte no válido (5 a 15 letras o números)' : 'RUT no válido'}</p>}
                     </div>
                   </div>
                 </div>
@@ -428,7 +444,7 @@ export function EditAttendeesDialog({ order, onClose, onSaved }: { order: any | 
               disabled={!canSave || save.isPending}
               onClick={() => order && save.mutate({
                 orderId: order.id,
-                people: people.map((p) => ({ slot: p.slot, fullName: p.fullName, rut: p.rut.trim() || undefined })),
+                people: people.map((p) => ({ slot: p.slot, fullName: p.fullName, rut: p.rut.trim() || undefined, docType: p.docType ?? 'rut' })),
               })}
             >
               {save.isPending ? 'Guardando...' : 'Guardar'}

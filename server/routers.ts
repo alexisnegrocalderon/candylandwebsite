@@ -13,7 +13,7 @@ import * as db from "./db";
 import { getMission300Status, evaluateMission300, processCardPaymentForOrder, confirmFreeOrder, resendConfirmationEmail, approveMissionTopupWithoutPayment, settleUpgradeAndNotify, settleAddonAndNotify } from "./webhooks";
 import { getPendingUpgradesByOrderIds, previewUpgrade, createUpgradeRequest, sendUpgradeRequestEmail, cancelUpgrade } from "./orderUpgrade";
 import { getPendingAddonsByOrderIds, previewAddons, createAddonRequest, sendAddonRequestEmail, cancelAddon, orderIdFromTicketCode, customerAddonView } from "./orderAddon";
-import { isValidRut, formatRutLive } from "../shared/rut";
+import { isValidRut, isValidPassport, formatRutLive } from "../shared/rut";
 import { hashPin, verifyPin, signOperatorSession } from "./caja/auth";
 import { generateEnrollCode, enrollCodeExpiry, generateDeviceToken, hashDeviceToken, signDeviceSession, DEVICE_SESSION_MS } from "./caja/deviceAuth";
 import { redeemDisplayCode } from "./caja/redeem";
@@ -1984,6 +1984,8 @@ export const appRouter = router({
         slot: z.string().min(1).max(80),
         fullName: z.string(),
         rut: z.string().optional(),
+        // 'passport' para extranjeros: el campo `rut` guarda entonces el pasaporte.
+        docType: z.enum(['rut', 'passport']).optional(),
       })).min(1).max(30),
     })).mutation(async ({ input, ctx }) => {
       const people = input.people.map((p) => {
@@ -1992,10 +1994,19 @@ export const appRouter = router({
           throw new TRPCError({ code: 'BAD_REQUEST', message: 'Cada nombre debe tener entre 3 y 120 caracteres.' });
         }
         const rutRaw = (p.rut ?? '').trim();
+        const docType = p.docType ?? 'rut';
+        if (docType === 'passport') {
+          // Letras y números (ej. FH123456), sin espacios; mismo criterio del checkout.
+          const passport = rutRaw.replace(/\s/g, '').toUpperCase();
+          if (passport && !isValidPassport(passport)) {
+            throw new TRPCError({ code: 'BAD_REQUEST', message: `El pasaporte "${rutRaw}" no es válido (5 a 15 letras o números).` });
+          }
+          return { slot: p.slot, fullName, rut: passport || undefined, docType };
+        }
         if (rutRaw && !isValidRut(rutRaw)) {
           throw new TRPCError({ code: 'BAD_REQUEST', message: `El RUT "${rutRaw}" no es válido.` });
         }
-        return { slot: p.slot, fullName, rut: rutRaw ? formatRutLive(rutRaw) : undefined };
+        return { slot: p.slot, fullName, rut: rutRaw ? formatRutLive(rutRaw) : undefined, docType };
       });
       let result;
       try {
