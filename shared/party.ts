@@ -96,6 +96,19 @@ export function isPartyWindowOpen(event: PartyEventWindow, now: Date = new Date(
   return t >= window.opensAt && t < window.closesAt;
 }
 
+/** La caja vende en el evento real un rato ANTES de que abra la puerta (contar el fondo, armar la barra) y
+ * un rato DESPUÉS del fin (cerrar turno y cuadrar). Solo cambia desde cuándo y hasta cuándo la caja toma el
+ * evento real en vez del de pruebas: lo que ve el público (puertas, Playmatch) sigue usando `partyWindow`. */
+export const CAJA_LEAD_MS = 90 * 60_000;
+export const CAJA_TAIL_MS = 3 * 60 * 60_000;
+
+export function isCajaWindowOpen(event: PartyEventWindow, now: Date = new Date()): boolean {
+  const window = partyWindow(event);
+  if (!window) return false;
+  const t = now.getTime();
+  return t >= window.opensAt - CAJA_LEAD_MS && t < window.closesAt + CAJA_TAIL_MS;
+}
+
 export type PartyTicketState = { status: string; eventId: number };
 
 export type PartyEntryDenial = 'sin_ticket' | 'no_ingreso' | 'fuera_de_horario';

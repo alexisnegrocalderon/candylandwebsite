@@ -8,6 +8,7 @@ import {
   hasTouchesLeft,
   isOnline,
   isPartyWindowOpen,
+  isCajaWindowOpen,
   orderedPair,
   partyEntryDenial,
   placeInZone,
@@ -233,5 +234,27 @@ describe("inscripción anticipada en Playmatch", () => {
     expect(canPreRegister({ status: "cancelled", eventId: 1 }, event, new Date("2026-11-01T12:00:00Z"))).toBe(false);
     expect(canPreRegister(null, event)).toBe(false);
     expect(canPreRegister({ status: "valid", eventId: 1 }, event, new Date("2026-11-08T07:00:00Z"))).toBe(false);
+  });
+});
+
+describe('isCajaWindowOpen (la caja abre antes de puertas y cierra después del fin)', () => {
+  // 2º aniversario: puertas 22:00 y fin 05:00 de Chile (UTC-3) = 01:00 y 08:00 UTC.
+  const ev = { eventDate: '2026-10-31T01:00:00Z', doorsOpen: '2026-10-31T01:00:00Z', eventEnd: '2026-10-31T08:00:00Z' };
+  const at = (iso: string) => new Date(iso);
+
+  it('21:30 de Chile ya vende en el evento real, aunque el público aún no entre', () => {
+    expect(isCajaWindowOpen(ev, at('2026-10-31T00:30:00Z'))).toBe(true);
+    expect(isPartyWindowOpen(ev, at('2026-10-31T00:30:00Z'))).toBe(false);
+  });
+  it('desde las 20:30 de Chile (90 min antes) y no antes', () => {
+    expect(isCajaWindowOpen(ev, at('2026-10-30T23:31:00Z'))).toBe(true);
+    expect(isCajaWindowOpen(ev, at('2026-10-30T23:29:00Z'))).toBe(false);
+  });
+  it('sigue en el evento real pasadas las 05:00 para cerrar turno, hasta las 08:00', () => {
+    expect(isCajaWindowOpen(ev, at('2026-10-31T09:30:00Z'))).toBe(true);
+    expect(isCajaWindowOpen(ev, at('2026-10-31T11:01:00Z'))).toBe(false);
+  });
+  it('sin puertas cargadas usa la hora del evento', () => {
+    expect(isCajaWindowOpen({ eventDate: '2026-10-31T01:00:00Z' }, at('2026-10-31T00:00:00Z'))).toBe(true);
   });
 });
