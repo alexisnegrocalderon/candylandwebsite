@@ -14,8 +14,8 @@ import {
   playcoinsLedger, prepaidLedger, ticketTypes, tickets,
 } from '../drizzle/schema';
 import { adjustPlaycoinsManually, getDb, recordAdminAudit } from './db';
-import { buildOrderRefundEmail, sendEmail } from './email';
-import { isPastRefundDeadline, refundAmountForPercent, refundPercentForAmount, REFUND_DEADLINE_DAYS } from '../shared/orderRefund';
+import { buildExtrasRefundEmail, buildOrderRefundEmail, sendEmail } from './email';
+import { isPastRefundDeadline, planExtrasRefund, refundAmountForPercent, refundPercentForAmount, REFUND_DEADLINE_DAYS } from '../shared/orderRefund';
 
 export interface RefundOrderInput {
   orderId: number;
@@ -52,6 +52,7 @@ export async function refundOrder(input: RefundOrderInput) {
     throw new Error(`Faltan menos de ${REFUND_DEADLINE_DAYS} días para el evento: fuera del plazo de devolución. Puedes saltarte el plazo marcando la casilla.`);
   }
 
+  if (Number(order.refundAmount ?? 0) > 0) throw new Error('A esta compra ya se le devolvieron algunos extras; no se puede devolver también completa desde acá.');
   const paid = paidOf(order);
   if (paid <= 0) throw new Error('Esta compra no tiene monto pagado para devolver.');
   const refundAmount = input.amount != null ? Math.round(input.amount) : refundAmountForPercent(paid, input.percent ?? 0);
@@ -145,4 +146,118 @@ async function sendRefundEmail(data: Parameters<typeof buildOrderRefundEmail>[0]
     console.error('[orderRefund] no se pudo mandar el correo', err);
     return false;
   }
+}
+
+/* ─── Devolver solo los EXTRAS de una compra (el acceso no se toca) ─────────── */
+
+/** Los extras canjeables de la compra (ticket con código legible), con lo que se pagó por cada uno. */
+export async function listOrderExtras(orderId: number) {
+  const db = await getDb();
+  if (!db) return { order: null, extras: [] as { id: number; displayCode: string | null; name: string; status: string; unitPrice: number }[] };
+  const [order] = await db.select().from(orders).where(eq(orders.id, orderId)).limit(1);
+  if (!order) return { order: null, extras: [] };
+  const rows = await db.select({
+    id: tickets.id, displayCode: tickets.displayCode, status: tickets.status,
+    name: ticketTypes.name, unitPrice: orderItems.unitPrice,
+  }).from(tickets)
+    .innerJoin(ticketTypes, eq(tickets.ticketTypeId, ticketTypes.id))
+    .leftJoin(orderItems, eq(tickets.orderItemId, orderItems.id))
+    .where(eq(tickets.orderId, orderId));
+  const extras = rows
+    .filter((r) => !!r.displayCode)
+    .map((r) => ({ id: r.id, displayCode: r.displayCode, name: r.name, status: r.status, unitPrice: Number(r.unitPrice ?? 0) }));
+  const paid = paidOf(order);
+  return {
+    order: { orderNumber: order.orderNumber, buyerName: order.buyerName, paymentStatus: order.paymentStatus, paid, alreadyRefunded: Number(order.refundAmount ?? 0) },
+    extras,
+  };
+}
+
+export async function refundOrderExtras(input: { orderId: number; ticketIds: number[]; amount?: number; reason?: string; ip?: string | null }) {
+  const db = await getDb();
+  if (!db) throw new Error('Base de datos no disponible');
+
+  const [order] = await db.select().from(orders).where(eq(orders.id, input.orderId)).limit(1);
+  if (!order) throw new Error('No encontré esa orden.');
+  if (order.paymentStatus !== 'approved') throw new Error('Solo se pueden devolver extras de una compra aprobada.');
+  if (order.channel !== 'web') throw new Error('Solo las compras web se devuelven acá; las de caja se anulan desde la caja.');
+
+  const { extras } = await listOrderExtras(order.id);
+  const paid = paidOf(order);
+  const plan = planExtrasRefund({
+    paid,
+    alreadyRefunded: Number(order.refundAmount ?? 0),
+    tickets: extras.map((e) => ({ id: e.id, status: e.status, displayCode: e.displayCode, unitPrice: e.unitPrice })),
+    selectedIds: input.ticketIds,
+    amount: input.amount,
+  });
+  if (!plan.ok) throw new Error(plan.error);
+
+  // Se anula de a uno con UPDATE condicional: si alguien canjea ese trago en la
+  // caja justo ahora, se deshace lo anulado y no se devuelve nada.
+  const cancelled: number[] = [];
+  for (const id of plan.ticketIds) {
+    const [res] = await db.update(tickets).set({ status: 'cancelled' }).where(and(eq(tickets.id, id), eq(tickets.status, 'valid')));
+    if ((res as { affectedRows?: number } | undefined)?.affectedRows === 0) {
+      if (cancelled.length > 0) await db.update(tickets).set({ status: 'valid' }).where(inArray(tickets.id, cancelled));
+      throw new Error('Uno de los extras se canjeó o anuló mientras tanto; no se devolvió nada. Recarga y revisa.');
+    }
+    cancelled.push(id);
+  }
+
+  // El cupo de esos extras vuelve a la venta.
+  const chosen = extras.filter((e) => cancelled.includes(e.id));
+  const typeRows = await db.select({ id: tickets.id, ticketTypeId: tickets.ticketTypeId }).from(tickets).where(inArray(tickets.id, cancelled));
+  const perType = new Map<number, number>();
+  for (const t of typeRows) perType.set(t.ticketTypeId, (perType.get(t.ticketTypeId) ?? 0) + 1);
+  for (const [ticketTypeId, qty] of Array.from(perType.entries())) {
+    await db.update(ticketTypes).set({ soldCount: sql`GREATEST(soldCount - ${qty}, 0)` }).where(eq(ticketTypes.id, ticketTypeId));
+  }
+
+  const names = chosen.map((e) => e.name);
+  const reasonText = (input.reason ?? '').trim().slice(0, 300);
+  const note = `Extras devueltos: ${names.join(', ')}${reasonText ? ` — ${reasonText}` : ''}`;
+  const previousReason = (order.refundReason ?? '').trim();
+  await db.update(orders).set({
+    refundAmount: String(plan.newRefundTotal),
+    refundPercent: String(plan.percent),
+    refundReason: (previousReason ? `${previousReason} | ${note}` : note).slice(0, 500),
+    refundedAt: new Date(),
+  }).where(eq(orders.id, order.id));
+
+  // El gasto acumulado del cliente y los Playcoins que esa parte generó.
+  try {
+    const email = order.buyerEmail.trim().toLowerCase();
+    const [customer] = await db.select().from(customers).where(eq(customers.email, email)).limit(1);
+    if (customer) {
+      await db.update(customers).set({ totalSpent: String(Math.max(0, Number(customer.totalSpent) - plan.amount)) }).where(eq(customers.id, customer.id));
+      const earned = await db.select().from(playcoinsLedger).where(and(eq(playcoinsLedger.orderId, order.id), eq(playcoinsLedger.reason, 'earn_web')));
+      const share = paid > 0 ? plan.amount / paid : 0;
+      for (const row of earned) {
+        const back = Math.round(row.delta * share);
+        if (back > 0) await adjustPlaycoinsManually(row.customerId, -back, `Extras de la orden #${order.orderNumber} devueltos`);
+      }
+    }
+  } catch (err) {
+    console.error('[orderRefund] no se pudieron ajustar playcoins/cliente (extras)', err);
+  }
+
+  const [event] = await db.select({ title: events.title }).from(events).where(eq(events.id, order.eventId)).limit(1);
+  await recordAdminAudit({
+    action: 'order.refundExtras', targetType: 'order', targetId: order.id, eventId: order.eventId, ip: input.ip,
+    payload: { orderNumber: order.orderNumber, tickets: chosen.map((e) => ({ id: e.id, code: e.displayCode, name: e.name })), refundAmount: plan.amount, computed: plan.computed, reason: reasonText || null },
+  });
+
+  let emailSent = false;
+  try {
+    const result = await sendEmail({
+      to: order.buyerEmail,
+      subject: 'Registramos la devolución de tus extras 💸',
+      html: buildExtrasRefundEmail({ buyerName: order.buyerName, eventTitle: event?.title ?? 'tu evento', orderNumber: order.orderNumber, extras: names, refundAmount: plan.amount }),
+    });
+    emailSent = Boolean(result?.success);
+  } catch (err) {
+    console.error('[orderRefund] no se pudo mandar el correo de extras', err);
+  }
+  return { refundAmount: plan.amount, cancelled: cancelled.length, totalRefunded: plan.newRefundTotal, emailSent };
 }

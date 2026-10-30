@@ -624,6 +624,113 @@ export function RefundDialog({ order, eventDate, onClose, onDone }: { order: any
   );
 }
 
+/** Ventana "Devolver extras" de Ventas Web: devuelve solo algunos extras (tragos, estacionamiento…) de una
+ * compra sin tocar el acceso -- por ejemplo, cuando la persona reprogramó su entrada y pidió la plata de los
+ * tragos. El monto por defecto es el valor completo de lo elegido (el 50% de la política es del acceso).
+ * Anula esos extras (ya no se canjean), devuelve el cupo, anota la devolución en la compra para que los
+ * ingresos la descuenten y le manda un correo al cliente. NO mueve plata: la devuelves tú por Mercado Pago. */
+export function ExtrasRefundDialog({ order, onClose, onDone }: { order: any | null; onClose: () => void; onDone: () => void }) {
+  const { data, isFetching } = trpc.orderRefund.extras.useQuery({ orderId: order?.id ?? 0 }, { enabled: !!order });
+  const extras = (data?.extras ?? []) as { id: number; displayCode: string | null; name: string; status: string; unitPrice: number }[];
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [amount, setAmount] = useState('');
+  const [amountEdited, setAmountEdited] = useState(false);
+  const [reason, setReason] = useState('');
+  const [adminPassword, setAdminPassword] = useState('');
+  useEffect(() => {
+    setSelected(new Set()); setAmount(''); setAmountEdited(false); setReason(''); setAdminPassword('');
+  }, [order?.id]);
+
+  const computed = extras.filter((e) => selected.has(e.id)).reduce((sum, e) => sum + e.unitPrice, 0);
+  useEffect(() => { if (!amountEdited) setAmount(String(computed)); }, [computed, amountEdited]);
+
+  const room = data?.order ? Math.max(0, data.order.paid - data.order.alreadyRefunded) : 0;
+  const amountNum = Math.round(Number(amount) || 0);
+  const valid = selected.size > 0 && amountNum > 0 && amountNum <= room;
+  const refund = trpc.orderRefund.refundExtras.useMutation({
+    onSuccess: (r) => {
+      toast.success(`Extras devueltos: ${clp(r.refundAmount)}${r.emailSent ? ' — le llegó el correo' : ' — el correo no se pudo enviar, avísale tú'}. Recuerda devolver la plata por Mercado Pago.`);
+      setAdminPassword('');
+      onDone();
+      onClose();
+    },
+    onError: onMutationError,
+  });
+  const blocked = !adminPassword || !valid || refund.isPending;
+  const submit = () => {
+    if (!order || blocked) return;
+    refund.mutate({ orderId: order.id, ticketIds: Array.from(selected), amount: amountEdited ? amountNum : undefined, reason: reason.trim() || undefined, adminPassword });
+  };
+  const toggle = (id: number) => setSelected((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+
+  return (
+    <AlertDialog open={!!order} onOpenChange={(v) => { if (!v) onClose(); }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Devolver extras · {order?.orderNumber}</AlertDialogTitle>
+          <AlertDialogDescription asChild>
+            <div className="space-y-2 text-sm">
+              <p><strong>{order?.buyerName}</strong> ({order?.buyerEmail}). Elige los extras a devolver; <strong>el acceso no se toca</strong>.</p>
+              <ul className="list-disc pl-5 space-y-1">
+                <li>Esos extras se <strong>anulan</strong> (ya no se pueden canjear) y el cupo vuelve a la venta.</li>
+                <li>La devolución queda anotada en la compra y los ingresos la descuentan. Le llega un correo al cliente.</li>
+                <li>Esto <strong>solo registra</strong>: la plata la devuelves tú por Mercado Pago.</li>
+              </ul>
+            </div>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+
+        <div className="space-y-2">
+          {isFetching && extras.length === 0 && <p className="text-sm text-muted-foreground">Cargando…</p>}
+          {!isFetching && extras.length === 0 && <p className="text-sm text-muted-foreground">Esta compra no tiene extras con código.</p>}
+          {extras.map((e) => {
+            const refundable = e.status === 'valid';
+            return (
+              <label key={e.id} className={`flex items-center gap-3 rounded-lg border border-border p-2.5 text-sm ${refundable ? 'cursor-pointer' : 'opacity-60'}`}>
+                <Checkbox checked={selected.has(e.id)} disabled={!refundable} onCheckedChange={() => toggle(e.id)} />
+                <span className="min-w-0 flex-1">
+                  <span className="font-medium">{e.name}</span>
+                  <span className="ml-2 font-mono text-xs text-muted-foreground">{e.displayCode}</span>
+                  {!refundable && <span className="ml-2 text-xs">{e.status === 'used' ? '· ya canjeado' : '· ya anulado'}</span>}
+                </span>
+                <span className="tabular-nums">{clp(e.unitPrice)}</span>
+              </label>
+            );
+          })}
+        </div>
+
+        <div>
+          <Label>Monto a devolver ($)</Label>
+          <Input type="number" min={0} max={room} value={amount} className="mt-1"
+            onChange={(e) => { setAmount(e.target.value); setAmountEdited(true); }} />
+          <p className="mt-1 text-xs text-muted-foreground">
+            {selected.size === 0 ? 'Marca al menos un extra.' : valid
+              ? <>Valor de lo elegido: <strong>{clp(computed)}</strong>. Puedes corregir el monto a mano.</>
+              : <>El monto debe ser mayor a $0 y no más de {clp(room)}.</>}
+          </p>
+        </div>
+        <div>
+          <Label>Motivo (opcional)</Label>
+          <Input value={reason} onChange={(e) => setReason(e.target.value)} className="mt-1" maxLength={300} placeholder="Ej. reprogramó su entrada" />
+        </div>
+        <Input
+          type="password"
+          value={adminPassword}
+          onChange={(e) => setAdminPassword(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }}
+          placeholder="Tu clave de admin"
+        />
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancelar</AlertDialogCancel>
+          <AlertDialogAction onClick={(e) => { e.preventDefault(); submit(); }} disabled={blocked}>
+            {refund.isPending ? 'Guardando…' : `Devolver ${clp(amountNum)}`}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
 /** Créditos de acceso aún disponibles (Ventas Web): quién los tiene y un botón
  * para recordarles por correo que los usen, idealmente en la preventa. */
 export function PendingCreditsCard() {
@@ -1182,6 +1289,7 @@ export function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
   const [addonOrderId, setAddonOrderId] = useState<number | null>(null);
   const [creditOrderId, setCreditOrderId] = useState<number | null>(null);
   const [refundOrderId, setRefundOrderId] = useState<number | null>(null);
+  const [extrasRefundOrderId, setExtrasRefundOrderId] = useState<number | null>(null);
   // Antes esta vista no tenía filtro de evento: la lista y los totales
   // mezclaban TODAS las fiestas de la historia y se leían como si fueran de
   // una sola. Con dos eventos publicados a la vez eso deja de ser un detalle.
@@ -1258,6 +1366,7 @@ export function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
   const addonOrder = ordersList.find((o: any) => o.id === addonOrderId) ?? null;
   const creditOrder = ordersList.find((o: any) => o.id === creditOrderId) ?? null;
   const refundOrder = ordersList.find((o: any) => o.id === refundOrderId) ?? null;
+  const extrasRefundOrder = ordersList.find((o: any) => o.id === extrasRefundOrderId) ?? null;
   const refundEventDate = refundOrder ? ((eventsList as any[] | undefined)?.find((e: any) => e.id === refundOrder.eventId)?.eventDate ?? null) : null;
   // Sin pagar de este evento (del contador, no solo de la página que se ve).
   const pendingCount = statusCounts?.pending ?? 0;
@@ -1440,6 +1549,8 @@ export function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
       <CreditDialog order={creditOrder} onClose={() => setCreditOrderId(null)} onDone={() => { refetchOrders(); refetchStats(); }} />
 
       <RefundDialog order={refundOrder} eventDate={refundEventDate} onClose={() => setRefundOrderId(null)} onDone={() => { refetchOrders(); refetchStats(); }} />
+
+      <ExtrasRefundDialog order={extrasRefundOrder} onClose={() => setExtrasRefundOrderId(null)} onDone={() => { refetchOrders(); refetchStats(); }} />
 
       <UpgradeDialog
         order={upgradeOrder}
@@ -1678,6 +1789,14 @@ export function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
                                       onClick={() => setRefundOrderId(order.id)}
                                     />
                                   )}
+                                  {channel === 'web' && order.paymentStatus === 'approved' && (order.extras?.length ?? 0) > 0 && (
+                                    <RowActionButton
+                                      icon={RotateCcw}
+                                      label="Devolver extras (tragos, etc.)"
+                                      tone="send"
+                                      onClick={() => setExtrasRefundOrderId(order.id)}
+                                    />
+                                  )}
                                   {channel === 'web' && (
                                     <RowActionButton
                                       icon={ShoppingBag}
@@ -1894,6 +2013,14 @@ export function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
                             label="Devolver (50%)"
                             tone="send"
                             onClick={() => setRefundOrderId(order.id)}
+                          />
+                        )}
+                        {channel === 'web' && order.paymentStatus === 'approved' && (order.extras?.length ?? 0) > 0 && (
+                          <RowActionButton
+                            icon={RotateCcw}
+                            label="Devolver extras (tragos, etc.)"
+                            tone="send"
+                            onClick={() => setExtrasRefundOrderId(order.id)}
                           />
                         )}
                         {channel === 'web' && (
