@@ -3446,3 +3446,19 @@ export const insumoConteoLineas = mysqlTable("insumoConteoLineas", {
 }, (t) => [
   index("insumo_conteo_lineas_conteo_idx").on(t.conteoId),
 ]);
+
+// Supervisoras con acceso propio al panel de admin (Belén, etc.): clave y
+// segundo factor por persona, mismo esquema que el socio de co-producción.
+// `sessionVersion` sube al cambiar o revocar la clave y cierra sus sesiones.
+export const panelSupervisors = mysqlTable("panel_supervisors", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 120 }).notNull(),
+  passwordHash: varchar("passwordHash", { length: 200 }),
+  totpSecret: varchar("totpSecret", { length: 64 }),
+  totpConfirmedAt: timestamp("totpConfirmedAt"),
+  totpBackupCodes: json("totpBackupCodes"),
+  totpLastUsedStep: int("totpLastUsedStep"),
+  sessionVersion: int("sessionVersion").default(1).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});

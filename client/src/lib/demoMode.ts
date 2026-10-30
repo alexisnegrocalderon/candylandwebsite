@@ -4,7 +4,7 @@ import { trpc } from "@/lib/trpc";
  * mirar: el servidor le bloquea toda escritura y le enmascara los datos
  * personales (server/privacy.ts), así que acá alcanza con dejarlo pasar. */
 export function canOpenAdmin(role: string | null | undefined): boolean {
-  return role === "admin" || role === "viewer" || role === "partner";
+  return role === "admin" || role === "viewer" || role === "partner" || role === "supervisor";
 }
 
 /** Socio de una co-producción (ej. Dalmore): el panel le muestra SOLO esa
@@ -12,6 +12,18 @@ export function canOpenAdmin(role: string | null | undefined): boolean {
  * (`partnerProcedure`); esto solo arma la vista. */
 export function isPartnerRole(role: string | null | undefined): boolean {
   return role === "partner";
+}
+
+/** Supervisora con cuenta propia (ej. Belén): ve solo sus secciones, sin ventas,
+ * costos, configuración ni borrados. La protección real es del servidor
+ * (`panelStaffProcedure`); esto solo arma la vista. */
+export function isSupervisorRole(role: string | null | undefined): boolean {
+  return role === "supervisor";
+}
+
+export function useIsSupervisor(): boolean {
+  const { data: user } = trpc.auth.me.useQuery(undefined, { retry: false, refetchOnWindowFocus: false });
+  return isSupervisorRole(user?.role);
 }
 
 export const DEMO_TOOLTIP = "Modo demo — solo lectura";

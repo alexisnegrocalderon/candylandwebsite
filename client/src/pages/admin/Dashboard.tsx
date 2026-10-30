@@ -4,7 +4,10 @@ import { HomeView } from '@/components/admin/HomeView';
 import { ExpensesToday } from '@/components/admin/expenses/ExpensesToday';
 import { motion } from 'framer-motion';
 import { useAuth } from '@/_core/hooks/useAuth';
-import { canOpenAdmin, isPartnerRole } from '@/lib/demoMode';
+import { canOpenAdmin, isPartnerRole, isSupervisorRole } from '@/lib/demoMode';
+import { SUPERVISOR_SECTION_IDS } from '@shared/panelSupervisor';
+import { SupervisorHome } from '@/components/admin/SupervisorHome';
+import { SupervisorAccessManager } from '@/components/admin/SupervisorAccessManager';
 import { StaffManager, requestNewStaff } from '@/components/admin/staff/StaffManager';
 import { requestGiftCoupon } from '@/components/admin/members/requestGiftCoupon';
 import { useHideSplashOnMount } from '@/lib/splash';
@@ -117,6 +120,7 @@ const ADMIN_QUICK_ACTIONS: AdminQuickAction[] = [
 const ADMIN_SECTIONS = [
   { id: 'home', label: 'Inicio', hub: 'inicio', icon: Home, render: () => <HomeSection /> },
 
+  { id: 'sup-home', label: 'Esta noche', hub: 'noche', icon: LayoutDashboard, render: () => <SupervisorHome /> },
   { id: 'overview', label: 'Resumen de la noche', hub: 'noche', icon: LayoutDashboard, render: () => <EventOverview /> },
   { id: 'staff', label: 'Staff', hub: 'noche', icon: Users, render: () => <StaffManager /> },
   { id: 'caja', label: 'Caja', hub: 'noche', icon: Store, render: () => <CajaAdminView /> },
@@ -197,6 +201,7 @@ const ADMIN_SECTIONS = [
   { id: 'copro-reparto', label: 'Reparto', hub: 'coproduccion', icon: DollarSign, render: () => <CoproReparto /> },
   { id: 'copro-config', label: 'Configuración', hub: 'coproduccion', icon: SettingsIcon, render: () => <CoproConfig /> },
 
+  { id: 'supervisoras', label: 'Supervisoras', hub: 'ajustes', icon: Users, render: () => <SupervisorAccessManager /> },
   { id: 'settings', label: 'Ajustes', hub: 'ajustes', icon: SettingsIcon, render: () => <SettingsManager /> },
 ] as const satisfies readonly (ShellSection & { render: () => ReactNode })[];
 
@@ -213,11 +218,15 @@ export default function AdminDashboard() {
   // sin la Configuración (que es del dueño). El servidor igual le rechaza
   // todo lo demás (`partnerProcedure`); esto solo arma su vista.
   const isPartner = isPartnerRole(user?.role);
+  // La supervisora (ej. Belén) ve solo sus secciones; el servidor igual rechaza el resto.
+  const isSupervisor = isSupervisorRole(user?.role);
   const sections = isPartner
     ? ADMIN_SECTIONS.filter((s) => s.hub === 'coproduccion' && s.id !== 'copro-config')
-    : ADMIN_SECTIONS;
+    : isSupervisor
+      ? SUPERVISOR_SECTION_IDS.map((id) => ADMIN_SECTIONS.find((s) => s.id === id)!).filter(Boolean)
+      : ADMIN_SECTIONS.filter((s) => s.id !== 'sup-home');
   const [activeSection, setActiveSection] = useState<typeof ADMIN_SECTIONS[number]['id']>('home');
-  const { counts: badgeCounts, markSeen } = useAdminBadges(!!user && !isPartner);
+  const { counts: badgeCounts, markSeen } = useAdminBadges(!!user && !isPartner && !isSupervisor);
 
   const openSection = (id: typeof ADMIN_SECTIONS[number]['id']) => {
     setActiveSection(id);
@@ -303,13 +312,13 @@ export default function AdminDashboard() {
       onOpenSection={(id) => openSection(id as typeof ADMIN_SECTIONS[number]['id'])}
       badgeCounts={badgeCounts}
       userName={isDemo ? 'Invitado (demo)' : (user?.name?.trim() || 'Mansion Playroom')}
-      roleLabel={isPartner ? 'Socio · Playroom × Dalmore' : undefined}
+      roleLabel={isPartner ? 'Socio · Playroom × Dalmore' : isSupervisor ? 'Supervisora' : undefined}
       isDemo={isDemo}
       onLogout={() => logout()}
       quickActions={ADMIN_QUICK_ACTIONS}
     >
       <AdminNavContext.Provider value={navContext}>
-        <SchemaUpdateBanner />
+        {!isSupervisor && <SchemaUpdateBanner />}
         <motion.div
           key={activeSection}
           initial={{ opacity: 0, y: 12 }}

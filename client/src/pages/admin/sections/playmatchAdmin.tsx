@@ -13,6 +13,7 @@ import { Switch } from '@/components/ui/switch';
 import { useTonightEvent } from '@/hooks/useTonightEvent';
 import { formatChileDateTime } from '@shared/chileDate';
 import { onMutationError } from './shared';
+import { useIsSupervisor } from '@/lib/demoMode';
 
 const clp = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
 const TABS = [
@@ -28,6 +29,9 @@ const KIND_LABEL: Record<string, string> = { superlike: 'Super Like', likes_unlo
 export function PlaymatchControlView() {
   const { events, eventId, setSelected } = useTonightEvent();
   const [tab, setTab] = useState<TabId>('resumen');
+  // La supervisora ve la gente y lo que pasa, no la plata ni los precios.
+  const isSupervisor = useIsSupervisor();
+  const tabs = isSupervisor ? TABS.filter((t) => t.id === 'resumen' || t.id === 'personas') : TABS;
 
   return (
     <div className="space-y-5">
@@ -38,17 +42,17 @@ export function PlaymatchControlView() {
         </select>
       </div>
       <div className="flex flex-wrap gap-1.5" role="tablist">
-        {TABS.map((t) => (
+        {tabs.map((t) => (
           <button key={t.id} type="button" role="tab" aria-selected={tab === t.id} onClick={() => setTab(t.id)}
             className={`h-9 rounded-full px-4 text-sm font-semibold transition-colors ${tab === t.id ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'}`}>{t.label}</button>
         ))}
       </div>
       {eventId == null ? <p className="text-sm text-muted-foreground">No hay eventos todavía.</p> : (
         <>
-          {tab === 'resumen' && <Resumen eventId={eventId} />}
-          {tab === 'cobros' && <Cobros eventId={eventId} />}
+          {tab === 'resumen' && <Resumen eventId={eventId} hideMoney={isSupervisor} />}
+          {tab === 'cobros' && !isSupervisor && <Cobros eventId={eventId} />}
           {tab === 'personas' && <Personas eventId={eventId} />}
-          {tab === 'ajustes' && <Ajustes eventId={eventId} />}
+          {tab === 'ajustes' && !isSupervisor && <Ajustes eventId={eventId} />}
         </>
       )}
     </div>
@@ -57,7 +61,7 @@ export function PlaymatchControlView() {
 
 /* --- En vivo -------------------------------------------------------------------- */
 
-function Resumen({ eventId }: { eventId: number }) {
+function Resumen({ eventId, hideMoney = false }: { eventId: number; hideMoney?: boolean }) {
   const { data: s, isLoading } = trpc.party.adminStats.useQuery({ eventId }, { refetchInterval: 10_000 });
   if (isLoading || !s) return <p className="text-sm text-muted-foreground">Cargando…</p>;
   // Las horas en orden de noche (18, 19 … 23, 0, 1 … 5), no de reloj.
@@ -88,7 +92,7 @@ function Resumen({ eventId }: { eventId: number }) {
           <StatTile icon={Trophy} value={s.costumeVotes} label="Votos de disfraz" tone="alert" />
         </div>
       </section>
-      <section>
+      {!hideMoney && <section>
         <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">Plata de Playmatch</h3>
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <StatTile icon={Wallet} value={clp(s.revenue.totalClp)} label="Cobrado en total" tone="revenue" size="lg" />
@@ -100,8 +104,8 @@ function Resumen({ eventId }: { eventId: number }) {
           <StatTile icon={Gift} value={s.superLikes.gifted} label="Super Likes regalados" />
           <StatTile icon={Gift} value={s.superLikes.returned} label="Super Likes devueltos" />
         </div>
-      </section>
-      {hours.length > 0 && (
+      </section>}
+      {!hideMoney && hours.length > 0 && (
         <section>
           <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">Cobros por hora (hora de Chile)</h3>
           <div className="flex h-32 items-end gap-1.5 rounded-2xl border border-border/60 bg-card/50 p-3">

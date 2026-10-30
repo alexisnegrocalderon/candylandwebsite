@@ -988,6 +988,13 @@
       "when": 1793942800000,
       "tag": "0138_guardarropia_parcial",
       "breakpoints": true
+    },
+    {
+      "idx": 141,
+      "version": "5",
+      "when": 1794029200000,
+      "tag": "0140_panel_supervisors",
+      "breakpoints": true
     }
   ]
 }

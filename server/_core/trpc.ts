@@ -5,6 +5,7 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import type { TrpcContext } from "./context";
 import { maskPii } from "../privacy";
+import { recordAdminAudit } from "../db";
 
 const t = initTRPC.context<TrpcContext>().create({
   transformer: superjson,
@@ -291,5 +292,42 @@ export const supervisorProcedure = operatorProcedure.use(
         operator: ctx.operator,
       },
     });
+  }),
+);
+
+/** Escritura que también puede hacer una supervisora con cuenta propia
+ * (`supervisor`). Cada endpoint que se le abre se cambia a mano a este
+ * procedure: lo que siga en `adminProcedure` le da FORBIDDEN. Toda escritura
+ * suya queda en la bitácora con su nombre. */
+export const panelStaffProcedure = t.procedure.use(
+  t.middleware(async opts => {
+    const { ctx, next, type, path, getRawInput } = opts;
+    if (!ctx.user || (ctx.user.role !== 'admin' && ctx.user.role !== 'supervisor')) {
+      throw new TRPCError({ code: "FORBIDDEN", message: NOT_ADMIN_ERR_MSG });
+    }
+    const result = await next({ ctx: { ...ctx, user: ctx.user } });
+    if (ctx.user.role === 'supervisor' && type === 'mutation' && result.ok) {
+      const ip = String(ctx.req?.headers?.['x-forwarded-for'] ?? '').split(',')[0].trim() || null;
+      let input: unknown = null;
+      try { input = await getRawInput(); } catch { /* sin input */ }
+      await recordAdminAudit({ action: `supervisor.${path}`, targetType: 'supervisor', targetId: ctx.user.name ?? null, payload: { por: ctx.user.name, input }, ip });
+    }
+    return result;
+  }),
+);
+
+/** Lectura para admin, invitado de demostración (datos enmascarados) y
+ * supervisora. Los campos de plata/costos que la supervisora no debe ver se
+ * quitan dentro de cada endpoint con `ctx.user.role === 'supervisor'`. */
+export const panelStaffReadProcedure = t.procedure.use(
+  t.middleware(async opts => {
+    const { ctx, next } = opts;
+    const role = ctx.user?.role;
+    if (!ctx.user || (role !== 'admin' && role !== 'viewer' && role !== 'supervisor')) {
+      throw new TRPCError({ code: "FORBIDDEN", message: NOT_ADMIN_ERR_MSG });
+    }
+    const result = await next({ ctx: { ...ctx, user: ctx.user } });
+    if (role === 'viewer' && result.ok) return { ...result, data: maskPii(result.data) };
+    return result;
   }),
 );

@@ -16,6 +16,7 @@ import { AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader,
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { isMissionActiveForEvent, missionDepositPrice } from '@shared/mission300';
 import { PIE_COLORS, StatCard, onMutationError } from './shared';
+import { useIsSupervisor } from '@/lib/demoMode';
 
 /** Accesos manuales desde /admin (pedido explícito del usuario): invitaciones
  * gratis o accesos ya pagados por transferencia/efectivo directo, sin pasar
@@ -23,6 +24,8 @@ import { PIE_COLORS, StatCard, onMutationError } from './shared';
  * mail final con QR (server/routers.ts orders.createManual reusa
  * confirmFreeOrder, igual que el checkout con descuento 100%). */
 export function ManualAccessSection() {
+  // La supervisora solo manda invitaciones gratis: no ve el tipo "pagado" ni montos.
+  const isSupervisor = useIsSupervisor();
   const { data: eventsData } = trpc.events.listAll.useQuery();
   const events = eventsData ?? [];
   const [eventSlug, setEventSlug] = useState('');
@@ -228,7 +231,7 @@ export function ManualAccessSection() {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="space-y-2">
+            {!isSupervisor && <div className="space-y-2">
               <Label>Tipo de acceso</Label>
               <Select value={kind} onValueChange={(v) => setKind(v as 'invitation' | 'paid')}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
@@ -237,7 +240,7 @@ export function ManualAccessSection() {
                   <SelectItem value="paid">Ya pagado (transferencia/efectivo)</SelectItem>
                 </SelectContent>
               </Select>
-            </div>
+            </div>}
             {kind === 'paid' && (
               <div className="space-y-2">
                 <Label>Método de pago</Label>
@@ -289,7 +292,7 @@ export function ManualAccessSection() {
                 <p className="font-medium truncate">{o.buyerName} · {o.eventTitle}</p>
                 <p className="text-xs text-muted-foreground truncate">{o.buyerEmail} · {o.paymentMethod?.replace('Manual: ', '')} · {new Date(o.createdAt).toLocaleDateString('es-CL', { timeZone: 'America/Santiago' })}</p>
               </div>
-              <span className="text-sm font-medium whitespace-nowrap">{Number(o.total) === 0 ? 'Gratis' : `$${Number(o.total).toLocaleString('es-CL')}`}</span>
+              {!isSupervisor && <span className="text-sm font-medium whitespace-nowrap">{Number(o.total) === 0 ? 'Gratis' : `$${Number(o.total).toLocaleString('es-CL')}`}</span>}
             </div>
           ))}
           {history.length === 0 && <p className="text-sm text-muted-foreground px-3 py-4">Todavía no se creó ningún acceso manual.</p>}
