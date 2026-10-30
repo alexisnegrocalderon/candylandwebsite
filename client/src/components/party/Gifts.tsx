@@ -91,7 +91,7 @@ export function DrinkPicker({ ticketCode, targetProfileId, targetAlias, onClose,
 
 /** Bandeja de regalos: los que me invitaron y los que mandé. */
 export function GiftInbox({ ticketCode, onClose }: { ticketCode: string; onClose: () => void }) {
-  const gifts = trpc.party.myGifts.useQuery({ ticketCode }, { refetchInterval: 10_000 });
+  const gifts = trpc.party.myGifts.useQuery({ ticketCode }, { refetchInterval: 20_000 });
   const utils = trpc.useUtils();
   const [paying, setPaying] = useState<{ giftId: number; orderNumber: string; total: number } | null>(null);
 

@@ -90,16 +90,29 @@ export async function getDb() {
  * queda envenenado y cada consulta siguiente falla igual hasta que Vercel
  * recicla la función sola -- podían ser minutos u horas. Esto lo hace
  * autorecuperable en el siguiente request en vez de esperar ese reciclado. */
+let lastResetAt = 0;
+/** Como mucho un descarte cada 30 s: con mucha gente a la vez, varios requests
+ * fallan juntos por el mismo corte y cada uno descartaba el pool recién creado. */
+const RESET_MIN_INTERVAL_MS = 30_000;
+
 export function resetDb() {
+  const now = Date.now();
+  if (now - lastResetAt < RESET_MIN_INTERVAL_MS) return;
+  lastResetAt = now;
   const stale = _db;
   _db = null;
   if (stale) {
-    try {
-      (stale.$client as unknown as { end?: (cb?: (err?: unknown) => void) => void }).end?.(() => {});
-    } catch {
-      // Best-effort: el pool ya está descartado igual, un error acá no debe
-      // impedir que la próxima request arme uno nuevo.
-    }
+    // Se cierra después, no al tiro: las consultas de otras personas que
+    // todavía usan ese pool alcanzan a terminar en vez de fallar con
+    // "Pool is closed".
+    const timer = setTimeout(() => {
+      try {
+        (stale.$client as unknown as { end?: (cb?: (err?: unknown) => void) => void }).end?.(() => {});
+      } catch {
+        // Best-effort: el pool ya está descartado igual.
+      }
+    }, 20_000);
+    (timer as { unref?: () => void }).unref?.();
   }
 }
 

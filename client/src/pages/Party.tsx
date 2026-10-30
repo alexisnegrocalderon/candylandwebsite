@@ -91,9 +91,9 @@ export function PartyExperience({ ticketCode, onBack }: { ticketCode: string; on
   const halloween = useHalloweenMode();
   const voting = useCostumeVotes(ticketCode, inside && halloween);
   // 10 segundos: se siente vivo sin castigar la batería ni la función serverless. El chat abierto va a 3 s.
-  const mansion = trpc.party.listMansion.useQuery({ ticketCode }, { enabled: inside, refetchInterval: 10_000 });
-  const myGifts = trpc.party.myGifts.useQuery({ ticketCode }, { enabled: inside, refetchInterval: 10_000 });
-  const myMatches = trpc.party.myMatches.useQuery({ ticketCode }, { enabled: inside, refetchInterval: 10_000 });
+  const mansion = trpc.party.listMansion.useQuery({ ticketCode }, { enabled: inside, refetchInterval: 20_000 });
+  const myGifts = trpc.party.myGifts.useQuery({ ticketCode }, { enabled: inside, refetchInterval: 20_000 });
+  const myMatches = trpc.party.myMatches.useQuery({ ticketCode }, { enabled: inside, refetchInterval: 15_000 });
   const utils = trpc.useUtils();
   const setZone = trpc.party.setZone.useMutation({
     onSuccess: () => { session.refetch(); utils.party.listMansion.invalidate(); },

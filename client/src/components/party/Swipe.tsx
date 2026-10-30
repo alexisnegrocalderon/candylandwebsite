@@ -39,7 +39,7 @@ export function DiscoverView({ ticketCode, alias, myProfileId, participating, su
   onInfo: (card: DeckCard) => void;
 }) {
   const utils = trpc.useUtils();
-  const deckQuery = trpc.party.swipeDeck.useQuery({ ticketCode }, { enabled: participating, refetchInterval: 15_000 });
+  const deckQuery = trpc.party.swipeDeck.useQuery({ ticketCode }, { enabled: participating, refetchInterval: 30_000 });
   const swipe = trpc.party.swipe.useMutation();
   const touch = trpc.party.touch.useMutation();
   const undo = trpc.party.undoSwipe.useMutation();

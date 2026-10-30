@@ -1725,6 +1725,8 @@ export const partySwipes = mysqlTable("partySwipes", {
 }, (table) => ({
   pairIdx: uniqueIndex("party_swipes_pair_idx").on(table.fromProfileId, table.toProfileId),
   eventIdx: index("party_swipes_event_idx").on(table.eventId),
+  // «Quién me dio like»: sin esto cada consulta recorría la tabla entera.
+  toIdx: index("party_swipes_to_idx").on(table.toProfileId, table.liked),
 }));
 
 export type PartySwipe = typeof partySwipes.$inferSelect;

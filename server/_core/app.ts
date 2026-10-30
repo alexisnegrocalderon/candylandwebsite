@@ -29,9 +29,14 @@ import { resetDb } from "../db";
 // amplia para no dejar pasar el patrón real sin arriesgar falsos positivos
 // (un 500 de negocio normal, ej. "Falta el nombre del cliente", no calza
 // con ninguno de estos).
-const DB_CONNECTION_ERROR_PATTERN = /Failed query|ECONNRESET|ETIMEDOUT|ECONNREFUSED|PROTOCOL_CONNECTION_LOST|EPIPE|Too many connections|connection is in closed state|Unknown prepared statement/i;
+// OJO: sin "Failed query". drizzle le pone ese texto a CUALQUIER error SQL
+// (clave duplicada, conflicto de escritura), así que un doble toque en
+// Playmatch descartaba el pool de toda la instancia y cortaba las consultas
+// en curso de las demás personas. La causa real (el error de mysql2) viene en
+// `cause`, y esa sí se revisa.
+const DB_CONNECTION_ERROR_PATTERN = /ECONNRESET|ETIMEDOUT|ECONNREFUSED|PROTOCOL_CONNECTION_LOST|EPIPE|Too many connections|connection is in closed state|Pool is closed|socket has been ended|Unknown prepared statement/i;
 
-function looksLikeDbConnectionError(error: unknown): boolean {
+export function looksLikeDbConnectionError(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false;
   const message = String((error as { message?: unknown }).message ?? '');
   const causeMessage = String((error as { cause?: { message?: unknown } }).cause?.message ?? '');
