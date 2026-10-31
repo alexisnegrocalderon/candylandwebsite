@@ -87,6 +87,8 @@ export interface CajaGift {
  * que `CajaGift`: autocontenido, para buscar y canjear sin señal. */
 export interface CajaStaffComp {
   displayCode: string;
+  /** Código del QR del regalo (MP-…), el que escanea la caja. */
+  ticketCode?: string | null;
   productName: string;
   staffName: string;
   status: string;
@@ -321,6 +323,14 @@ export async function searchGiftsLocal(query: string): Promise<CajaGift[]> {
 
 /** Consumos gratis de staff, por código o por el nombre de la persona a la
  * que corresponde -- que es lo que dice al llegar a la caja. */
+/** Consumo regalado por el código de su QR (MP-…) o su código legible. */
+export async function findStaffCompByScan(code: string): Promise<CajaStaffComp | undefined> {
+  const upper = code.trim().toUpperCase();
+  if (!upper) return undefined;
+  return (await cajaDB.staffComps.get(upper))
+    ?? (await cajaDB.staffComps.filter((c) => (c.ticketCode ?? '').toUpperCase() === upper).first());
+}
+
 export async function searchStaffCompsLocal(query: string): Promise<CajaStaffComp[]> {
   const q = query.trim();
   if (!q) return [];
