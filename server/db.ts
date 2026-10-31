@@ -3455,6 +3455,8 @@ export async function getCajaSnapshot(eventId: number) {
       })),
       extras: ts.filter((t: any) => ttById.get(t.ticketTypeId)?.category === 'extra').map((t: any) => ({
         displayCode: t.displayCode, status: t.status, typeName: ttById.get(t.ticketTypeId)?.name,
+        // El QR de cada extra lleva su ticketCode (no el displayCode): la caja lo indexa para encontrarlo al escanear.
+        ticketCode: t.ticketCode,
         // Cobrado en la puerta (orden PUERTA-PARKING-…): no cuenta como estacionamiento reservado de antes.
         atDoor: classifyParkingOrigin({ orderPaymentMethod: o.paymentMethod ?? '', orderPaymentId: o.paymentId ?? null }) === 'puerta',
       })),

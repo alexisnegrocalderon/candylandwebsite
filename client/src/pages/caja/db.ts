@@ -24,7 +24,7 @@ export interface CajaAttendee {
    * pasaporte (selector elegido en el checkout, ver Checkout.tsx). */
   attendees: { name: string; rut: string | null; docType: 'rut' | 'passport' }[];
   access: { ticketCode: string; status: string; typeName: string; accesoSlug: string | null; groupSize: number | null }[];
-  extras: { displayCode: string | null; status: string; typeName: string; /** Cobrado en la puerta (no era un VIP reservado de antes). */ atDoor?: boolean }[];
+  extras: { displayCode: string | null; status: string; typeName: string; /** Cobrado en la puerta (no era un VIP reservado de antes). */ atDoor?: boolean; /** Código del QR del extra (MP-…). */ ticketCode?: string | null }[];
   /** Compra por el link de una campaña aliada (ej. comunidad electrónica):
    * gente que viene por primera vez. Opcional: snapshots viejos no lo traen. */
   partnerBadge?: { label: string; emoji: string; refLabel: string | null } | null;
@@ -201,9 +201,14 @@ export async function saveSnapshot(snapshot: {
     const codes: CajaCodeIndex[] = [];
     for (const a of snapshot.attendees) {
       for (const acc of a.access) codes.push({ code: acc.ticketCode.toUpperCase(), orderId: a.orderId });
-      for (const ex of a.extras) if (ex.displayCode) codes.push({ code: ex.displayCode.toUpperCase(), orderId: a.orderId });
+      for (const ex of a.extras) {
+        if (ex.displayCode) codes.push({ code: ex.displayCode.toUpperCase(), orderId: a.orderId });
+        // El QR de un trago/extra comprado en la web trae el ticketCode del extra, no su displayCode.
+        if (ex.ticketCode) codes.push({ code: ex.ticketCode.toUpperCase(), orderId: a.orderId });
+      }
     }
-    await cajaDB.codes.bulkAdd(codes);
+    // bulkPut y no bulkAdd: un código repetido no debe tumbar la descarga entera de la lista.
+    await cajaDB.codes.bulkPut(codes);
     await cajaDB.catalog.bulkAdd(snapshot.catalog);
     await cajaDB.gifts.bulkAdd((snapshot.gifts ?? []).map((g) => ({ ...g, displayCode: g.displayCode.toUpperCase(), status: 'valid' })));
     await cajaDB.staffComps.bulkAdd((snapshot.staffComps ?? []).map((c) => ({ ...c, displayCode: c.displayCode.toUpperCase() })));
