@@ -3455,6 +3455,8 @@ export async function getCajaSnapshot(eventId: number) {
       })),
       extras: ts.filter((t: any) => ttById.get(t.ticketTypeId)?.category === 'extra').map((t: any) => ({
         displayCode: t.displayCode, status: t.status, typeName: ttById.get(t.ticketTypeId)?.name,
+        // El QR de cada extra lleva su ticketCode (no el displayCode): la caja lo indexa para encontrarlo al escanear.
+        ticketCode: t.ticketCode,
         // Cobrado en la puerta (orden PUERTA-PARKING-…): no cuenta como estacionamiento reservado de antes.
         atDoor: classifyParkingOrigin({ orderPaymentMethod: o.paymentMethod ?? '', orderPaymentId: o.paymentId ?? null }) === 'puerta',
       })),
@@ -3542,6 +3544,7 @@ export async function getCajaSnapshot(eventId: number) {
   // funcionen sin señal (ver createStaffComp).
   const staffCompRows = await db.select({
     displayCode: tickets.displayCode,
+    ticketCode: tickets.ticketCode,
     status: tickets.status,
     staffName: tickets.holderName,
     productName: ticketTypes.name,
@@ -3552,6 +3555,8 @@ export async function getCajaSnapshot(eventId: number) {
     .where(and(eq(orders.eventId, eventId), eq(orders.paymentMethod, 'Manual: Consumo Staff'), eq(tickets.status, 'valid')));
   const staffComps = staffCompRows.map((r: any) => ({
     displayCode: r.displayCode as string,
+    // El QR del regalo (app del cliente) lleva este código, no el displayCode.
+    ticketCode: r.ticketCode as string,
     status: r.status as string,
     staffName: r.staffName as string,
     productName: r.productName as string,

@@ -14,7 +14,7 @@ import { Input } from '@/components/ui/input';
 import { QrScanner } from '@/components/QrScanner';
 import { isPayQr, parseTicketCodeFromQr } from '@shared/qr';
 import {
-  saveSnapshot, getLocalEvent, searchLocal, searchStaffCompsLocal, searchInsideAttendeesLocal, getLocalAttendee, getLocalCatalog,
+  saveSnapshot, getLocalEvent, searchLocal, searchStaffCompsLocal, findStaffCompByScan, searchInsideAttendeesLocal, getLocalAttendee, getLocalCatalog,
   enqueueOp, pendingOpsCount, getPendingOps, markOpSynced, markOpRejected, getRejectedOps, discardOp, clearSyncedOps, correctedNow,
   nextKitchenTicketNumber, nextLockerTagNumber, getLocalBarra,
   type CajaAttendee, type CajaBarra, type CajaCatalogItem, type CajaStaffComp, type QueuedOp,
@@ -800,7 +800,17 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
     setScanning(false);
     const found = await searchLocal(code);
     const attendee = found[0];
-    if (!attendee) { toast.error('No encontramos ese código.'); return; }
+    if (!attendee) {
+      // Un trago regalado desde la app (consumo regalado) no tiene ficha: se muestra en la búsqueda para canjearlo.
+      const comp = await findStaffCompByScan(code);
+      if (comp) {
+        if (comp.status === 'used') { toast.error(`${comp.productName} para ${comp.staffName}: ya fue canjeado.`); return; }
+        setQuery(comp.displayCode);
+        return;
+      }
+      toast.error('No encontramos ese código.');
+      return;
+    }
     setSelectedOrderId(attendee.orderId);
     setView('sheet');
   };
