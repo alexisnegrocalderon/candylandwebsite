@@ -37,7 +37,7 @@ export function useDarkGlassDocument() {
     root.classList.add('dark');
     const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
     const prevColor = meta?.content;
-    if (meta) meta.content = '#0b0612';
+    if (meta) meta.content = '#19191c';
     return () => {
       if (prevTheme === undefined) delete root.dataset.adminTheme; else root.dataset.adminTheme = prevTheme;
       root.classList.remove('dark');
@@ -250,7 +250,7 @@ export function AdminShell({ sections: allSections, activeSection, onOpenSection
         {/* Celular instalado: la barra de estado del teléfono es translúcida y el contenido corre por debajo al hacer scroll.
             El espacio de la barra va como padding DENTRO de la cabecera (no como `top` del sticky, que la corría
             hacia abajo y la montaba sobre los títulos de la sección), y este velo lo tapa. */}
-        <div aria-hidden="true" className="pointer-events-none fixed inset-x-0 top-0 z-[31] h-[env(safe-area-inset-top)] bg-[#0b0612]/85 backdrop-blur-xl md:hidden" />
+        <div aria-hidden="true" className="pointer-events-none fixed inset-x-0 top-0 z-[31] h-[env(safe-area-inset-top)] bg-[#19191c]/85 backdrop-blur-xl md:hidden" />
         <header className="admin-topbar sticky top-0 z-30 px-3 pt-[max(env(safe-area-inset-top),0.75rem)] md:px-4 md:pt-3">
           <div className="admin-glass-panel admin-glass-panel-sm flex items-center gap-3 px-4 py-3 md:px-5">
             <img src="/candyland/logo-isotipo-transparent.png" alt="" className="h-7 w-7 shrink-0 object-contain md:hidden" />
@@ -519,10 +519,10 @@ function AppTabBar({ left, right, activeHub, badgeFor, moreBadge, moreHubs, quic
           </div>
         ))}
         <button type="button" onClick={() => onOpenChange(!open)} aria-label={open ? 'Cerrar' : 'Más secciones y atajos'} aria-expanded={open}
-          className="absolute bottom-3 left-1/2 grid h-16 w-16 -translate-x-1/2 place-items-center rounded-full bg-gradient-to-br from-pink-500 via-fuchsia-500 to-sky-500 text-white shadow-[0_10px_30px_-4px_rgba(236,72,153,0.65),inset_0_1px_0_rgba(255,255,255,0.45)] ring-[5px] ring-[#0b0612]/70 transition-transform duration-300 active:scale-95">
+          className="absolute bottom-3 left-1/2 grid h-16 w-16 -translate-x-1/2 place-items-center rounded-full bg-gradient-to-br from-pink-500 via-fuchsia-500 to-sky-500 text-white shadow-[0_10px_30px_-4px_rgba(236,72,153,0.65),inset_0_1px_0_rgba(255,255,255,0.45)] ring-[5px] ring-[#111113]/70 transition-transform duration-300 active:scale-95">
           <Plus className={`h-7 w-7 transition-transform duration-300 ${open ? 'rotate-45' : ''}`} strokeWidth={2.4} />
           {!open && (moreBadge > 0 || moreActive) && (
-            <span className={`absolute right-0.5 top-0.5 h-3 w-3 rounded-full border-2 border-[#0b0612] ${moreBadge > 0 ? 'bg-amber-300' : 'bg-white'}`} />
+            <span className={`absolute right-0.5 top-0.5 h-3 w-3 rounded-full border-2 border-[#111113] ${moreBadge > 0 ? 'bg-amber-300' : 'bg-white'}`} />
           )}
         </button>
       </nav>
