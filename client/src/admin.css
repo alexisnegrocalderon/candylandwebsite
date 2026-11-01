@@ -192,18 +192,18 @@
 [data-admin-theme="dark-glass"] {
   color-scheme: dark;
 
-  --color-background: oklch(0.155 0.03 318);
+  --color-background: oklch(0.17 0.004 270);
   --color-foreground: oklch(0.965 0.008 330);
   --color-card: oklch(1 0 0 / 0.055);
   --color-card-foreground: oklch(0.965 0.008 330);
-  --color-popover: oklch(0.2 0.035 318);
+  --color-popover: oklch(0.21 0.004 270);
   --color-popover-foreground: oklch(0.965 0.008 330);
   --color-primary: oklch(0.72 0.2 342);
   --color-primary-foreground: oklch(0.99 0.005 340);
   --color-secondary: oklch(0.72 0.13 230);
-  --color-secondary-foreground: oklch(0.16 0.03 318);
+  --color-secondary-foreground: oklch(0.17 0.004 270);
   --color-muted: oklch(1 0 0 / 0.07);
-  --color-muted-foreground: oklch(0.79 0.03 320);
+  --color-muted-foreground: oklch(0.78 0.008 270);
   --color-accent: oklch(1 0 0 / 0.09);
   --color-accent-foreground: oklch(0.985 0.005 330);
   --color-destructive: oklch(0.64 0.21 22);
@@ -212,17 +212,17 @@
   --color-ring: oklch(0.72 0.2 342);
 
   --admin-text: oklch(0.965 0.008 330);
-  --admin-muted: oklch(0.79 0.03 320);
+  --admin-muted: oklch(0.78 0.008 270);
   --admin-body-size: 16px;
   --admin-radius: 22px;
   --admin-radius-sm: 14px;
   --admin-shadow-clay: 0 24px 60px -18px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.18);
   --admin-shadow-clay-sm: 0 12px 30px -12px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.15);
   --admin-glass-bg: rgba(255, 255, 255, 0.065);
-  --admin-glass-bg-solid: rgba(24, 15, 34, 0.94);
+  --admin-glass-bg-solid: rgba(26, 26, 28, 0.95);
   --admin-glass-border: rgba(255, 255, 255, 0.12);
   --admin-glass-blur: blur(28px) saturate(180%);
-  --admin-surface-solid: #1b1226;
+  --admin-surface-solid: #1c1c1f;
 
   --admin-success-bg: rgba(34, 197, 94, 0.16);   --admin-success-text: #86efac;
   --admin-warning-bg: rgba(245, 158, 11, 0.16);  --admin-warning-text: #fcd34d;
@@ -236,14 +236,13 @@
 }
 html[data-admin-theme="dark-glass"],
 html[data-admin-theme="dark-glass"] body {
-  background: #0b0612;
+  background: #111113;
 }
 .admin-shell[data-admin-theme="dark-glass"] {
   font-size: var(--admin-body-size);
 }
 
-/* Fondo: dos "planetas" de luz (como la referencia) en rosa/violeta y azul
- * de marca + bruma radial. Fijo y sin animación: barato de pintar. */
+/* Fondo grafito con bruma iridiscente arriba. Fijo y sin animación: barato de pintar. */
 .admin-backdrop {
   position: fixed;
   inset: 0;
@@ -251,35 +250,16 @@ html[data-admin-theme="dark-glass"] body {
   overflow: hidden;
   pointer-events: none;
   background:
-    radial-gradient(900px 600px at 85% -10%, oklch(0.55 0.25 320 / 0.45), transparent 60%),
-    radial-gradient(700px 500px at -10% 40%, oklch(0.45 0.2 300 / 0.35), transparent 60%),
-    radial-gradient(900px 700px at 60% 120%, oklch(0.5 0.2 260 / 0.45), transparent 60%),
-    #0b0612;
+    radial-gradient(1200px 640px at 10% -14%, oklch(0.86 0.08 140 / 0.42), transparent 62%),
+    radial-gradient(1100px 620px at 68% -20%, oklch(0.84 0.07 290 / 0.38), transparent 60%),
+    radial-gradient(900px 560px at 105% 8%, oklch(0.92 0.1 105 / 0.30), transparent 60%),
+    radial-gradient(1100px 700px at 50% 125%, oklch(0.6 0.03 270 / 0.22), transparent 65%),
+    linear-gradient(180deg, #19191c 0%, #111113 55%, #0d0d0f 100%);
 }
+/* Sin "planetas": solo la bruma iridiscente (salvia, lila, amarillo pálido)
+ * sobre grafito, al estilo Apple. */
 .admin-backdrop::before,
-.admin-backdrop::after {
-  content: "";
-  position: absolute;
-  border-radius: 50%;
-}
-.admin-backdrop::before {
-  width: 1600px;
-  height: 1600px;
-  right: -900px;
-  top: -1150px;
-  background: radial-gradient(circle at 30% 80%, oklch(0.32 0.16 315), oklch(0.12 0.04 310) 70%);
-  box-shadow: 0 0 0 1.5px oklch(0.8 0.2 330 / 0.75), 0 0 60px 8px oklch(0.65 0.25 330 / 0.45);
-  opacity: 0.85;
-}
-.admin-backdrop::after {
-  width: 2200px;
-  height: 2200px;
-  left: -500px;
-  top: 55vh;
-  background: radial-gradient(circle at 50% 10%, oklch(0.34 0.17 262), oklch(0.16 0.07 265) 45%, oklch(0.1 0.03 280) 70%);
-  box-shadow: 0 0 0 1.5px oklch(0.82 0.13 240 / 0.7), 0 0 70px 10px oklch(0.6 0.2 250 / 0.4);
-  opacity: 0.7;
-}
+.admin-backdrop::after { content: none; }
 
 /* Paneles del chrome (sidebar, topbar, barra inferior). Sin backdrop-filter
  * a propósito: ver la nota de Safari en `.admin-clay-shell` (light-pro) --
@@ -287,15 +267,15 @@ html[data-admin-theme="dark-glass"] body {
 .admin-glass-panel {
   /* Reflejo arriba (vidrio líquido) sin backdrop-filter: ver nota de Safari arriba. */
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0) 38%),
-    linear-gradient(180deg, rgba(40, 26, 56, 0.86), rgba(20, 13, 30, 0.9));
+    linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0) 38%),
+    linear-gradient(180deg, rgba(30, 30, 33, 0.9), rgba(20, 20, 22, 0.93));
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 28px;
   box-shadow: 0 30px 70px -25px rgba(0, 0, 0, 0.75), inset 0 1px 0 rgba(255, 255, 255, 0.22), inset 0 -1px 0 rgba(255, 255, 255, 0.04);
 }
 .admin-glass-panel-sm { border-radius: 20px; }
 .admin-glass-sheet {
-  background: linear-gradient(180deg, rgba(40, 26, 56, 0.97), rgba(18, 11, 27, 0.98)) !important;
+  background: linear-gradient(180deg, rgba(32, 32, 35, 0.97), rgba(20, 20, 22, 0.98)) !important;
   border: 1px solid rgba(255, 255, 255, 0.12);
   color: var(--admin-text);
 }
@@ -313,7 +293,7 @@ html[data-admin-theme="dark-glass"] body {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3);
 }
 .admin-collapse-btn {
-  background: rgba(40, 26, 56, 0.95);
+  background: rgba(32, 32, 35, 0.95);
   border: 1px solid rgba(255, 255, 255, 0.2);
   color: rgba(255, 255, 255, 0.85);
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.5);
@@ -414,7 +394,7 @@ html[data-admin-theme="dark-glass"] body {
 [data-admin-theme="dark-glass"] [data-slot="dialog-content"],
 [data-admin-theme="dark-glass"] [data-slot="alert-dialog-content"],
 [data-admin-theme="dark-glass"] [data-slot="sheet-content"] {
-  background: linear-gradient(180deg, rgba(36, 23, 50, 0.98), rgba(20, 13, 30, 0.99));
+  background: linear-gradient(180deg, rgba(32, 32, 35, 0.98), rgba(20, 20, 22, 0.99));
   border-color: rgba(255, 255, 255, 0.12);
 }
 [data-admin-theme="dark-glass"] [data-slot="select-content"],

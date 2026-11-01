@@ -254,7 +254,7 @@ export function ExpenseTerminal({ inShell = false }: { inShell?: boolean }) {
                 <img src={receiptUrl} alt="" className="h-12 w-12 rounded-xl border border-white/15 object-cover" />
               </a>
               <button type="button" onClick={() => setReceiptUrl(null)} aria-label="Quitar la foto"
-                className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full border border-white/20 bg-[#1b1226] text-white/80">
+                className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full border border-white/20 bg-[#1c1c1f] text-white/80">
                 <X className="h-3.5 w-3.5" />
               </button>
             </span>

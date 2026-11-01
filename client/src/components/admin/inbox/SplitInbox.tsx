@@ -70,7 +70,7 @@ export function InboxAvatar({ name, className = '' }: { name: string; className?
   const letter = name.replace(/^@/, '').trim()[0]?.toUpperCase() ?? '?';
   return (
     <span className={`flex shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[oklch(0.72_0.2_342)] via-[oklch(0.68_0.2_300)] to-[oklch(0.7_0.15_240)] p-[2px] ${className}`}>
-      <span className="flex h-full w-full items-center justify-center rounded-full bg-[#1b1226] font-heading font-bold text-white">{letter}</span>
+      <span className="flex h-full w-full items-center justify-center rounded-full bg-[#1c1c1f] font-heading font-bold text-white">{letter}</span>
     </span>
   );
 }
