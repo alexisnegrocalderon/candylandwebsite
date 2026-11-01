@@ -3485,11 +3485,13 @@ export const appRouter = router({
       financeWeeklyEmail: z.boolean().optional(),
       cajaLowStockUnits: z.number().int().min(0).max(10000).optional(),
       cajaHighSaleClp: z.number().int().min(0).optional(),
+      // Modo evento (solo avisos urgentes durante la fiesta). Opcional: un panel viejo no lo manda y se conserva.
+      eventModeQuiet: z.boolean().optional(),
     })).mutation(async ({ input }) => {
       // Los datos del gasto de IA se editan en el Estudio: no se pierden al guardar Ajustes.
       const current = normalizeAdminAlertsConfig(((await db.getSiteSettings()) as any)?.adminAlertsConfig);
       const { aiCapUsd, aiBalanceUsd, aiBalanceAt, aiAlertSent, aiSpentOffsetUsd, aiSpentOffsetMonth } = current;
-      return db.updateSiteSettings({ adminAlertsConfig: normalizeAdminAlertsConfig({ ...input, aiCapUsd, aiBalanceUsd, aiBalanceAt, aiAlertSent, aiSpentOffsetUsd, aiSpentOffsetMonth }) });
+      return db.updateSiteSettings({ adminAlertsConfig: normalizeAdminAlertsConfig({ ...input, eventModeQuiet: input.eventModeQuiet ?? current.eventModeQuiet, aiCapUsd, aiBalanceUsd, aiBalanceAt, aiAlertSent, aiSpentOffsetUsd, aiSpentOffsetMonth }) });
     }),
     // La clave pública VAPID no es secreta (viaja al navegador para armar la
     // suscripción), pero igual queda detrás de admin para no publicarla sin

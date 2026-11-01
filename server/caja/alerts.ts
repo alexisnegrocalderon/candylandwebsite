@@ -14,7 +14,7 @@ import { and, eq, gte, inArray, isNull, desc, sql } from "drizzle-orm";
 import { cajaAlerts, events, operators, ops, orders, orderItems, registers, shifts, ticketTypes } from "../../drizzle/schema";
 import { getDb, getSiteSettings } from "../db";
 import { sendPushToAdmins } from "../push";
-import { normalizeAdminAlertsConfig, type AdminAlertsConfig } from "../../shared/adminAlertsConfig";
+import { normalizeAdminAlertsConfig, URGENT_CAJA_ALERT_KINDS, type AdminAlertsConfig } from "../../shared/adminAlertsConfig";
 import { isPartyWindowOpen, partyWindow } from "../../shared/party";
 import { invokeLLM, extractContent } from "../_core/llm";
 import { sendEmail } from "../email";
@@ -52,11 +52,12 @@ export async function raiseCajaAlert(eventId: number, draft: CajaAlertDraft, opt
         eventId, kind: draft.kind, severity: draft.severity, title, body: draft.body, dedupeKey: draft.dedupeKey.slice(0, 191),
       });
     } catch (err: any) {
-      const isDuplicate = err?.code === "ER_DUP_ENTRY" || /duplicate entry/i.test(String(err?.message ?? ""));
+      // drizzle envuelve el error de mysql2: el código y el texto vienen en `cause`.
+      const isDuplicate = [err, err?.cause].some((e: any) => e?.code === "ER_DUP_ENTRY" || /duplicate entry/i.test(String(e?.message ?? "")));
       if (isDuplicate) return false;
       throw err;
     }
-    await sendPushToAdmins("pushCajaAlerts", { title, body: draft.body.slice(0, 240), url: "/admin?section=caja" });
+    await sendPushToAdmins("pushCajaAlerts", { title, body: draft.body.slice(0, 240), url: "/admin?section=caja" }, { urgent: URGENT_CAJA_ALERT_KINDS.includes(draft.kind) });
     return true;
   } catch (err) {
     console.error("[cajaAlerts] No se pudo registrar/enviar la alerta:", err);

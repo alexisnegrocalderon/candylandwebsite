@@ -5,6 +5,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { useIsSupervisor } from '@/lib/demoMode';
+import { EventSwitcher } from './EventSwitcher';
 import { ADMIN_HUBS, hubBadgeCount, type AdminHub, type AdminHubId, type ShellSection } from './nav';
 import { CommandPalette } from './CommandPalette';
 import { GiftDialog } from '@/components/admin/staff/GiftDialog';
@@ -71,7 +72,7 @@ export interface AdminQuickAction {
 /** Chrome del panel: sidebar de vidrio (desktop), pestañas del hub, barra
  * inferior + "Más" (celular) y buscador Ctrl+K. No sabe nada de lo que
  * renderiza cada sección -- solo de ids, hubs y burbujas. */
-export function AdminShell({ sections, activeSection, onOpenSection, badgeCounts, userName, roleLabel: roleLabelProp, isDemo, onLogout, quickActions, children }: AdminShellProps) {
+export function AdminShell({ sections: allSections, activeSection, onOpenSection, badgeCounts, userName, roleLabel: roleLabelProp, isDemo, onLogout, quickActions, children }: AdminShellProps) {
   const mainRef = useRef<HTMLElement>(null);
   useStackTables(mainRef);
   useDarkGlassDocument();
@@ -86,6 +87,8 @@ export function AdminShell({ sections, activeSection, onOpenSection, badgeCounts
   const isSupervisor = useIsSupervisor();
   const { data: giftAccess } = trpc.orders.canGift.useQuery(undefined, { enabled: !isDemo && !isSupervisor, retry: false, staleTime: 5 * 60_000 });
 
+  // El menú no muestra las pantallas ocultas (`hidden`), salvo la que está abierta; el buscador sí las encuentra.
+  const sections = useMemo(() => allSections.filter((s) => !s.hidden || s.id === activeSection), [allSections, activeSection]);
   const current = sections.find((s) => s.id === activeSection) ?? sections[0];
   const activeHub = current.hub;
   const hubSections = sections.filter((s) => s.hub === activeHub);
@@ -281,6 +284,9 @@ export function AdminShell({ sections, activeSection, onOpenSection, badgeCounts
             </button>
           </div>
 
+          {/* Las etapas del evento trabajan sobre UNA fiesta: se elige acá y la siguen todas sus pantallas. */}
+          {ADMIN_HUBS.find((h) => h.id === activeHub)?.perEvent && <EventSwitcher />}
+
           {hubSections.length > 1 && (
             <div className="admin-tabs-scroller -mx-3 mt-2 overflow-x-auto px-3 md:mx-0 md:px-0">
               <div className="flex w-max gap-1.5 pb-1" role="tablist" aria-label={hubMeta.label}>
@@ -402,7 +408,7 @@ export function AdminShell({ sections, activeSection, onOpenSection, badgeCounts
       <CommandPalette
         open={searchOpen}
         onOpenChange={setSearchOpen}
-        sections={sections}
+        sections={allSections}
         hubs={allHubs}
         onSelect={(id) => { onOpenSection(id); setSearchOpen(false); }}
       />

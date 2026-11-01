@@ -119,47 +119,70 @@ const ADMIN_QUICK_ACTIONS: AdminQuickAction[] = [
 
 const ADMIN_SECTIONS = [
   { id: 'home', label: 'Inicio', hub: 'inicio', icon: Home, render: () => <HomeSection /> },
-
-  { id: 'sup-home', label: 'Esta noche', hub: 'noche', icon: LayoutDashboard, render: () => <SupervisorHome /> },
-  { id: 'overview', label: 'Resumen de la noche', hub: 'noche', icon: LayoutDashboard, render: () => <EventOverview /> },
-  { id: 'staff', label: 'Staff', hub: 'noche', icon: Users, render: () => <StaffManager /> },
-  { id: 'caja', label: 'Caja', hub: 'noche', icon: Store, render: () => <CajaAdminView /> },
-  { id: 'flash-promo', label: 'Promo Flash', hub: 'noche', icon: Zap, render: () => <FlashPromoCard /> },
-
-  { id: 'orders-web', label: 'Ventas Web', hub: 'ventas', icon: Ticket, render: () => <OrdersView channel="web" /> },
-  { id: 'orders-caja', label: 'Ventas Caja', hub: 'ventas', icon: ShoppingBag, render: () => <OrdersView channel="caja" /> },
-  { id: 'sales-origin', label: 'Ventas por Origen', hub: 'ventas', icon: Compass, render: () => <SalesByOriginView /> },
-  { id: 'sales-strategy', label: 'Director comercial', hub: 'ventas', icon: Sparkles, render: () => <SalesStrategyView /> },
-  { id: 'manual-access', label: 'Accesos Manuales', hub: 'ventas', icon: Gift, render: () => <ManualAccessSection /> },
-  { id: 'parking', label: 'Estacionamiento', hub: 'ventas', icon: Car, render: () => <ParkingReportView /> },
-
-  { id: 'events', label: 'Eventos', hub: 'eventos', icon: Calendar, render: () => <EventsManager /> },
-  { id: 'carta', label: 'Carta de la Fiesta', hub: 'eventos', icon: Martini, render: () => <CartaManager /> },
-  { id: 'insumos', label: 'Stock de Barra', hub: 'eventos', icon: Wine, render: () => <InsumosManager /> },
-  { id: 'event-survey', label: 'Encuestas', hub: 'eventos', icon: Star, render: () => <EventSurveyView /> },
-  { id: 'discounts', label: 'Descuentos', hub: 'eventos', icon: Percent, render: () => <DiscountsManager /> },
-  { id: 'community', label: 'Códigos Comunidad', hub: 'eventos', icon: Users, render: () => <CommunityCodesManager /> },
-  { id: 'partner-electronica', label: 'Comunidad Electrónica', hub: 'eventos', icon: Headphones, render: () => <PartnerCampaignView /> },
-
+  // 1 · Preparar: armar el evento antes de vender (ficha, precios, códigos, equipo, cajas, carta y stock).
+  { id: 'events', label: 'Eventos', hub: 'preparar', icon: Calendar, render: () => <EventsManager /> },
+  { id: 'discounts', label: 'Descuentos', hub: 'preparar', icon: Percent, render: () => <DiscountsManager /> },
+  { id: 'community', label: 'Códigos Comunidad', hub: 'preparar', icon: Users, render: () => <CommunityCodesManager /> },
+  { id: 'staff', label: 'Staff', hub: 'preparar', icon: Users, render: () => <StaffManager /> },
+  { id: 'caja', label: 'Caja', hub: 'preparar', icon: Store, render: () => <CajaAdminView /> },
+  { id: 'carta', label: 'Carta de la Fiesta', hub: 'preparar', icon: Martini, render: () => <CartaManager /> },
+  { id: 'insumos', label: 'Stock de Barra', hub: 'preparar', icon: Wine, render: () => <InsumosManager /> },
+  // Co-producción (Playroom × Dalmore): aparece junto a la preparación porque se arma con el evento.
+  { id: 'copro-resumen', label: 'Resumen', hub: 'coproduccion', icon: LayoutDashboard, render: () => <CoproResumen /> },
+  { id: 'copro-asistentes', label: 'Asistentes', hub: 'coproduccion', icon: Users, render: () => <CoproAsistentes /> },
+  { id: 'copro-cortesias', label: 'Cortesías', hub: 'coproduccion', icon: Gift, render: () => <CoproCortesias /> },
+  { id: 'copro-gastos', label: 'Gastos', hub: 'coproduccion', icon: Receipt, render: () => <CoproGastos /> },
+  { id: 'copro-reparto', label: 'Reparto', hub: 'coproduccion', icon: DollarSign, render: () => <CoproReparto /> },
+  { id: 'copro-config', label: 'Configuración', hub: 'coproduccion', icon: SettingsIcon, render: () => <CoproConfig /> },
+  // 2 · Vender: las ventas del evento, cortesías y lo que trae ventas (concursos, embajadores, referidos).
+  { id: 'orders-web', label: 'Ventas Web', hub: 'vender', icon: Ticket, render: () => <OrdersView channel="web" /> },
+  { id: 'manual-access', label: 'Accesos Manuales', hub: 'vender', icon: Gift, render: () => <ManualAccessSection /> },
+  { id: 'parking', label: 'Estacionamiento', hub: 'vender', icon: Car, render: () => <ParkingReportView /> },
+  { id: 'sales-origin', label: 'Ventas por Origen', hub: 'vender', icon: Compass, render: () => <SalesByOriginView /> },
+  { id: 'contests', label: 'Concursos', hub: 'vender', icon: PartyPopper, render: () => <ContestsView /> },
+  { id: 'ambassadors', label: 'Embajadores VIP', hub: 'vender', icon: Crown, render: () => <AmbassadorsView /> },
+  { id: 'referrals', label: 'Referidos', hub: 'vender', icon: Trophy, render: () => <ReferralsView /> },
+  { id: 'partner-electronica', label: 'Comunidad Electrónica', hub: 'vender', hidden: true, icon: Headphones, render: () => <PartnerCampaignView /> },
+  { id: 'sales-strategy', label: 'Director comercial', hub: 'vender', hidden: true, icon: Sparkles, render: () => <SalesStrategyView /> },
+  // Comunicar: mailing, avisos a la app, contenido y las bandejas de Instagram/WhatsApp.
+  { id: 'mailing', label: 'Mailing', hub: 'comunicar', icon: Mail, render: () => <MailingSection /> },
+  { id: 'mailing-history', label: 'Historial de Mailing', hub: 'comunicar', icon: History, render: () => <MailingHistoryView /> },
+  { id: 'email-templates', label: 'Plantillas de correo', hub: 'comunicar', icon: Send, render: () => <EmailTemplatesManager /> },
+  { id: 'push-clientes', label: 'Notificaciones', hub: 'comunicar', icon: BellRing, render: () => <CustomerPushView /> },
+  { id: 'content-plan', label: 'Plan de contenido', hub: 'comunicar', icon: Calendar, render: () => <ContentPlanView /> },
+  { id: 'studio', label: 'Estudio', hub: 'comunicar', icon: Palette, render: () => (
+    <Suspense fallback={<div className="py-12 flex justify-center"><div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" /></div>}>
+      <ContentStudio />
+    </Suspense>
+  ) },
+  { id: 'profile-audit', label: 'Revisar mi perfil', hub: 'comunicar', icon: UserCheck, render: () => <ProfileAuditView /> },
+  { id: 'instagram', label: 'Instagram', hub: 'comunicar', icon: Instagram, render: () => <InstagramInbox /> },
+  { id: 'whatsapp', label: 'WhatsApp', hub: 'comunicar', icon: MessageCircle, render: () => <WhatsAppInbox /> },
+  // 3 · En vivo: la noche en control (resumen, caja, Playmatch, denuncias, promos).
+  { id: 'overview', label: 'Resumen de la noche', hub: 'envivo', icon: LayoutDashboard, render: () => <EventOverview /> },
+  { id: 'sup-home', label: 'Esta noche', hub: 'envivo', icon: LayoutDashboard, render: () => <SupervisorHome /> },
+  { id: 'orders-caja', label: 'Ventas Caja', hub: 'envivo', icon: ShoppingBag, render: () => <OrdersView channel="caja" /> },
+  { id: 'playmatch-control', label: 'Playmatch en vivo', hub: 'envivo', icon: Flame, render: () => <PlaymatchControlView /> },
+  { id: 'denuncias', label: 'Denuncias Playmatch', hub: 'envivo', icon: ShieldAlert, render: () => <DenunciasView /> },
+  { id: 'party-gifts', label: 'Tragos de la Fiesta', hub: 'envivo', icon: Martini, render: () => <PartyGiftsView /> },
+  { id: 'mejor-disfraz', label: 'Mejor disfraz', hub: 'envivo', icon: Trophy, render: () => <MejorDisfrazView /> },
+  { id: 'flash-promo', label: 'Promo Flash', hub: 'envivo', icon: Zap, render: () => <FlashPromoCard /> },
+  // 4 · Cierre: resultados y P&L del evento, y la encuesta a los asistentes.
+  { id: 'gastos', label: 'Gastos y P&L', hub: 'cierre', icon: Receipt, render: () => <GastosView /> },
+  { id: 'event-survey', label: 'Encuestas', hub: 'cierre', icon: Star, render: () => <EventSurveyView /> },
+  // Clientes: la base y todo lo que se hace con una persona (ficha, solteros, cupones y regalos a su app).
   { id: 'customers', label: 'Clientes', hub: 'clientes', icon: Contact, render: () => <CustomersView /> },
   { id: 'leads', label: 'Leads', hub: 'clientes', icon: UserPlus, render: () => <LeadsView /> },
   { id: 'winback', label: 'Reactivar clientes', hub: 'clientes', icon: Users, render: () => <WinbackView /> },
   { id: 'birthdays', label: 'Cumpleañeros', hub: 'clientes', icon: Cake, render: () => <BirthdaysView /> },
   { id: 'blocked-customers', label: 'Bloqueo de Clientes', hub: 'clientes', icon: Ban, render: () => <BlockedManager /> },
-
-  // App Playroom: todo lo que se edita y se envía para la app, en un solo lugar (los ids no cambian).
+  { id: 'solteros', label: 'Solteros', hub: 'clientes', icon: UserCheck, render: () => <SolterosManager /> },
+  { id: 'members', label: 'Cupones y pagos', hub: 'clientes', icon: Crown, render: () => <MembersManager /> },
+  { id: 'app-clientes', label: 'Clientes con la app', hub: 'clientes', icon: Smartphone, render: () => <AppInstallsView /> },
+  // App y Playmatch: el resumen de la app y las herramientas para probarla.
   { id: 'app-resumen', label: 'Resumen', hub: 'app', icon: LayoutDashboard, render: () => <AppOverview /> },
-  { id: 'members', label: 'Cupones y pagos', hub: 'app', icon: Crown, render: () => <MembersManager /> },
-  { id: 'push-clientes', label: 'Notificaciones', hub: 'app', icon: BellRing, render: () => <CustomerPushView /> },
-  { id: 'app-clientes', label: 'Clientes con la app', hub: 'app', icon: Smartphone, render: () => <AppInstallsView /> },
-  { id: 'solteros', label: 'Solteros', hub: 'app', icon: UserCheck, render: () => <SolterosManager /> },
-  { id: 'playmatch-control', label: 'Playmatch en vivo', hub: 'app', icon: Flame, render: () => <PlaymatchControlView /> },
-  { id: 'denuncias', label: 'Denuncias Playmatch', hub: 'app', icon: ShieldAlert, render: () => <DenunciasView /> },
   { id: 'playmatch-test', label: 'Probar Playmatch', hub: 'app', icon: FlaskConical, render: () => <PlaymatchTestView /> },
-  { id: 'mejor-disfraz', label: 'Mejor disfraz', hub: 'app', icon: Trophy, render: () => <MejorDisfrazView /> },
-  { id: 'party-gifts', label: 'Tragos de la Fiesta', hub: 'app', icon: Martini, render: () => <PartyGiftsView /> },
   { id: 'cuenta-demo', label: 'Cuenta de prueba', hub: 'app', icon: UserCheck, render: () => <CuentaDemoView /> },
-
   // Agente IA: cada pestaña del agente es una sección (comparten el borrador de «Conocimiento» y «Ajustes»).
   { id: 'agente-conocimiento', label: 'Conocimiento y tono', hub: 'agente', icon: Bot, render: () => <AgentSection tab="conocimiento" /> },
   { id: 'agente-ajustes', label: 'Ajustes', hub: 'agente', icon: SettingsIcon, render: () => <AgentSection tab="ajustes" /> },
@@ -167,40 +190,12 @@ const ADMIN_SECTIONS = [
   { id: 'agente-automatizaciones', label: 'Automatizaciones', hub: 'agente', icon: Zap, render: () => <AgentSection tab="automatizaciones" /> },
   { id: 'agente-links', label: 'Kit de links', hub: 'agente', icon: Link2, render: () => <AgentSection tab="links" /> },
   { id: 'agente-whatsapp', label: 'WhatsApp', hub: 'agente', icon: MessageCircle, render: () => <AgentSection tab="whatsapp" /> },
-
-  { id: 'instagram', label: 'Instagram', hub: 'mensajes', icon: Instagram, render: () => <InstagramInbox /> },
-  { id: 'whatsapp', label: 'WhatsApp', hub: 'mensajes', icon: MessageCircle, render: () => <WhatsAppInbox /> },
-  { id: 'mailing', label: 'Mailing', hub: 'mensajes', icon: Mail, render: () => <MailingSection /> },
-  { id: 'mailing-history', label: 'Historial de Mailing', hub: 'mensajes', icon: History, render: () => <MailingHistoryView /> },
-  { id: 'email-templates', label: 'Plantillas de correo', hub: 'mensajes', icon: Send, render: () => <EmailTemplatesManager /> },
-
-  { id: 'content-plan', label: 'Plan de contenido', hub: 'contenido', icon: Calendar, render: () => <ContentPlanView /> },
-  { id: 'studio', label: 'Estudio', hub: 'contenido', icon: Palette, render: () => (
-    <Suspense fallback={<div className="py-12 flex justify-center"><div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" /></div>}>
-      <ContentStudio />
-    </Suspense>
-  ) },
-  { id: 'profile-audit', label: 'Revisar mi perfil', hub: 'contenido', icon: UserCheck, render: () => <ProfileAuditView /> },
-
-  { id: 'contests', label: 'Concursos', hub: 'comunidad', icon: PartyPopper, render: () => <ContestsView /> },
-  { id: 'referrals', label: 'Referidos', hub: 'comunidad', icon: Trophy, render: () => <ReferralsView /> },
-  { id: 'ambassadors', label: 'Embajadores VIP', hub: 'comunidad', icon: Crown, render: () => <AmbassadorsView /> },
-
+  // Finanzas de la empresa: el mes, el SII y la terminal para cargar gastos.
   { id: 'finanzas', label: 'Finanzas', hub: 'finanzas', icon: Banknote, render: () => <FinanzasView /> },
-  { id: 'gastos', label: 'Gastos y P&L', hub: 'finanzas', icon: Receipt, render: () => <GastosView /> },
   { id: 'sii', label: 'SII', hub: 'finanzas', icon: Landmark, render: () => <SiiView /> },
-  { id: 'event-budget', label: 'Simulador de Evento', hub: 'finanzas', icon: Calculator, render: () => <EventBudgetSimulatorView /> },
-
-  { id: 'cargar-gasto', label: 'Cargar gasto', hub: 'gastos', icon: Plus, render: () => <ExpenseTerminal inShell /> },
-  { id: 'gastos-hoy', label: 'Hoy', hub: 'gastos', icon: ListChecks, render: () => <ExpensesTodaySection /> },
-
-  { id: 'copro-resumen', label: 'Resumen', hub: 'coproduccion', icon: LayoutDashboard, render: () => <CoproResumen /> },
-  { id: 'copro-asistentes', label: 'Asistentes', hub: 'coproduccion', icon: Users, render: () => <CoproAsistentes /> },
-  { id: 'copro-cortesias', label: 'Cortesías', hub: 'coproduccion', icon: Gift, render: () => <CoproCortesias /> },
-  { id: 'copro-gastos', label: 'Gastos', hub: 'coproduccion', icon: Receipt, render: () => <CoproGastos /> },
-  { id: 'copro-reparto', label: 'Reparto', hub: 'coproduccion', icon: DollarSign, render: () => <CoproReparto /> },
-  { id: 'copro-config', label: 'Configuración', hub: 'coproduccion', icon: SettingsIcon, render: () => <CoproConfig /> },
-
+  { id: 'cargar-gasto', label: 'Cargar gasto', hub: 'finanzas', icon: Plus, render: () => <ExpenseTerminal inShell /> },
+  { id: 'gastos-hoy', label: 'Hoy', hub: 'finanzas', icon: ListChecks, render: () => <ExpensesTodaySection /> },
+  { id: 'event-budget', label: 'Simulador de Evento', hub: 'finanzas', hidden: true, icon: Calculator, render: () => <EventBudgetSimulatorView /> },
   { id: 'supervisoras', label: 'Supervisoras', hub: 'ajustes', icon: Users, render: () => <SupervisorAccessManager /> },
   { id: 'settings', label: 'Ajustes', hub: 'ajustes', icon: SettingsIcon, render: () => <SettingsManager /> },
 ] as const satisfies readonly (ShellSection & { render: () => ReactNode })[];

@@ -1,9 +1,17 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { trpc } from '@/lib/trpc';
 import { EVENT_WRAPUP_HOURS, pickCurrentEvent } from '@shared/currentEvent';
 import { isDemoSlug } from '@shared/demoAccount';
 
 const STORAGE_KEY = 'admin.eventId';
+/** Aviso a todas las pantallas abiertas de que el admin eligió otro evento (el selector de arriba del panel). */
+export const ADMIN_EVENT_CHANGED = 'admin:event-changed';
+
+/** Elige el evento de trabajo del panel desde cualquier lugar: se recuerda y todas las pantallas lo siguen. */
+export function selectAdminEvent(id: number | null) {
+  try { if (id != null) localStorage.setItem(STORAGE_KEY, String(id)); else localStorage.removeItem(STORAGE_KEY); } catch { /* sin storage: no se recuerda */ }
+  try { window.dispatchEvent(new CustomEvent<number | null>(ADMIN_EVENT_CHANGED, { detail: id })); } catch { /* sin window */ }
+}
 
 /** Eventos que nunca se eligen solos: la cuenta de prueba de la App y el evento de pruebas de la caja. */
 export const isTestEvent = (e: { slug?: string | null }) => isDemoSlug(e.slug) || e.slug === 'pruebas-caja';
@@ -28,9 +36,15 @@ export function useTonightEvent(opts: { enabled?: boolean } = {}) {
   // Lo recordado solo vale si el evento todavía existe.
   const selected = chosen != null && ((events ?? []) as any[]).some((e) => e.id === chosen) ? chosen : null;
   const eventId: number | null = selected ?? current?.id ?? tonight?.id ?? real[0]?.id ?? null;
+  // Elegir el evento en una pantalla (o en el selector de arriba) lo cambia en todas las que están abiertas.
+  useEffect(() => {
+    const onChange = (e: Event) => setChosen((e as CustomEvent<number | null>).detail ?? null);
+    window.addEventListener(ADMIN_EVENT_CHANGED, onChange);
+    return () => window.removeEventListener(ADMIN_EVENT_CHANGED, onChange);
+  }, []);
   const setSelected = useCallback((id: number | null) => {
     setChosen(id);
-    try { if (id != null) localStorage.setItem(STORAGE_KEY, String(id)); else localStorage.removeItem(STORAGE_KEY); } catch { /* sin storage: no se recuerda */ }
+    selectAdminEvent(id);
   }, []);
   return { events, eventId, setSelected };
 }

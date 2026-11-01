@@ -7,6 +7,9 @@
 export interface AdminAlertsConfig {
   /** Push inmediato: venta web aprobada. */
   pushNewOrder: boolean;
+  /** Modo evento: mientras una fiesta está abierta (puertas → fin) solo llegan los avisos urgentes (llamados del
+   * staff, errores, clave de admin en una caja, puerta, denuncias). El resto se ve después en el panel. */
+  eventModeQuiet: boolean;
   /** Push inmediato: nueva postulación a Embajador VIP. */
   pushAmbassadorApplication: boolean;
   /** Push inmediato: denuncia nueva desde Playmatch. */
@@ -54,6 +57,7 @@ export interface AdminAlertsConfig {
 
 export const DEFAULT_ADMIN_ALERTS_CONFIG: AdminAlertsConfig = {
   pushNewOrder: false,
+  eventModeQuiet: true,
   pushAmbassadorApplication: false,
   pushPartyReport: false,
   pushInstagramHandoff: false,
@@ -91,6 +95,7 @@ export function normalizeAdminAlertsConfig(raw: unknown): AdminAlertsConfig {
   const partial = (raw && typeof raw === 'object' ? raw : {}) as Partial<AdminAlertsConfig>;
   return {
     pushNewOrder: partial.pushNewOrder ?? DEFAULT_ADMIN_ALERTS_CONFIG.pushNewOrder,
+    eventModeQuiet: partial.eventModeQuiet ?? DEFAULT_ADMIN_ALERTS_CONFIG.eventModeQuiet,
     pushAmbassadorApplication: partial.pushAmbassadorApplication ?? DEFAULT_ADMIN_ALERTS_CONFIG.pushAmbassadorApplication,
     pushPartyReport: partial.pushPartyReport ?? DEFAULT_ADMIN_ALERTS_CONFIG.pushPartyReport,
     pushInstagramHandoff: partial.pushInstagramHandoff ?? DEFAULT_ADMIN_ALERTS_CONFIG.pushInstagramHandoff,
@@ -112,3 +117,12 @@ export function normalizeAdminAlertsConfig(raw: unknown): AdminAlertsConfig {
     aiAlertSent: typeof partial.aiAlertSent === 'string' ? partial.aiAlertSent.slice(-200) : '',
   };
 }
+
+/** Avisos de caja que SÍ llegan en modo evento: piden al dueño o avisan de un error. El resto (stock, ventas
+ * altas, descuentos, resúmenes con IA) queda en el panel y en el cierre. */
+export const URGENT_CAJA_ALERT_KINDS: readonly string[] = [
+  'admin_password_failed', 'many_voids', 'shift_diff', 'redeem_conflict', 'register_idle',
+];
+
+/** Interruptores que siempre son urgentes aunque la fiesta esté abierta. */
+export const URGENT_ALERT_KEYS: readonly string[] = ['pushPartyReport'];

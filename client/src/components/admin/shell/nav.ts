@@ -1,5 +1,5 @@
 import {
-  Home, Radio, Ticket, Calendar, Users, MessagesSquare, Palette, Crown, Banknote, Handshake, Receipt, Smartphone, Bot,
+  Home, Radio, Ticket, Users, Megaphone, ClipboardList, CircleCheckBig, Banknote, Handshake, Smartphone, Bot,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -9,8 +9,8 @@ import {
  * OPEN_SECTION_EVENT, burbujas y localStorage los siguen usando tal cual). */
 
 export type AdminHubId =
-  | 'inicio' | 'noche' | 'ventas' | 'eventos' | 'clientes'
-  | 'app' | 'agente' | 'mensajes' | 'contenido' | 'comunidad' | 'finanzas' | 'gastos' | 'coproduccion' | 'ajustes';
+  | 'inicio' | 'preparar' | 'coproduccion' | 'vender' | 'comunicar' | 'envivo' | 'cierre'
+  | 'clientes' | 'app' | 'agente' | 'finanzas' | 'ajustes';
 
 export interface AdminHub {
   id: AdminHubId;
@@ -18,26 +18,27 @@ export interface AdminHub {
   icon: LucideIcon;
   /** Va en la barra inferior del celular (el resto queda en "Más"). */
   mobile?: boolean;
+  /** El hub trabaja sobre UN evento: arriba se muestra el selector de evento. */
+  perEvent?: boolean;
 }
 
-/** Orden del menú. "ajustes" va aparte, abajo del separador. */
+/** Orden del menú, por etapas del evento (Preparar → Vender → En vivo → Cierre) y después lo que no
+ * es de una fiesta sola. "ajustes" va aparte, abajo del separador. */
 export const ADMIN_HUBS: AdminHub[] = [
   { id: 'inicio', label: 'Inicio', icon: Home, mobile: true },
-  { id: 'noche', label: 'Noche en vivo', icon: Radio, mobile: true },
-  { id: 'ventas', label: 'Ventas', icon: Ticket, mobile: true },
-  { id: 'eventos', label: 'Eventos', icon: Calendar },
+  { id: 'preparar', label: '1 · Preparar', icon: ClipboardList, perEvent: true },
   { id: 'coproduccion', label: 'Playroom × Dalmore', icon: Handshake },
-  { id: 'clientes', label: 'Clientes', icon: Users },
-  // Todo lo de la app Playroom junto: cupones, avisos push, quién la tiene, Playmatch y la cuenta de prueba.
-  { id: 'app', label: 'App', icon: Smartphone, mobile: true },
+  { id: 'vender', label: '2 · Vender', icon: Ticket, mobile: true, perEvent: true },
+  { id: 'comunicar', label: 'Comunicar', icon: Megaphone },
+  { id: 'envivo', label: '3 · En vivo', icon: Radio, mobile: true, perEvent: true },
+  { id: 'cierre', label: '4 · Cierre', icon: CircleCheckBig, perEvent: true },
+  { id: 'clientes', label: 'Clientes', icon: Users, mobile: true },
+  // La app Playroom y Playmatch: el resumen de la app y las herramientas para probarla.
+  { id: 'app', label: 'App y Playmatch', icon: Smartphone },
   // El agente que contesta Instagram y WhatsApp: su conocimiento, ajustes, ventas, automatizaciones y links.
   { id: 'agente', label: 'Agente IA', icon: Bot },
-  { id: 'mensajes', label: 'Mensajes', icon: MessagesSquare },
-  { id: 'contenido', label: 'Contenido', icon: Palette },
-  { id: 'comunidad', label: 'Comunidad', icon: Crown },
+  // Finanzas de la empresa, el SII y la terminal para cargar gastos (también en /gastos).
   { id: 'finanzas', label: 'Finanzas', icon: Banknote },
-  // Terminal para cargar gastos desde el celular (también en /gastos).
-  { id: 'gastos', label: 'Gastos', icon: Receipt },
 ];
 
 /** Lo que necesita el shell de cada sección (sin su `render`). */
@@ -46,6 +47,8 @@ export interface ShellSection {
   label: string;
   hub: AdminHubId;
   icon: LucideIcon;
+  /** Fuera del menú (se sigue abriendo desde el buscador y los avisos): pantallas que casi no se usan. */
+  hidden?: boolean;
 }
 
 /** Palabras extra para el buscador (Ctrl+K): cómo lo diría el dueño, no cómo
