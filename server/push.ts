@@ -9,9 +9,10 @@
  * criterio que sendEmail() sin RESEND_API_KEY. */
 import webpush from 'web-push';
 import { getDb, getSiteSettings } from './db';
-import { pushSubscriptions, partyPushSubscriptions } from '../drizzle/schema';
-import { eq } from 'drizzle-orm';
-import { normalizeAdminAlertsConfig, type AdminAlertsConfig } from '../shared/adminAlertsConfig';
+import { pushSubscriptions, partyPushSubscriptions, events } from '../drizzle/schema';
+import { eq, inArray } from 'drizzle-orm';
+import { normalizeAdminAlertsConfig, URGENT_ALERT_KEYS, type AdminAlertsConfig } from '../shared/adminAlertsConfig';
+import { isPartyWindowOpen } from '../shared/party';
 import { clip, PUSH_BODY_MAX, PUSH_TITLE_MAX } from '../shared/pushText';
 
 let configured = false;
@@ -113,12 +114,34 @@ export async function sendPushToEventGuests(eventId: number, payload: PushPayloa
 /** Solo los interruptores (no los umbrales numéricos de la config). */
 type AdminAlertToggle = { [K in keyof AdminAlertsConfig]: AdminAlertsConfig[K] extends boolean ? K : never }[keyof AdminAlertsConfig];
 
-export async function sendPushToAdmins(alertKey: AdminAlertToggle, payload: PushPayload): Promise<void> {
+/** ¿Hay una fiesta abierta ahora (puertas → fin)? Se cachea 60 s: se consulta en cada aviso. */
+let eventNightCache: { at: number; value: boolean } | null = null;
+export async function isEventNightNow(now: Date = new Date()): Promise<boolean> {
+  if (eventNightCache && now.getTime() - eventNightCache.at < 60_000) return eventNightCache.value;
+  let value = false;
+  try {
+    const db = await getDb();
+    if (db) {
+      const rows = await db.select({ eventDate: events.eventDate, doorsOpen: events.doorsOpen, eventEnd: events.eventEnd })
+        .from(events).where(inArray(events.status, ['published', 'soldout']));
+      value = rows.some((e) => isPartyWindowOpen(e, now));
+    }
+  } catch (err) {
+    console.error('[Push] No se pudo saber si hay fiesta abierta:', err);
+  }
+  eventNightCache = { at: now.getTime(), value };
+  return value;
+}
+
+export async function sendPushToAdmins(alertKey: AdminAlertToggle, payload: PushPayload, opts: { urgent?: boolean } = {}): Promise<void> {
   try {
     if (!ensureConfigured()) return;
     const settings = await getSiteSettings();
     const config = normalizeAdminAlertsConfig((settings as any).adminAlertsConfig);
     if (!config[alertKey]) return;
+    // Modo evento: durante la fiesta solo lo urgente; lo demás queda en el panel.
+    const urgent = opts.urgent || URGENT_ALERT_KEYS.includes(alertKey);
+    if (!urgent && config.eventModeQuiet && await isEventNightNow()) return;
     await deliverToAllSubscriptions(payload);
   } catch (err) {
     console.error('[Push] Error general:', err);

@@ -16,6 +16,7 @@ import { whatsappLinkFor, instagramLinkFor } from '@shared/ambassadorApplication
 import { isValidRut, isValidPassport, formatRutLive } from '@shared/rut';
 import { ordersOutsideFilter } from '@shared/ordersOutsideFilter';
 import { DEFAULT_REFUND_PERCENT, REFUND_DEADLINE_DAYS, isPastRefundDeadline, refundAmountForPercent, refundPercentForAmount } from '@shared/orderRefund';
+import { ADMIN_EVENT_CHANGED } from '@/hooks/useTonightEvent';
 import { ORDERS_PAGE_SIZE, ORDERS_REMINDERS_PAGE_SIZE, nextEventId, pageCount, pageRange } from '@shared/ordersPagination';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader, AlertDialogFooter, AlertDialogTitle, AlertDialogDescription, AlertDialogAction, AlertDialogCancel } from '@/components/ui/alert-dialog';
@@ -1304,6 +1305,16 @@ export function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
     try { window.localStorage.setItem(eventStorageKey, v); } catch { /* sin almacenamiento, no pasa nada */ }
   };
   const { data: eventsList } = trpc.events.listAll.useQuery();
+  // El evento elegido arriba del panel manda: al cambiarlo, la lista de ventas pasa a ese evento.
+  useEffect(() => {
+    const onChange = (e: Event) => {
+      const id = (e as CustomEvent<number | null>).detail;
+      if (id != null) setEventFilter(String(id));
+    };
+    window.addEventListener(ADMIN_EVENT_CHANGED, onChange);
+    return () => window.removeEventListener(ADMIN_EVENT_CHANGED, onChange);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [channel]);
   useEffect(() => {
     if (eventFilter !== 'auto' || !eventsList) return;
     const next = nextEventId(eventsList as any[]);

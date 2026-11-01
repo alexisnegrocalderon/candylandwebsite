@@ -580,6 +580,22 @@ export function AlertasCard() {
           </div>
         )}
 
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-primary/40 bg-primary/5 p-3">
+          <div>
+            <p className="text-sm font-medium">🌙 Modo evento: solo lo urgente durante la fiesta</p>
+            <p className="text-xs text-muted-foreground">
+              Mientras una fiesta está abierta (de la apertura de puertas al fin) solo llegan: llamados del staff, alertas de la puerta y vetos,
+              errores (venta pagada sin entradas, caja sin movimiento), clave de admin incorrecta o muchas anulaciones en una caja,
+              descuadres al cerrar turno y denuncias de Playmatch. Las ventas, el stock y los resúmenes quedan en el panel.
+            </p>
+          </div>
+          <Switch
+            checked={config?.eventModeQuiet ?? true}
+            disabled={saveConfig.isPending || !config}
+            onCheckedChange={(v) => config && saveConfig.mutate({ ...config, eventModeQuiet: v })}
+          />
+        </div>
+
         <div className="space-y-2 rounded-xl border border-border/50 p-3">
           <div className="flex items-center justify-between">
             <Label>Interruptores</Label>
