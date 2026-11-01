@@ -16,7 +16,7 @@ import { whatsappLinkFor, instagramLinkFor } from '@shared/ambassadorApplication
 import { isValidRut, isValidPassport, formatRutLive } from '@shared/rut';
 import { ordersOutsideFilter } from '@shared/ordersOutsideFilter';
 import { DEFAULT_REFUND_PERCENT, REFUND_DEADLINE_DAYS, isPastRefundDeadline, refundAmountForPercent, refundPercentForAmount } from '@shared/orderRefund';
-import { ADMIN_EVENT_CHANGED } from '@/hooks/useTonightEvent';
+import { ADMIN_EVENT_CHANGED, selectAdminEvent, useTonightEvent } from '@/hooks/useTonightEvent';
 import { ORDERS_PAGE_SIZE, ORDERS_REMINDERS_PAGE_SIZE, nextEventId, pageCount, pageRange } from '@shared/ordersPagination';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader, AlertDialogFooter, AlertDialogTitle, AlertDialogDescription, AlertDialogAction, AlertDialogCancel } from '@/components/ui/alert-dialog';
@@ -1298,13 +1298,15 @@ export function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
   // no mezclar fiestas; "Todos los eventos" sigue disponible.
   const eventStorageKey = `admin-orders-event-${channel}`;
   const [eventFilter, setEventFilterState] = useState<string>(() => {
-    try { return window.localStorage.getItem(eventStorageKey) ?? 'auto'; } catch { return 'auto'; }
+    // El evento elegido arriba del panel manda sobre lo recordado en esta pantalla.
+    try { return window.localStorage.getItem('admin.eventId') ?? window.localStorage.getItem(eventStorageKey) ?? 'auto'; } catch { return 'auto'; }
   });
   const setEventFilter = (v: string) => {
     setEventFilterState(v);
     try { window.localStorage.setItem(eventStorageKey, v); } catch { /* sin almacenamiento, no pasa nada */ }
   };
   const { data: eventsList } = trpc.events.listAll.useQuery();
+  const { eventId: adminEventId } = useTonightEvent();
   // El evento elegido arriba del panel manda: al cambiarlo, la lista de ventas pasa a ese evento.
   useEffect(() => {
     const onChange = (e: Event) => {
@@ -1315,11 +1317,17 @@ export function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
     return () => window.removeEventListener(ADMIN_EVENT_CHANGED, onChange);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [channel]);
+  // Sin elección: el mismo evento que muestra el selector de arriba (así nunca dicen cosas distintas).
   useEffect(() => {
     if (eventFilter !== 'auto' || !eventsList) return;
-    const next = nextEventId(eventsList as any[]);
+    const next = adminEventId ?? nextEventId(eventsList as any[]);
     setEventFilterState(next ? String(next) : 'all');
-  }, [eventFilter, eventsList]);
+  }, [eventFilter, eventsList, adminEventId]);
+  // Elegir un evento concreto aquí también lo cambia arriba (y en las demás pantallas).
+  const pickEventFilter = (v: string) => {
+    setEventFilter(v);
+    if (v !== 'all' && Number(v) > 0) selectAdminEvent(Number(v));
+  };
   const eventReady = eventFilter !== 'auto';
   const eventId = eventFilter === 'all' || eventFilter === 'auto' ? undefined : Number(eventFilter);
   // Con una búsqueda se mira TODO (cualquier evento y estado): una venta nunca
@@ -1439,7 +1447,7 @@ export function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
             aria-label="Buscar por nombre o RUT (comprador o acompañante), email o N° de orden"
             className="min-w-56 flex-1"
           />
-          <Select value={eventFilter === 'auto' ? 'all' : eventFilter} onValueChange={setEventFilter}>
+          <Select value={eventFilter === 'auto' ? 'all' : eventFilter} onValueChange={pickEventFilter}>
             <SelectTrigger className="w-52"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todos los eventos</SelectItem>
