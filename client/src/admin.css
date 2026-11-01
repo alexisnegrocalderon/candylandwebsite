@@ -193,9 +193,9 @@
   color-scheme: dark;
 
   --color-background: oklch(0.17 0.004 270);
-  --color-foreground: oklch(0.965 0.008 330);
-  --color-card: oklch(1 0 0 / 0.055);
-  --color-card-foreground: oklch(0.965 0.008 330);
+  --color-foreground: oklch(0.985 0 0);
+  --color-card: oklch(1 0 0 / 0.04);
+  --color-card-foreground: oklch(0.985 0 0);
   --color-popover: oklch(0.21 0.004 270);
   --color-popover-foreground: oklch(0.965 0.008 330);
   --color-primary: oklch(0.72 0.2 342);
@@ -203,7 +203,7 @@
   --color-secondary: oklch(0.72 0.13 230);
   --color-secondary-foreground: oklch(0.17 0.004 270);
   --color-muted: oklch(1 0 0 / 0.07);
-  --color-muted-foreground: oklch(0.78 0.008 270);
+  --color-muted-foreground: oklch(0.86 0.006 270);
   --color-accent: oklch(1 0 0 / 0.09);
   --color-accent-foreground: oklch(0.985 0.005 330);
   --color-destructive: oklch(0.64 0.21 22);
@@ -211,17 +211,17 @@
   --color-input: oklch(1 0 0 / 0.16);
   --color-ring: oklch(0.72 0.2 342);
 
-  --admin-text: oklch(0.965 0.008 330);
-  --admin-muted: oklch(0.78 0.008 270);
+  --admin-text: oklch(0.985 0 0);
+  --admin-muted: oklch(0.86 0.006 270);
   --admin-body-size: 16px;
   --admin-radius: 22px;
   --admin-radius-sm: 14px;
-  --admin-shadow-clay: 0 24px 60px -18px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.18);
-  --admin-shadow-clay-sm: 0 12px 30px -12px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.15);
-  --admin-glass-bg: rgba(255, 255, 255, 0.065);
+  --admin-shadow-clay: 0 24px 60px -22px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.30), inset 0 -1px 0 rgba(255, 255, 255, 0.06), inset 1px 0 0 rgba(255, 255, 255, 0.05);
+  --admin-shadow-clay-sm: 0 12px 30px -14px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.26);
+  --admin-glass-bg: rgba(255, 255, 255, 0.035);
   --admin-glass-bg-solid: rgba(26, 26, 28, 0.95);
-  --admin-glass-border: rgba(255, 255, 255, 0.12);
-  --admin-glass-blur: blur(28px) saturate(180%);
+  --admin-glass-border: rgba(255, 255, 255, 0.16);
+  --admin-glass-blur: blur(30px) saturate(190%);
   --admin-surface-solid: #1c1c1f;
 
   --admin-success-bg: rgba(34, 197, 94, 0.16);   --admin-success-text: #86efac;
@@ -253,7 +253,9 @@ html[data-admin-theme="dark-glass"] body {
     radial-gradient(1200px 640px at 10% -14%, oklch(0.86 0.08 140 / 0.42), transparent 62%),
     radial-gradient(1100px 620px at 68% -20%, oklch(0.84 0.07 290 / 0.38), transparent 60%),
     radial-gradient(900px 560px at 105% 8%, oklch(0.92 0.1 105 / 0.30), transparent 60%),
-    radial-gradient(1100px 700px at 50% 125%, oklch(0.6 0.03 270 / 0.22), transparent 65%),
+    radial-gradient(900px 620px at 30% 55%, oklch(0.84 0.07 290 / 0.16), transparent 62%),
+    radial-gradient(800px 560px at 85% 70%, oklch(0.86 0.08 140 / 0.14), transparent 60%),
+    radial-gradient(1100px 700px at 40% 120%, oklch(0.92 0.09 105 / 0.16), transparent 65%),
     linear-gradient(180deg, #19191c 0%, #111113 55%, #0d0d0f 100%);
 }
 /* Sin "planetas": solo la bruma iridiscente (salvia, lila, amarillo pálido)
@@ -267,13 +269,21 @@ html[data-admin-theme="dark-glass"] body {
 .admin-glass-panel {
   /* Reflejo arriba (vidrio líquido) sin backdrop-filter: ver nota de Safari arriba. */
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0) 38%),
-    linear-gradient(180deg, rgba(30, 30, 33, 0.9), rgba(20, 20, 22, 0.93));
-  border: 1px solid rgba(255, 255, 255, 0.14);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0) 38%),
+    linear-gradient(180deg, rgba(28, 28, 31, 0.80), rgba(18, 18, 20, 0.84));
+  border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 28px;
-  box-shadow: 0 30px 70px -25px rgba(0, 0, 0, 0.75), inset 0 1px 0 rgba(255, 255, 255, 0.22), inset 0 -1px 0 rgba(255, 255, 255, 0.04);
+  box-shadow: 0 30px 70px -25px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.32), inset 0 -1px 0 rgba(255, 255, 255, 0.06);
 }
 .admin-glass-panel-sm { border-radius: 20px; }
+/* Menú lateral: detrás solo está el fondo fijo (nada se desliza por debajo),
+ * así que puede ser casi transparente sin perder lectura ni usar blur. */
+.admin-sidebar .admin-glass-panel {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.02) 30%, rgba(255, 255, 255, 0.03)),
+    rgba(18, 18, 20, 0.28);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+}
 .admin-glass-sheet {
   background: linear-gradient(180deg, rgba(32, 32, 35, 0.97), rgba(20, 20, 22, 0.98)) !important;
   border: 1px solid rgba(255, 255, 255, 0.12);
@@ -367,6 +377,8 @@ html[data-admin-theme="dark-glass"] body {
 [data-admin-theme="dark-glass"] .admin-clay,
 [data-admin-theme="dark-glass"] [data-slot="card"] {
   background-color: var(--admin-glass-bg);
+  background-image: linear-gradient(160deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0) 45%);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
   backdrop-filter: var(--admin-glass-blur);
   -webkit-backdrop-filter: var(--admin-glass-blur);
   border: 1px solid var(--admin-glass-border);
