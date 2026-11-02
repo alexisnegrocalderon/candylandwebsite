@@ -108,8 +108,8 @@ export function PlaymoreHero({ landing, partnerName, buyHref, preview, minPrice 
         {/* Logos que se funden */}
         <div className="relative mb-8 flex h-24 items-center justify-center sm:h-28">
           <motion.div className="absolute h-36 w-36 rounded-full bg-[radial-gradient(circle,rgba(228,119,234,0.55),transparent_65%)] blur-xl" style={{ opacity: fuseGlow }} />
-          <motion.img src="/candyland/logo-isotipo-transparent.png" alt="Playroom" style={{ x: leftX }}
-            className="relative h-20 w-20 object-contain sm:h-24 sm:w-24" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 1, delay: 0.2 }} />
+          <motion.img src="/playmore/playroom-logo.png" alt="Mansion Playroom" style={{ x: leftX }}
+            className="relative h-16 w-auto max-w-[9.5rem] object-contain sm:h-20 sm:max-w-[12rem]" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 1, delay: 0.2 }} />
           <motion.span style={{ opacity: crossOpacity }} className="playmore-serif relative mx-2 text-3xl italic text-[var(--pm-sand)]">×</motion.span>
           <motion.div style={{ x: rightX }} className="relative" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 1, delay: 0.35 }}>
             <PartnerMark logoUrl={landing.partnerLogoUrl} name={partnerName} className="h-20 w-20 text-[5.5rem] sm:h-24 sm:w-24 sm:text-[6.5rem]" imgClassName="h-16 w-28 sm:h-24 sm:w-40" />
@@ -217,7 +217,7 @@ export function TwoWorlds({ landing, partnerName }: { landing: CoproductionLandi
       <div className="relative grid gap-5 md:grid-cols-2 md:gap-0">
         <motion.article style={{ x: leftX }}
           className="relative overflow-hidden rounded-[2rem] border border-white/10 bg-[radial-gradient(120%_90%_at_0%_0%,rgba(244,114,182,0.25),transparent_60%),radial-gradient(90%_80%_at_100%_100%,rgba(125,211,252,0.18),transparent_60%),#120d10] p-8 sm:p-10 md:mr-[-1px] md:rounded-r-none">
-          <img src="/candyland/logo-isotipo-transparent.png" alt="" className="mb-6 h-16 w-16 object-contain" />
+          <img src="/playmore/playroom-logo.png" alt="Mansion Playroom" className="mb-6 h-20 w-auto max-w-[13rem] object-contain" />
           <p className="text-[11px] font-semibold tracking-[0.4em] text-[var(--pm-fuchsia)]">PLAYROOM</p>
           <h3 className="playmore-sans mt-2 text-3xl font-extrabold">El juego</h3>
           <p className="mt-4 leading-relaxed text-[var(--pm-cream)]/80">{landing.playroomBlurb}</p>
