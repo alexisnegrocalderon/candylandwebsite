@@ -49,3 +49,14 @@ describe('sesión del socio', () => {
     expect(generatePartnerPassword(() => i++)).toMatch(/^[a-z]+-[a-z]+-[a-z]+-[a-z]+-\d{2}$/);
   });
 });
+
+describe('timeline de la landing', () => {
+  it('ida y vuelta texto ↔ momentos', async () => {
+    const { timelineFromText, timelineToText, normalizeLanding } = await import('./coproduction');
+    const t = timelineFromText('23:00 | Puertas | Llegas y entras\n\n01:30 | Zonas\nmal formada');
+    expect(t).toEqual([{ time: '23:00', title: 'Puertas', text: 'Llegas y entras' }, { time: '01:30', title: 'Zonas', text: '' }]);
+    expect(timelineToText(t)).toBe('23:00 | Puertas | Llegas y entras\n01:30 | Zonas');
+    expect(normalizeLanding({}).timeline.length).toBeGreaterThan(0);
+    expect(normalizeLanding({ timeline: [] }).timeline).toEqual([]);
+  });
+});

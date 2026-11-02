@@ -16,7 +16,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { EmptyState } from '@/components/admin/EmptyState';
 import { ImageUploadField } from '@/components/admin/ImageUploadField';
 import { formatChileDate, formatChileDateTime, formatChileShortDate } from '@shared/chileDate';
-import type { CoproductionLanding } from '@shared/coproduction';
+import { timelineFromText, timelineToText, type CoproductionLanding } from '@shared/coproduction';
 
 /* Panel de una co-producción (Playroom × Dalmore). Lo ven el dueño y el
  * socio; el servidor decide qué co-producción le toca a cada uno
@@ -686,6 +686,12 @@ export function CoproConfig() {
           <div className="sm:col-span-2"><Label>Dos mundos · texto de {d.partnerName}</Label><Textarea className="mt-1" rows={3} value={d.landing.partnerBlurb} onChange={(e) => editLanding({ partnerBlurb: e.target.value })} /></div>
           <div className="sm:col-span-2"><Label>Dress code</Label><Textarea className="mt-1" rows={2} value={d.landing.dressCode} onChange={(e) => editLanding({ dressCode: e.target.value })} /></div>
           <div className="sm:col-span-2"><Label>Lo que vas a vivir (una idea por línea)</Label><Textarea className="mt-1" rows={4} value={d.landing.highlights.join('\n')} onChange={(e) => editLanding({ highlights: lines(e.target.value) })} /></div>
+          <div className="sm:col-span-2">
+            <Label>La noche minuto a minuto (una línea por momento: 23:00 | Título | Texto)</Label>
+            <Textarea className="mt-1 font-mono text-xs" rows={6} defaultValue={timelineToText(d.landing.timeline)}
+              onBlur={(e) => editLanding({ timeline: timelineFromText(e.target.value) })} />
+            <p className="mt-1 text-xs text-muted-foreground">Se guarda al salir del cuadro. Vacío = la sección no se muestra.</p>
+          </div>
           <div className="sm:col-span-2"><Label>Reglas (una por línea)</Label><Textarea className="mt-1" rows={4} value={d.landing.rules.join('\n')} onChange={(e) => editLanding({ rules: lines(e.target.value) })} /></div>
           <div className="sm:col-span-2">
             <Label>Preguntas frecuentes (una por línea: Pregunta | Respuesta)</Label>

@@ -14,6 +14,7 @@ import {
 import { startMusic, stopMusic } from '@/components/playmore/playmoreAudio';
 import { Accesos, StickyBuyBar } from '@/components/playmore/accesos';
 import { LivePurchases } from '@/components/playmore/LivePurchases';
+import { NightTimeline } from '@/components/playmore/NightTimeline';
 
 // El 3D (three.js) se descarga aparte y solo si se ve el intro.
 const TicketIntro = lazy(() => import('@/components/playmore/TicketIntro').then((m) => ({ default: m.TicketIntro })));
@@ -68,15 +69,24 @@ export default function PlayroomDalmore() {
   // al estirar la página en el celular.
   useEffect(() => {
     const html = document.documentElement;
-    const prev = [html.style.background, document.body.style.background];
+    const prev = [html.style.background, document.body.style.background, html.style.overflowX, document.body.style.overflowX];
     html.style.background = '#0c0908';
     document.body.style.background = '#0c0908';
+    // theme.css pone overflow-x: hidden en html y body, y eso convierte al body
+    // en contenedor de scroll: rompe el scroll fijo de "La noche minuto a
+    // minuto". "clip" recorta igual sin ese efecto.
+    if (CSS.supports?.('overflow-x', 'clip')) {
+      html.style.overflowX = 'clip';
+      document.body.style.overflowX = 'clip';
+    }
     const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
     const prevColor = meta?.content;
     if (meta) meta.content = '#0c0908';
     return () => {
       html.style.background = prev[0];
       document.body.style.background = prev[1];
+      html.style.overflowX = prev[2];
+      document.body.style.overflowX = prev[3];
       if (meta && prevColor !== undefined) meta.content = prevColor;
     };
   }, []);
@@ -113,7 +123,7 @@ export default function PlayroomDalmore() {
   const tanda = deriveTanda(data.ticketTypes, Date.now());
 
   return (
-    <div className="playmore relative min-h-dvh overflow-x-hidden">
+    <div className="playmore relative min-h-dvh overflow-x-clip">
       <AnimatePresence>
         {stage === 'intro' && (
           <motion.div key="intro" exit={{ opacity: 0 }} transition={{ duration: 0.6 }}>
@@ -158,6 +168,7 @@ export default function PlayroomDalmore() {
           {full && (
             <>
               <Experience landing={landing} />
+              <NightTimeline moments={landing.timeline} />
               <Gallery urls={landing.galleryUrls} />
               <Accesos types={data.ticketTypes} buyHref={buyHref} eventName={landing.eventName} tanda={tanda} soundOn={soundOn} />
             </>

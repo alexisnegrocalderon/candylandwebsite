@@ -7,6 +7,13 @@ export interface CoproductionFaq {
   a: string;
 }
 
+/** Un momento de "La noche minuto a minuto" (hora "23:00"). */
+export interface CoproductionMoment {
+  time: string;
+  title: string;
+  text: string;
+}
+
 /** Textos e imágenes de la landing /playroom<slug>. Todo opcional: lo que
  * falte se completa con DEFAULT_LANDING. */
 export interface CoproductionLanding {
@@ -37,6 +44,8 @@ export interface CoproductionLanding {
   highlights: string[];
   rules: string[];
   faq: CoproductionFaq[];
+  /** "La noche minuto a minuto": lo que pasa a cada hora. */
+  timeline: CoproductionMoment[];
 }
 
 export const DEFAULT_LANDING: CoproductionLanding = {
@@ -74,6 +83,13 @@ export const DEFAULT_LANDING: CoproductionLanding = {
     { q: '¿Dónde compro las entradas?', a: 'Solo en esta página. No vendemos por transferencia ni por Instagram.' },
     { q: '¿Cuándo me llega la dirección exacta?', a: 'Te llega por correo junto con tu entrada, después de comprar.' },
     { q: '¿Puedo ir sola o solo?', a: 'Sí. Mucha gente llega así y conoce gente adentro.' },
+  ],
+  timeline: [
+    { time: '23:00', title: 'Se abren las puertas', text: 'Llegas, muestras tu QR y te recibe el equipo. El primer trago marca el comienzo.' },
+    { time: '00:00', title: 'Dos pistas encendidas', text: 'Playroom y Dalmore suben la energía, cada uno con su sonido y su luz.' },
+    { time: '01:30', title: 'Se abren las zonas de juego', text: 'Los espacios Playroom se encienden. Entra quien quiere, cuando quiere.' },
+    { time: '03:00', title: 'La mezcla', text: 'Las dos comunidades se cruzan en un solo momento. Lo vas a entender cuando pase.' },
+    { time: '05:00', title: 'Último track', text: 'Las luces bajan y la noche se queda contigo.' },
   ],
 };
 
@@ -121,7 +137,24 @@ export function normalizeLanding(raw: unknown): CoproductionLanding {
         .filter((f) => f.q && f.a)
         .slice(0, 12)
       : d.faq,
+    timeline: Array.isArray(p.timeline)
+      ? p.timeline
+        .filter((m): m is CoproductionMoment => !!m && typeof (m as any).time === 'string' && typeof (m as any).title === 'string')
+        .map((m) => ({ time: m.time.trim().slice(0, 8), title: m.title.trim().slice(0, 80), text: typeof m.text === 'string' ? m.text.trim().slice(0, 240) : '' }))
+        .filter((m) => m.time && m.title)
+        .slice(0, 10)
+      : d.timeline,
   };
+}
+
+/** Panel: una línea por momento, "23:00 | Título | Texto". */
+export function timelineToText(t: CoproductionMoment[]): string {
+  return t.map((m) => [m.time, m.title, m.text].filter((x, i) => i < 2 || x).join(' | ')).join('\n');
+}
+export function timelineFromText(text: string): CoproductionMoment[] {
+  return text.split('\n').map((l) => l.split('|').map((x) => x.trim()))
+    .filter((parts) => parts[0] && parts[1])
+    .map(([time, title, ...rest]) => ({ time, title, text: rest.join(' | ') }));
 }
 
 export interface SplitResult {
