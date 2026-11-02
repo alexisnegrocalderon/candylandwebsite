@@ -1556,7 +1556,8 @@ export const appRouter = router({
       try {
         const created = await db.getEventBySlug(input.slug);
         const previous = (await db.getAllEvents()).find((e) => e.id !== created?.id && new Date(e.eventDate) < new Date(input.eventDate));
-        if (created && previous) await db.copyCartaBetweenEvents(previous.id, created.id);
+        // Un evento «solo entrada y estacionamiento» (sin caja de la plataforma) nace sin Carta.
+        if (created && previous && !input.presaleParkingOnly) await db.copyCartaBetweenEvents(previous.id, created.id);
         // Aviso push "nuevo evento" (si está prendido en Push → Automáticos).
         if (created && input.status === 'published') await notifyEventLaunch(created.id, 'evento');
         // Borradores del contenido para embajadores (quedan para aprobar).

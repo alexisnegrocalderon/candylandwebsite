@@ -49,6 +49,8 @@ export interface ShellSection {
   icon: LucideIcon;
   /** Fuera del menú (se sigue abriendo desde el buscador y los avisos): pantallas que casi no se usan. */
   hidden?: boolean;
+  /** Pantallas de la caja de la plataforma: se esconden mientras el evento elegido vende solo entrada y estacionamiento por la web. */
+  needsCaja?: boolean;
 }
 
 /** Palabras extra para el buscador (Ctrl+K): cómo lo diría el dueño, no cómo
