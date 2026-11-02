@@ -6076,18 +6076,26 @@ export async function creditPrepaid(params: { email: string; amountClp: number; 
     [customer] = await db.select().from(customers).where(eq(customers.id, insertId)).limit(1);
   }
 
-  const balanceAfter = customer.prepaidBalance + params.amountClp;
+  // La fila del ledger va primero: su unicidad (orderId, reason) es lo que impide acreditar dos veces la misma
+  // orden. El saldo se SUMA con un UPDATE relativo (no se pisa con un valor calculado antes): si el cliente
+  // pagaba en caja justo entre la lectura y la escritura, pisarlo borraba ese gasto y el saldo "volvía".
   try {
     await db.insert(prepaidLedger).values({
       customerId: customer.id, delta: params.amountClp, reason: params.reason,
-      orderId: params.orderId, balanceAfter,
+      orderId: params.orderId, balanceAfter: customer.prepaidBalance + params.amountClp,
     });
   } catch (err: any) {
     const isDuplicate = err?.code === 'ER_DUP_ENTRY' || /duplicate entry/i.test(String(err?.message ?? ''));
     if (!isDuplicate) throw err;
     return; // esta orden ya se acreditó -- no volver a sumar.
   }
-  await db.update(customers).set({ prepaidBalance: balanceAfter }).where(eq(customers.id, customer.id));
+  try {
+    await db.update(customers).set({ prepaidBalance: sql`prepaidBalance + ${params.amountClp}` }).where(eq(customers.id, customer.id));
+  } catch (err) {
+    // Sin la suma, la fila del ledger bloquearía el reintento del webhook y la carga nunca llegaría: se quita.
+    await db.delete(prepaidLedger).where(and(eq(prepaidLedger.orderId, params.orderId), eq(prepaidLedger.reason, params.reason)));
+    throw err;
+  }
 }
 
 /** Gasto SERVER-AUTHORITATIVE del saldo: UPDATE condicional atómico
@@ -6119,15 +6127,27 @@ export async function spendPrepaidAuthoritative(params: {
 
   const [customer] = await db.select({ prepaidBalance: customers.prepaidBalance }).from(customers).where(eq(customers.id, params.customerId)).limit(1);
   const balanceAfter = customer!.prepaidBalance;
+  const insertSpend = async () => {
   // orderId se deja NULL a propósito: la idempotencia de un gasto de
   // terminal vive en (opId, reason), y una fila con (orderId, reason)
   // NO-NULL a la vez chocaría con la otra restricción única de la tabla si
   // alguna vez coincidieran valores -- las dos unicidades nunca deben
   // convivir en la misma fila (ver comentario del schema).
-  await db.insert(prepaidLedger).values({
-    customerId: params.customerId, delta: -params.amountClp, reason: params.reason,
-    opId: params.opId, balanceAfter, note: params.note,
-  });
+    await db.insert(prepaidLedger).values({
+      customerId: params.customerId, delta: -params.amountClp, reason: params.reason,
+      opId: params.opId, balanceAfter, note: params.note,
+    });
+  };
+  try {
+    await insertSpend();
+  } catch (err: any) {
+    // La misma venta llegó dos veces a la vez y la otra ya registró su gasto: lo descontado acá sobra, se devuelve.
+    const isDuplicate = err?.code === 'ER_DUP_ENTRY' || /duplicate entry/i.test(String(err?.message ?? ''));
+    if (!isDuplicate) throw err;
+    await db.update(customers).set({ prepaidBalance: sql`prepaidBalance + ${params.amountClp}` }).where(eq(customers.id, params.customerId));
+    const [won] = await db.select().from(prepaidLedger).where(and(eq(prepaidLedger.opId, params.opId), eq(prepaidLedger.reason, params.reason))).limit(1);
+    return { ok: true, balanceAfter: won?.balanceAfter ?? balanceAfter };
+  }
   return { ok: true, balanceAfter };
 }
 

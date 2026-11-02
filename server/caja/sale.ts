@@ -2,7 +2,7 @@ import { consumePayToken, releasePayToken, supervisorIdFromPayToken, SUPERVISOR_
 import { eq, sql, inArray, and, ne, desc } from "drizzle-orm";
 import { orders, orderItems, ticketTypes, discountCodes, lockerItems, kitchenTickets, customers } from "../../drizzle/schema";
 import { applyOp } from "./ops";
-import { ensureCustomerIdForEmail, awardPlaycoins, redeemPlaycoinsAuthoritative, validateDiscountCode, verifyCardPin, spendPrepaidAuthoritative } from "../db";
+import { ensureCustomerIdForEmail, awardPlaycoins, redeemPlaycoinsAuthoritative, validateDiscountCode, verifyCardPin, spendPrepaidAuthoritative, refundPrepaidForVoidedSale } from "../db";
 import { isTopupProduct } from "../../shared/prepaid";
 import { computeCodeDiscount } from "../../shared/discountCode";
 import { descontarVenta } from "../insumos";
@@ -99,6 +99,12 @@ export async function createCajaSale(
 ) {
   if (params.items.length === 0) throw new Error("La venta necesita al menos un producto");
 
+  // El QR de «Pagar en caja» de la app (y la autorización de un supervisor) existen SOLO para cobrar con
+  // saldo. Si llegan con otro medio de pago -- la caja se quedaba con el último medio usado (débito, QR de
+  // terminal, efectivo) al escanear el QR del cliente -- la venta se registraba bien pero el saldo NO se
+  // descontaba y el cliente podía volver a gastarlo. Con token, el medio es saldo, siempre.
+  const paymentMethod = params.payToken ? "saldo" : params.paymentMethod;
+
   const ticketTypeIds = params.items.map(i => i.ticketTypeId);
   const tts = await db.select().from(ticketTypes).where(inArray(ticketTypes.id, ticketTypeIds));
   const ttById = new Map<number, any>(tts.map((t: any) => [t.id, t]));
@@ -192,7 +198,7 @@ export async function createCajaSale(
       targetType: "order",
       targetId: params.opId, // la orden todavía no existe al momento de armar el op -- se referencia por el mismo opId
       payload: {
-        items: lineItems, paymentMethod: params.paymentMethod, total,
+        items: lineItems, paymentMethod: paymentMethod, total,
         buyerEmail: params.buyerEmail ?? null, redeemRequested: params.redeemPlaycoins ?? 0,
         ...(stockWarnings.length > 0 ? { stockWarnings } : {}),
         ...(appliedDiscountId ? { discountCode: params.discountCode!.trim().toUpperCase(), discountAmount } : {}),
@@ -202,6 +208,10 @@ export async function createCajaSale(
       clientAt: params.clientAt,
     },
     async () => {
+      // Saldo ya descontado de la tarjeta en esta venta: si algo falla DESPUÉS (percha, comanda, orden), se devuelve
+      // acá mismo -- antes la plata quedaba cobrada sin venta registrada.
+      let spentSaldo: { customerId: number; amountClp: number } | null = null;
+      try {
       const totalAfterDiscount = Math.max(0, total - discountAmount);
 
       // Se valida el número de percha ANTES de crear la orden -- así un
@@ -236,7 +246,7 @@ export async function createCajaSale(
       let redeemedAmount = 0;
       let payCustomerId: number | null = null;
       let redeemConflictNote: string | undefined;
-      if (params.paymentMethod === 'saldo') {
+      if (paymentMethod === 'saldo') {
         if (!params.buyerEmail || (!params.cardPin && !params.payToken)) {
           throw new Error('Pagar con saldo necesita el email y el PIN de la tarjeta (o el QR de la app)');
         }
@@ -267,6 +277,7 @@ export async function createCajaSale(
           if (params.payToken) await releasePayToken(params.payToken, params.opId);
           throw new Error(spend.conflictNote);
         }
+        spentSaldo = { customerId, amountClp: totalAfterDiscount };
       } else if (params.redeemPlaycoins && params.redeemPlaycoins > 0 && params.buyerEmail) {
         // Canje de Playcoins: SERVER-AUTHORITATIVE, dentro de este mismo
         // mutate() -- se relee el saldo real en el instante en que esta
@@ -311,7 +322,7 @@ export async function createCajaSale(
         total: String(finalTotal),
         paymentStatus: "approved",
         paymentId: `CAJA-${params.opId}`,
-        paymentMethod: params.paymentMethod,
+        paymentMethod: paymentMethod,
         channel: "caja",
         operatorId: params.operatorId,
         registerId: params.registerId ?? null,
@@ -373,6 +384,17 @@ export async function createCajaSale(
       const notes = [redeemConflictNote, stockNote].filter(Boolean);
 
       return { result: "applied" as const, conflictNote: notes.length > 0 ? notes.join(' · ') : undefined };
+      } catch (err) {
+        if (spentSaldo) {
+          try {
+            await refundPrepaidForVoidedSale({ customerId: spentSaldo.customerId, amountClp: spentSaldo.amountClp, voidOpId: params.opId, note: "Venta no registrada: se devolvió el saldo" });
+            if (params.payToken) await releasePayToken(params.payToken, params.opId);
+          } catch (refundErr) {
+            console.error(`[caja.sale] ¡No se pudo devolver el saldo de la venta ${params.opId} (cliente ${spentSaldo.customerId}, $${spentSaldo.amountClp})!`, refundErr);
+          }
+        }
+        throw err;
+      }
     }
   );
 
