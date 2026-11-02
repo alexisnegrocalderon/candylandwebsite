@@ -275,6 +275,7 @@ import { parseCsv, extractEmailColumn } from "./csv";
 import QRCode from "qrcode";
 import { consumeBackupCode, createTotpSecret, generateBackupCodes, parseBackupCodes, safeCompare, totpUri, verifyTotp } from "./adminSecurity";
 import { ADMIN_WEBAUTHN_USER_ID_B64URL, ADMIN_WEBAUTHN_USER_NAME, ADMIN_WEBAUTHN_USER_DISPLAY_NAME, buildAuthenticationOptions, buildRegistrationOptions, getRpIdAndOrigin, verifyAuthentication, verifyRegistration } from "./webauthn";
+import { presaleAllows } from "../shared/presaleExtras";
 
 const SHIFT_CLOSE_REPORT_EMAIL = ADMIN_NOTIFICATION_EMAIL;
 
@@ -1014,6 +1015,7 @@ async function runGift(params: {
   const types = await db.getTicketTypesByEventId(event.id);
   const byId = new Map<number, any>((types as any[]).map((t) => [t.id, t]));
   for (const it of params.items) if (!byId.has(it.ticketTypeId)) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Un producto ya no existe en este evento' });
+  for (const it of params.items) if (!presaleAllows(event, byId.get(it.ticketTypeId))) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Este producto no está a la venta por la web para este evento.' });
   const message = cleanGiftMessage(params.message);
   const asPass = params.mode === 'pase';
   const passItems = asPass ? params.items.filter((it) => byId.get(it.ticketTypeId).category === 'acceso') : [];
@@ -1510,7 +1512,8 @@ export const appRouter = router({
       // server/tandaAutoAdvance.ts. Home.tsx ya hace polling de esta misma
       // consulta cada 30s, así que no hace falta ningún cron nuevo.
       await checkAndAdvanceTandaIfNeeded(event.id);
-      return db.getTicketTypesByEventId(event.id);
+      // Eventos de «solo entrada y estacionamiento»: los demás extras no se ofrecen por la web.
+      return (await db.getTicketTypesByEventId(event.id)).filter((t: any) => presaleAllows(event, t));
     }),
     // Admin
     listAll: panelStaffReadProcedure.query(async () => {
@@ -1541,6 +1544,7 @@ export const appRouter = router({
       status: z.enum(['draft', 'published', 'soldout', 'cancelled', 'past']).optional(),
       featured: z.number().optional(),
       missionForceClosed: z.number().optional(),
+      presaleParkingOnly: z.number().optional(),
       ivaApplies: z.number().optional(),
       taxIssuer: z.enum(['mansion', 'tercero', 'exento', 'por_revisar']).optional(),
       taxNote: z.string().max(255).nullish(),
@@ -1589,6 +1593,7 @@ export const appRouter = router({
       status: z.enum(['draft', 'published', 'soldout', 'cancelled', 'past']).optional(),
       featured: z.number().optional(),
       missionForceClosed: z.number().optional(),
+      presaleParkingOnly: z.number().optional(),
       ivaApplies: z.number().optional(),
       taxIssuer: z.enum(['mansion', 'tercero', 'exento', 'por_revisar']).optional(),
       taxNote: z.string().max(255).nullish(),
@@ -4545,7 +4550,7 @@ export const appRouter = router({
       return {
         isLive, preview: !isLive, partnerName: cp.partnerName, landing,
         event: event ? { slug: event.slug, title: event.title, eventDate: event.eventDate, imageUrl: event.imageUrl } : null,
-        ticketTypes: types.filter((t: any) => t.status !== 'hidden').map((t: any) => ({ id: t.id, name: t.name, price: Number(t.price), status: t.status, accesoSlug: t.accesoSlug })),
+        ticketTypes: types.filter((t: any) => t.status !== 'hidden' && presaleAllows(event, t)).map((t: any) => ({ id: t.id, name: t.name, price: Number(t.price), status: t.status, accesoSlug: t.accesoSlug })),
       };
     }),
   }),
@@ -4602,6 +4607,8 @@ export const appRouter = router({
       triggerSource: z.enum(['comment', 'story_reply', 'both']),
       replyMessage: z.string().min(1).max(1000),
       button: automationButtonSchema.optional(),
+      // Evento del código de descuento: un número = solo ese evento, null = todos (hay que elegir a propósito).
+      eventId: z.number().nullable().optional(),
       // Una automatización regala UNA cosa a la vez -- descuento en dinero
       // O un producto de la Carta, nunca los dos juntos (si más adelante
       // hace falta combinarlos, es una vuelta aparte).
@@ -4636,10 +4643,19 @@ export const appRouter = router({
       // mensaje nunca toca `discountCodes`.
       let discountCode: string | null = null;
       if (input.reward) {
+        // El código nace atado a un evento: el del producto regalado, o el que se eligió en el formulario.
+        let codeEventId: number | undefined;
+        if (input.reward.kind === 'gift') {
+          codeEventId = (await db.getTicketTypeById(input.reward.giftTicketTypeId))?.eventId ?? undefined;
+        } else {
+          if (input.eventId === undefined) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Elige para qué evento es el código, o «Todos los eventos».' });
+          codeEventId = input.eventId ?? undefined;
+        }
         discountCode = `AUTO${nanoid(4).toUpperCase()}`;
         await db.createDiscountCode({
           code: discountCode,
           description: `Automatización de Instagram: "${input.keyword}"`,
+          eventId: codeEventId,
           // Un código de "producto de regalo" no descuenta plata -- lo que
           // regala es el producto (giftTicketTypeId), generado como
           // orderItem de $0 al aprobarse la orden (server/webhooks.ts).

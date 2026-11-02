@@ -23,6 +23,7 @@ import { generateDisplayCode, fallbackInternalCode } from './caja/displayCode';
 import { checkAndAdvanceTandaIfNeeded } from './tandaAutoAdvance';
 import { formatChileDate } from '../shared/chileDate';
 import { isAnyParkingTicketType } from '../shared/parking';
+import { presaleAllows } from '../shared/presaleExtras';
 import {
   MIN_ADDON_PAYMENT,
   addonAmount,
@@ -132,7 +133,7 @@ async function loadAddonContext(orderId: number) {
   const extras = (await db.select().from(ticketTypes)
     .where(and(eq(ticketTypes.eventId, order.eventId), eq(ticketTypes.category, 'extra'), eq(ticketTypes.status, 'active')))
     .orderBy(ticketTypes.price))
-    .filter((t) => isSellableAddon(t));
+    .filter((t) => isSellableAddon(t) && presaleAllows(event, t));
   if (extras.length === 0) return blockedWith('Este evento no tiene extras a la venta.');
 
   // ¿La orden ya tiene un auto? Un auto es un auto (VIP incluido).

@@ -52,6 +52,8 @@ export const events = mysqlTable("events", {
   // fecha -- se usa cuando la preventa se cierra antes de los 3 días de
   // corte automático.
   missionForceClosed: int("missionForceClosed").default(0).notNull(),
+  // 1 = por la web solo se venden entradas y estacionamiento por adelantado (ej. la colaboración con Dalmore).
+  presaleParkingOnly: int("presaleParkingOnly").default(0).notNull(),
   // ¿Este evento se declara al SII? Los que van "sin movimiento" no generan
   // débito fiscal ni permiten usar el crédito de las facturas de sus gastos
   // (ahí el IVA pagado al proveedor es costo puro, no algo recuperable), así

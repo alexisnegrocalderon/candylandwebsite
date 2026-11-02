@@ -1002,6 +1002,13 @@
       "when": 1794115600000,
       "tag": "0141_party_swipes_to_idx",
       "breakpoints": true
+    },
+    {
+      "idx": 143,
+      "version": "5",
+      "when": 1794202000000,
+      "tag": "0142_event_presale_parking_only",
+      "breakpoints": true
     }
   ]
 }
