@@ -448,9 +448,9 @@ async function handleMessagingEvent(event: MetaMessaging): Promise<void> {
   }
   if (result.action === 'buy_link' && !result.handoff) {
     const origin = (await latestIgReferrals([senderId])).get(senderId) ?? null;
-    const resolved = await resolveInstagramBuyLink(new Date(), 'agente', referralUtmContent(origin));
+    const resolved = await resolveInstagramBuyLink(new Date(), 'agente', referralUtmContent(origin), { key: result.accessOption, quantity: result.quantity });
     if (resolved) {
-      linkButton = { title: 'Comprar entrada 🔥', url: resolved.url };
+      linkButton = { title: resolved.buttonTitle, url: resolved.url };
       try {
         const { mid: imageMid } = await sendImageMessage({ id: senderId }, resolved.imageUrl);
         await appendIgMessage({ threadId: thread.id, mid: imageMid, direction: 'out', source: 'bot', text: '[imagen]' });

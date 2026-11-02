@@ -475,6 +475,22 @@ describe('buildInstagramContext', () => {
     expect(context).toContain('botón de compra');
   });
 
+  it('muestra la llave de cada acceso para que el agente elija el botón directo', async () => {
+    getHomeEventsMock.mockResolvedValueOnce([
+      { id: 1, title: 'Aniversario', slug: 'aniversario', status: 'published', eventDate: new Date('2026-10-10T23:00:00Z') },
+    ] as any);
+    getTicketTypesMock.mockResolvedValueOnce([
+      { name: 'Dúo', category: 'acceso', status: 'active', accesoSlug: 'duo', price: '45000', totalStock: 50, soldCount: 5, poolRemaining: null },
+      { name: 'Soltero', category: 'acceso', status: 'active', accesoSlug: 'soltero', price: '20000', totalStock: 50, soldCount: 5, poolRemaining: null },
+    ] as any);
+
+    const context = await buildInstagramContext(new Date('2026-09-13T12:00:00Z'));
+    expect(context).toContain('Dúo [pareja]: $45.000');
+    // Soltero pide código de comunidad: no tiene botón directo.
+    expect(context).toContain('Soltero: $20.000');
+    expect(context).not.toContain('Soltero [');
+  });
+
   // La regla del sitio (ver attachStockPoolInfo en server/db.ts) es que el
   // remanente exacto de un cupo nunca se muestra de cara al público. Si el
   // número llegara al prompt, el modelo podría repetirlo en un DM.
@@ -657,6 +673,39 @@ describe('runInstagramAgent', () => {
     const system = systemTextOf(invokeLLMMock.mock.calls[0][0].messages as any);
     expect(system).toContain('NO te quedes en el "no"');
     expect(system).toContain('una sola palabra');
+  });
+
+  it('devuelve el acceso y la cantidad que pide la IA con el botón de compra', async () => {
+    mockLlmJson({ reply: 'Dale, el Dúo sale $45.000 💜 Toca el botón', handoff: false, handoffReason: '', action: 'buy_link', accessOption: 'pareja', quantity: 2 });
+    const result = await runInstagramAgent({ incomingText: 'somos pareja, queremos dos', history: [], config });
+    expect(result.action).toBe('buy_link');
+    expect(result.accessOption).toBe('pareja');
+    expect(result.quantity).toBe(2);
+  });
+
+  it('si la IA olvida el acceso, lo deduce de lo que dijo la persona', async () => {
+    mockLlmJson({ reply: 'Dale 💜', handoff: false, handoffReason: '', action: 'buy_link', accessOption: '', quantity: 1 });
+    const result = await runInstagramAgent({ incomingText: 'Voy sola, cuánto sale?', history: [], config });
+    expect(result.accessOption).toBe('soltera');
+  });
+
+  it('no inventa un acceso ni lo manda si el botón no es de compra', async () => {
+    mockLlmJson({ reply: 'Mira esta página', handoff: false, handoffReason: '', action: 'page_link', pageKey: '/blog/que-llevar', accessOption: 'pareja', quantity: 3 });
+    const result = await runInstagramAgent({ incomingText: 'qué llevo?', history: [], config });
+    expect(result.accessOption).toBe('');
+    expect(result.quantity).toBe(1);
+    mockLlmJson({ reply: 'Dale', handoff: false, handoffReason: '', action: 'buy_link', accessOption: 'hombre-solo', quantity: 1 });
+    const second = await runInstagramAgent({ incomingText: 'quiero ir', history: [], config });
+    expect(second.accessOption).toBe('');
+  });
+
+  it('el prompt trae la regla de los dos mensajes y la ayuda durante la compra', async () => {
+    mockLlmJson({ reply: 'ok', handoff: false, handoffReason: '' });
+    await runInstagramAgent({ incomingText: 'info', history: [], config });
+    const system = systemTextOf(invokeLLMMock.mock.calls[0][0].messages as any);
+    expect(system).toContain('REGLA DE LOS DOS MENSAJES');
+    expect(system).toContain('AYUDA DURANTE LA COMPRA');
+    expect(system).toContain('accessOption');
   });
 
   it('no reintenta si no es una respuesta afirmativa corta', async () => {

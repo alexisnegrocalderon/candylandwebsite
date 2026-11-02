@@ -353,7 +353,7 @@ export async function handleInboundMessage(message: WaInboundMessage, profileNam
     // su propio texto: la respuesta de la IA va antes, como mensaje aparte.
     outgoing = list.text === lastText ? [...leading, list] : [...leading, textOnly(waId, lastText), list];
   } else if (result.action === 'buy_link' && !result.handoff) {
-    outgoing = [...leading, await replyWithBuyLink(waId, lastText)];
+    outgoing = [...leading, await replyWithBuyLink(waId, lastText, new Date(), 'agente', { key: result.accessOption, quantity: result.quantity })];
   } else if (pageLink) {
     outgoing = [...leading, replyWithLinkButton(waId, lastText, pageLink.title, pageLink.url)];
   } else {

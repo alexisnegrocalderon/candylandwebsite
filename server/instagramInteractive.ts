@@ -1,5 +1,8 @@
-import { getUpcomingPublicEvents } from './instagramAgent';
+import * as db from './db';
+import { availabilityLabel, getUpcomingPublicEvents } from './instagramAgent';
 import { withAgentUtm } from './agentLinks';
+import { accessByKey, accessKeyForSlug, buildCheckoutPath, cleanQuantity, type AgentAccessKey } from '../shared/agentAccess';
+import { dropSupersededTickets } from '../shared/liveTickets';
 
 /* Resolución del link de compra para el botón "Comprar entrada" de
  * Instagram (Button Template), armado SOLO con datos de la base -- mismo
@@ -26,15 +29,53 @@ export function resolveEventCardImage(event: { imageUrl?: string | null } | null
  * imagen para la tarjeta. `null` si no hay ninguno (caso borde: todo
  * agotado o sin próxima fecha) -- en ese caso el llamador cae a mandar el
  * texto sin botón ni imagen. */
-export async function resolveInstagramBuyLink(now: Date = new Date(), campaign: string = 'agente', content?: string): Promise<{ url: string; eventTitle: string; imageUrl: string } | null> {
+/** La entrada en venta de ese acceso (la del slug que el checkout espera), o
+ * `null` si no existe, está oculta o no quedan cupos. */
+async function liveAccessTicket(eventId: number, key: AgentAccessKey) {
+  const access = accessByKey(key);
+  if (!access) return null;
+  const tickets = dropSupersededTickets(await db.getTicketTypesByEventId(eventId));
+  const ticket = tickets.find((t) => t.category === 'acceso' && t.status !== 'hidden' && accessKeyForSlug(t.accesoSlug) === key);
+  if (!ticket) return null;
+  const remaining = ticket.poolRemaining ?? (ticket.totalStock - ticket.soldCount);
+  if (ticket.status === 'soldout' || availabilityLabel(remaining, false) === 'AGOTADA') return null;
+  return { access, remaining };
+}
+
+/** Link directo al checkout con el acceso ya elegido (modo express del
+ * checkout: no vuelve a preguntar «¿cómo vienes?» y salta al primer paso que
+ * falta), o `null` si ese acceso no se puede vender por acá. */
+export async function resolveAccessCheckout(
+  event: { id: number; slug: string },
+  key: AgentAccessKey,
+  quantity: number,
+): Promise<{ path: string; label: string; button: string; quantity: number } | null> {
+  const live = await liveAccessTicket(event.id, key);
+  if (!live) return null;
+  const qty = cleanQuantity(quantity);
+  return { path: buildCheckoutPath(event.slug, key, qty), label: live.access.label, button: live.access.button, quantity: qty };
+}
+
+export async function resolveInstagramBuyLink(
+  now: Date = new Date(),
+  campaign: string = 'agente',
+  content?: string,
+  access?: { key: AgentAccessKey | ''; quantity?: number },
+): Promise<{ url: string; eventTitle: string; imageUrl: string; buttonTitle: string; accessLabel: string | null } | null> {
   const upcoming = await getUpcomingPublicEvents(now);
   const event = upcoming.find((e) => e.status !== 'soldout');
   if (!event) return null;
+  // Con el acceso conocido, el botón va directo al checkout; si ese acceso no
+  // se puede vender por acá (agotado, con código, oculto), cae a la página del
+  // evento como siempre.
+  const direct = access?.key ? await resolveAccessCheckout(event, access.key, access.quantity ?? 1) : null;
   // Con UTM: la venta que entra por este botón queda atribuida al agente
   // en "Ventas por Origen" y en la tarjeta "Ventas del agente".
   return {
-    url: withAgentUtm(`${APP_URL}/eventos/${event.slug}`, 'instagram', campaign, content),
+    url: withAgentUtm(`${APP_URL}${direct ? direct.path : `/eventos/${event.slug}`}`, 'instagram', campaign, content),
     eventTitle: event.title,
     imageUrl: resolveEventCardImage(event),
+    buttonTitle: direct?.button ?? 'Comprar entrada 🔥',
+    accessLabel: direct?.label ?? null,
   };
 }
