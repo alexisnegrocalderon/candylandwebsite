@@ -4581,13 +4581,16 @@ export const appRouter = router({
       }
       const event = cp.eventId ? await db.getEventById(cp.eventId) : null;
       const types = event ? await db.getTicketTypesByEventId(event.id) : [];
-      const visible = types.filter((t: any) => t.status !== 'hidden' && presaleAllows(event, t));
+      // Solo lo que se vende por la web: accesos y extras (estacionamiento). La carta de la fiesta
+      // (tragos, comida, merch, guardarropía) es de la caja y no se muestra ni se expone acá.
+      const webTypes = types.filter((t: any) => t.category === 'acceso' || t.category === 'extra');
+      const visible = webTypes.filter((t: any) => t.status !== 'hidden' && presaleAllows(event, t));
       // Diagnóstico solo para el dueño (vista previa / admin): por qué no aparece un acceso.
       const diag = full && !isLive ? {
         eventLinked: !!event,
-        accesos: types.filter((t: any) => t.category === 'acceso').length,
-        hidden: types.filter((t: any) => t.status === 'hidden').length,
-        blockedByPresale: types.filter((t: any) => t.status !== 'hidden' && !presaleAllows(event, t)).length,
+        accesos: webTypes.filter((t: any) => t.category === 'acceso').length,
+        hidden: webTypes.filter((t: any) => t.status === 'hidden').length,
+        blockedByPresale: webTypes.filter((t: any) => t.status !== 'hidden' && !presaleAllows(event, t)).length,
       } : null;
       return {
         isLive, preview: full && !isLive, early, diag, partnerName: cp.partnerName, landing,

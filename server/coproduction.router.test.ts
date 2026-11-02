@@ -92,6 +92,11 @@ describe('landing pública antes de lanzar', () => {
   const tipos = [
     { id: 1, name: 'Dúo', price: '36000', status: 'active', category: 'acceso', accesoSlug: 'duo', totalStock: 100, soldCount: 10, stockPoolId: null, originalPrice: null, salesEnd: null },
     { id: 2, name: 'Oculto', price: '1000', status: 'hidden', category: 'acceso', accesoSlug: null, totalStock: 10, soldCount: 0, stockPoolId: null, originalPrice: null, salesEnd: null },
+    { id: 3, name: 'Estacionamiento', price: '5000', status: 'active', category: 'extra', accesoSlug: null, totalStock: 50, soldCount: 0, stockPoolId: null, originalPrice: null, salesEnd: null },
+    // La carta de la fiesta es de la caja: jamás debe salir en la web.
+    { id: 4, name: 'Mojito', price: '7000', status: 'active', category: 'consumo', accesoSlug: null, totalStock: 999999, soldCount: 0, stockPoolId: null, originalPrice: null, salesEnd: null },
+    { id: 5, name: 'Vaso PlayRoom', price: '1000', status: 'active', category: 'merch', accesoSlug: null, totalStock: 100, soldCount: 0, stockPoolId: null, originalPrice: null, salesEnd: null },
+    { id: 6, name: 'Guardarropia', price: '2000', status: 'active', category: 'locker', accesoSlug: null, totalStock: 100, soldCount: 0, stockPoolId: null, originalPrice: null, salesEnd: null },
   ] as any;
   const conLanding = (landing: any) => ({ ...dalmore, landing, previewToken: 'tok-secreto-123' });
 
@@ -115,7 +120,9 @@ describe('landing pública antes de lanzar', () => {
     expect(r.isLive).toBe(false);
     expect(r.preview).toBe(false);
     expect(r.diag).toBeNull();
-    expect(r.ticketTypes.map((t: any) => t.name)).toEqual(['Dúo']);
+    // Solo accesos y extras de la web; nunca la carta de la caja (tragos, merch, guardarropía).
+    expect(r.ticketTypes.map((t: any) => t.name)).toEqual(['Dúo', 'Estacionamiento']);
+    expect(JSON.stringify(r.ticketTypes)).not.toMatch(/Mojito|Vaso|Guardarropia/);
     expect(JSON.stringify(r.ticketTypes)).not.toMatch(/totalStock|soldCount|remaining/);
   });
 
@@ -124,7 +131,7 @@ describe('landing pública antes de lanzar', () => {
     const r: any = await caller(null).coproduction.publicGet({ slug: 'dalmore', preview: 'tok-secreto-123' });
     expect(r.preview).toBe(true);
     expect(r.early).toBe(false);
-    expect(r.ticketTypes).toHaveLength(1);
+    expect(r.ticketTypes).toHaveLength(2);
     expect(r.diag).toEqual({ eventLinked: true, accesos: 2, hidden: 1, blockedByPresale: 0 });
   });
 
