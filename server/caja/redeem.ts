@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { tickets, partyGifts, events } from "../../drizzle/schema";
 import { applyOp } from "./ops";
+import { isDemoSlug } from "../../shared/demoAccount";
 
 /** Canje de un código legible en caja -- las 6 validaciones pedidas en
  * docs/ARQUITECTURA-CAJA.md §9: existe, pertenece al evento, no usado, no
@@ -50,7 +51,7 @@ export async function redeemDisplayCode(
       let carriedFromEventId: number | null = null;
       if (!gift && ticket.eventId !== params.eventId) {
         const [originEvent] = await db.select().from(events).where(eq(events.id, ticket.eventId)).limit(1);
-        if (originEvent?.status !== "past") {
+        if (originEvent?.status !== "past" && !isDemoSlug(originEvent?.slug)) {
           return { result: "rejected" as const, conflictNote: "El código no corresponde a este evento" };
         }
         carriedFromEventId = ticket.carriedFromEventId ?? ticket.eventId;
