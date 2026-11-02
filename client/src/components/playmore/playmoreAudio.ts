@@ -12,11 +12,6 @@ let nextBeat = 0;
 let step = 0;
 
 const BPM = 118;
-
-/** Mezcla del crossfader de "Dos mundos": 0 = Playroom (brillante, juguetón),
- * 1 = el socio (oscuro, techno con bajo rodando). 0.5 = las dos. */
-let world = 0.5;
-export function setWorld(w: number) { world = Math.min(1, Math.max(0, w)); }
 const STEP = 60 / BPM / 2; // corcheas
 
 function ensureCtx(): AudioContext | null {
@@ -43,9 +38,9 @@ function kick(ac: AudioContext, at: number) {
   const o = ac.createOscillator();
   const g = ac.createGain();
   o.frequency.setValueAtTime(140, at);
-  o.frequency.exponentialRampToValueAtTime(42 - world * 8, at + 0.18 + world * 0.06);
-  g.gain.setValueAtTime(0.8 + world * 0.25, at);
-  g.gain.exponentialRampToValueAtTime(0.001, at + 0.3 + world * 0.12);
+  o.frequency.exponentialRampToValueAtTime(42, at + 0.18);
+  g.gain.setValueAtTime(0.9, at);
+  g.gain.exponentialRampToValueAtTime(0.001, at + 0.32);
   o.connect(g).connect(master!);
   o.start(at);
   o.stop(at + 0.34);
@@ -56,46 +51,12 @@ function hat(ac: AudioContext, at: number, vol: number) {
   src.buffer = noiseBuffer(ac, 0.06);
   const hp = ac.createBiquadFilter();
   hp.type = 'highpass';
-  hp.frequency.value = 9000 - world * 4000;
+  hp.frequency.value = 8000;
   const g = ac.createGain();
   g.gain.setValueAtTime(vol, at);
   g.gain.exponentialRampToValueAtTime(0.001, at + 0.05);
   src.connect(hp).connect(g).connect(master!);
   src.start(at);
-}
-
-/** Bajo en contratiempo: aparece al mover el fader hacia el socio. */
-function bass(ac: AudioContext, at: number) {
-  const vol = Math.max(0, world - 0.2) * 0.32;
-  if (vol <= 0.001) return;
-  const o = ac.createOscillator();
-  o.type = 'sawtooth';
-  o.frequency.value = 55;
-  const lp = ac.createBiquadFilter();
-  lp.type = 'lowpass';
-  lp.frequency.setValueAtTime(380, at);
-  lp.frequency.exponentialRampToValueAtTime(120, at + STEP * 0.9);
-  const g = ac.createGain();
-  g.gain.setValueAtTime(vol, at);
-  g.gain.exponentialRampToValueAtTime(0.001, at + STEP * 0.95);
-  o.connect(lp).connect(g).connect(master!);
-  o.start(at);
-  o.stop(at + STEP);
-}
-
-/** Campanita brillante de Playroom: se apaga al mover el fader hacia el socio. */
-function pluck(ac: AudioContext, at: number, f: number) {
-  const vol = Math.max(0, 0.8 - world) * 0.07;
-  if (vol <= 0.001) return;
-  const o = ac.createOscillator();
-  o.type = 'triangle';
-  o.frequency.value = f;
-  const g = ac.createGain();
-  g.gain.setValueAtTime(vol, at);
-  g.gain.exponentialRampToValueAtTime(0.001, at + 0.25);
-  o.connect(g).connect(master!);
-  o.start(at);
-  o.stop(at + 0.27);
 }
 
 /** Acorde de pad (Am7) que respira cada compás. */
@@ -106,10 +67,9 @@ function pad(ac: AudioContext, at: number) {
     o.frequency.value = f;
     const lp = ac.createBiquadFilter();
     lp.type = 'lowpass';
-    const open = 1 - world * 0.7;
-    lp.frequency.setValueAtTime(500 * open + 150, at);
-    lp.frequency.linearRampToValueAtTime(2200 * open + 300, at + STEP * 4);
-    lp.frequency.linearRampToValueAtTime(500 * open + 150, at + STEP * 8);
+    lp.frequency.setValueAtTime(500, at);
+    lp.frequency.linearRampToValueAtTime(1400, at + STEP * 4);
+    lp.frequency.linearRampToValueAtTime(500, at + STEP * 8);
     const g = ac.createGain();
     g.gain.setValueAtTime(0, at);
     g.gain.linearRampToValueAtTime(0.025, at + STEP * 2);
@@ -125,9 +85,7 @@ function schedule() {
   while (nextBeat < ac.currentTime + 0.25) {
     const s = step % 16;
     if (s % 4 === 0) kick(ac, nextBeat);
-    if (s % 2 === 1) hat(ac, nextBeat, (s % 4 === 3 ? 0.12 : 0.06) * (1.15 - world * 0.5));
-    if (s % 4 === 2) bass(ac, nextBeat);
-    if (s === 3 || s === 6 || s === 11 || s === 14) pluck(ac, nextBeat, [880, 1046.5, 1318.5, 1174.7][(s * 7) % 4]);
+    if (s % 2 === 1) hat(ac, nextBeat, s % 4 === 3 ? 0.12 : 0.06);
     if (s === 0) pad(ac, nextBeat);
     nextBeat += STEP;
     step++;

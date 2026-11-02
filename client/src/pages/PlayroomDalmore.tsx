@@ -8,13 +8,14 @@ import { colabSlugForHost } from '@shared/colabHosts';
 import { ACCESO_GROUPS, deriveTanda } from '@shared/playmoreTanda';
 import '@/components/playmore/playmore.css';
 import {
-  CodeAndFaq, DALMORE_MARK, Experience, Gallery, PlaymoreFooter, PlaymoreHero, PlaymoreMarquee, TwoWorlds,
+  CodeAndFaq, DALMORE_MARK, Experience, Gallery, PlaymoreFooter, PlaymoreHero, PlaymoreMarquee,
 } from '@/components/playmore/sections';
 import { startMusic, stopMusic } from '@/components/playmore/playmoreAudio';
 import { ticketDate } from '@/components/playmore/ticketArt';
 import { Accesos, StickyBuyBar } from '@/components/playmore/accesos';
 import { LivePurchases } from '@/components/playmore/LivePurchases';
 import { NightTimeline } from '@/components/playmore/NightTimeline';
+import { TwoWorlds } from '@/components/playmore/WorldsFusion';
 
 // El 3D (three.js) se descarga aparte y solo si se ve el intro.
 const TicketIntro = lazy(() => import('@/components/playmore/TicketIntro').then((m) => ({ default: m.TicketIntro })));
@@ -173,7 +174,7 @@ export default function PlayroomDalmore() {
           )}
           <PlaymoreHero landing={landing} partnerName={data.partnerName} buyHref={buyHref} preview={data.preview} minPrice={minPrice} />
           <PlaymoreMarquee partnerName={data.partnerName} />
-          <TwoWorlds landing={landing} partnerName={data.partnerName} soundOn={soundOn} onToggleSound={toggleSound} />
+          <TwoWorlds landing={landing} partnerName={data.partnerName} />
           {full && (
             <>
               <Experience landing={landing} />

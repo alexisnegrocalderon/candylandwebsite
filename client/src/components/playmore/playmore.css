@@ -152,26 +152,3 @@
   .playmore-gold, .playmore-velvet, .playmore-marquee, .playmore-hint, .playmore-lite-ticket,
   .playmore-beams::before, .playmore-beams::after { animation: none !important; }
 }
-
-/* Crossfader de "Dos mundos": riel con los colores de cada mundo y perilla dorada. */
-.playmore-fader { -webkit-appearance: none; appearance: none; height: 34px; background: transparent; cursor: pointer; }
-.playmore-fader::-webkit-slider-runnable-track {
-  height: 6px; border-radius: 999px;
-  background: linear-gradient(90deg, #f472b6, #7dd3fc 35%, #2a2023 50%, #96159d 65%, #d6b25e);
-}
-.playmore-fader::-moz-range-track {
-  height: 6px; border-radius: 999px;
-  background: linear-gradient(90deg, #f472b6, #7dd3fc 35%, #2a2023 50%, #96159d 65%, #d6b25e);
-}
-.playmore-fader::-webkit-slider-thumb {
-  -webkit-appearance: none; appearance: none; margin-top: -13px;
-  width: 22px; height: 32px; border-radius: 6px;
-  background: linear-gradient(180deg, #f7e7a8, #b98a35); border: 1px solid #0c0908;
-  box-shadow: 0 0 18px rgba(247, 231, 168, 0.55), inset 0 -8px 0 rgba(0, 0, 0, 0.25);
-}
-.playmore-fader::-moz-range-thumb {
-  width: 22px; height: 32px; border-radius: 6px;
-  background: linear-gradient(180deg, #f7e7a8, #b98a35); border: 1px solid #0c0908;
-  box-shadow: 0 0 18px rgba(247, 231, 168, 0.55);
-}
-.playmore-fader:focus-visible { outline: 2px solid #f7e7a8; outline-offset: 6px; border-radius: 8px; }
