@@ -250,6 +250,9 @@ export function InstagramAutomations() {
   const [aiIdea, setAiIdea] = useState('');
   const [button, setButton] = useState<ButtonValue>(NO_BUTTON);
   const [perPerson, setPerPerson] = useState(false);
+  // Evento del código de descuento: '' = sin elegir, 'all' = todos (a propósito), o el id del evento.
+  const [codeEventId, setCodeEventId] = useState('');
+  const { data: allEvents } = trpc.events.listAll.useQuery(undefined, { enabled: showForm });
 
   // Productos del evento activo, para elegir cuál regalar -- mismo par de
   // queries que ya usa FlashPromoCard, sin filtrar por categoría acá: a
@@ -278,6 +281,7 @@ export function InstagramAutomations() {
     setAiIdea('');
     setButton(NO_BUTTON);
     setPerPerson(false);
+    setCodeEventId('');
     setShowForm(false);
   };
 
@@ -301,8 +305,10 @@ export function InstagramAutomations() {
   const handleSave = () => {
     if (!keyword.trim() || !replyMessage.trim()) return;
     if (rewardMode === 'gift' && !giftTicketTypeId) return;
+    if (rewardMode === 'discount' && !codeEventId) return;
 
     save.mutate({
+      eventId: rewardMode === 'discount' ? (codeEventId === 'all' ? null : Number(codeEventId)) : undefined,
       keyword: keyword.trim(),
       triggerSource,
       replyMessage: replyMessage.trim(),
@@ -459,6 +465,20 @@ export function InstagramAutomations() {
                   <Label>Vence el (opcional)</Label>
                   <Input type="date" value={validUntil} onChange={(e) => setValidUntil(e.target.value)} className="mt-1" />
                 </div>
+                <div className="col-span-2">
+                  <Label>¿Para qué evento es el código?</Label>
+                  <Select value={codeEventId || 'pick'} onValueChange={(v) => setCodeEventId(v === 'pick' ? '' : v)}>
+                    <SelectTrigger className={`mt-1 ${codeEventId ? '' : 'border-amber-400'}`}><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="pick" disabled>Elige un evento…</SelectItem>
+                      {((allEvents as any[]) ?? []).filter((e) => e.status !== 'past' && e.status !== 'cancelled').map((e) => (
+                        <SelectItem key={e.id} value={String(e.id)}>Solo {e.title}</SelectItem>
+                      ))}
+                      <SelectItem value="all">Todos los eventos</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {!codeEventId && <p className="text-xs text-amber-500 mt-1">Elige un evento, o «Todos los eventos» si de verdad debe valer siempre.</p>}
+                </div>
               </div>
             )}
 
@@ -505,7 +525,7 @@ export function InstagramAutomations() {
             <div className="flex gap-2">
               <WriteButton
                 onClick={handleSave}
-                disabled={save.isPending || !keyword.trim() || !replyMessage.trim() || (rewardMode === 'gift' && !giftTicketTypeId)}
+                disabled={save.isPending || !keyword.trim() || !replyMessage.trim() || (rewardMode === 'gift' && !giftTicketTypeId) || (rewardMode === 'discount' && !codeEventId)}
               >
                 {save.isPending ? 'Guardando...' : 'Guardar'}
               </WriteButton>

@@ -16,6 +16,7 @@ import { computeFans, FAN_WINDOW_DAYS } from "../shared/igEngagement";
 import { reservedCouponUses } from '../shared/couponReservation';
 import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, memberCoupons, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyCharges, partyEventConfig, partyConnections, partyMessages, partyBlocks, partyReports, partyPhotos, partySwipes, partyCostumeVotes, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog, emailEvents, eventSurveys, eventSurveySettings, accessCredits, type AccessCredit, igComments, type IgComment, igReferrals, type IgReferralRow, igLinkClicks, staffMembers, staffShifts, aiUsage, attendeeContacts, coproductions } from "../drizzle/schema";
 import { discountOrigin } from "../shared/discountOrigin";
+import { presaleAllows } from "../shared/presaleExtras";
 import { ENV } from './_core/env';
 import { ensurePartyIdentitySchema } from './partySchema';
 import { ensureLockerSchema } from './lockerSchema';
@@ -1688,6 +1689,11 @@ export async function createOrder(input: {
   // descuento) del de extras (parking/covers/etc, category="extra"), que
   // siempre se cobran completos.
   const tts = await getTicketTypesByEventId(event.id);
+  // Eventos de «solo entrada y estacionamiento»: barrera de verdad contra un extra que no se ofrece.
+  for (const i of input.items) {
+    const tt = tts.find((t) => t.id === i.ticketTypeId);
+    if (tt && !presaleAllows(event, tt)) throw new Error('Este producto no está a la venta por la web para este evento.');
+  }
   const accessLines = input.items.map((i) => {
     const tt = tts.find((t) => t.id === i.ticketTypeId);
     return { accesoSlug: tt?.accesoSlug, category: tt?.category };

@@ -719,7 +719,7 @@ export function eventFormFromEvent(event: any) {
     eventEnd: toChileInputValue(event.eventEnd), memberEarlyUntil: toChileInputValue(event.memberEarlyUntil),
     status: (event.status || 'draft') as 'draft' | 'published' | 'soldout' | 'cancelled' | 'past',
     imageUrl: (event.imageUrl || '') as string, featured: !!event.featured,
-    missionForceClosed: !!event.missionForceClosed, ivaApplies: !!event.ivaApplies,
+    missionForceClosed: !!event.missionForceClosed, presaleParkingOnly: !!event.presaleParkingOnly, ivaApplies: !!event.ivaApplies,
     taxIssuer: (event.taxIssuer ?? (event.ivaApplies ? 'mansion' : 'por_revisar')) as TaxIssuer, taxNote: event.taxNote ?? '',
   };
 }
@@ -840,6 +840,7 @@ export function EventCard({ event, onDeleted, expanded, onToggleExpand }: { even
       ...form,
       featured: form.featured ? 1 : 0,
       missionForceClosed: form.missionForceClosed ? 1 : 0,
+      presaleParkingOnly: form.presaleParkingOnly ? 1 : 0,
       ivaApplies: form.taxIssuer === 'mansion' ? 1 : 0,
       taxIssuer: form.taxIssuer, taxNote: form.taxNote || null,
       eventDate: fromChileInputValue(form.eventDate),
@@ -958,6 +959,10 @@ export function EventCard({ event, onDeleted, expanded, onToggleExpand }: { even
                 <input type="checkbox" checked={form.missionForceClosed} onChange={(e) => setForm({ ...form, missionForceClosed: e.target.checked })} className="w-4 h-4 accent-primary" />
                 <span className="text-sm">Cerrar Misión 300 (cobrar valor general ya)</span>
               </label>
+              <label className="flex items-center gap-2 mb-1 cursor-pointer select-none">
+                <input type="checkbox" checked={form.presaleParkingOnly} onChange={(e) => setForm({ ...form, presaleParkingOnly: e.target.checked })} className="w-4 h-4 accent-primary" />
+                <span className="text-sm">Preventa solo de entrada y estacionamiento (sin otros extras)</span>
+              </label>
               <TaxIssuerField issuer={form.taxIssuer} note={form.taxNote} onChange={(taxIssuer, taxNote) => setForm({ ...form, taxIssuer, taxNote })} />
             </div>
             <div className="flex gap-2">
@@ -1074,7 +1079,7 @@ export function EventsManager() {
 
   const [newEvent, setNewEvent] = useState({
     title: '', slug: '', description: '', shortDescription: '', venue: '', address: '', mapsUrl: '', eventDate: '', doorsOpen: '', eventEnd: '',
-    status: 'draft' as 'draft' | 'published' | 'soldout' | 'cancelled' | 'past', imageUrl: '', featured: false, missionForceClosed: false, ivaApplies: false, taxIssuer: 'mansion' as TaxIssuer, taxNote: '',
+    status: 'draft' as 'draft' | 'published' | 'soldout' | 'cancelled' | 'past', imageUrl: '', featured: false, missionForceClosed: false, presaleParkingOnly: false, ivaApplies: false, taxIssuer: 'mansion' as TaxIssuer, taxNote: '',
   });
   const [showEventForm, setShowEventForm] = useState(false);
   // Cada card arranca colapsada -- con decenas de eventos (incluyendo
@@ -1090,6 +1095,7 @@ export function EventsManager() {
       ...newEvent,
       featured: newEvent.featured ? 1 : 0,
       missionForceClosed: newEvent.missionForceClosed ? 1 : 0,
+      presaleParkingOnly: newEvent.presaleParkingOnly ? 1 : 0,
       ivaApplies: newEvent.taxIssuer === 'mansion' ? 1 : 0,
       taxIssuer: newEvent.taxIssuer, taxNote: newEvent.taxNote || null,
       eventDate: fromChileInputValue(newEvent.eventDate),
@@ -1097,7 +1103,7 @@ export function EventsManager() {
       eventEnd: fromChileInputValue(newEvent.eventEnd),
     };
     await createEvent.mutateAsync(payload);
-    setNewEvent({ title: '', slug: '', description: '', shortDescription: '', venue: '', address: '', mapsUrl: '', eventDate: '', doorsOpen: '', eventEnd: '', status: 'draft', imageUrl: '', featured: false, missionForceClosed: false, ivaApplies: false, taxIssuer: 'mansion', taxNote: '' });
+    setNewEvent({ title: '', slug: '', description: '', shortDescription: '', venue: '', address: '', mapsUrl: '', eventDate: '', doorsOpen: '', eventEnd: '', status: 'draft', imageUrl: '', featured: false, missionForceClosed: false, presaleParkingOnly: false, ivaApplies: false, taxIssuer: 'mansion', taxNote: '' });
     setShowEventForm(false);
   };
 
@@ -1167,6 +1173,10 @@ export function EventsManager() {
               <label className="flex items-center gap-2 mb-1 cursor-pointer select-none">
                 <input type="checkbox" checked={newEvent.missionForceClosed} onChange={(e) => setNewEvent({ ...newEvent, missionForceClosed: e.target.checked })} className="w-4 h-4 accent-primary" />
                 <span className="text-sm">Cerrar Misión 300 (cobrar valor general ya)</span>
+              </label>
+              <label className="flex items-center gap-2 mb-1 cursor-pointer select-none">
+                <input type="checkbox" checked={newEvent.presaleParkingOnly} onChange={(e) => setNewEvent({ ...newEvent, presaleParkingOnly: e.target.checked })} className="w-4 h-4 accent-primary" />
+                <span className="text-sm">Preventa solo de entrada y estacionamiento (sin otros extras)</span>
               </label>
               <TaxIssuerField issuer={newEvent.taxIssuer} note={newEvent.taxNote} onChange={(taxIssuer, taxNote) => setNewEvent({ ...newEvent, taxIssuer, taxNote })} />
             </div>
@@ -1398,7 +1408,7 @@ export function DiscountsManager() {
                 <span className="text-muted-foreground text-sm ml-3">Usos: {d.usedCount}/{d.maxUses || '∞'}</span>
                 {d.eventId
                   ? <span className="text-muted-foreground text-sm ml-3">Evento: {((eventsData as any[]) ?? []).find((e) => e.id === d.eventId)?.title ?? `#${d.eventId}`}</span>
-                  : isAutomaticDiscount(d)
+                  : isAutomaticDiscount(d) && discountOrigin(d) !== 'instagram'
                     ? <span className="text-muted-foreground text-sm ml-3">Sin evento fijo</span>
                     : <span className="text-xs ml-3 px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400">Falta definir evento (hoy vale en todos)</span>}
               </div>
