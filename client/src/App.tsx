@@ -103,6 +103,8 @@ function PageLoader({ path }: { path: string }) {
   // En el panel y las terminales el splash oscuro del HTML sigue a la vista
   // mientras baja el chunk: un círculo encima sería un segundo loader.
   if (hasDarkSplash()) return null;
+  // La colab (PLAYMORE) es negra: cargar en pastel daba un destello de la interfaz de Playroom.
+  if (isColabHost(window.location.hostname)) return <div className="fixed inset-0" style={{ background: '#0c0908' }} />;
   // «Mi cuenta» y la entrada son oscuras: cargar en pastel daba un destello blanco al navegar.
   if (isDarkRoute(path) || isAppMode()) {
     // La app con sesión guardada: la forma de «Mi cuenta» mientras baja la página, no una pantalla negra.

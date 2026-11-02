@@ -173,7 +173,12 @@
           var d = document.documentElement;
           if (d.getAttribute('data-splash')) return;
           // Las direcciones de la colab (dalmore. / playmore.) no llevan la intro de Playroom.
-          if (/^(dalmore|playmore)\.mansionplayroom\.cl$/.test(location.hostname)) return;
+          if (/^(dalmore|playmore)\.mansionplayroom\.cl$/.test(location.hostname)) {
+            d.style.backgroundColor = '#0c0908'; document.body.style.backgroundColor = '#0c0908';
+            var tc = document.querySelector('meta[name="theme-color"]'); if (tc) tc.setAttribute('content', '#0c0908');
+            var ld = document.getElementById('initial-loader'); if (ld) ld.style.background = '#0c0908';
+            return;
+          }
           var standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
           var home = location.pathname === '/';
           var seen = false;

@@ -32,6 +32,7 @@ import { useMemberSession } from '@/lib/member';
 import { isMemberEarlyAccess } from '@shared/memberConfig';
 import { isAppMode } from '@/lib/appMode';
 import { useDarkChrome } from '@/lib/darkChrome';
+import { isColabHost } from '@shared/colabHosts';
 import { useHalloweenMode } from '@/lib/halloween';
 import { AccessList, type AccessRow, type Person } from '@/components/checkout/AccessList';
 import { DisclosureSummary, ExtraRow } from '@/components/checkout/ExtraRow';
@@ -2108,8 +2109,11 @@ export default function Checkout(props: { partnerSlug?: string } = {}) {
   const previewToken = new URLSearchParams(search).get('preview') || undefined;
   const { data: event } = trpc.events.getBySlug.useQuery({ slug, preview: previewToken }, { enabled: !!slug, retry: false });
   // Evento de colab (PLAYMORE): el checkout toma su cara (negro, dorado y magenta), también en el celular.
-  const { data: colabBrand } = trpc.coproduction.brandForEvent.useQuery({ eventSlug: slug, preview: previewToken }, { enabled: !!slug, retry: false, staleTime: 5 * 60_000 });
+  const { data: colabBrand, isLoading: brandLoading } = trpc.coproduction.brandForEvent.useQuery({ eventSlug: slug, preview: previewToken }, { enabled: !!slug, retry: false, staleTime: 5 * 60_000 });
   const { data: session, isLoading } = useMemberSession();
+  // En las direcciones de la colab, mientras no se sabe si el evento es PLAYMORE se muestra solo el fondo oscuro:
+  // antes asomaba un instante el checkout genérico de Playroom.
+  if (slug && brandLoading && isColabHost(window.location.hostname)) return <div className="min-h-dvh" style={{ background: '#0c0908' }} />;
   if (slug && event && isMemberEarlyAccess(event as any)) {
     if (isLoading) return <div className="min-h-dvh" />;
     if (!(session?.loggedIn && session.isMember)) return <MemberEarlyGate event={event as any} />;

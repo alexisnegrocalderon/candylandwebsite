@@ -80,6 +80,11 @@ export default function PlayroomDalmore() {
       if (meta && prevColor !== undefined) meta.content = prevColor;
     };
   }, []);
+  // Se baja el checkout (y su CSS) en segundo plano: al tocar "ir a pagar" aparece al instante.
+  useEffect(() => {
+    const t = window.setTimeout(() => { void import('./Checkout'); void import('@/components/playmore/playmore.css'); }, 1200);
+    return () => window.clearTimeout(t);
+  }, []);
   useSeo({
     title: landing ? `${landing.eventName} · Playroom × Dalmore · ${full ? landing.dateText : 'Próximamente'}` : 'Playroom × Dalmore',
     description: landing?.headline ?? 'Playroom × Dalmore',
