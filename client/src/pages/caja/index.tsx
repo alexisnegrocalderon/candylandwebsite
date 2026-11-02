@@ -1763,6 +1763,12 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
   };
 
   const prepaid = cardStatus?.found ? cardStatus.prepaidBalance : null;
+  // Cliente identificado (QR de la app o email/nombre en el sistema): recién ahí se ofrece cobrar con la Playcard.
+  const customerIdentified = !!payToken || (/^\S+@\S+\.\S+$/.test(buyerEmail.trim()) && cardStatus?.found !== false);
+  useEffect(() => {
+    // Sin cliente (se limpió o terminó la venta) no puede quedar «Playcard» elegida: vuelve a un medio normal.
+    if (!customerIdentified && paymentMethod === 'saldo') setPaymentMethod('debito');
+  }, [customerIdentified, paymentMethod]);
   // 'Playcard / App' cobra con el saldo; si no alcanza, el resto se paga con otro medio (cobro mixto).
   const saldoNone = paymentMethod === 'saldo' && prepaid != null && prepaid <= 0 && total > 0;
   const isMixed = paymentMethod === 'saldo' && prepaid != null && prepaid > 0 && total > prepaid;
@@ -2326,9 +2332,10 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
 
             {/* Método de pago -- mismo lugar visual que las pestañas Delivery/Dine In/Takeaway de la referencia.
                 'saldo' (pedido explícito del dueño) exige conexión siempre -- deshabilitado sin señal. */}
-            <div className="grid grid-cols-3 gap-2">
-              {/* Tres medios: Playcard / App (QR), Efectivo y Tarjeta. Débito o crédito se pregunta al cobrar, cuando se ve el voucher. */}
-              {(['saldo', 'efectivo', 'tarjeta'] as const).map((m) => {
+            <div className={`grid gap-2 ${customerIdentified ? 'grid-cols-3' : 'grid-cols-2'}`}>
+              {/* Efectivo y Tarjeta (débito o crédito se pregunta al cobrar, cuando se ve el voucher). «Playcard» solo aparece con un
+                  cliente identificado (QR de la app, o buscado por nombre/email): sin cliente, se entra por la tarjeta verde de escanear. */}
+              {((customerIdentified ? ['saldo', 'efectivo', 'tarjeta'] : ['efectivo', 'tarjeta']) as ('saldo' | 'efectivo' | 'tarjeta')[]).map((m) => {
                 const active = m === 'tarjeta' ? paymentMethod === 'debito' || paymentMethod === 'credito' : paymentMethod === m;
                 return (
                   <button
