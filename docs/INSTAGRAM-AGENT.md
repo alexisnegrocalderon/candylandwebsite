@@ -359,3 +359,12 @@ Reglas comunes: la verificación del ganador (RUT, +18, ACEPTO) aplica a las ent
 (`config.verify.enabled`); las "una sola vez" van en `contestLog` (refId `milestone:*`, `flash-slot:*`,
 `quiz:*`, `holder-mail:*`, `recalc:*`…); cada hora se recalculan las etiquetas desde los comentarios (solo suma).
 Reglas puras (testeables) en `shared/contest*.ts`.
+
+## 13. Menos ruido y mejor cierre (reporte semanal del 02/11)
+
+El coach semanal detectó cuatro problemas; esto es lo que hace el agente ahora (Instagram y WhatsApp):
+
+- **Pregunta por la dirección** (`shared/dmTriage.ts › asksAddress`): nunca se deriva. La regla 5 del prompt manda explicar por qué la dirección llega por correo con la entrada, dar lo que sí se sabe (sector, estacionamiento privado, app de transporte a la entrada) y cerrar preguntando si quiere asegurar su entrada (`buy_link` si ya mostró intención, botón «Cómo llegar» si solo quiere detalle). Si aun así deriva, `runInstagramAgent` reintenta una vez con `ADDRESS_RETRY`.
+- **Mensajes de una palabra** («precio», «info», «fecha», «dirección»): la regla 13 los trata como consulta de cliente, no como duda ni como personales.
+- **Adjuntos sin texto**: reels, posts, historias compartidas, stickers y corazones se guardan sin pausar el hilo ni avisar. Fotos, videos, audios y archivos siguen pausando y avisando (pueden ser un comprobante), pero ya no se anotan en el registro de derivaciones que lee el coach.
+- **Spam y reacciones**: publicidad por DM de alguien con quien nunca hablamos (`isDmSpam`) deja el hilo pausado con motivo «Spam: sin respuesta», sin respuesta ni push. Emojis o risas sueltas (`isReactionOnly`) se ignoran, salvo que contesten una pregunta nuestra (ahí un 👍 es un sí).

@@ -1,5 +1,6 @@
 import { invokeLLM, extractContent, type Message } from './_core/llm';
 import * as db from './db';
+import { asksAddress } from '../shared/dmTriage';
 import { formatChileDate, formatChileTime } from '../shared/chileDate';
 import {
   IG_MAX_REPLY_CHARS,
@@ -354,7 +355,7 @@ function buildSystemPrompt(
     '2. Nunca digas cuántas entradas quedan. Como mucho "quedan pocas" o "está agotada", nunca un número. Si el bloque de datos trae que el precio sube en la próxima tanda, sí puedes mencionar esa urgencia real (a cuánto sube y cuándo/por qué cambia) -- eso no es el remanente del cupo, es información pública de precio.',
     '3. Nunca hables de otras personas: si van, quiénes son, cuántas parejas hay, ni nada de ningún cliente. Si preguntan quién va, deriva.',
     `4. No reserves, no apartes, no ofrezcas pagar por transferencia ni por ${name}. Todo se compra en el link del evento.`,
-    '5. No des la dirección exacta del local: se manda por correo con la entrada. Sí puedes decir la ciudad/sector si está en los datos.',
+    '5. No des la dirección exacta del local: por la privacidad del espacio y de quienes van, llega por correo junto con la entrada, después de comprar. Pero NO te quedes en el "no": preguntar por la dirección, dónde queda o cómo llegar es una señal de que la persona está por comprar, nunca algo para derivar. Responde en este orden: (a) en una frase, con cariño, por qué y cuándo le llega (a su correo, junto con la entrada); (b) lo que SÍ puedes contarle: la ciudad/sector si está en los datos, que hay estacionamiento privado dentro del recinto (se asegura al comprar) y que se puede llegar en app de transporte directo a la entrada; (c) cierra el momento preguntándole si quiere asegurar su entrada (y su estacionamiento). Si ya mostró intención de ir (o responde que sí a tu pregunta), manda el link de compra (`action: "buy_link"`); si solo quiere más detalle de cómo llegar, manda el botón de la página «Cómo llegar» (`page_link`).',
     '6. Mantén siempre un tono respetuoso. Si el mensaje es sexual, agresivo, o busca algo que no sea información de la fiesta, no le sigas la conversación: responde breve y amable, y deriva.',
     '7. Si te piden hablar con una persona, reclaman por una compra, un cobro, un reembolso, una entrada que no llegó, o cualquier problema con plata: deriva SIEMPRE, sin intentar resolverlo tú.',
     `8. Si no estás seguro de algo, deriva. Es mucho mejor derivar de más que contestar mal en nombre de la productora.`,
@@ -362,6 +363,7 @@ function buildSystemPrompt(
     '10. ANTES de escribir cualquier pregunta (si viene solo/a, en pareja o en grupo; su nombre; si es primera vez; cuál fecha le tinca; etc.), revisa el historial de mensajes completo de este hilo Y el bloque "LO QUE YA SABES DE ESTA PERSONA": si esa misma pregunta ya fue hecha y respondida en algún punto de la conversación (aunque haya sido varios mensajes atrás, o en otro tema), NO la repitas nunca -- usa esa respuesta directamente. Repetir una pregunta ya respondida es el error más notorio que puedes cometer: se nota inmediatamente que no es una persona real leyendo el chat. Si tienes dudas de si ya la respondió, relee el historial antes de preguntar de nuevo -- no preguntes "por las dudas".',
     '11. Si la persona dice que YA TIENE su entrada o acceso ("ya la adquirí", "ya compré", "ya tenemos las entradas", "listo, ya pagué", "ya estamos dentro", "ya tengo acceso", o cualquier forma de decir que está lista con su acceso), alégrate de verdad y despídete con ganas, con la fecha real del evento si la sabes (ej. "¡Genial! Entonces nos vemos el viernes 30, te estaremos esperando 💜🔥"). NO hagas NINGUNA pregunta más: ni qué acceso eligió, ni con quién va, ni nada. Tampoco le vuelvas a mandar el link de compra ni la promo (`action: "none"`). Solo si pregunta algo nuevo, responde eso. La fecha sale solo de los datos del evento que tienes: nunca inventes una.',
     '12. Una respuesta corta y afirmativa a una pregunta que TÚ acabas de hacer ("sí", "si", "dale", "ok", "claro", "bueno", "me interesa", "cuéntame", "obvio") NO es una duda ni algo que no entiendas: es la persona diciendo que quiere seguir. Continúa la conversación con lo que ofreciste (por ejemplo, si preguntaste "¿quieres saber de nuestras fiestas?", cuéntale en 1-2 frases la próxima fecha y de qué se trata con los datos reales, y cierra con una pregunta abierta y cálida). NUNCA derives ni marques isPersonal por una respuesta así. Antes de derivar a una persona tienes que haber intentado resolver: solo se deriva por las razones de las reglas 1, 3, 6 y 7, o si de verdad no existe el dato.',
+    '13. Un mensaje de una sola palabra o muy corto que nombra un tema ("precio", "info", "fecha", "entradas", "dirección", "ubicación", "dress code", "horario", "cupos") ES una consulta de cliente: respóndele ese tema con los datos reales (y el botón si corresponde) en vez de pedirle que se explique o derivarla. Un "info" o "información" solo significa que quiere saber de la próxima fiesta: dale la fecha, de qué se trata y cierra con una pregunta abierta. Solo si de verdad no se puede interpretar (letras sueltas, un "?" o un "." solos) contesta con una pregunta corta y cálida para descubrir qué necesita; nunca derives por eso.',
     '',
     'CÓMO ESCRIBIR:',
     `- Español chileno, cercano y breve: 1 a 3 frases, máximo ${IG_MAX_REPLY_CHARS} caracteres. Es un chat, no un correo.`,
@@ -609,6 +611,8 @@ export function isShortAffirmation(text: string): boolean {
 
 const AFFIRMATION_RETRY = 'ATENCIÓN: la persona respondió afirmativamente ("sí", "dale", "ok"...) a la pregunta que tú le hiciste en tu mensaje anterior. Eso es interés, no una duda: continúa dándole lo que ofreciste con los datos reales del bloque de datos (1 a 3 frases, cálido y con una pregunta abierta al final). handoff=false e isPersonal=false.';
 
+const ADDRESS_RETRY = 'ATENCIÓN: la persona pregunta por la dirección, dónde queda o cómo llegar. Eso NO se deriva ni es personal: es una señal de que está por comprar. Sigue la regla 5: en una frase cuéntale por qué y cuándo le llega la dirección exacta (a su correo, junto con la entrada), dale lo que sí sabes (sector de los datos, estacionamiento privado, app de transporte directo a la entrada) y cierra preguntándole si quiere asegurar su entrada. Si ya mostró intención de ir, action=buy_link. handoff=false e isPersonal=false.';
+
 /** Punto de entrada del agente. Si la primera pasada deriva o marca como
  * personal una simple respuesta afirmativa a una pregunta del propio agente
  * (caso real: "hola" → "¿quieres saber de nuestras fiestas?" → "si" →
@@ -619,6 +623,12 @@ export async function runInstagramAgent(input: Parameters<typeof runAgentOnce>[0
   const askedBefore = input.history.some((m) => m.direction === 'out');
   if ((first.handoff || first.isPersonal) && askedBefore && isShortAffirmation(input.incomingText) && !input.isFinalReplyOfDay) {
     const second = await runAgentOnce(input, AFFIRMATION_RETRY);
+    if (!second.handoff && !second.isPersonal) return second;
+  }
+  // Una pregunta por la dirección nunca se deriva (caso del reporte semanal: la
+  // gente pedía la dirección antes de comprar y el agente no cerraba el momento).
+  if ((first.handoff || first.isPersonal) && asksAddress(input.incomingText) && !input.isFinalReplyOfDay) {
+    const second = await runAgentOnce(input, ADDRESS_RETRY);
     if (!second.handoff && !second.isPersonal) return second;
   }
   return first;

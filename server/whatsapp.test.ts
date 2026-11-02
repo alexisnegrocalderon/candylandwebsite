@@ -258,7 +258,9 @@ describe('handleInboundMessage', () => {
     await handleInboundMessage({ from: '56911111111', id: 'wamid.A', type: 'audio', audio: { id: 'm1' } });
     expect(sendPayloadMock).not.toHaveBeenCalled();
     expect(setWaThreadBotPausedMock).toHaveBeenCalledWith(7, true, expect.stringContaining('adjunto'));
-    expect(logAgentHandoffMock).toHaveBeenCalledWith(expect.objectContaining({ channel: 'whatsapp', threadId: 7 }));
+    // Se avisa, pero no ensucia el registro que lee el coach semanal: un
+    // audio no es una pregunta que el agente tuviera que saber contestar.
+    expect(logAgentHandoffMock).not.toHaveBeenCalled();
   });
 
   // Falla de infraestructura (token vencido), no un hueco de conocimiento

@@ -639,6 +639,26 @@ describe('runInstagramAgent', () => {
     expect(invokeLLMMock).toHaveBeenCalledTimes(2);
   });
 
+  it('reintenta una vez cuando deriva una pregunta por la dirección y cierra la venta', async () => {
+    mockLlmJson({ reply: 'dame un minutito...', handoff: true, handoffReason: 'No tengo la dirección' });
+    mockLlmJson({ reply: 'La dirección te llega por correo junto con tu entrada 💜 ¿quieres asegurar la tuya?', handoff: false, handoffReason: '', action: 'buy_link' });
+    const result = await runInstagramAgent({ incomingText: 'Cuál es la dirección?', history: [], config });
+    expect(result.handoff).toBe(false);
+    expect(result.reply).toContain('asegurar');
+    expect(result.action).toBe('buy_link');
+    expect(invokeLLMMock).toHaveBeenCalledTimes(2);
+    const retrySystem = systemTextOf(invokeLLMMock.mock.calls[1][0].messages as any);
+    expect(retrySystem).toContain('dirección');
+  });
+
+  it('la regla de la dirección y la de una sola palabra viajan en el prompt', async () => {
+    mockLlmJson({ reply: 'ok', handoff: false, handoffReason: '' });
+    await runInstagramAgent({ incomingText: 'precio', history: [], config });
+    const system = systemTextOf(invokeLLMMock.mock.calls[0][0].messages as any);
+    expect(system).toContain('NO te quedes en el "no"');
+    expect(system).toContain('una sola palabra');
+  });
+
   it('no reintenta si no es una respuesta afirmativa corta', async () => {
     mockLlmJson({ reply: 'Lo derivo', handoff: true, handoffReason: 'reclamo' });
     const history = [{ direction: 'out', text: 'hola' }] as any;
