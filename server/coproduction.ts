@@ -12,7 +12,7 @@ import {
 } from '../drizzle/schema';
 import { getDb, getEventPnl, getOrderStats, getSalesByDay, getTicketTypesByEventId, createExpense, createManualOrder } from './db';
 import { hashPin, verifyPin } from './caja/auth';
-import { normalizeLanding, splitProfit, generatePartnerPassword, type CoproductionLanding } from '../shared/coproduction';
+import { normalizeLanding, splitProfit, generatePartnerPassword, type ColabBrand, type CoproductionLanding } from '../shared/coproduction';
 import { personasForTicket } from '../shared/mission300';
 
 const isMissingTable = (err: unknown) => /doesn't exist|no such table|unknown table/i.test(String((err as any)?.message ?? (err as any)?.cause?.message ?? err));
@@ -351,12 +351,6 @@ export async function getCoproductionSplit(cp: Coproduction) {
 
 /** Marca compartida de un evento con co-producción activa: lo que ven el
  * checkout, los correos y la entrada. null si no es una colab (o no está activa). */
-export interface ColabBrand {
-  slug: string; partnerName: string; partnerLogoUrl: string; eventName: string;
-  /** Para el ticket y la story post-compra. */
-  countdownIso: string; timeText: string; venueText: string;
-}
-
 export async function getEventColabBrand(eventId: number): Promise<ColabBrand | null> {
   const db = await getDb();
   if (!db) return null;
@@ -364,7 +358,9 @@ export async function getEventColabBrand(eventId: number): Promise<ColabBrand | 
     const [cp] = await db.select().from(coproductions).where(eq(coproductions.eventId, eventId)).limit(1);
     if (!cp || cp.isLive !== 1) return null;
     const landing = normalizeLanding(cp.landing);
+    const [ev] = await db.select({ slug: events.slug }).from(events).where(eq(events.id, eventId)).limit(1);
     return {
+      eventSlug: ev?.slug ?? '',
       slug: cp.slug, partnerName: cp.partnerName, partnerLogoUrl: landing.partnerLogoUrl, eventName: landing.eventName,
       countdownIso: landing.countdownIso, timeText: landing.timeText, venueText: landing.venueText,
     };
@@ -390,4 +386,12 @@ export async function getRecentPurchases(eventId: number, hours = 48): Promise<{
       .limit(8);
     return rows.map((r) => ({ name: r.name, at: new Date(r.at).toISOString() }));
   }, []);
+}
+
+/** Marca de la colab de una orden por su número (páginas de resultado del pago). */
+export async function getBrandForOrder(orderNumber: string): Promise<ColabBrand | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const [o] = await safe(() => db.select({ eventId: orders.eventId }).from(orders).where(eq(orders.orderNumber, orderNumber.trim())).limit(1), []);
+  return o ? getEventColabBrand(o.eventId) : null;
 }

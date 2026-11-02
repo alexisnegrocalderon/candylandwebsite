@@ -7,6 +7,15 @@ export interface CoproductionFaq {
   a: string;
 }
 
+/** Marca compartida de un evento con co-producción activa: checkout, correos,
+ * entrada y páginas de resultado del pago. */
+export interface ColabBrand {
+  slug: string; partnerName: string; partnerLogoUrl: string; eventName: string;
+  /** Slug del evento enlazado (para volver a su checkout). */
+  eventSlug: string;
+  countdownIso: string; timeText: string; venueText: string;
+}
+
 /** Un momento de "La noche minuto a minuto" (hora "23:00"). */
 export interface CoproductionMoment {
   time: string;

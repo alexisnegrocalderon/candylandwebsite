@@ -5,6 +5,8 @@ import { useSeo } from '@/hooks/useSeo';
 import { ContestBuyerInvite } from '@/components/ContestBuyerInvite';
 import { PushPrompt } from '@/components/site/PushPrompt';
 import { MemberPrompt } from '@/components/site/MemberPrompt';
+import { trpc } from '@/lib/trpc';
+import { ColabPaymentResult } from '@/components/playmore/PaymentResult';
 
 /* Bienvenida post-pago: el momento en que la persona queda oficialmente
  * "adentro" de Candyland. La animación del dulce sumándose es deliberadamente
@@ -19,6 +21,11 @@ export default function PaymentSuccess() {
   });
   // Mercado Pago vuelve con ?order=<número>: liga los avisos al correo de la compra.
   const orderNumber = (typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('order') : null) ?? undefined;
+  const pending = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('pending') === 'true';
+  // Si la orden es de una colab (PLAYMORE), se ve su cara y no la genérica de Playroom.
+  const brandQ = trpc.coproduction.brandForOrder.useQuery({ orderNumber: orderNumber ?? '' }, { enabled: !!orderNumber, retry: false, staleTime: 5 * 60_000 });
+  if (orderNumber && brandQ.isLoading) return <div className="min-h-dvh bg-[#0c0908]" />;
+  if (brandQ.data) return <ColabPaymentResult brand={brandQ.data} kind={pending ? 'pending' : 'ok'} />;
 
   return (
     <div className="min-h-screen pt-24 pb-16 flex items-center justify-center overflow-hidden">

@@ -1,6 +1,11 @@
 import { MercadoPagoConfig, Preference, Payment } from 'mercadopago';
 import { ENV } from './_core/env';
 import { addonBackUrls } from '../shared/addon';
+import { eq } from 'drizzle-orm';
+import { orders } from '../drizzle/schema';
+import { COLAB_HOSTS } from '../shared/colabHosts';
+import { getDb } from './db';
+import { getEventColabBrand } from './coproduction';
 
 let mpClient: MercadoPagoConfig | null = null;
 
@@ -14,6 +19,24 @@ export function getClient() {
     mpClient = new MercadoPagoConfig({ accessToken });
   }
   return mpClient;
+}
+
+/** Dirección a la que vuelve la persona tras pagar en Mercado Pago. Si la orden
+ * es de un evento de colab activo, vuelve al subdominio de la colab (así no
+ * salta a la home de Playroom); si no, la de siempre. El webhook
+ * (notification_url) siempre va a la dirección principal. */
+export async function returnBaseUrl(orderNumber: string): Promise<string> {
+  const main = process.env.APP_URL || 'https://mansionplayroom.cl';
+  try {
+    const db = await getDb();
+    if (!db) return main;
+    const [o] = await db.select({ eventId: orders.eventId }).from(orders).where(eq(orders.orderNumber, orderNumber)).limit(1);
+    const brand = o ? await getEventColabBrand(o.eventId) : null;
+    const host = brand ? Object.entries(COLAB_HOSTS).find(([, slug]) => slug === brand.slug)?.[0] : undefined;
+    return host ? `https://${host}` : main;
+  } catch {
+    return main;
+  }
 }
 
 export interface CreatePreferenceInput {
@@ -47,6 +70,7 @@ export async function createTopupPreference(input: {
 
   const preference = new Preference(client);
   const baseUrl = process.env.APP_URL || 'https://mansionplayroom.cl';
+  const returnBase = await returnBaseUrl(input.orderNumber);
 
   const result = await preference.create({
     body: {
@@ -59,9 +83,9 @@ export async function createTopupPreference(input: {
       }],
       payer: { email: input.buyerEmail, name: input.buyerName },
       back_urls: {
-        success: `${baseUrl}/pago/exito?order=${input.orderNumber}`,
-        failure: `${baseUrl}/pago/error?order=${input.orderNumber}`,
-        pending: `${baseUrl}/pago/exito?order=${input.orderNumber}&pending=true`,
+        success: `${returnBase}/pago/exito?order=${input.orderNumber}`,
+        failure: `${returnBase}/pago/error?order=${input.orderNumber}`,
+        pending: `${returnBase}/pago/exito?order=${input.orderNumber}&pending=true`,
       },
       auto_return: 'approved',
       external_reference: input.orderNumber,
@@ -95,6 +119,7 @@ export async function createUpgradePreference(input: {
 
   const preference = new Preference(client);
   const baseUrl = process.env.APP_URL || 'https://mansionplayroom.cl';
+  const returnBase = await returnBaseUrl(input.orderNumber);
 
   const result = await preference.create({
     body: {
@@ -107,9 +132,9 @@ export async function createUpgradePreference(input: {
       }],
       payer: { email: input.buyerEmail, name: input.buyerName },
       back_urls: {
-        success: `${baseUrl}/pago/exito?order=${input.orderNumber}`,
-        failure: `${baseUrl}/pago/error?order=${input.orderNumber}`,
-        pending: `${baseUrl}/pago/exito?order=${input.orderNumber}&pending=true`,
+        success: `${returnBase}/pago/exito?order=${input.orderNumber}`,
+        failure: `${returnBase}/pago/error?order=${input.orderNumber}`,
+        pending: `${returnBase}/pago/exito?order=${input.orderNumber}&pending=true`,
       },
       auto_return: 'approved',
       external_reference: input.reference,
@@ -147,6 +172,7 @@ export async function createAddonPreference(input: {
 
   const preference = new Preference(client);
   const baseUrl = process.env.APP_URL || 'https://mansionplayroom.cl';
+  const returnBase = await returnBaseUrl(input.orderNumber);
 
   const result = await preference.create({
     body: {
@@ -158,7 +184,7 @@ export async function createAddonPreference(input: {
         currency_id: 'CLP',
       }],
       payer: { email: input.buyerEmail, name: input.buyerName },
-      back_urls: addonBackUrls(baseUrl, input.orderNumber, input.returnPath),
+      back_urls: addonBackUrls(returnBase, input.orderNumber, input.returnPath),
       auto_return: 'approved',
       external_reference: input.reference,
       notification_url: `${baseUrl}/api/webhooks/mercadopago`,

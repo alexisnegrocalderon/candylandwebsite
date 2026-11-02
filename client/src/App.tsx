@@ -307,7 +307,7 @@ function App() {
   const isPoster = location === '/playmatch/afiche';
   // La landing de la co-producción con Dalmore tiene su propio botón de
   // compra: la navbar ("Comprar entradas" del evento de Playroom) confundiría.
-  const isCoproLanding = location === '/playroomdalmore' || (location === '/' && !!colabSlugForHost(window.location.hostname));
+  const isCoproLanding = location === '/playroomdalmore' || ((location === '/' || location.startsWith('/pago/')) && !!colabSlugForHost(window.location.hostname));
   const hideChrome = isPoster || isCaja || isAdmin || isParty || isPuerta || isCocina || isGuardarropia || isGastos || isTicket;
   // Ni el cursor ni el scroll suave hacen nada en touch (ver isFinePointer),
   // así que en celular no se pide su chunk -- antes se importaban eager en

@@ -4555,6 +4555,9 @@ export const appRouter = router({
       if (!event) return null;
       return coproductionSvc.getEventColabBrand(event.id);
     }),
+    /* Marca de la colab de una orden (para las páginas de resultado del pago tras
+     * volver de Mercado Pago). Solo devuelve la marca del evento, nada de la compra. */
+    brandForOrder: publicProcedure.input(z.object({ orderNumber: z.string().min(3).max(32) })).query(({ input }) => coproductionSvc.getBrandForOrder(input.orderNumber)),
     /* Aviso "en vivo" de la landing: últimas compras web (acceso y hora, nada más).
      * Mismo criterio que publicGet: solo con el evento activo o en vista previa. */
     recentPurchases: publicProcedure.input(z.object({ slug: z.string().max(50), preview: z.string().max(64).optional() })).query(async ({ input, ctx }) => {

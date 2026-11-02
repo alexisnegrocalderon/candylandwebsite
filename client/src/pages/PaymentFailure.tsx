@@ -2,6 +2,8 @@ import { motion } from 'framer-motion';
 import { Link } from 'wouter';
 import { XCircle } from 'lucide-react';
 import { useSeo } from '@/hooks/useSeo';
+import { trpc } from '@/lib/trpc';
+import { ColabPaymentResult } from '@/components/playmore/PaymentResult';
 
 export default function PaymentFailure() {
   useSeo({
@@ -10,6 +12,11 @@ export default function PaymentFailure() {
     path: '/pago/error',
     noindex: true,
   });
+
+  const orderNumber = (typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('order') : null) ?? undefined;
+  const brandQ = trpc.coproduction.brandForOrder.useQuery({ orderNumber: orderNumber ?? '' }, { enabled: !!orderNumber, retry: false, staleTime: 5 * 60_000 });
+  if (orderNumber && brandQ.isLoading) return <div className="min-h-dvh bg-[#0c0908]" />;
+  if (brandQ.data) return <ColabPaymentResult brand={brandQ.data} kind="error" />;
 
   return (
     <div className="min-h-screen pt-24 pb-16 flex items-center justify-center">
