@@ -174,8 +174,8 @@ function TearTicket({ t, eventName, holder, index, dimmed, canBuy, onTear }: {
             <p className="text-[9px] tracking-[0.35em] text-[var(--pm-sand)]/50">A NOMBRE DE</p>
             <AnimatePresence mode="wait">
               <motion.p key={holder || '-'} initial={{ opacity: 0, y: 4, filter: 'blur(4px)' }} animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }} exit={{ opacity: 0 }} transition={{ duration: 0.35 }}
-                className={`playmore-serif truncate text-xl italic ${holder ? 'playmore-gold' : 'text-white/25'}`}>
-                {holder || 'tu nombre'}
+                className={`playmore-sans truncate text-lg font-bold tracking-[0.12em] ${holder ? 'playmore-gold' : 'text-white/25'}`}>
+                {holder || 'TU NOMBRE'}
               </motion.p>
             </AnimatePresence>
           </div>
@@ -203,8 +203,8 @@ function TearTicket({ t, eventName, holder, index, dimmed, canBuy, onTear }: {
 
 // ── Hoja de compra ──────────────────────────────────────────────────────────
 
-function BuySheet({ t, holder, eventName, buyHref, onClose }: {
-  t: PlaymoreTicketView; holder: string; eventName: string; buyHref: string; onClose: () => void;
+function BuySheet({ t, holder, eventName, buyHref, demo, onClose }: {
+  t: PlaymoreTicketView; holder: string; eventName: string; buyHref: string; demo: boolean; onClose: () => void;
 }) {
   const [, navigate] = useLocation();
   const [qty, setQty] = useState(1);
@@ -217,7 +217,7 @@ function BuySheet({ t, holder, eventName, buyHref, onClose }: {
     document.body.style.overflow = 'hidden';
     return () => { window.removeEventListener('keydown', onKey); document.body.style.overflow = prev; };
   }, [onClose]);
-  const go = () => navigate(buyHrefFor(buyHref, t, { qty, nombre: holder }));
+  const go = () => { if (!demo) navigate(buyHrefFor(buyHref, t, { qty, nombre: holder })); };
   return (
     <motion.div className="fixed inset-0 z-[70] flex items-end justify-center sm:items-center" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
       <button type="button" aria-label="Cerrar" className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} tabIndex={-1} />
@@ -228,7 +228,7 @@ function BuySheet({ t, holder, eventName, buyHref, onClose }: {
         <button ref={closeRef} type="button" onClick={onClose} aria-label="Cerrar" className="absolute right-4 top-4 grid h-9 w-9 place-items-center rounded-full border border-white/15 text-white/70 hover:bg-white/5"><X className="h-4 w-4" /></button>
         <p className="text-[10px] font-semibold tracking-[0.4em] text-[var(--pm-orchid)]">{eventName}</p>
         <p className="playmore-sans mt-2 text-2xl font-extrabold">{t.name}</p>
-        {holder && <p className="playmore-serif playmore-gold mt-1 text-lg italic">a nombre de {holder}</p>}
+        {holder && <p className="playmore-sans playmore-gold mt-1 text-sm font-bold tracking-[0.18em]">A NOMBRE DE {holder}</p>}
         <div className="mt-6 flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.03] p-4">
           <span className="text-sm text-[var(--pm-sand)]/80">Cantidad</span>
           <div className="flex items-center gap-4">
@@ -241,10 +241,10 @@ function BuySheet({ t, holder, eventName, buyHref, onClose }: {
           <span className="text-xs tracking-[0.3em] text-[var(--pm-sand)]/70">TOTAL</span>
           <span className="playmore-sans playmore-gold text-3xl font-extrabold tabular-nums">{clp(t.price * qty)}</span>
         </div>
-        <button type="button" onClick={go}
-          className="group relative mt-6 flex h-14 w-full items-center justify-center gap-3 overflow-hidden rounded-full text-sm font-bold tracking-[0.25em] text-[#141210] shadow-[0_18px_50px_-12px_rgba(247,231,168,0.55)]"
+        <button type="button" onClick={go} disabled={demo}
+          className="group relative mt-6 flex h-14 w-full items-center justify-center gap-3 overflow-hidden rounded-full px-4 text-center text-[12px] font-bold tracking-[0.2em] text-[#141210] shadow-[0_18px_50px_-12px_rgba(247,231,168,0.55)] disabled:cursor-not-allowed disabled:opacity-70 sm:text-sm sm:tracking-[0.25em]"
           style={{ background: 'var(--pm-gold)' }}>
-          IR A PAGAR <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+          {demo ? 'VISTA PREVIA · EL PAGO SE ABRE AL ACTIVAR' : <>IR A PAGAR <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" /></>}
         </button>
         <p className="mt-3 text-center text-[11px] text-[var(--pm-sand)]/50">Pago seguro · tu entrada con QR llega al correo</p>
       </motion.div>
@@ -254,8 +254,8 @@ function BuySheet({ t, holder, eventName, buyHref, onClose }: {
 
 // ── Sección ─────────────────────────────────────────────────────────────────
 
-export function Accesos({ types, buyHref, eventName, tanda, initialGroup }: {
-  types: PlaymoreTicketView[]; buyHref: string | null; eventName: string; tanda: PlaymoreTanda | null; initialGroup?: AccesoGroupKey | null;
+export function Accesos({ types, buyHref, eventName, tanda, initialGroup, preview = false }: {
+  types: PlaymoreTicketView[]; buyHref: string | null; eventName: string; tanda: PlaymoreTanda | null; initialGroup?: AccesoGroupKey | null; preview?: boolean;
 }) {
   const [group, setGroup] = useState<AccesoGroupKey | null>(initialGroup ?? null);
   const [holder, setHolder] = useState(readName);
@@ -273,32 +273,51 @@ export function Accesos({ types, buyHref, eventName, tanda, initialGroup }: {
   // El grupo elegido va primero; los demás quedan atenuados.
   const ordered = group ? [...accesos].sort((a, b) => Number(groupOf(b.accesoSlug)?.key === group) - Number(groupOf(a.accesoSlug)?.key === group)) : accesos;
 
-  if (types.length === 0) return null;
+  // Vista previa del dueño: los tickets se ven completos y se puede recorrer la compra, pero el pago
+  // recién se abre al activar el evento (el servidor igual rechaza órdenes antes).
+  const demo = !buyHref && preview;
+  if (types.length === 0) {
+    if (!preview) return null;
+    return (
+      <section className="mx-auto max-w-3xl px-5 py-24 text-center" id="accesos">
+        <Eyebrow>Accesos</Eyebrow>
+        <h2 className="playmore-sans text-3xl font-extrabold tracking-[0.06em] sm:text-4xl">AQUÍ APARECEN TUS <span className="playmore-gold">TICKETS</span></h2>
+        <p className="mx-auto mt-5 max-w-md rounded-2xl border border-amber-400/40 bg-amber-400/10 p-5 text-sm leading-relaxed text-amber-100">
+          VISTA PREVIA: TODAVÍA NO HAY ACCESOS PARA MOSTRAR. EN EL PANEL, ENLAZA LA CO-PRODUCCIÓN A SU EVENTO Y CREA LOS ACCESOS (TIPOS DE ENTRADA) DE ESE EVENTO.
+        </p>
+      </section>
+    );
+  }
   return (
     <section className="mx-auto max-w-6xl px-5 py-24 sm:py-32" id="accesos">
       <motion.div {...reveal} className="mb-12 text-center">
         <Eyebrow>Accesos</Eyebrow>
         <h2 className="playmore-sans text-4xl font-extrabold tracking-[-0.03em] sm:text-6xl">Elige tu <span className="playmore-gold">ticket</span></h2>
-        <p className="playmore-serif mt-4 text-xl italic text-[var(--pm-cream)]/70">El precio sube con cada tanda.</p>
+        <p className="playmore-sans mt-4 text-xs font-semibold tracking-[0.3em] text-[var(--pm-cream)]/70 sm:text-sm">El precio sube con cada tanda.</p>
       </motion.div>
+      {demo && (
+        <p className="mx-auto mb-8 max-w-xl rounded-2xl border border-amber-400/40 bg-amber-400/10 px-4 py-3 text-center text-xs font-semibold leading-relaxed tracking-[0.12em] text-amber-100">
+          VISTA PREVIA: ASÍ SE COMPRA. ARRANCA UN TALÓN Y RECORRE EL PROCESO; EL PAGO SE ABRE AL ACTIVAR EL EVENTO.
+        </p>
+      )}
       {tanda && <TandaPanel tanda={tanda} />}
       {groups.length > 1 && <WhoPicker groups={groups} value={group} onChange={setGroup} fromPrice={fromPrice} />}
 
       {accesos.length > 0 && (
         <motion.div {...reveal} className="mx-auto mb-10 max-w-md text-center">
           <label htmlFor="pm-holder" className="text-[11px] font-semibold tracking-[0.4em] text-[var(--pm-sand)]/80">TU NOMBRE EN EL TICKET</label>
-          <input id="pm-holder" value={holder} onChange={(e) => setHolder(e.target.value.slice(0, 40))} placeholder="Escríbelo y míralo impreso" autoComplete="given-name"
-            className="playmore-serif mt-3 w-full border-b border-[#d6b25e]/40 bg-transparent pb-2 text-center text-2xl italic text-[var(--pm-sand)] outline-none transition placeholder:text-white/25 focus:border-[#f7e7a8]" />
+          <input id="pm-holder" value={holder} onChange={(e) => setHolder(e.target.value.slice(0, 40))} placeholder="ESCRÍBELO Y MÍRALO IMPRESO" autoComplete="given-name"
+            className="playmore-sans mt-3 w-full border-b border-[#d6b25e]/40 bg-transparent pb-2 text-center text-xl font-bold tracking-[0.18em] text-[var(--pm-sand)] outline-none transition placeholder:text-white/25 focus:border-[#f7e7a8]" />
         </motion.div>
       )}
 
       <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
         {ordered.map((t, i) => (
-          <TearTicket key={t.id} t={t} index={i} eventName={eventName} holder={holder.trim()} canBuy={!!buyHref}
+          <TearTicket key={t.id} t={t} index={i} eventName={eventName} holder={holder.trim()} canBuy={!!buyHref || demo}
             dimmed={!!group && groupOf(t.accesoSlug)?.key !== group} onTear={setSheet} />
         ))}
       </div>
-      {accesos.length > 0 && buyHref && <p className="mt-5 text-center text-xs tracking-[0.2em] text-[var(--pm-sand)]/60">ARRASTRA O TOCA EL TALÓN PARA ENTRAR</p>}
+      {accesos.length > 0 && (buyHref || demo) && <p className="mt-5 text-center text-xs tracking-[0.2em] text-[var(--pm-sand)]/60">ARRASTRA O TOCA EL TALÓN PARA ENTRAR</p>}
       {extras.length > 0 && (
         <motion.div {...reveal} className="mx-auto mt-10 max-w-3xl rounded-2xl border border-white/10 bg-white/[0.03] p-5">
           <p className="mb-3 text-center text-[11px] font-semibold tracking-[0.4em] text-[var(--pm-orchid)]">SUMA A TU NOCHE</p>
@@ -314,7 +333,7 @@ export function Accesos({ types, buyHref, eventName, tanda, initialGroup }: {
         </motion.div>
       )}
       <AnimatePresence>
-        {sheet && buyHref && <BuySheet key={sheet.id} t={sheet} holder={holder.trim()} eventName={eventName} buyHref={buyHref} onClose={() => setSheet(null)} />}
+        {sheet && (buyHref || demo) && <BuySheet key={sheet.id} t={sheet} holder={holder.trim()} eventName={eventName} buyHref={buyHref ?? ''} demo={demo} onClose={() => setSheet(null)} />}
       </AnimatePresence>
     </section>
   );
@@ -363,7 +382,7 @@ export function FloatingBuy({ href, tanda, preview }: {
     document.getElementById('accesos')?.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
   };
   const sub = rise && showCount
-    ? <>EL PRECIO SUBE EN <PriceRiseCountdown iso={rise} compact /></>
+    ? <>SUBE EN <PriceRiseCountdown iso={rise} compact /></>
     : <>ELIGE TU ACCESO</>;
 
   return (

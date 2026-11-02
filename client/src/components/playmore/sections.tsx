@@ -125,7 +125,7 @@ export function PlaymoreHero({ landing, partnerName, buyHref, preview, minPrice 
         <ParticleTitle text={landing.eventName} />
 
         <motion.p initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 1.4, duration: 0.9 }}
-          className="playmore-serif mt-6 max-w-2xl text-2xl italic text-[var(--pm-cream)]/90 sm:text-3xl">
+          className="playmore-sans mt-6 max-w-2xl text-sm font-semibold tracking-[0.3em] text-[var(--pm-cream)]/90 sm:text-lg">
           Una noche. Dos mundos. Ninguna igual.
         </motion.p>
 
@@ -151,7 +151,7 @@ export function PlaymoreHero({ landing, partnerName, buyHref, preview, minPrice 
           {buyHref ? (
             <BuyButton href={buyHref}>COMPRAR ENTRADAS</BuyButton>
           ) : preview ? (
-            <span className="inline-flex h-14 items-center rounded-full border border-[#d6b25e]/40 px-8 text-xs font-semibold tracking-[0.25em] text-[var(--pm-sand)]">LA COMPRA SE HABILITA AL ACTIVAR</span>
+            <a href="#accesos" className="inline-flex h-14 items-center gap-3 whitespace-nowrap rounded-full border border-[#d6b25e]/60 bg-black/40 px-7 text-[11px] font-bold tracking-[0.2em] text-[var(--pm-sand)] backdrop-blur transition hover:bg-white/5 sm:text-xs">VER LOS TICKETS · PAGO AL ACTIVAR <ArrowRight className="h-4 w-4" /></a>
           ) : (
             <div className="flex flex-col items-center gap-3 sm:flex-row">
               <span className="text-xs tracking-[0.3em] text-[var(--pm-sand)]/80">ENTRADAS MUY PRONTO · ENTÉRATE PRIMERO</span>
@@ -191,7 +191,7 @@ export function QuickFacts({ landing }: { landing: CoproductionLanding }) {
       {landing.dressCode && (
         <motion.p {...reveal} className="mx-auto mt-10 max-w-3xl text-center text-[var(--pm-cream)]/75">
           <span className="mr-3 text-[11px] font-semibold tracking-[0.4em] text-[var(--pm-orchid)]">DRESS CODE</span>
-          <span className="playmore-serif text-lg italic sm:text-xl">{landing.dressCode}</span>
+          <span className="playmore-sans text-sm font-semibold tracking-[0.12em] sm:text-base">{landing.dressCode}</span>
         </motion.p>
       )}
     </section>
@@ -226,7 +226,7 @@ export function CodeAndFaq({ landing, eventName }: { landing: CoproductionLandin
         {landing.rules.length > 0 && (
           <motion.div {...reveal}>
             <Eyebrow>El código {eventName}</Eyebrow>
-            <h2 className="playmore-serif mb-8 text-4xl italic sm:text-5xl">Lo que pasa adentro, se cuida adentro.</h2>
+            <h2 className="playmore-sans mb-8 text-2xl font-extrabold leading-tight tracking-[0.06em] sm:text-4xl">Lo que pasa adentro, se cuida adentro.</h2>
             <ol className="space-y-5">
               {landing.rules.map((r, i) => (
                 <li key={r} className="flex gap-5 border-b border-white/10 pb-5">

@@ -224,7 +224,7 @@ function StaticWorlds({ landing, partnerName }: { landing: CoproductionLanding; 
     <section className="relative mx-auto max-w-6xl px-5 py-24 sm:py-32">
       <motion.div {...reveal} className="mb-14 text-center">
         <Eyebrow>Dos mundos, una noche</Eyebrow>
-        <h2 className="playmore-serif text-4xl italic leading-tight sm:text-6xl">Cuando el juego se encuentra<br className="hidden sm:block" /> con el código</h2>
+        <h2 className="playmore-sans text-2xl font-extrabold leading-tight tracking-[0.08em] sm:text-4xl">Cuando el juego se encuentra<br className="hidden sm:block" /> con el código</h2>
       </motion.div>
       <div className="grid gap-5 md:grid-cols-2">
         <article className="rounded-[2rem] border border-white/10 bg-[radial-gradient(120%_90%_at_0%_0%,rgba(244,114,182,0.25),transparent_60%),#120d10] p-8 sm:p-10">
@@ -315,7 +315,7 @@ function FusionStage({ landing, partnerName }: { landing: CoproductionLanding; p
 
         <div className="pointer-events-none absolute inset-x-0 top-[5%] px-5 text-center sm:top-[9%]" style={{ opacity: intro }}>
           <Eyebrow>Dos mundos, una noche</Eyebrow>
-          <h2 className="playmore-serif text-2xl italic leading-tight sm:text-5xl">Cuando el juego se encuentra<br className="hidden sm:block" /> con el código</h2>
+          <h2 className="playmore-sans text-lg font-extrabold leading-tight tracking-[0.08em] sm:text-3xl">Cuando el juego se encuentra<br className="hidden sm:block" /> con el código</h2>
         </div>
 
         {/* Presentación de cada mundo (se va al empezar a moverse). */}
@@ -336,7 +336,7 @@ function FusionStage({ landing, partnerName }: { landing: CoproductionLanding; p
         {/* Firma final, bajo el nombre formado. */}
         <div className="absolute inset-x-0 top-[58%] px-5 text-center" style={{ opacity: outro, pointerEvents: outro > 0.5 ? 'auto' : 'none' }}>
           <p className="text-[11px] font-semibold tracking-[0.45em] text-[var(--pm-sand)]/80">PLAYROOM × {partnerName.toUpperCase()}</p>
-          <p className="playmore-serif mx-auto mt-3 max-w-md text-2xl italic text-[var(--pm-cream)]/90 sm:text-3xl">Dos comunidades. Una sola noche.</p>
+          <p className="playmore-sans mx-auto mt-3 max-w-md text-base font-semibold tracking-[0.2em] text-[var(--pm-cream)]/90 sm:text-xl">Dos comunidades. Una sola noche.</p>
           <a href="#accesos" className="mt-7 inline-flex h-12 items-center rounded-full border border-[#d6b25e]/50 px-8 text-xs font-semibold tracking-[0.25em] text-[var(--pm-sand)] transition hover:bg-white/5">
             ELEGIR MI TICKET ↓
           </a>

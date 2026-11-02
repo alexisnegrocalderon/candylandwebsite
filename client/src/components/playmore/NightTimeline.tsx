@@ -73,7 +73,7 @@ export function NightTimeline({ moments }: { moments: CoproductionMoment[] }) {
         <div className="relative mt-6 min-h-[8rem] max-w-xl text-center">
           <AnimatePresence mode="wait" initial={false}>
             <motion.div key={active} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.4 }}>
-              <p className="playmore-serif text-3xl italic sm:text-4xl">{m.title}</p>
+              <p className="playmore-sans text-2xl font-extrabold tracking-[0.12em] sm:text-3xl">{m.title}</p>
               {m.text && <p className="mt-3 text-[var(--pm-cream)]/75 sm:text-lg">{m.text}</p>}
             </motion.div>
           </AnimatePresence>

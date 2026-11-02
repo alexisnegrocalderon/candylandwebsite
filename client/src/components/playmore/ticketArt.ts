@@ -184,10 +184,10 @@ export function drawTicketBody(canvas: HTMLCanvasElement, data: TicketArtData) {
   ctx.fillText(data.eventName, tx - 4, 150 + size * 0.82);
   ctx.shadowBlur = 0;
 
-  // Bajada en serif itálica.
-  ctx.font = `italic 500 44px ${FONT_SERIF}`;
+  // Bajada en mayúsculas (misma fuente del nombre).
+  ctx.font = `700 27px ${FONT_SANS}`;
   ctx.fillStyle = '#e9d9b0';
-  ctx.fillText(data.holderName ? `A nombre de ${data.holderName}` : `Una noche. Dos mundos. ${data.venueText.split(',')[0]}.`, tx, 150 + size + 34);
+  spaced(ctx, data.holderName ? `A NOMBRE DE ${data.holderName.toUpperCase()}` : `UNA NOCHE. DOS MUNDOS. ${data.venueText.split(',')[0].toUpperCase()}.`, tx, 150 + size + 38, 5, 'left');
 
   // Fila inferior: fecha, hora, admit two.
   const rowY = h - 150;
@@ -265,7 +265,7 @@ export function drawTicketBack(canvas: HTMLCanvasElement, width: number) {
   canvas.height = h;
   const ctx = canvas.getContext('2d')!;
   paintVelvet(ctx, width, h, width / 2);
-  ctx.font = `italic 600 54px ${FONT_SERIF}`;
+  ctx.font = `700 46px ${FONT_SANS}`;
   ctx.fillStyle = 'rgba(214, 178, 94, 0.18)';
   for (let y = 60; y < h + 60; y += 110) {
     for (let x = (y / 110) % 2 ? 0 : 90; x < width + 100; x += 180) ctx.fillText('P × D', x, y);
@@ -325,7 +325,7 @@ export function drawLogoFusion(
     const g = ctx.createLinearGradient(c - size / 2, 0, c + size / 2, 0);
     for (const [o, col] of GOLD_STOPS) g.addColorStop(o, col);
     ctx.fillStyle = g;
-    ctx.font = `italic 600 ${Math.round(size * 1.05)}px ${FONT_SERIF}`;
+    ctx.font = `800 ${Math.round(size * 1.05)}px ${FONT_SANS}`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(partnerName.trim()[0]?.toUpperCase() ?? 'D', c + offset, c + size * 0.04);

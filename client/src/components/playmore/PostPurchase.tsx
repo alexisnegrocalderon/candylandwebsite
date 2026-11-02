@@ -63,8 +63,8 @@ function renderStory(ticket: HTMLCanvasElement, art: TicketArtData, url: string)
 
   ctx.textAlign = 'center';
   ctx.fillStyle = '#e9d9b0';
-  ctx.font = 'italic 500 84px "Cormorant Garamond Variable", Georgia, serif';
-  ctx.fillText('Yo voy a', W / 2, 420);
+  ctx.font = '700 46px "Montserrat Variable", system-ui, sans-serif';
+  ctx.fillText('Y O   V O Y   A', W / 2, 420);
   ctx.fillStyle = gold;
   ctx.font = '800 190px "Montserrat Variable", system-ui, sans-serif';
   let size = 190;
@@ -88,8 +88,8 @@ function renderStory(ticket: HTMLCanvasElement, art: TicketArtData, url: string)
   ctx.font = '600 46px "Montserrat Variable", system-ui, sans-serif';
   ctx.fillText(`${art.dateText} · ${art.timeText}`, W / 2, 1560);
   ctx.fillStyle = 'rgba(233,217,176,0.75)';
-  ctx.font = 'italic 500 50px "Cormorant Garamond Variable", Georgia, serif';
-  ctx.fillText('No es para todos.', W / 2, 1640);
+  ctx.font = '700 34px "Montserrat Variable", system-ui, sans-serif';
+  ctx.fillText('N O   E S   P A R A   T O D O S', W / 2, 1640);
   ctx.fillStyle = gold;
   ctx.font = '700 38px "Montserrat Variable", system-ui, sans-serif';
   ctx.fillText(url.replace(/^https:\/\//, '').replace(/\/$/, ''), W / 2, 1800);

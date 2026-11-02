@@ -30,7 +30,14 @@
 }
 
 .playmore-sans { font-family: 'Montserrat Variable', Montserrat, system-ui, sans-serif; }
-.playmore-serif { font-family: 'Cormorant Garamond Variable', 'Cormorant Garamond', Georgia, serif; }
+.playmore-serif { font-family: 'Montserrat Variable', Montserrat, system-ui, sans-serif; font-weight: 600; }
+
+/* Todo en mayúsculas y con la misma fuente clara (Montserrat), sin cursivas. */
+.playmore { text-transform: uppercase; }
+.playmore input, .playmore textarea, .playmore button, .playmore select { text-transform: uppercase; font-family: inherit; }
+.playmore .italic, .playmore em, .playmore i { font-style: normal; }
+/* Un poco de aire en los párrafos (los utilitarios de tracking siguen mandando). */
+:where(.playmore) :where(p, li, dd) { letter-spacing: 0.02em; }
 
 /* Texto en foil dorado con un brillo que lo recorre. */
 /* El degradado empieza y termina en el mismo tono y se mueve exactamente

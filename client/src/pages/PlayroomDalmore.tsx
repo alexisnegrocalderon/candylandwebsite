@@ -123,7 +123,7 @@ export default function PlayroomDalmore() {
             <>
               <NightTimeline moments={landing.timeline} />
               <Gallery urls={landing.galleryUrls} />
-              <Accesos types={data.ticketTypes} buyHref={buyHref} eventName={landing.eventName} tanda={tanda} initialGroup={invite?.group ?? null} />
+              <Accesos types={data.ticketTypes} buyHref={buyHref} eventName={landing.eventName} tanda={tanda} initialGroup={invite?.group ?? null} preview={data.preview} />
             </>
           )}
           <CodeAndFaq landing={landing} eventName={landing.eventName} />
