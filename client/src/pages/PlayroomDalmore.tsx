@@ -9,9 +9,10 @@ import { colabSlugForHost } from '@shared/colabHosts';
 import { deriveTanda } from '@shared/playmoreTanda';
 import '@/components/playmore/playmore.css';
 import {
-  Accesos, CodeAndFaq, DALMORE_MARK, Experience, Gallery, PlaymoreFooter, PlaymoreHero, PlaymoreMarquee, StickyBuyBar, TwoWorlds,
+  CodeAndFaq, DALMORE_MARK, Experience, Gallery, PlaymoreFooter, PlaymoreHero, PlaymoreMarquee, TwoWorlds,
 } from '@/components/playmore/sections';
 import { startMusic, stopMusic } from '@/components/playmore/playmoreAudio';
+import { Accesos, StickyBuyBar } from '@/components/playmore/accesos';
 
 // El 3D (three.js) se descarga aparte y solo si se ve el intro.
 const TicketIntro = lazy(() => import('@/components/playmore/TicketIntro').then((m) => ({ default: m.TicketIntro })));
@@ -157,7 +158,7 @@ export default function PlayroomDalmore() {
             <>
               <Experience landing={landing} />
               <Gallery urls={landing.galleryUrls} />
-              <Accesos types={data.ticketTypes} buyHref={buyHref} eventName={landing.eventName} tanda={tanda} />
+              <Accesos types={data.ticketTypes} buyHref={buyHref} eventName={landing.eventName} tanda={tanda} soundOn={soundOn} />
             </>
           )}
           <CodeAndFaq landing={landing} eventName={landing.eventName} />

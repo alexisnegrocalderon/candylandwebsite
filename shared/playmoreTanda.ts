@@ -43,7 +43,27 @@ export function deriveTanda(types: PlaymoreTicketView[], nowMs: number): Playmor
   };
 }
 
-/** Link de compra de un acceso: el checkout lo deja preseleccionado (?items=slug:1). */
-export function buyHrefFor(buyHref: string, t: Pick<PlaymoreTicketView, 'accesoSlug' | 'category'>): string {
-  return t.category === 'acceso' && t.accesoSlug ? `${buyHref}?items=${encodeURIComponent(t.accesoSlug)}:1` : buyHref;
+/** "¿Con quién vienes?": cada grupo reúne los accesos de esa cantidad de personas. */
+export const ACCESO_GROUPS = [
+  { key: 'solo', label: 'Vengo solx', people: 1, slugs: ['soltera', 'soltero'] },
+  { key: 'duo', label: 'Dúo', people: 2, slugs: ['duo', 'duo_mujeres'] },
+  { key: 'trio', label: 'Trío', people: 3, slugs: ['trio'] },
+  { key: 'grupo', label: 'Grupo', people: 4, slugs: ['grupo'] },
+] as const;
+export type AccesoGroupKey = (typeof ACCESO_GROUPS)[number]['key'];
+
+export function groupOf(slug: string | null | undefined): (typeof ACCESO_GROUPS)[number] | null {
+  if (!slug) return null;
+  return ACCESO_GROUPS.find((g) => (g.slugs as readonly string[]).includes(slug)) ?? null;
+}
+
+/** Link de compra de un acceso: el checkout lo deja preseleccionado
+ * (?items=slug:cantidad) y, si la persona escribió su nombre en el ticket,
+ * llega ya puesto en el formulario (?nombre=). */
+export function buyHrefFor(buyHref: string, t: Pick<PlaymoreTicketView, 'accesoSlug' | 'category'>, opts: { qty?: number; nombre?: string } = {}): string {
+  const params: string[] = [];
+  if (t.category === 'acceso' && t.accesoSlug) params.push(`items=${encodeURIComponent(t.accesoSlug)}:${Math.max(1, Math.floor(opts.qty ?? 1))}`);
+  const nombre = opts.nombre?.trim();
+  if (nombre) params.push(`nombre=${encodeURIComponent(nombre.slice(0, 60))}`);
+  return params.length ? `${buyHref}?${params.join('&')}` : buyHref;
 }

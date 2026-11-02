@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buyHrefFor, deriveTanda, type PlaymoreTicketView } from './playmoreTanda';
+import { buyHrefFor, deriveTanda, groupOf, type PlaymoreTicketView } from './playmoreTanda';
 
 const t = (o: Partial<PlaymoreTicketView>): PlaymoreTicketView => ({
   id: 1, name: 'Dúo', price: 30000, status: 'active', accesoSlug: 'duo', category: 'acceso',
@@ -30,5 +30,16 @@ describe('buyHrefFor', () => {
     expect(buyHrefFor('/checkout/x', { accesoSlug: 'duo', category: 'acceso' })).toBe('/checkout/x?items=duo:1');
     expect(buyHrefFor('/checkout/x', { accesoSlug: null, category: 'acceso' })).toBe('/checkout/x');
     expect(buyHrefFor('/checkout/x', { accesoSlug: 'estac', category: 'extra' })).toBe('/checkout/x');
+  });
+});
+
+describe('compra inmersiva', () => {
+  it('agrupa los accesos por personas', () => {
+    expect(groupOf('duo_mujeres')?.key).toBe('duo');
+    expect(groupOf('soltero')?.people).toBe(1);
+    expect(groupOf('vip')).toBeNull();
+  });
+  it('lleva cantidad y nombre al checkout', () => {
+    expect(buyHrefFor('/checkout/x', { accesoSlug: 'trio', category: 'acceso' }, { qty: 2, nombre: ' Camila ' })).toBe('/checkout/x?items=trio:2&nombre=Camila');
   });
 });

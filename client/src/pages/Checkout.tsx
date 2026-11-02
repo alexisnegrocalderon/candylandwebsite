@@ -735,6 +735,15 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
     fill('buyer__instagram', src.instagram);
   }, [prefill.isLoading, prefill.data, setValue, watch]);
 
+  // Nombre que la persona escribió en su ticket en la landing de una colab (?nombre=).
+  useEffect(() => {
+    if (isPartner) return;
+    const n = new URLSearchParams(search).get('nombre')?.trim();
+    if (n && !watch('buyer__nombre' as any)) setValue('buyer__nombre' as any, n.slice(0, 60), { shouldValidate: false });
+    // Solo al entrar.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   /* ── Recompra en un toque ─────────────────────────────── */
   const expressStage = useRef<'idle' | 'acceso' | 'done'>('idle');
   const fillCompanion = (n: number, c: { nombre: string; rut: string; docTipo?: 'rut' | 'passport' }, force = false) => {
