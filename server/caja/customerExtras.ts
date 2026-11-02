@@ -5,6 +5,7 @@
  * próxima: la misma regla de `redeemDisplayCode`). Solo lectura: el canje lo hace `caja.redeem`. */
 import { and, eq, ne, isNotNull, or, sql } from 'drizzle-orm';
 import { events, orders, ticketTypes, tickets } from '../../drizzle/schema';
+import { DEMO_EVENT_SLUG, DEMO_PAST_SLUG_PREFIX, isDemoSlug } from '../../shared/demoAccount';
 
 export type CustomerExtra = { displayCode: string; name: string; eventTitle: string; carried: boolean };
 
@@ -13,7 +14,7 @@ export async function listCustomerExtrasForCaja(db: any, params: { email: string
   if (!email) return [];
   const rows = await db.select({
     displayCode: tickets.displayCode, name: ticketTypes.name, ticketEventId: tickets.eventId,
-    eventTitle: events.title, eventStatus: events.status,
+    eventTitle: events.title, eventStatus: events.status, eventSlug: events.slug,
   }).from(tickets)
     .innerJoin(orders, eq(tickets.orderId, orders.id))
     .innerJoin(ticketTypes, eq(tickets.ticketTypeId, ticketTypes.id))
@@ -24,7 +25,8 @@ export async function listCustomerExtrasForCaja(db: any, params: { email: string
       eq(tickets.status, 'valid'),
       isNotNull(tickets.displayCode),
       ne(ticketTypes.category, 'acceso'),
-      or(eq(tickets.eventId, params.eventId), eq(events.status, 'past')),
+      // Los extras de la cuenta de prueba (evento oculto) también salen, para poder probar la caja en modo prueba.
+      or(eq(tickets.eventId, params.eventId), eq(events.status, 'past'), eq(events.slug, DEMO_EVENT_SLUG), sql`${events.slug} LIKE ${DEMO_PAST_SLUG_PREFIX + '%'}`),
     ))
     .orderBy(tickets.createdAt)
     .limit(60);
