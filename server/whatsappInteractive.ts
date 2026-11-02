@@ -9,6 +9,8 @@ import {
   type WaButton,
 } from './whatsappSend';
 import { withAgentUtm } from './agentLinks';
+import { resolveAccessCheckout } from './instagramInteractive';
+import type { AgentAccessKey } from '../shared/agentAccess';
 import { dropSupersededTickets } from '../shared/liveTickets';
 
 /* Mensajes interactivos de WhatsApp armados SOLO con datos de la base, sin
@@ -136,11 +138,21 @@ export async function eventDetailMessage(to: string, slug: string, now: Date = n
 
 /** Texto de la IA + botón "Comprar entrada" del próximo evento con venta
  * abierta. Si no hay ninguno, solo el texto. */
-export async function replyWithBuyLink(to: string, text: string, now: Date = new Date(), campaign: string = 'agente'): Promise<WaOutgoing> {
+export async function replyWithBuyLink(
+  to: string,
+  text: string,
+  now: Date = new Date(),
+  campaign: string = 'agente',
+  access?: { key: AgentAccessKey | ''; quantity?: number },
+): Promise<WaOutgoing> {
   const upcoming = await getUpcomingPublicEvents(now);
   const event = upcoming.find((e) => e.status !== 'soldout');
   if (!event) return { payload: buildTextPayload(to, text), text, interactive: null };
-  return replyWithLinkButton(to, text, 'Comprar entrada', withAgentUtm(`${APP_URL}/eventos/${event.slug}`, 'whatsapp', campaign));
+  // Con el acceso conocido, directo al checkout con ese acceso elegido (ver resolveAccessCheckout).
+  const direct = access?.key ? await resolveAccessCheckout(event, access.key, access.quantity ?? 1) : null;
+  // El botón de WhatsApp no lleva emoji (tope de 20 caracteres).
+  const label = direct ? direct.button.replace(' 🔥', '') : 'Comprar entrada';
+  return replyWithLinkButton(to, text, label, withAgentUtm(`${APP_URL}${direct ? direct.path : `/eventos/${event.slug}`}`, 'whatsapp', campaign));
 }
 
 /** Texto + botón a cualquier link ya armado (con su UTM) -- así el link
