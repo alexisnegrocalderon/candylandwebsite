@@ -10,6 +10,11 @@
   },
   "rewrites": [
     {
+      "source": "/",
+      "has": [{ "type": "host", "value": "playmore.mansionplayroom.cl" }],
+      "destination": "/api"
+    },
+    {
       "source": "/api/:path*",
       "destination": "/api"
     },
