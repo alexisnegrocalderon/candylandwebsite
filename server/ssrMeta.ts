@@ -181,6 +181,16 @@ export function registerSsrMetaRoutes(app: Express) {
     }
   });
 
+  // ¿Está activado el evento de la colab? Lo consulta el middleware de Vercel
+  // (middleware.ts) para decidir si la home de Playroom redirige a la colab.
+  // Solo devuelve un booleano, nada más.
+  app.get("/api/colab-live", async (req: Request, res: Response) => {
+    res.setHeader("Cache-Control", "no-store");
+    const slug = typeof req.query.slug === "string" ? req.query.slug.slice(0, 50) : "";
+    const cp = slug ? await getCoproductionBySlug(slug).catch(() => null) : null;
+    res.json({ live: cp?.isLive === 1 });
+  });
+
   // Landing de la co-producción con Dalmore. Mientras no esté activa queda
   // fuera de los buscadores; al activarla sí se indexa. Se sirve en
   // /playroomdalmore y en la raíz de su subdominio (shared/colabHosts.ts).

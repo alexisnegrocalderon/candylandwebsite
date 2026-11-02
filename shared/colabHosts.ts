@@ -21,12 +21,16 @@ export function colabSlugForHost(host: string | undefined | null): string | null
 export const isColabHost = (host: string | undefined | null): boolean => colabSlugForHost(host) !== null;
 
 /* Mientras se promociona la colab, la home de Playroom (mansionplayroom.cl/)
- * manda a la gente a la landing de la colab. Se apaga sola pasada la fecha
+ * manda a la gente a la landing de la colab. SOLO con el evento activado (el
+ * interruptor "Activar evento" del panel: coproductions.isLive); apagado, la
+ * home es la de siempre. Se apaga sola pasada la fecha
  * (4 de diciembre 23:00 + la noche: hasta las 06:00 del día siguiente, hora
  * de Chile). Solo la raíz: el resto del sitio (eventos, cuenta, checkout,
  * paneles) no se toca. */
 export const COLAB_HOME_REDIRECT = {
   to: 'https://dalmore.mansionplayroom.cl/',
+  /** Co-producción cuyo interruptor "Activar evento" (panel) enciende la redirección. */
+  slug: 'dalmore',
   untilMs: Date.parse('2026-12-05T06:00:00-03:00'),
   /** Hosts de la home de Playroom a los que aplica. */
   fromHosts: ['mansionplayroom.cl', 'www.mansionplayroom.cl'],
