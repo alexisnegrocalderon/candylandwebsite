@@ -1,6 +1,7 @@
 import { formatChileDate, formatChileDateTime } from '../shared/chileDate';
 import { AMBASSADOR_TIERS, tierForCount, nextTierForCount } from '../shared/ambassadorTiers';
 import { BRAND, EVENT_BRAND } from '../shared/eventBrand';
+import { COLAB_MIN_AGE } from '../shared/coproduction';
 import { type OrderEmailConfig, DEFAULT_ORDER_EMAIL_CONFIG, fillPlaceholders } from '../shared/emailTemplateConfig';
 import {
   ACCENT, HALLOWEEN, INK, MUTED, FAINT, BORDER, CARD_BG, DISCO_BG, DISCO_HERO_BG, EMAIL_BASE_URL, LOGO_URL,
@@ -538,7 +539,7 @@ export function buildOrderEmail(data: {
       <!-- ANTES DE VENIR -->
       ${cfg.sections.antesDeVenir ? `
       ${sectionTitle('🎒', 'Antes de venir')}
-      ${grid(CONTENT.antesDeVenir.map(x => `
+      ${grid(CONTENT.antesDeVenir.map(x => data.colab ? { ...x, texto: x.texto.replace('mayores de 18 años', `mayores de ${COLAB_MIN_AGE} años`) } : x).map(x => `
         <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(212,165,55,0.18);border-radius:16px;padding:16px;">
           <p style="font-size:24px;margin:0 0 6px;">${x.emoji}</p>
           <p style="color:${INK};font-size:13px;font-weight:800;margin:0 0 4px;">${x.titulo}</p>
