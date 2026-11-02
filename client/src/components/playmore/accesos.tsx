@@ -350,17 +350,15 @@ export function Accesos({ types, buyHref, eventName, tanda, initialGroup, previe
   );
 }
 
-/** Botón flotante de compra: un ticket dorado con perforación que aparece al bajar,
- * alterna el precio y la cuenta regresiva, y según dónde estés hace lo más útil:
- * lejos de los accesos te lleva a elegir ticket; dentro de ellos, directo a pagar.
- * Sin evento activado solo se muestra en la vista previa del dueño. */
-export function FloatingBuy({ href, tanda, preview }: {
-  href: string | null; tanda: PlaymoreTanda | null; preview: boolean;
+/** Botón flotante de compra: un ticket dorado con perforación que aparece al bajar y
+ * alterna la invitación con la cuenta regresiva. Al tocarlo abre al instante el selector
+ * de tickets (TicketPicker), sin bajar por la página. Sin evento activado solo se muestra
+ * en la vista previa del dueño o con los tickets a la vista. */
+export function FloatingBuy({ href, tanda, preview, onOpen }: {
+  href: string | null; tanda: PlaymoreTanda | null; preview: boolean; onOpen: () => void;
 }) {
   const reduce = useReducedMotion();
-  const [, navigate] = useLocation();
   const [scrolled, setScrolled] = useState(false);
-  const [inAccesos, setInAccesos] = useState(false);
   const [showCount, setShowCount] = useState(false);
   const rise = tanda && !tanda.soldOut ? tanda.salesEnd : null;
   const soldOut = !!tanda?.soldOut;
@@ -371,13 +369,6 @@ export function FloatingBuy({ href, tanda, preview }: {
     window.addEventListener('scroll', onScroll, { passive: true });
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
-  useEffect(() => {
-    const el = document.getElementById('accesos');
-    if (!el || typeof IntersectionObserver === 'undefined') return;
-    const io = new IntersectionObserver(([e]) => setInAccesos(e.isIntersecting), { threshold: 0.12 });
-    io.observe(el);
-    return () => io.disconnect();
-  }, []);
   // Cada 3,5 s la segunda línea alterna entre la invitación y el tiempo que queda.
   useEffect(() => {
     if (!rise) return;
@@ -386,12 +377,7 @@ export function FloatingBuy({ href, tanda, preview }: {
   }, [rise]);
 
   if ((!href && !preview) || soldOut) return null;
-  const goPay = inAccesos && !!href;
-  const label = goPay ? 'IR A PAGAR' : 'COMPRAR ENTRADA';
-  const onClick = () => {
-    if (goPay && href) { navigate(href); return; }
-    document.getElementById('accesos')?.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
-  };
+  const label = 'COMPRAR ENTRADA';
   const sub = rise && showCount
     ? <>SUBE EN <PriceRiseCountdown iso={rise} compact /></>
     : <>ELIGE TU ACCESO</>;
@@ -407,7 +393,7 @@ export function FloatingBuy({ href, tanda, preview }: {
             {/* Onda que invita a tocar */}
             {!reduce && <span className="pm-fab-ring" aria-hidden="true" />}
             <div className={reduce ? '' : 'pm-fab'}>
-              <button type="button" onClick={onClick} aria-label={label}
+              <button type="button" onClick={onOpen} aria-label={label}
                 className="pm-fab-body group flex h-[64px] w-full items-stretch text-left text-[#141210] transition-transform active:scale-[0.97]">
                 <span className="flex min-w-0 flex-1 flex-col justify-center pl-7 pr-3">
                   <span className="flex items-center gap-2 text-[13px] font-extrabold tracking-[0.22em]">

@@ -58,22 +58,24 @@ export function PartnerMark({ logoUrl, name, className = '', imgClassName }: { l
   );
 }
 
-export function BuyButton({ href, children, className = '' }: { href: string; children: ReactNode; className?: string }) {
-  return (
-    <Link href={href}
-      className={`group relative inline-flex h-14 items-center gap-3 overflow-hidden whitespace-nowrap rounded-full px-6 text-[12.5px] font-bold tracking-[0.16em] text-[#141210] sm:px-9 sm:text-sm sm:tracking-[0.25em] shadow-[0_18px_50px_-12px_rgba(247,231,168,0.55)] transition active:scale-[0.98] ${className}`}
-      style={{ background: 'var(--pm-gold)' }}>
+export function BuyButton({ href, onClick, children, className = '' }: { href?: string; onClick?: () => void; children: ReactNode; className?: string }) {
+  const cls = `group relative inline-flex h-14 items-center gap-3 overflow-hidden whitespace-nowrap rounded-full px-6 text-[12.5px] font-bold tracking-[0.16em] text-[#141210] shadow-[0_18px_50px_-12px_rgba(247,231,168,0.55)] transition active:scale-[0.98] sm:px-9 sm:text-sm sm:tracking-[0.25em] ${className}`;
+  const inner = (
+    <>
       <span className="relative z-10">{children}</span>
       <ArrowRight className="relative z-10 h-4 w-4 transition-transform group-hover:translate-x-1" />
       <span className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/50 to-transparent transition-transform duration-700 group-hover:translate-x-full" />
-    </Link>
+    </>
   );
+  // Con onClick abre el selector de tickets al instante; con href navega.
+  if (onClick) return <button type="button" onClick={onClick} className={cls} style={{ background: 'var(--pm-gold)' }}>{inner}</button>;
+  return <Link href={href ?? '#'} className={cls} style={{ background: 'var(--pm-gold)' }}>{inner}</Link>;
 }
 
 // ── Hero ───────────────────────────────────────────────────────────────────
 
-export function PlaymoreHero({ landing, partnerName, buyHref, preview, early = false, minPrice }: {
-  landing: CoproductionLanding; partnerName: string; buyHref: string | null; preview: boolean; early?: boolean; minPrice: number | null;
+export function PlaymoreHero({ landing, partnerName, buyHref, preview, early = false, minPrice, onBuy }: {
+  landing: CoproductionLanding; partnerName: string; buyHref: string | null; preview: boolean; early?: boolean; minPrice: number | null; onBuy?: () => void;
 }) {
   const ref = useRef<HTMLElement>(null);
   const { scrollYProgress } = useScroll({ target: ref, offset: ['start start', 'end start'] });
@@ -149,9 +151,9 @@ export function PlaymoreHero({ landing, partnerName, buyHref, preview, early = f
 
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 2.1, duration: 0.9 }} className="mt-10">
           {buyHref ? (
-            <BuyButton href={buyHref}>COMPRAR ENTRADAS</BuyButton>
+            <BuyButton href={buyHref} onClick={onBuy}>COMPRAR ENTRADAS</BuyButton>
           ) : preview || early ? (
-            <a href="#accesos" className="inline-flex h-14 items-center gap-3 whitespace-nowrap rounded-full border border-[#d6b25e]/60 bg-black/40 px-7 text-[11px] font-bold tracking-[0.2em] text-[var(--pm-sand)] backdrop-blur transition hover:bg-white/5 sm:text-xs">{early ? 'VER LOS TICKETS · COMPRA MUY PRONTO' : 'VER LOS TICKETS · PAGO AL ACTIVAR'} <ArrowRight className="h-4 w-4" /></a>
+            <a href="#accesos" onClick={(e) => { if (onBuy) { e.preventDefault(); onBuy(); } }} className="inline-flex h-14 items-center gap-3 whitespace-nowrap rounded-full border border-[#d6b25e]/60 bg-black/40 px-7 text-[11px] font-bold tracking-[0.2em] text-[var(--pm-sand)] backdrop-blur transition hover:bg-white/5 sm:text-xs">{early ? 'VER LOS TICKETS · COMPRA MUY PRONTO' : 'VER LOS TICKETS · PAGO AL ACTIVAR'} <ArrowRight className="h-4 w-4" /></a>
           ) : (
             <div className="flex flex-col items-center gap-3 sm:flex-row">
               <span className="text-xs tracking-[0.3em] text-[var(--pm-sand)]/80">ENTRADAS MUY PRONTO · ENTÉRATE PRIMERO</span>

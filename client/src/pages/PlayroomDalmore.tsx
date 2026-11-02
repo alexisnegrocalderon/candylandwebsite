@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'wouter';
 import { motion } from 'framer-motion';
 import { trpc } from '@/lib/trpc';
@@ -10,6 +10,7 @@ import {
   CodeAndFaq, DALMORE_MARK, Gallery, PlaymoreFooter, PlaymoreHero, QuickFacts,
 } from '@/components/playmore/sections';
 import { Accesos, FloatingBuy } from '@/components/playmore/accesos';
+import { TicketPicker } from '@/components/playmore/TicketPicker';
 import { LivePurchases } from '@/components/playmore/LivePurchases';
 import { NightTimeline } from '@/components/playmore/NightTimeline';
 import { TwoWorlds } from '@/components/playmore/WorldsFusion';
@@ -40,6 +41,8 @@ export default function PlayroomDalmore() {
       return name || group ? { name, group, label: ACCESO_GROUPS.find((x) => x.key === g)?.label } : null;
     } catch { return null; }
   }, []);
+  // Selector de tickets: se abre al instante desde cualquier botón de compra.
+  const [pickerOpen, setPickerOpen] = useState(false);
   const { data, isLoading } = trpc.coproduction.publicGet.useQuery({ slug: SLUG, preview }, { retry: false });
   // Sin logo subido en Configuración se usa el de Dalmore que viene con la página.
   const landing = data?.landing && { ...data.landing, partnerLogoUrl: data.landing.partnerLogoUrl || DALMORE_MARK };
@@ -99,6 +102,12 @@ export default function PlayroomDalmore() {
   const active = data.ticketTypes.filter((t) => t.status === 'active' && t.price > 0);
   const minPrice = active.length ? Math.min(...active.map((t) => t.price)) : null;
   const tanda = deriveTanda(data.ticketTypes, Date.now());
+  // Con accesos a la vista abre el selector; si no hay ninguno, lleva a la sección (que explica por qué).
+  const hasAccesos = data.ticketTypes.some((t) => t.category === 'acceso');
+  const openBuy = () => {
+    if (hasAccesos) setPickerOpen(true);
+    else document.getElementById('accesos')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
   return (
     <div className="playmore relative min-h-dvh overflow-x-clip">
@@ -117,7 +126,7 @@ export default function PlayroomDalmore() {
               <span><span className="playmore-gold font-bold">{invite.name}</span> ya tiene su entrada{invite.label ? <> · viene en <span className="font-bold">{invite.label}</span></> : ''}. Súmate →</span>
             </motion.a>
           )}
-          <PlaymoreHero landing={landing} partnerName={data.partnerName} buyHref={buyHref} preview={data.preview} early={data.early} minPrice={minPrice} />
+          <PlaymoreHero landing={landing} partnerName={data.partnerName} buyHref={buyHref} preview={data.preview} early={data.early} minPrice={minPrice} onBuy={openBuy} />
           <QuickFacts landing={landing} />
           <TwoWorlds landing={landing} partnerName={data.partnerName} />
           {full && (
@@ -133,7 +142,9 @@ export default function PlayroomDalmore() {
           {/* Compras reales recientes (sin nombres ni cantidades) */}
           {full && <LivePurchases slug={SLUG} preview={preview} />}
           {/* Botón flotante de compra: ticket dorado que acompaña toda la página */}
-          <FloatingBuy href={buyHref} tanda={tanda} preview={data.preview || data.early} />
+          <FloatingBuy href={buyHref} tanda={tanda} preview={data.preview || data.early} onOpen={openBuy} />
+          <TicketPicker open={pickerOpen} onClose={() => setPickerOpen(false)} types={data.ticketTypes} buyHref={buyHref} eventName={landing.eventName} tanda={tanda}
+            demo={!buyHref} early={data.early} />
         </motion.main>
       )}
     </div>
