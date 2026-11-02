@@ -556,7 +556,7 @@ export function CoproConfig() {
   const edit = (patch: Partial<typeof d>) => setDraft({ ...d, ...patch });
   const editLanding = (patch: Partial<CoproductionLanding>) => edit({ landing: { ...d.landing, ...patch } });
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
-  const previewUrl = `${origin}/playroomdalmore?preview=${setup.previewToken}`;
+  const previewUrl = `https://dalmore.mansionplayroom.cl/?preview=${setup.previewToken}`;
   const copy = (text: string) => navigator.clipboard?.writeText(text).then(() => toast.success('Copiado'), () => toast.error('No se pudo copiar'));
 
   return (

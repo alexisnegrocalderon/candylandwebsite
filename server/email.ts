@@ -306,7 +306,7 @@ function colabStrip(colab?: { partnerName: string; partnerLogoUrl: string; event
     : `<span style="color:#e9d9b0;font-size:13px;font-weight:800;letter-spacing:0.25em;">${escapeEmailText(colab.partnerName.toUpperCase())}</span>`;
   return `
       <div style="text-align:center;padding:14px 12px;margin:0 0 18px;background:#0c0908;border:1px solid #d6b25e55;border-radius:14px;">
-        <span style="color:#e9d9b0;font-size:13px;font-weight:800;letter-spacing:0.25em;vertical-align:middle;">PLAYROOM</span>
+        <img src="${EMAIL_BASE_URL}/playmore/playroom-logo.png" alt="Mansion Playroom" height="38" style="height:38px;width:auto;vertical-align:middle;" />
         <span style="color:#E477EA;font-size:16px;padding:0 12px;vertical-align:middle;">×</span>
         ${partner}
         <div style="color:#d6b25e;font-size:11px;font-weight:700;letter-spacing:0.3em;margin-top:8px;">${escapeEmailText(colab.eventName)}</div>

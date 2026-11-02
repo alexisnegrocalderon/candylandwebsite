@@ -127,7 +127,7 @@ export default function Ticket() {
       <motion.div className="pt-12" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
         {ticket.colab && (
           <p className="mb-4 flex items-center justify-center gap-3 text-[11px] font-extrabold tracking-[0.3em] text-[#e9d9b0]">
-            PLAYROOM <span className="text-[#E477EA]">×</span>
+            <img src="/playmore/playroom-logo.png" alt="Mansion Playroom" className="h-8 w-auto" /> <span className="text-[#E477EA]">×</span>
             {ticket.colab.partnerLogoUrl
               ? <img src={ticket.colab.partnerLogoUrl} alt={ticket.colab.partnerName} className="h-7 w-auto max-w-[110px] object-contain" />
               : ticket.colab.partnerName.toUpperCase()}
