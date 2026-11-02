@@ -184,7 +184,7 @@ export function registerSsrMetaRoutes(app: Express) {
   // Landing de la co-producción con Dalmore. Mientras no esté activa queda
   // fuera de los buscadores; al activarla sí se indexa. Se sirve en
   // /playroomdalmore y en la raíz de su subdominio (shared/colabHosts.ts).
-  const colabLanding = async (res: Response, slug: string) => {
+  const colabLanding = async (req: Request, res: Response, slug: string) => {
     const template = loadTemplateOrFail(res);
     if (!template) return;
     try {
@@ -196,7 +196,8 @@ export function registerSsrMetaRoutes(app: Express) {
         ? `${landing.headline} ${landing.venueText}. ${landing.capacityText}.`
         : `${landing.title}: muy pronto. ${landing.venueText}.`;
       const image = landing.heroImageUrl.startsWith("https://") ? landing.heroImageUrl : await resolveDefaultOgImage();
-      const host = Object.entries(COLAB_HOSTS).find(([, s]) => s === slug)?.[0];
+      // La dirección canónica es la del propio subdominio por el que entró la persona.
+      const host = colabSlugForHost(req.hostname) ? req.hostname : Object.entries(COLAB_HOSTS).find(([, s]) => s === slug)?.[0];
       const url = host ? `https://${host}/` : `${SITE_URL}/playroomdalmore`;
       sendHtml(res, injectMeta(template, {
         title, description,
@@ -210,11 +211,11 @@ export function registerSsrMetaRoutes(app: Express) {
       sendHtml(res, template);
     }
   };
-  app.get("/playroomdalmore", (_req: Request, res: Response) => colabLanding(res, "dalmore"));
+  app.get("/playroomdalmore", (req: Request, res: Response) => colabLanding(req, res, colabSlugForHost(req.hostname) ?? "dalmore"));
   app.get("/", (req: Request, res: Response, next: NextFunction) => {
     const slug = colabSlugForHost(req.hostname);
     if (!slug) return next();
-    return colabLanding(res, slug);
+    return colabLanding(req, res, slug);
   });
 
   // Bases del concurso de Instagram activo: vista previa con el premio al

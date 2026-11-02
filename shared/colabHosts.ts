@@ -5,6 +5,8 @@
  * Vercel (Domains) y un CNAME en Cloudflare; el `slug` es el de la
  * co-producción creada en el panel. */
 export const COLAB_HOSTS: Record<string, string> = {
+  // El primero de cada colab es su dirección canónica (la que sale al compartir).
+  'dalmore.mansionplayroom.cl': 'dalmore',
   'playmore.mansionplayroom.cl': 'dalmore',
 };
 
