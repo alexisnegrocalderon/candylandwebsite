@@ -202,7 +202,13 @@ export function drawTicketBody(canvas: HTMLCanvasElement, data: TicketArtData) {
 
   ctx.font = `800 54px ${FONT_SANS}`;
   ctx.fillStyle = goldGradient(ctx, right - 360, 0, right, 0);
-  spaced(ctx, data.accessLabel ? data.accessLabel.toUpperCase() : 'ADMIT TWO', right, rowY + 52, 2, 'right');
+  // El acceso va sin la palabra "acceso" y se achica hasta caber entre la hora y el borde.
+  const accessText = data.accessLabel ? data.accessLabel.replace(/^acceso\s+/i, '').toUpperCase() : 'ADMIT TWO';
+  const room = right - (tx + 270 + 190);
+  let af = 54;
+  ctx.font = `800 ${af}px ${FONT_SANS}`;
+  while (ctx.measureText(accessText).width + accessText.length * 2 > room && af > 26) { af -= 2; ctx.font = `800 ${af}px ${FONT_SANS}`; }
+  spaced(ctx, accessText, right, rowY + 52, 2, 'right');
 
   if (data.daysLeft != null && data.daysLeft >= 0) {
     ctx.font = `700 22px ${FONT_SANS}`;

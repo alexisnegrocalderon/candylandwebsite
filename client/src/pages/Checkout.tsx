@@ -38,6 +38,8 @@ import { DisclosureSummary, ExtraRow } from '@/components/checkout/ExtraRow';
 import { PurchaseCelebration } from '@/components/site/PurchaseCelebration';
 import { PartnerIntro } from '@/components/checkout/PartnerIntro';
 import { ColabAfterPurchase, ColabBanner } from '@/components/checkout/ColabBanner';
+import { ColabPaymentResult } from '@/components/playmore/PaymentResult';
+import { COLAB_MIN_AGE } from '@shared/coproduction';
 
 /** Mini vista previa de la Tarjeta Playroom, mostrada justo donde se pide el
  * PIN -- para que quede claro que el PIN protege ESTA tarjeta (saldo +
@@ -377,8 +379,15 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
   const [expressBusy, setExpressBusy] = useState(!!expressOp);
   const utils = trpc.useUtils();
 
-  const { data: event } = trpc.events.getBySlug.useQuery({ slug: eventSlug }, { retry: false });
-  const { data: liveTicketsData } = trpc.events.getTicketTypes.useQuery({ slug: eventSlug }, { retry: false });
+  // Link de vista previa de una colab sin activar (?preview=): deja recorrer el checkout; el pago es simulado.
+  const previewToken = useMemo(() => new URLSearchParams(search).get('preview') || undefined, [search]);
+  const { data: event } = trpc.events.getBySlug.useQuery({ slug: eventSlug, preview: previewToken }, { retry: false });
+  const { data: liveTicketsData } = trpc.events.getTicketTypes.useQuery({ slug: eventSlug, preview: previewToken }, { retry: false });
+  // 'owner' = dueño (pago simulado), 'early' = tickets a la vista (el pago aún no se abre), undefined = evento a la venta.
+  const previewMode = (event as any)?.previewOnly as 'owner' | 'early' | undefined;
+  // Evento de colab (PLAYMORE): misma cara de la landing, +21 y una entrada por compra.
+  const { data: colabBrand } = trpc.coproduction.brandForEvent.useQuery({ eventSlug, preview: previewToken }, { enabled: !isPartner, retry: false, staleTime: 5 * 60_000 });
+  const minAge = colabBrand ? COLAB_MIN_AGE : CANDYLAND.edadMinima;
   const { data: siteSettings } = trpc.settings.get.useQuery();
   const serviceFeePercent = Number(siteSettings?.serviceFeePercent ?? 0);
   // Sin las filas de tandas ya cerradas (ver shared/liveTickets.ts).
@@ -479,7 +488,8 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
   // valor general — igual que hace createOrder en el servidor. Se calcula acá
   // también para que el checkout MUESTRE el precio real que se va a cobrar,
   // en vez del valor general que confundiría a la hora de pagar.
-  const missionOpen = !isPartner && !useConfig && !!event?.eventDate && isMissionActiveForEvent(event);
+  // La Misión 300 es de Playroom: un evento de colab (PLAYMORE) cobra el precio real del acceso.
+  const missionOpen = !isPartner && !useConfig && !colabBrand && !!event?.eventDate && isMissionActiveForEvent(event);
 
   const acceso: Acceso | undefined = useMemo(() => {
     if (!accesoId) return undefined;
@@ -646,14 +656,20 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
   };
 
   type Paso = { id: string; titulo: string; sub?: string; keys: string[] };
+  // Evento de colab: si el acceso ya viene elegido desde la página (selector de tickets), no se vuelve a preguntar.
+  const colabPreselected = !!colabBrand && accesoTickets.some((t: any) => t.accesoSlug === initialFromUrl && t.status === 'active');
+  const skipAcceso = skipVibe || colabPreselected;
+  const eventLabel = colabBrand?.eventName ?? EVENTO.nombre;
   const pasos: Paso[] = useMemo(() => {
     const p: Paso[] = [];
     if (isPartner) {
       p.push({ id: 'intro-comunidad', titulo: '🎧 Bienvenid@, comunidad electrónica', sub: partner?.headline, keys: [] });
     }
-    const pasoAcceso: Paso | null = skipVibe ? null : appMode
+    const pasoAcceso: Paso | null = skipAcceso ? null : colabBrand
+      ? { id: 'acceso', titulo: '¿Con quién vienes?', sub: 'Elige tu acceso. Una entrada por compra.', keys: [] }
+      : appMode
       ? { id: 'acceso', titulo: '¿Con quién vienes?', sub: isPartner ? 'Tu precio especial de la comunidad' : appEventLine, keys: [] }
-      : { id: 'acceso', titulo: `✨ ¿Cómo vienes a ${EVENTO.nombre}?`, sub: 'Toca tu opción.', keys: [] };
+      : { id: 'acceso', titulo: `✨ ¿Cómo vienes a ${eventLabel}?`, sub: 'Toca tu opción.', keys: [] };
     // Todos los datos del comprador en UNA pantalla (antes era una pantalla por dato).
     const pasoDatos: Paso = { id: 'datos', titulo: 'Tus datos', sub: isPartner ? 'Con tu correo y documento revisamos tu acceso de la comunidad. Son 100% privados.' : 'Para enviarte la entrada y validarla en la puerta. Son 100% privados.', keys: CAMPOS_COMPRADOR.map((f) => `buyer__${f.name}`) };
     // Link de la comunidad: primero los datos (ahí se valida que no sea ya cliente), y recién después los
@@ -675,9 +691,9 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
     // Pantalla final: extras, código, total y pagar (antes eran tres pantallas + una espera de 5 s).
     p.push(appMode
       ? { id: 'resumen', titulo: 'Revisa y paga', sub: 'Suma extras si quieres y confirma el total.', keys: [] }
-      : { id: 'resumen', titulo: '✨ Último paso', sub: 'Agrega lo que quieras, revisa el total y paga.', keys: [] });
+      : { id: 'resumen', titulo: colabBrand ? 'Último paso' : '✨ Último paso', sub: 'Agrega lo que quieras, revisa el total y paga.', keys: [] });
     return p;
-  }, [camposAcceso, skipVibe, groupSize, requiresCommunityCode, useDbExtras, isPartner, partner?.headline, appMode, appEventLine]);
+  }, [camposAcceso, skipAcceso, colabBrand, eventLabel, groupSize, requiresCommunityCode, useDbExtras, isPartner, partner?.headline, appMode, appEventLine]);
 
   // En la App cada paso es una entrada del historial: el gesto de volver y «atrás» llevan al paso anterior.
   const [paso, setPaso, exitSteps] = useHistoryStep('compra.paso', appMode);
@@ -1014,6 +1030,16 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
       ? extraTickets.filter((t: any) => (dbExtraQty[t.id] || 0) > 0).map((t: any) => ({ ticketTypeId: t.id, quantity: dbExtraQty[t.id] }))
       : [];
 
+    // Vista previa (evento sin activar): no se crea ninguna orden.
+    if (previewMode === 'early') {
+      setSubmitError('La compra se abre muy pronto. Por ahora puedes recorrer el proceso, pero todavía no se puede pagar.');
+      return;
+    }
+    if (previewMode === 'owner') {
+      setOrdenPago({ orderNumber: 'VISTA-PREVIA', total });
+      return;
+    }
+
     setIsProcessing(true);
     try {
       const result = await createOrder.mutateAsync({
@@ -1153,6 +1179,11 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
     return Array.from(map.entries()).sort((a, b) => a[0] - b[0]).map(([n, fields]) => ({ n, fields }));
   })();
 
+  // Evento de colab (PLAYMORE): la confirmación y el pago pendiente con su propia cara.
+  if (colabBrand && ordenPago && (pagoResultado === 'approved' || pagoResultado === 'pending')) {
+    return <ColabPaymentResult brand={colabBrand} kind={pagoResultado === 'approved' ? 'ok' : 'pending'} holderName={watch('buyer__nombre' as any) || ''} accesoSlug={accesoSlug} accessLabel={acceso?.nombre} simulated={previewMode === 'owner'} />;
+  }
+
   if (ordenPago && pagoResultado === 'approved' && (memberSession.data?.loggedIn || appMode) && !isPartner) {
     return <PurchaseCelebration eventTitle={event?.title ?? EVENTO.nombre} needsLogin={!memberSession.data?.loggedIn} onShown={() => { void utils.member.me.invalidate(); }} />;
   }
@@ -1255,6 +1286,11 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
               <p className="text-muted-foreground text-sm mb-5">Ingresa los datos de tu tarjeta. El pago se procesa acá mismo, sin salir de la página.</p>
             </>
           )}
+          {previewMode === 'owner' && (
+            <div className="mb-4 rounded-2xl border border-amber-400/40 bg-amber-400/10 p-4 text-center text-xs font-semibold leading-relaxed tracking-[0.1em] text-amber-100">
+              VISTA PREVIA · ASÍ SE VE EL PAGO. NO INGRESES TARJETAS REALES: NO SE COBRA NADA.
+            </div>
+          )}
           {pagoErrorMsg && (
             <div className="mb-4 p-3.5 rounded-xl bg-destructive/10 border border-destructive/30 text-sm text-destructive" role="alert">
               {pagoErrorMsg}
@@ -1264,7 +1300,8 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
             // Desde la app: el formulario de Mercado Pago con los colores de vidrio oscuro de la app, no el recuadro blanco.
             <div className={appMode ? 'account-glass rounded-[26px] p-4' : undefined}>
             <PaymentBrick
-              tone={appMode ? 'dark' : 'light'}
+              simulate={previewMode === 'owner'}
+              tone={colabBrand ? 'playmore' : appMode ? 'dark' : 'light'}
               orderNumber={ordenPago.orderNumber}
               amount={ordenPago.total}
               onResult={(status) => {
@@ -1286,6 +1323,12 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
               onError={setPagoErrorMsg}
             />
             </div>
+          )}
+          {previewMode === 'owner' && (
+            <button type="button" onClick={() => setPagoResultado('approved')}
+              className="mt-4 flex h-12 w-full items-center justify-center rounded-full border border-primary/60 text-xs font-bold tracking-[0.2em] text-primary transition hover:bg-primary/10">
+              SIMULAR PAGO APROBADO
+            </button>
           )}
           <p className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground mt-5">
             <ShieldCheck className="w-3.5 h-3.5" /> Pago procesado de forma segura por Mercado Pago
@@ -1352,7 +1395,7 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
           </>
         )}
 
-        {!isPartner && <ColabBanner eventSlug={eventSlug} />}
+        {!isPartner && <ColabBanner eventSlug={eventSlug} preview={previewToken} />}
 
         {/* Sello discreto de la comunidad (sin precio: el valor recién se ve
             en el resumen, después de validar los datos). */}
@@ -1421,7 +1464,7 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
               )}
 
               {/* Paso: ¿Cómo vienes? — todas las opciones en una grilla, un toque y sigue. */}
-              {pasoActual.id === 'acceso' && appMode && (
+              {pasoActual.id === 'acceso' && appMode && !colabBrand && (
                 liveTicketsData === undefined ? (
                   <div className="account-glass h-[420px] rounded-[22px] lg-skeleton" aria-label="Cargando" />
                 ) : (
@@ -1438,7 +1481,26 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
                   />
                 )
               )}
-              {pasoActual.id === 'acceso' && !appMode && (
+              {pasoActual.id === 'acceso' && colabBrand && (
+                <div className="space-y-3" role="radiogroup" aria-label="Accesos">
+                  {accesoTickets.filter((t: any) => t.status === 'active').map((t: any) => {
+                    const op = ACCESO_OPTIONS.find((o) => o.slug === t.accesoSlug && !o.composicion);
+                    return (
+                      <button key={t.id} type="button" role="radio" aria-checked={accesoSlug === t.accesoSlug} disabled={!op}
+                        onClick={() => op && chooseAcceso(op)}
+                        className={`playmore-ticket-card flex w-full items-center justify-between rounded-2xl p-5 text-left transition active:scale-[0.99] ${accesoSlug === t.accesoSlug ? 'ring-2 ring-[#f7e7a8]' : ''}`}>
+                        <span>
+                          <span className="block text-base font-extrabold tracking-[0.04em]">{t.name}</span>
+                          {t.originalPrice && Number(t.originalPrice) > Number(t.price) && <span className="text-xs text-white/40 line-through tabular-nums">{formatCLP(Number(t.originalPrice))}</span>}
+                        </span>
+                        <span className="playmore-gold text-2xl font-extrabold tabular-nums">{formatCLP(Number(t.price))}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {pasoActual.id === 'acceso' && !appMode && !colabBrand && (
                 <>
                   <div className="grid grid-cols-3 gap-2 md:gap-3">
                     {accesoOptions.map((op) => (
@@ -1519,7 +1581,7 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
                   ))}
                   <label className={`flex items-start gap-3 rounded-2xl border p-4 cursor-pointer transition-colors ${watch('buyer__mayorEdad') ? 'border-primary bg-primary/10' : 'border-border/60'}`}>
                     <input type="checkbox" {...register('buyer__mayorEdad' as any)} className="mt-0.5 w-5 h-5 shrink-0 accent-[oklch(0.70_0.19_340)]" />
-                    <span className="text-sm leading-snug"><span className="font-semibold">Confirmo que soy mayor de {CANDYLAND.edadMinima} años</span> y llevaré mi carnet o pasaporte a la entrada.</span>
+                    <span className="text-sm leading-snug"><span className="font-semibold">Confirmo que soy mayor de {minAge} años</span> y llevaré mi carnet o pasaporte a la entrada.</span>
                   </label>
                   {err('buyer__mayorEdad') && <p className="text-sm text-destructive -mt-2" role="alert">{err('buyer__mayorEdad')}</p>}
                   <label className="flex items-center gap-2.5 text-sm text-muted-foreground cursor-pointer">
@@ -1595,7 +1657,7 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
                   </ul>
                   <label className={`flex items-start gap-3 rounded-2xl border p-3.5 cursor-pointer transition-colors ${watch('buyer__mayorEdad') ? 'border-primary bg-primary/10' : 'border-border/60'}`}>
                     <input type="checkbox" {...register('buyer__mayorEdad' as any)} className="mt-0.5 w-5 h-5 shrink-0 accent-[oklch(0.70_0.19_340)]" />
-                    <span className="text-sm leading-snug"><span className="font-semibold">Confirmo que soy mayor de {CANDYLAND.edadMinima} años</span> y llevaré mi carnet o pasaporte a la entrada.</span>
+                    <span className="text-sm leading-snug"><span className="font-semibold">Confirmo que soy mayor de {minAge} años</span> y llevaré mi carnet o pasaporte a la entrada.</span>
                   </label>
                   {err('buyer__mayorEdad') && <p className="text-sm text-destructive" role="alert">{err('buyer__mayorEdad')}</p>}
                 </div>
@@ -1607,7 +1669,7 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
                     <DisclosureSummary icon={<Sparkles className="h-5 w-5" />} title={isPartner ? 'Estacionamiento y extras' : '¿Agregamos algo más?'} hint="Opcional · lo retiras sin pagar de nuevo" badge={dbExtrasTotal > 0 ? formatCLP(dbExtrasTotal) : undefined} />
                   ) : (
                   <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3.5 text-sm font-semibold">
-                    <span>{isPartner ? '🚗 Asegura tu estacionamiento y extras' : '✨ ¿Agregamos algo más?'} <span className="font-normal text-muted-foreground">· opcional</span></span>
+                    <span>{isPartner ? '🚗 Asegura tu estacionamiento y extras' : colabBrand ? '¿Agregamos algo más?' : '✨ ¿Agregamos algo más?'} <span className="font-normal text-muted-foreground">· opcional</span></span>
                     <span className="text-muted-foreground transition-transform group-open:rotate-180" aria-hidden>▾</span>
                   </summary>
                   )}
@@ -1774,7 +1836,7 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
                     <DisclosureSummary icon={<Ticket className="h-5 w-5" />} title="¿Tienes un código?" hint="Descuento o de quien te invitó" badge={codeResult ? 'Aplicado' : undefined} />
                   ) : (
                   <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3.5 text-sm font-semibold">
-                    <span>🎟️ ¿Tienes un código? <span className="font-normal text-muted-foreground">· descuento o de quien te invitó</span></span>
+                    <span>{colabBrand ? '' : '🎟️ '}¿Tienes un código? <span className="font-normal text-muted-foreground">· descuento o de quien te invitó</span></span>
                     <span className="text-muted-foreground transition-transform group-open:rotate-180" aria-hidden>▾</span>
                   </summary>
                   )}
@@ -1859,7 +1921,7 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
                   )}
                   <div className="glass-candy rounded-2xl p-5">
                     <div className="flex justify-between text-sm mb-2">
-                      <span>{EMOJIS[accesoSlug] ?? '🍬'} {qty}× {acceso?.nombre}</span>
+                      <span>{colabBrand ? '' : `${EMOJIS[accesoSlug] ?? '🍬'} `}{qty}× {acceso?.nombre}</span>
                       <span>{formatCLP(subtotal)}</span>
                     </div>
                     {discountAmount > 0 && (
@@ -1909,7 +1971,7 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
                     </div>
                   )}
                   <p className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
-                    <ShieldCheck className="w-3.5 h-3.5" /> Pago seguro con Mercado Pago · Evento +{CANDYLAND.edadMinima}
+                    <ShieldCheck className="w-3.5 h-3.5" /> Pago seguro con Mercado Pago · Evento +{minAge}
                   </p>
                   <p className="text-center text-[11px] text-muted-foreground">
                     Al comprar aceptas nuestra <Link href="/politica-de-reembolso" className="underline hover:text-foreground">política de reembolso</Link>.
@@ -1967,7 +2029,7 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
               disabled={isProcessing}
               className="btn-jelly flex-1 h-13 py-3.5 rounded-full bg-primary text-primary-foreground font-bold uppercase tracking-wide text-sm inline-flex items-center justify-center gap-2 interactive"
             >
-              {isProcessing ? (<><Loader2 className="w-5 h-5 animate-spin" /> Procesando…</>) : (<>💳 Continuar al pago</>)}
+              {isProcessing ? (<><Loader2 className="w-5 h-5 animate-spin" /> Procesando…</>) : (<>{colabBrand ? '' : '💳 '}Continuar al pago</>)}
             </button>
           ) : !isAutoAdvance ? (
             <button
@@ -1992,19 +2054,31 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
   );
 }
 
+/** Cara de PLAYMORE para el checkout de una colab. Su CSS (fuentes, colores, mayúsculas) se descarga solo acá,
+ * así el checkout de los demás eventos no lo carga. */
+function ColabCheckoutShell({ children }: { children: React.ReactNode }) {
+  const [ready, setReady] = useState(false);
+  useEffect(() => { void import('@/components/playmore/playmore.css').then(() => setReady(true)); }, []);
+  return <div className="playmore pm-checkout min-h-dvh" style={ready ? undefined : { opacity: 0 }}>{children}</div>;
+}
+
 /** Puerta de la preventa de socios: si el evento la tiene activa y no hay sesión de «Mi cuenta», se pide entrar antes de comprar. */
 export default function Checkout(props: { partnerSlug?: string } = {}) {
   const [, params] = useRoute('/checkout/:eventSlug');
   const slug = props.partnerSlug ? '' : params?.eventSlug ?? CANDYLAND.slug;
-  const { data: event } = trpc.events.getBySlug.useQuery({ slug }, { enabled: !!slug, retry: false });
-  const { data: session, isLoading } = useMemberSession();
   const search = useSearch();
+  const previewToken = new URLSearchParams(search).get('preview') || undefined;
+  const { data: event } = trpc.events.getBySlug.useQuery({ slug, preview: previewToken }, { enabled: !!slug, retry: false });
+  // Evento de colab (PLAYMORE): el checkout toma su cara (negro, dorado y magenta), también en el celular.
+  const { data: colabBrand } = trpc.coproduction.brandForEvent.useQuery({ eventSlug: slug, preview: previewToken }, { enabled: !!slug, retry: false, staleTime: 5 * 60_000 });
+  const { data: session, isLoading } = useMemberSession();
   if (slug && event && isMemberEarlyAccess(event as any)) {
     if (isLoading) return <div className="min-h-dvh" />;
     if (!(session?.loggedIn && session.isMember)) return <MemberEarlyGate event={event as any} />;
   }
   // En la app (instalada o en el celular, ver lib/appMode.ts) y en la recompra en un toque: la compra
   // con la misma cara de la app, oscura y de vidrio, no la del sitio.
+  if (colabBrand) return <ColabCheckoutShell><CheckoutInner {...props} /></ColabCheckoutShell>;
   const appSheet = isAppMode() || (!props.partnerSlug && new URLSearchParams(search).get('rapida') === '1');
   if (!appSheet) return <CheckoutInner {...props} />;
   return <AppCheckout {...props} />;

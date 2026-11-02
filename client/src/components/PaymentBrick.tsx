@@ -55,14 +55,28 @@ const DARK_BRICK_STYLE = {
   },
 };
 
-export function PaymentBrick({ orderNumber, amount, containerId = 'mp-payment-brick', onResult, onError, variant = 'payment', tone = 'light', payerEmail }: {
+/** Colores del Brick para PLAYMORE: negro, dorado y magenta (la cara del evento). */
+const PLAYMORE_BRICK_STYLE = {
+  theme: 'dark',
+  customVariables: {
+    formBackgroundColor: 'transparent', baseColor: '#d6b25e', baseColorFirstVariant: '#c9a24c', baseColorSecondVariant: '#9c7630',
+    textPrimaryColor: '#f4efe6', textSecondaryColor: 'rgba(233,217,176,0.7)', inputBackgroundColor: 'rgba(255,255,255,0.05)',
+    outlinePrimaryColor: 'rgba(214,178,94,0.45)', outlineSecondaryColor: 'rgba(214,178,94,0.25)', buttonTextColor: '#141210',
+    borderRadiusSmall: '10px', borderRadiusMedium: '14px', borderRadiusLarge: '18px', borderRadiusFull: '999px',
+    formPadding: '0px', inputVerticalPadding: '14px', inputHorizontalPadding: '14px', errorColor: '#f472b6',
+  },
+};
+
+export function PaymentBrick({ orderNumber, amount, containerId = 'mp-payment-brick', onResult, onError, variant = 'payment', tone = 'light', payerEmail, simulate = false }: {
   orderNumber: string;
   amount: number;
   /** 'card': formulario de tarjeta en una sola pantalla (detecta sola crédito/débito, sin el paso «Medios de pago»).
    * Si el socio tiene tarjetas guardadas se usa igual el Brick completo, que es el que las muestra. */
   variant?: 'payment' | 'card';
   /** 'dark': colores del vidrio oscuro (billetera y «Mi cuenta»). */
-  tone?: 'light' | 'dark';
+  tone?: 'light' | 'dark' | 'playmore';
+  /** Vista previa: se dibuja el formulario real pero NO se cobra ni se llama al servidor. */
+  simulate?: boolean;
   /** Correo de quien paga (si se conoce): el Brick no lo vuelve a pedir. El cobro igual usa el de la orden. */
   payerEmail?: string;
   /** Solo hace falta si hubiera dos Bricks vivas en la misma pantalla. */
@@ -92,7 +106,7 @@ export function PaymentBrick({ orderNumber, amount, containerId = 'mp-payment-br
       const mp = new (window as any).MercadoPago(publicKey, { locale: 'es-CL' });
       const hasSaved = !!(member?.customerId && member.cardIds.length > 0);
       const kind = variant === 'card' && !hasSaved ? 'cardPayment' : 'payment';
-      const visual = tone === 'dark' ? { hideFormTitle: true, style: DARK_BRICK_STYLE } : undefined;
+      const visual = tone === 'dark' ? { hideFormTitle: true, style: DARK_BRICK_STYLE } : tone === 'playmore' ? { hideFormTitle: true, style: PLAYMORE_BRICK_STYLE } : undefined;
       const controller = await mp.bricks().create(kind, containerId, {
         initialization: {
           amount,
@@ -108,6 +122,11 @@ export function PaymentBrick({ orderNumber, amount, containerId = 'mp-payment-br
           onReady: () => {},
           // El Brick completo entrega `{ formData }`; el de tarjeta entrega los datos directo.
           onSubmit: (arg: any) => new Promise<void>((resolve, reject) => {
+            if (simulate) {
+              onError('Vista previa: no se procesó ningún cobro. Usa "Simular pago aprobado" para ver cómo queda la confirmación.');
+              reject();
+              return;
+            }
             const formData = arg?.formData ?? arg;
             processCardPayment.mutate(
               {

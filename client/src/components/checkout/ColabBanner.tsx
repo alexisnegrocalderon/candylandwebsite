@@ -11,8 +11,8 @@ const ColabPostPurchase = lazy(() => import('@/components/playmore/PostPurchase'
  * necesita sus datos cargados en el panel. */
 const DALMORE_MARK = '/playmore/dalmore-mark.png';
 
-export function ColabBanner({ eventSlug }: { eventSlug: string }) {
-  const { data: brand } = trpc.coproduction.brandForEvent.useQuery({ eventSlug }, { enabled: !!eventSlug, retry: false, staleTime: 5 * 60_000 });
+export function ColabBanner({ eventSlug, preview }: { eventSlug: string; preview?: string }) {
+  const { data: brand } = trpc.coproduction.brandForEvent.useQuery({ eventSlug, preview }, { enabled: !!eventSlug, retry: false, staleTime: 5 * 60_000 });
   if (!brand) return null;
   const logo = brand.partnerLogoUrl || (brand.slug === 'dalmore' ? DALMORE_MARK : '');
   return (

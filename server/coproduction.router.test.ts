@@ -13,6 +13,8 @@ vi.mock('./coproduction', async (importOriginal) => {
     getCoproductionOverview: vi.fn(),
     isEventHiddenByCoproduction: vi.fn(),
     isEventColab: vi.fn(),
+    getCoproductionByEventId: vi.fn(),
+    getEventColabBrand: vi.fn(),
   };
 });
 
@@ -186,5 +188,82 @@ describe('entradas nominativas: un solo acceso por compra', () => {
     vi.mocked(coproductionSvc.isEventColab).mockResolvedValue(false);
     await caller(null).orders.create({ ...base, items: [{ ticketTypeId: 1, quantity: 3 }] }).catch(() => undefined);
     expect(db.createOrder).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('checkout en vista previa de un evento de colab sin activar', () => {
+  const evento = { id: 42, slug: 'playmore', title: 'PlayMore', eventDate: new Date('2026-12-05T01:00:00Z'), imageUrl: '', address: 'Calle Secreta 123', mapsUrl: 'https://maps/x', presaleParkingOnly: 0 } as any;
+  const tipos = [
+    { id: 1, name: 'Acceso Pareja', category: 'acceso', status: 'active', price: '35000' },
+    { id: 2, name: 'Estacionamiento', category: 'extra', status: 'active', price: '5000' },
+    { id: 3, name: 'Mojito', category: 'consumo', status: 'active', price: '7000' },
+    { id: 4, name: 'Oculto', category: 'acceso', status: 'hidden', price: '1' },
+  ] as any;
+  const colab = (landing: any) => ({ ...dalmore, landing, previewToken: 'tok-secreto-123' });
+
+  beforeEach(() => {
+    vi.mocked(db.getEventBySlug).mockResolvedValue(evento);
+    vi.mocked(db.getTicketTypesByEventId).mockResolvedValue(tipos);
+    vi.mocked(coproductionSvc.isEventHiddenByCoproduction).mockResolvedValue(true);
+    vi.mocked(coproductionSvc.isEventColab).mockResolvedValue(true);
+  });
+
+  it('con el link de vista previa el dueño ve una versión segura del evento (sin dirección)', async () => {
+    vi.mocked(coproductionSvc.getCoproductionByEventId).mockResolvedValue(colab({ showTicketsEarly: false }));
+    const e: any = await caller(null).events.getBySlug({ slug: 'playmore', preview: 'tok-secreto-123' });
+    expect(e.previewOnly).toBe('owner');
+    expect(e.title).toBe('PlayMore');
+    expect(JSON.stringify(e)).not.toMatch(/Calle Secreta|maps/);
+  });
+
+  it('sin link y con "mostrar tickets antes de lanzar", cualquiera lo recorre pero en modo "early"', async () => {
+    vi.mocked(coproductionSvc.getCoproductionByEventId).mockResolvedValue(colab({}));
+    const e: any = await caller(null).events.getBySlug({ slug: 'playmore' });
+    expect(e.previewOnly).toBe('early');
+  });
+
+  it('con la opción apagada y sin link no se ve nada', async () => {
+    vi.mocked(coproductionSvc.getCoproductionByEventId).mockResolvedValue(colab({ showTicketsEarly: false }));
+    expect(await caller(null).events.getBySlug({ slug: 'playmore' })).toBeUndefined();
+    expect(await caller(null).events.getBySlug({ slug: 'playmore', preview: 'otro' })).toBeUndefined();
+    expect(await caller(null).events.getTicketTypes({ slug: 'playmore' })).toEqual([]);
+  });
+
+  it('en vista previa solo salen accesos y extras de la web (nunca la carta de la caja ni los ocultos)', async () => {
+    vi.mocked(coproductionSvc.getCoproductionByEventId).mockResolvedValue(colab({}));
+    const t: any[] = await caller(null).events.getTicketTypes({ slug: 'playmore' });
+    expect(t.map((x) => x.name)).toEqual(['Acceso Pareja', 'Estacionamiento']);
+  });
+
+  it('aun así no se puede comprar mientras no esté activo', async () => {
+    vi.mocked(coproductionSvc.getCoproductionByEventId).mockResolvedValue(colab({}));
+    await expect(caller(null).orders.create({ eventSlug: 'playmore', buyerName: 'A', buyerEmail: 'a@b.cl', items: [{ ticketTypeId: 1, quantity: 1 }] })).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    expect(db.createOrder).not.toHaveBeenCalled();
+  });
+
+  it('la marca para el checkout sale en vista previa y no antes', async () => {
+    vi.mocked(coproductionSvc.getEventColabBrand).mockResolvedValue({ slug: 'dalmore', eventName: 'PLAYMORE' } as any);
+    vi.mocked(coproductionSvc.getCoproductionByEventId).mockResolvedValue(colab({ showTicketsEarly: false }));
+    await caller(null).coproduction.brandForEvent({ eventSlug: 'playmore' });
+    expect(coproductionSvc.getEventColabBrand).toHaveBeenLastCalledWith(42, { allowNotLive: false });
+    await caller(null).coproduction.brandForEvent({ eventSlug: 'playmore', preview: 'tok-secreto-123' });
+    expect(coproductionSvc.getEventColabBrand).toHaveBeenLastCalledWith(42, { allowNotLive: true });
+  });
+});
+
+describe('+21 en los eventos de colab', () => {
+  it('la compra pide confirmar mayoría de 21 años', async () => {
+    vi.mocked(db.getEventBySlug).mockResolvedValue({ id: 42, slug: 'playmore', title: 'PlayMore' } as any);
+    vi.mocked(coproductionSvc.isEventColab).mockResolvedValue(true);
+    const attendeeData = JSON.stringify({ campos: { buyer__mayorEdad: false } });
+    await expect(caller(null).orders.create({ eventSlug: 'playmore', buyerName: 'A', buyerEmail: 'a@b.cl', attendeeData, items: [{ ticketTypeId: 1, quantity: 1 }] }))
+      .rejects.toMatchObject({ message: expect.stringContaining('21') });
+  });
+  it('los demás eventos siguen en 18', async () => {
+    vi.mocked(db.getEventBySlug).mockResolvedValue({ id: 7, slug: 'otro', title: 'Otro' } as any);
+    vi.mocked(coproductionSvc.isEventColab).mockResolvedValue(false);
+    const attendeeData = JSON.stringify({ campos: { buyer__mayorEdad: false } });
+    await expect(caller(null).orders.create({ eventSlug: 'otro', buyerName: 'A', buyerEmail: 'a@b.cl', attendeeData, items: [{ ticketTypeId: 1, quantity: 1 }] }))
+      .rejects.toMatchObject({ message: expect.stringContaining('18') });
   });
 });

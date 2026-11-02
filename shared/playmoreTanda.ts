@@ -65,5 +65,5 @@ export function buyHrefFor(buyHref: string, t: Pick<PlaymoreTicketView, 'accesoS
   if (t.category === 'acceso' && t.accesoSlug) params.push(`items=${encodeURIComponent(t.accesoSlug)}:${Math.max(1, Math.floor(opts.qty ?? 1))}`);
   const nombre = opts.nombre?.trim();
   if (nombre) params.push(`nombre=${encodeURIComponent(nombre.slice(0, 60))}`);
-  return params.length ? `${buyHref}?${params.join('&')}` : buyHref;
+  return params.length ? `${buyHref}${buyHref.includes('?') ? '&' : '?'}${params.join('&')}` : buyHref;
 }

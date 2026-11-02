@@ -1686,7 +1686,8 @@ export async function createOrder(input: {
   // 60% si no se junta la meta, o nada si se junta) se resuelve después, ver
   // evaluateMission300() y el webhook de Mercado Pago.
   // La campaña aliada paga su precio completo de una: no entra al abono.
-  const missionOpen = isMissionActiveForEvent(event) && !partnerCampaign;
+  // Una co-producción (PLAYMORE) nunca entra a la Misión 300 de Playroom: se cobra el precio real del acceso.
+  const missionOpen = isMissionActiveForEvent(event) && !partnerCampaign && !(await isCoproductionEventId(event.id));
   let missionDeposit = false;
 
   // Calculate totals — separa el subtotal de accesos (a lo que aplica el
@@ -2135,7 +2136,7 @@ export async function createManualOrder(input: {
   const event = await getEventBySlug(input.eventSlug);
   if (!event) throw new Error("Event not found");
 
-  const missionOpen = isMissionActiveForEvent(event);
+  const missionOpen = isMissionActiveForEvent(event) && !(await isCoproductionEventId(event.id));
   const tts = await getTicketTypesByEventId(event.id);
   const { unitPrices, subtotal, missionDeposit } = priceManualOrderItems(input.items, tts, input.kind, missionOpen);
 

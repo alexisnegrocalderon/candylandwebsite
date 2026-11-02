@@ -209,7 +209,7 @@ import { AUTOMATION_BUTTON_KINDS, AUTOMATION_BUTTON_TITLE_MAX, isAllowedCustomBu
 import { normalizeIgHandle } from "../shared/igCustomerLink";
 import { approveComment, restoreSpamComment, suggestOwnComment } from './instagramComments';
 import * as coproductionSvc from './coproduction';
-import { partnerOpenId, normalizeLanding } from '../shared/coproduction';
+import { partnerOpenId, normalizeLanding, COLAB_MIN_AGE } from '../shared/coproduction';
 import { supervisorOpenId } from '../shared/panelSupervisor';
 import * as supSvc from './panelSupervisor';
 import type { Coproduction } from '../drizzle/schema';
@@ -920,8 +920,15 @@ const pushCampaignSchema = z.object({
   actions: z.array(z.object({ label: z.string().trim().max(24), url: z.string().trim().max(500) })).max(2).optional(),
 });
 
-/** Correo de la sesión de «Mi cuenta» o error 401 (para las acciones del socio). */
-/** Órdenes del checkout web (`attendeeData` con `campos`): tienen que traer la confirmación +18. Otras (sin `campos`) no aplican. */
+/** ¿Se puede mirar el checkout de este evento de colab aunque todavía no esté a la venta? Ver
+ * coproductionSvc.checkoutPreviewAccess. `preview` es el token del link de vista previa. */
+async function colabPreviewMode(eventId: number, preview: string | undefined, ctx: { user?: { role?: string } | null }): Promise<'owner' | 'early' | null> {
+  const cp = await coproductionSvc.getCoproductionByEventId(eventId);
+  const previewOk = !!cp && !!preview && !!cp.previewToken && safeCompare(preview, cp.previewToken);
+  return coproductionSvc.checkoutPreviewAccess(cp, { isAdmin: ctx.user?.role === 'admin', previewOk });
+}
+
+/** Órdenes del checkout web (`attendeeData` con `campos`): tienen que traer la confirmación de mayoría de edad. Otras (sin `campos`) no aplican. */
 export function checkoutConfirmedAdult(attendeeData: string | undefined | null): boolean {
   if (!attendeeData) return true;
   try {
@@ -933,6 +940,7 @@ export function checkoutConfirmedAdult(attendeeData: string | undefined | null):
   }
 }
 
+/** Correo de la sesión de «Mi cuenta» o error 401 (para las acciones del socio). */
 function requireMemberEmail(req: Parameters<typeof getMemberEmail>[0]): string {
   const email = getMemberEmail(req);
   if (!email) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Entra a tu cuenta para continuar.' });
@@ -1501,15 +1509,28 @@ export const appRouter = router({
     }),
     // Un evento de co-producción sin activar no existe para el público (ni
     // por link directo); el dueño sí lo ve para revisarlo.
-    getBySlug: publicProcedure.input(z.object({ slug: z.string() })).query(async ({ input, ctx }) => {
+    getBySlug: publicProcedure.input(z.object({ slug: z.string(), preview: z.string().max(64).optional() })).query(async ({ input, ctx }) => {
       const event = await db.getEventBySlug(input.slug);
-      if (event && ctx.user?.role !== 'admin' && await coproductionSvc.isEventHiddenByCoproduction(event.id)) return undefined;
+      if (event && ctx.user?.role !== 'admin' && await coproductionSvc.isEventHiddenByCoproduction(event.id)) {
+        // Evento de colab sin activar: solo una versión segura (sin dirección) para recorrer el checkout en vista previa.
+        const mode = await colabPreviewMode(event.id, input.preview, ctx);
+        if (!mode) return undefined;
+        return {
+          id: event.id, slug: event.slug, title: event.title, eventDate: event.eventDate, imageUrl: event.imageUrl,
+          presaleParkingOnly: (event as any).presaleParkingOnly ?? 0, previewOnly: mode,
+        } as any;
+      }
       return event;
     }),
-    getTicketTypes: publicProcedure.input(z.object({ slug: z.string() })).query(async ({ input, ctx }) => {
+    getTicketTypes: publicProcedure.input(z.object({ slug: z.string(), preview: z.string().max(64).optional() })).query(async ({ input, ctx }) => {
       const event = await db.getEventBySlug(input.slug);
       if (!event) return [];
-      if (ctx.user?.role !== 'admin' && await coproductionSvc.isEventHiddenByCoproduction(event.id)) return [];
+      if (ctx.user?.role !== 'admin' && await coproductionSvc.isEventHiddenByCoproduction(event.id)) {
+        if (!(await colabPreviewMode(event.id, input.preview, ctx))) return [];
+        // Solo lo que se vende por la web (accesos y extras); la carta de la caja nunca.
+        return (await db.getTicketTypesByEventId(event.id))
+          .filter((t: any) => (t.category === 'acceso' || t.category === 'extra') && t.status !== 'hidden' && presaleAllows(event, t));
+      }
       // Cualquier visitante viendo precios dispara el chequeo de avance
       // automático de tanda (por fecha o cupo agotado) -- ver
       // server/tandaAutoAdvance.ts. Home.tsx ya hace polling de esta misma
@@ -1872,10 +1893,12 @@ export const appRouter = router({
       partnerRef: z.string().max(32).optional(),
     })).mutation(async ({ input, ctx }) => {
       // +18: el checkout web lo confirma con un check; acá se exige (antes era solo una regla del navegador).
-      if (!checkoutConfirmedAdult(input.attendeeData)) {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Debes confirmar que eres mayor de 18 años para comprar.' });
-      }
       const target = await db.getEventBySlug(input.eventSlug);
+      // Los eventos de co-producción (PLAYMORE) son +21; el resto, +18.
+      const minAge = target && await coproductionSvc.isEventColab(target.id) ? COLAB_MIN_AGE : 18;
+      if (!checkoutConfirmedAdult(input.attendeeData)) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: `Debes confirmar que eres mayor de ${minAge} años para comprar.` });
+      }
       if (target && await coproductionSvc.isEventHiddenByCoproduction(target.id)) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'Las entradas de este evento todavía no están a la venta.' });
       }
@@ -4559,10 +4582,12 @@ export const appRouter = router({
     // link de vista previa. Nunca expone la clave ni nada del panel.
     /* Marca compartida de un evento con co-producción ACTIVA (checkout, correos,
      * entrada). null si el evento no es de una colab o todavía no se activa. */
-    brandForEvent: publicProcedure.input(z.object({ eventSlug: z.string().max(120) })).query(async ({ input }) => {
+    brandForEvent: publicProcedure.input(z.object({ eventSlug: z.string().max(120), preview: z.string().max(64).optional() })).query(async ({ input, ctx }) => {
       const event = await db.getEventBySlug(input.eventSlug);
       if (!event) return null;
-      return coproductionSvc.getEventColabBrand(event.id);
+      // Con el evento sin activar, la marca también se ve en la vista previa del checkout.
+      const allowNotLive = !!(await colabPreviewMode(event.id, input.preview, ctx));
+      return coproductionSvc.getEventColabBrand(event.id, { allowNotLive });
     }),
     /* Marca de la colab de una orden (para las páginas de resultado del pago tras
      * volver de Mercado Pago). Solo devuelve la marca del evento, nada de la compra. */

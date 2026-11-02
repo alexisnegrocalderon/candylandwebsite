@@ -217,7 +217,7 @@ function BuySheet({ t, holder, eventName, buyHref, demo, early, onClose }: {
     document.body.style.overflow = 'hidden';
     return () => { window.removeEventListener('keydown', onKey); document.body.style.overflow = prev; };
   }, [onClose]);
-  const go = () => { if (!demo) navigate(buyHrefFor(buyHref, t, { qty: 1, nombre: holder })); };
+  const go = () => { if (buyHref) navigate(buyHrefFor(buyHref, t, { qty: 1, nombre: holder })); };
   return (
     <motion.div className="fixed inset-0 z-[70] flex items-end justify-center sm:items-center" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
       <button type="button" aria-label="Cerrar" className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} tabIndex={-1} />
@@ -234,10 +234,10 @@ function BuySheet({ t, holder, eventName, buyHref, demo, early, onClose }: {
           <span className="text-xs tracking-[0.3em] text-[var(--pm-sand)]/70">TOTAL</span>
           <span className="playmore-sans playmore-gold text-3xl font-extrabold tabular-nums">{clp(t.price)}</span>
         </div>
-        <button type="button" onClick={go} disabled={demo}
+        <button type="button" onClick={go} disabled={!buyHref}
           className="group relative mt-6 flex h-14 w-full items-center justify-center gap-3 overflow-hidden rounded-full px-4 text-center text-[12px] font-bold tracking-[0.2em] text-[#141210] shadow-[0_18px_50px_-12px_rgba(247,231,168,0.55)] disabled:cursor-not-allowed disabled:opacity-70 sm:text-sm sm:tracking-[0.25em]"
           style={{ background: 'var(--pm-gold)' }}>
-          {demo ? (early ? 'LA COMPRA SE ABRE MUY PRONTO' : 'VISTA PREVIA · EL PAGO SE ABRE AL ACTIVAR') : <>IR A PAGAR <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" /></>}
+          {demo ? (early ? 'VER CÓMO SE COMPRA' : 'IR AL PAGO · VISTA PREVIA') : <>IR A PAGAR <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" /></>}
         </button>
         <p className="mt-3 text-center text-[11px] text-[var(--pm-sand)]/50">Pago seguro · tu entrada con QR llega al correo</p>
       </motion.div>
@@ -249,8 +249,8 @@ function BuySheet({ t, holder, eventName, buyHref, demo, early, onClose }: {
 
 export interface AccesosDiag { eventLinked: boolean; accesos: number; hidden: number; blockedByPresale: number }
 
-export function Accesos({ types, buyHref, eventName, tanda, initialGroup, preview = false, early = false, diag = null }: {
-  types: PlaymoreTicketView[]; buyHref: string | null; eventName: string; tanda: PlaymoreTanda | null; initialGroup?: AccesoGroupKey | null; preview?: boolean; early?: boolean; diag?: AccesosDiag | null;
+export function Accesos({ types, buyHref, flowHref = null, eventName, tanda, initialGroup, preview = false, early = false, diag = null }: {
+  types: PlaymoreTicketView[]; buyHref: string | null; flowHref?: string | null; eventName: string; tanda: PlaymoreTanda | null; initialGroup?: AccesoGroupKey | null; preview?: boolean; early?: boolean; diag?: AccesosDiag | null;
 }) {
   const [group, setGroup] = useState<AccesoGroupKey | null>(initialGroup ?? null);
   const [holder, setHolder] = useState(readName);
@@ -335,7 +335,7 @@ export function Accesos({ types, buyHref, eventName, tanda, initialGroup, previe
         </motion.div>
       )}
       <AnimatePresence>
-        {sheet && (buyHref || demo) && <BuySheet key={sheet.id} t={sheet} holder={holder.trim()} eventName={eventName} buyHref={buyHref ?? ''} demo={demo} early={early} onClose={() => setSheet(null)} />}
+        {sheet && (buyHref || demo) && <BuySheet key={sheet.id} t={sheet} holder={holder.trim()} eventName={eventName} buyHref={buyHref ?? flowHref ?? ''} demo={demo} early={early} onClose={() => setSheet(null)} />}
       </AnimatePresence>
     </section>
   );

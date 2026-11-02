@@ -351,12 +351,12 @@ export async function getCoproductionSplit(cp: Coproduction) {
 
 /** Marca compartida de un evento con co-producción activa: lo que ven el
  * checkout, los correos y la entrada. null si no es una colab (o no está activa). */
-export async function getEventColabBrand(eventId: number): Promise<ColabBrand | null> {
+export async function getEventColabBrand(eventId: number, opts: { allowNotLive?: boolean } = {}): Promise<ColabBrand | null> {
   const db = await getDb();
   if (!db) return null;
   return safe(async () => {
     const [cp] = await db.select().from(coproductions).where(eq(coproductions.eventId, eventId)).limit(1);
-    if (!cp || cp.isLive !== 1) return null;
+    if (!cp || (cp.isLive !== 1 && !opts.allowNotLive)) return null;
     const landing = normalizeLanding(cp.landing);
     const [ev] = await db.select({ slug: events.slug }).from(events).where(eq(events.id, eventId)).limit(1);
     return {
@@ -404,4 +404,24 @@ export async function isEventColab(eventId: number): Promise<boolean> {
     const [row] = await db.select({ id: coproductions.id }).from(coproductions).where(eq(coproductions.eventId, eventId)).limit(1);
     return !!row;
   }, false);
+}
+
+/** La co-producción enlazada a un evento (o null). */
+export async function getCoproductionByEventId(eventId: number): Promise<Coproduction | null> {
+  const db = await getDb();
+  if (!db) return null;
+  return safe(async () => (await db.select().from(coproductions).where(eq(coproductions.eventId, eventId)).limit(1))[0] ?? null, null);
+}
+
+/** Cómo se puede mirar el checkout de un evento de colab que TODAVÍA no está a la venta:
+ *  'owner' = el dueño (sesión admin) o quien trae el link de vista previa: recorre todo, incluido el pago simulado;
+ *  'early' = "mostrar tickets antes de lanzar": cualquiera recorre los pasos, pero el pago queda cerrado;
+ *  null    = no se ve. Nunca permite crear una orden (eso lo rechaza el servidor mientras no esté activo). */
+export function checkoutPreviewAccess(
+  cp: Coproduction | null,
+  opts: { isAdmin: boolean; previewOk: boolean },
+): 'owner' | 'early' | null {
+  if (!cp || cp.isLive === 1) return null;
+  if (opts.isAdmin || opts.previewOk) return 'owner';
+  return normalizeLanding(cp.landing).showTicketsEarly ? 'early' : null;
 }

@@ -5,6 +5,7 @@ import { ArrowRight, CalendarDays, ChevronDown, Instagram, MapPin, Users } from 
 import type { CoproductionLanding } from '@shared/coproduction';
 import { CANDYLAND } from '@/config/candyland';
 import { ParticleTitle } from './ParticleTitle';
+import { COLAB_MIN_AGE } from '@shared/coproduction';
 
 /* Secciones de la landing PLAYMORE (Playroom × Dalmore). Paleta y fuentes en
  * ./playmore.css. Todo el contenido sale de `landing` (editable desde
@@ -271,7 +272,7 @@ export function PlaymoreFooter({ landing, partnerName }: { landing: Coproduction
         <PartnerMark logoUrl={landing.partnerLogoUrl} name={partnerName} className="h-12 w-12 text-[3rem]" imgClassName="h-12 w-20" />
       </div>
       <p className="playmore-sans playmore-gold text-3xl font-extrabold tracking-[-0.02em]">{landing.eventName}</p>
-      <p className="mt-2 text-xs tracking-[0.3em] text-[var(--pm-sand)]/70">{landing.dateText.toUpperCase()} · {landing.venueText.toUpperCase()} · SOLO +18</p>
+      <p className="mt-2 text-xs tracking-[0.3em] text-[var(--pm-sand)]/70">{landing.dateText.toUpperCase()} · {landing.venueText.toUpperCase()} · SOLO +{COLAB_MIN_AGE}</p>
       <div className="mt-6 flex justify-center gap-3">
         <a href={CANDYLAND.redes.instagram} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center gap-2 rounded-full border border-white/15 px-4 text-xs hover:bg-white/5"><Instagram className="h-4 w-4" /> Playroom</a>
         <a href={DALMORE_INSTAGRAM} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center gap-2 rounded-full border border-white/15 px-4 text-xs hover:bg-white/5"><Instagram className="h-4 w-4" /> {partnerName}</a>

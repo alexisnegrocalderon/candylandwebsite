@@ -17,11 +17,13 @@ function readName(): string {
   try { return sessionStorage.getItem(NAME_KEY) ?? ''; } catch { return ''; }
 }
 
-export function TicketPicker({ open, onClose, types, buyHref, eventName, tanda, demo, early }: {
+export function TicketPicker({ open, onClose, types, buyHref, flowHref = null, eventName, tanda, demo, early }: {
   open: boolean;
   onClose: () => void;
   types: PlaymoreTicketView[];
   buyHref: string | null;
+  /** Evento sin activar: el checkout en vista previa (dueño con link) o con los tickets a la vista. */
+  flowHref?: string | null;
   eventName: string;
   tanda: PlaymoreTanda | null;
   /** Sin compra habilitada (vista previa o "mostrar tickets antes de lanzar"). */
@@ -60,9 +62,10 @@ export function TicketPicker({ open, onClose, types, buyHref, eventName, tanda, 
   };
   const setName = (v: string) => { setHolder(v); try { sessionStorage.setItem(NAME_KEY, v); } catch { /* sin almacenamiento */ } };
   const pay = () => {
-    if (!sel || demo || !buyHref) return;
+    const target = buyHref ?? flowHref;
+    if (!sel || !target) return;
     onClose();
-    navigate(buyHrefFor(buyHref, sel, { qty: 1, nombre: holder.trim() }));
+    navigate(buyHrefFor(target, sel, { qty: 1, nombre: holder.trim() }));
   };
 
   return (
@@ -147,10 +150,10 @@ export function TicketPicker({ open, onClose, types, buyHref, eventName, tanda, 
                 </span>
                 <span className="playmore-sans playmore-gold text-3xl font-extrabold tabular-nums">{clp(total)}</span>
               </div>
-              <button type="button" onClick={pay} disabled={!sel || demo || !buyHref}
+              <button type="button" onClick={pay} disabled={!sel || !(buyHref ?? flowHref)}
                 className="group relative flex h-14 w-full items-center justify-center gap-3 overflow-hidden rounded-full px-4 text-center text-[12px] font-bold tracking-[0.2em] text-[#141210] shadow-[0_18px_50px_-12px_rgba(247,231,168,0.55)] disabled:cursor-not-allowed disabled:opacity-70 sm:text-sm sm:tracking-[0.25em]"
                 style={{ background: 'var(--pm-gold)' }}>
-                {demo ? (early ? 'LA COMPRA SE ABRE MUY PRONTO' : 'VISTA PREVIA · EL PAGO SE ABRE AL ACTIVAR') : <>IR A PAGAR <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" /></>}
+                {demo ? (early ? 'VER CÓMO SE COMPRA' : 'IR AL PAGO · VISTA PREVIA') : <>IR A PAGAR <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" /></>}
               </button>
             </div>
           </motion.div>

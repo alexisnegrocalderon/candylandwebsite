@@ -2,6 +2,9 @@
  * landing, reparto de la utilidad y reglas compartidas entre el servidor y
  * el panel. Ver drizzle/schema.ts `coproductions`. */
 
+/** Edad mínima de los eventos de co-producción (PLAYMORE). */
+export const COLAB_MIN_AGE = 21;
+
 export interface CoproductionFaq {
   q: string;
   a: string;
@@ -86,7 +89,7 @@ export const DEFAULT_LANDING: CoproductionLanding = {
     'Equipo de anfitriones y seguridad toda la noche',
   ],
   rules: [
-    'Solo mayores de 18 años con carnet.',
+    'Solo mayores de 21 años con carnet.',
     'El consentimiento es la regla número uno: un no es un no.',
     'Prohibido fotografiar o grabar a otras personas.',
     'El equipo puede retirar a quien no respete las reglas, sin devolución.',

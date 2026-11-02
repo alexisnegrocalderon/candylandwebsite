@@ -19,7 +19,13 @@ const COPY: Record<Kind, { title: string; text: string; Icon: typeof Check }> = 
   error: { title: 'No se procesó el pago', text: 'No se realizó ningún cargo. Puedes intentarlo otra vez cuando quieras.', Icon: X },
 };
 
-export function ColabPaymentResult({ brand, kind }: { brand: ColabBrand; kind: Kind }) {
+export function ColabPaymentResult({ brand, kind, holderName = '', accesoSlug, accessLabel, simulated = false }: {
+  brand: ColabBrand; kind: Kind;
+  /** Si se conoce (checkout en el sitio): el ticket sale con su nombre y su acceso. */
+  holderName?: string; accesoSlug?: string | null; accessLabel?: string;
+  /** Vista previa del dueño: se avisa que no hubo cobro. */
+  simulated?: boolean;
+}) {
   const { title, text, Icon } = COPY[kind];
   // Fondo oscuro también detrás de la barra de estado y al estirar la página.
   useEffect(() => {
@@ -32,6 +38,7 @@ export function ColabPaymentResult({ brand, kind }: { brand: ColabBrand; kind: K
   const logo = brand.partnerLogoUrl || (brand.slug === 'dalmore' ? DALMORE_LOGO : '');
   return (
     <div className="playmore min-h-dvh px-4 pb-16 pt-14">
+      {simulated && <p className="mx-auto mb-6 max-w-md rounded-2xl border border-amber-400/40 bg-amber-400/10 px-4 py-3 text-center text-xs font-semibold leading-relaxed tracking-[0.12em] text-amber-100">VISTA PREVIA: ASÍ SE VE LA CONFIRMACIÓN. NO HUBO NINGÚN COBRO NI SE ENVIÓ CORREO.</p>}
       <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }} className="mx-auto max-w-md text-center">
         <div className="mb-8 flex items-center justify-center gap-4">
           <img src="/playmore/playroom-logo.png" alt="Mansion Playroom" className="h-10 w-auto" />
@@ -49,7 +56,7 @@ export function ColabPaymentResult({ brand, kind }: { brand: ColabBrand; kind: K
 
       {kind === 'ok' && brand.eventSlug && (
         <div className="mx-auto mt-8 max-w-md">
-          <Suspense fallback={null}><ColabPostPurchase eventSlug={brand.eventSlug} holderName="" /></Suspense>
+          <Suspense fallback={null}><ColabPostPurchase eventSlug={brand.eventSlug} holderName={holderName} accesoSlug={accesoSlug} accessLabel={accessLabel} /></Suspense>
         </div>
       )}
 

@@ -52,6 +52,8 @@ export default function PlayroomDalmore() {
   // En la vista previa se ve todo, pero la compra recién se abre al activar
   // (el servidor igual rechaza órdenes de un evento sin activar).
   const buyHref = data?.isLive && checkoutHref ? checkoutHref : null;
+  // Evento sin activar: el checkout se puede recorrer en vista previa (el pago es simulado o está cerrado).
+  const flowHref = !buyHref && checkoutHref ? `${checkoutHref}${preview ? `?preview=${encodeURIComponent(preview)}` : ''}` : null;
 
   // El fondo del sitio es claro: sin esto se asoma al hacer scroll rápido o
   // al estirar la página en el celular.
@@ -133,7 +135,7 @@ export default function PlayroomDalmore() {
             <>
               <NightTimeline moments={landing.timeline} />
               <Gallery urls={landing.galleryUrls} />
-              <Accesos types={data.ticketTypes} buyHref={buyHref} eventName={landing.eventName} tanda={tanda} initialGroup={invite?.group ?? null} preview={data.preview} early={data.early} diag={data.diag} />
+              <Accesos types={data.ticketTypes} buyHref={buyHref} eventName={landing.eventName} tanda={tanda} initialGroup={invite?.group ?? null} preview={data.preview} early={data.early} diag={data.diag} flowHref={flowHref} />
             </>
           )}
           <CodeAndFaq landing={landing} eventName={landing.eventName} />
@@ -143,7 +145,7 @@ export default function PlayroomDalmore() {
           {full && <LivePurchases slug={SLUG} preview={preview} />}
           {/* Botón flotante de compra: ticket dorado que acompaña toda la página */}
           <FloatingBuy href={buyHref} tanda={tanda} preview={data.preview || data.early} onOpen={openBuy} />
-          <TicketPicker open={pickerOpen} onClose={() => setPickerOpen(false)} types={data.ticketTypes} buyHref={buyHref} eventName={landing.eventName} tanda={tanda}
+          <TicketPicker open={pickerOpen} onClose={() => setPickerOpen(false)} types={data.ticketTypes} buyHref={buyHref} flowHref={flowHref} eventName={landing.eventName} tanda={tanda}
             demo={!buyHref} early={data.early} />
         </motion.main>
       )}

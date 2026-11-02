@@ -209,3 +209,67 @@
 @media (prefers-reduced-motion: reduce) {
   .pm-fab, .pm-fab-body::after, .pm-fab-ring { animation: none !important; }
 }
+
+/* Checkout de un evento de colab (PLAYMORE): el mismo checkout de Playroom re-tintado con la cara
+ * de la landing (negro, dorado y magenta, todo en mayúsculas). Se redefinen los tokens del tema,
+ * igual que .halloween y .account-tokens, así no hay que tocar cada pantalla. */
+.pm-checkout {
+  color-scheme: dark;
+  --color-background: #0c0908;
+  --color-foreground: #f4efe6;
+  --color-card: rgba(255, 255, 255, 0.045);
+  --color-card-foreground: #f4efe6;
+  --color-popover: #16110f;
+  --color-popover-foreground: #f4efe6;
+  --color-primary: #d6b25e;
+  --color-primary-foreground: #141210;
+  --color-secondary: #96159d;
+  --color-secondary-foreground: #f4efe6;
+  --color-muted: rgba(255, 255, 255, 0.06);
+  --color-muted-foreground: rgba(233, 217, 176, 0.72);
+  --color-accent: #e477ea;
+  --color-accent-foreground: #141210;
+  --color-destructive: #f472b6;
+  --color-destructive-foreground: #141210;
+  --color-border: rgba(214, 178, 94, 0.28);
+  --color-input: rgba(255, 255, 255, 0.1);
+  --color-ring: #d6b25e;
+  --color-cherry: #e477ea;
+  --color-violet-electric: #96159d;
+  --color-candy-blue: #f7e7a8;
+  --color-candy-cream: #16110f;
+  --font-sans: 'Montserrat Variable', Montserrat, system-ui, sans-serif;
+  --font-heading: 'Montserrat Variable', Montserrat, system-ui, sans-serif;
+  background:
+    radial-gradient(70% 40% at 50% 0%, rgba(150, 21, 157, 0.28), transparent 70%),
+    radial-gradient(60% 40% at 100% 100%, rgba(214, 178, 94, 0.12), transparent 70%),
+    #0c0908;
+  color: #f4efe6;
+}
+.pm-checkout .font-heading { font-family: 'Montserrat Variable', Montserrat, system-ui, sans-serif; font-weight: 800; letter-spacing: 0.04em; }
+.pm-checkout .glass-candy,
+.pm-checkout .glass-candy-pastel {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(214, 178, 94, 0.3);
+  box-shadow: 0 10px 40px -18px rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(14px);
+}
+/* Los textos con degradado de dulce pasan a foil dorado. */
+.pm-checkout .text-gradient-candy {
+  background: linear-gradient(105deg, #9c7630, #f7e7a8 45%, #d6b25e 70%, #e9cf85);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+/* Botones principales: dorado de la landing (el rosa-celeste de dulce no va). */
+.pm-checkout .bg-primary { background-image: linear-gradient(105deg, #7a5a22 0%, #c9a24c 18%, #f7e7a8 42%, #d6b25e 62%, #9c7630 84%, #e9cf85 100%); }
+.pm-checkout .bg-primary.text-primary-foreground { letter-spacing: 0.18em; }
+.pm-checkout input, .pm-checkout select, .pm-checkout textarea {
+  background-color: rgba(255, 255, 255, 0.05);
+  border-color: rgba(214, 178, 94, 0.3);
+  color: #f4efe6;
+  text-transform: uppercase;
+}
+.pm-checkout input::placeholder, .pm-checkout textarea::placeholder { color: rgba(233, 217, 176, 0.35); }
+.pm-checkout input:focus, .pm-checkout select:focus, .pm-checkout textarea:focus { border-color: #f7e7a8; outline: none; box-shadow: 0 0 0 3px rgba(214, 178, 94, 0.2); }
+.pm-checkout input[type="email"] { text-transform: none; }

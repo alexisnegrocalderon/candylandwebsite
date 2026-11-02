@@ -34,6 +34,9 @@ describe('buyHrefFor', () => {
 });
 
 describe('compra inmersiva', () => {
+  it('respeta un ?preview= que ya traiga el link', () => {
+    expect(buyHrefFor('/checkout/x?preview=tok', { accesoSlug: 'duo', category: 'acceso' }, { nombre: 'Ana' })).toBe('/checkout/x?preview=tok&items=duo:1&nombre=Ana');
+  });
   it('agrupa los accesos por personas', () => {
     expect(groupOf('duo_mujeres')?.key).toBe('duo');
     expect(groupOf('soltero')?.people).toBe(1);
