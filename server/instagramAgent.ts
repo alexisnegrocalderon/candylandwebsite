@@ -449,7 +449,7 @@ function buildSystemPrompt(
  * del admin viajan como `assistant` igual que los del bot: para la persona
  * del otro lado fue la misma cuenta la que le habló, y el modelo tiene que
  * leer esa conversación como una sola. */
-function toLlmMessages(history: AgentHistoryMessage[]): Message[] {
+export function toLlmMessages(history: AgentHistoryMessage[]): Message[] {
   return history
     .filter((m) => (m.text ?? '').trim().length > 0)
     .map((m) => ({

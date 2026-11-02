@@ -1016,6 +1016,13 @@
       "when": 1794203000000,
       "tag": "0143_agent_funnel",
       "breakpoints": true
+    },
+    {
+      "idx": 145,
+      "version": "5",
+      "when": 1794204000000,
+      "tag": "0144_ig_follow_ups",
+      "breakpoints": true
     }
   ]
 }

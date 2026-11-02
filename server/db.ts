@@ -16,7 +16,7 @@ import { ambassadorBuyerDiscount, bestBuyerDiscount, effectiveBuyerDiscountPerce
 import { normalizeIgHandle, saysAlreadyBought, type BuyerCandidate } from "../shared/igCustomerLink";
 import { computeFans, FAN_WINDOW_DAYS } from "../shared/igEngagement";
 import { reservedCouponUses } from '../shared/couponReservation';
-import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, memberCoupons, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyCharges, partyEventConfig, partyConnections, partyMessages, partyBlocks, partyReports, partyPhotos, partySwipes, partyCostumeVotes, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog, emailEvents, eventSurveys, eventSurveySettings, accessCredits, type AccessCredit, igComments, type IgComment, igReferrals, type IgReferralRow, igLinkClicks, staffMembers, staffShifts, aiUsage, attendeeContacts, coproductions } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, memberCoupons, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyCharges, partyEventConfig, partyConnections, partyMessages, partyBlocks, partyReports, partyPhotos, partySwipes, partyCostumeVotes, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog, emailEvents, eventSurveys, eventSurveySettings, accessCredits, type AccessCredit, igComments, type IgComment, igReferrals, type IgReferralRow, igLinkClicks, staffMembers, staffShifts, aiUsage, igFollowUps, attendeeContacts, coproductions } from "../drizzle/schema";
 import { discountOrigin } from "../shared/discountOrigin";
 import { presaleAllows } from "../shared/presaleExtras";
 import { buildProductRows, buildWhoRows, columnOf, registerColumn, NO_REGISTER_COLUMN, WEB_COLUMN, type ResultLine, type WhoOrder } from "../shared/eventResults";
@@ -8670,46 +8670,8 @@ export async function countIgBotRepliesSince(threadId: number, since: Date): Pro
   return Number(row?.count ?? 0);
 }
 
-/** Hilos candidatos al recordatorio de cierre por silencio (server/
- * instagramFollowUp.ts): el bot contestó último, nadie respondió después, y
- * no se le mandó ya el cierre para esta ronda de silencio.
- *
- * El filtro de "el último mensaje del hilo es del bot" se hace en dos pasos
- * a propósito en vez de un JOIN/subquery: primero se acota por `igThreads`
- * (paused, `lastMessageAt`, `closingMessageSentAt` -- todos indexados o de
- * tabla chica), y recién sobre esos pocos candidatos se pregunta por su
- * último `igMessages` uno por uno. Con el volumen real de esta bandeja
- * (decenas de hilos activos, no miles) es más simple de leer que una
- * subquery correlacionada y rinde exactamente igual. */
-export async function getIgThreadsAwaitingFollowUp(cutoff: Date, limit = 25): Promise<IgThread[]> {
-  const db = await getDb();
-  if (!db) return [];
-
-  const candidates = await db.select().from(igThreads).where(and(
-    eq(igThreads.botPaused, 0),
-    isNotNull(igThreads.lastMessageAt),
-    lte(igThreads.lastMessageAt, cutoff),
-    or(
-      isNull(igThreads.closingMessageSentAt),
-      lt(igThreads.closingMessageSentAt, igThreads.lastMessageAt),
-    ),
-  )).orderBy(igThreads.lastMessageAt).limit(limit);
-  if (candidates.length === 0) return [];
-
-  const eligible: IgThread[] = [];
-  for (const thread of candidates) {
-    const [lastMessage] = await db.select({ direction: igMessages.direction, source: igMessages.source })
-      .from(igMessages)
-      .where(eq(igMessages.threadId, thread.id))
-      .orderBy(desc(igMessages.id))
-      .limit(1);
-    if (lastMessage?.direction === 'out' && lastMessage.source === 'bot') eligible.push(thread);
-  }
-  return eligible;
-}
-
 /** Marca que ya se mandó el recordatorio de cierre para esta ronda de
- * silencio -- ver `getIgThreadsAwaitingFollowUp`. */
+ * silencio -- ver `getIgThreadsForFollowUp`. */
 export async function markIgThreadFollowUpSent(id: number): Promise<void> {
   const db = await getDb();
   if (!db) return;
@@ -9461,7 +9423,7 @@ export async function countWaBotRepliesSince(threadId: number, since: Date): Pro
 }
 
 /** Hilos candidatos al recordatorio de cierre por silencio -- mismo filtro
- * en dos pasos que getIgThreadsAwaitingFollowUp. */
+ * en dos pasos que getIgThreadsForFollowUp. */
 export async function getWaThreadsAwaitingFollowUp(cutoff: Date, limit = 25): Promise<WaThread[]> {
   const db = await getDb();
   if (!db) return [];
@@ -9994,4 +9956,92 @@ export async function getAgentFunnel(since: Date): Promise<AgentFunnelCounts & {
     revenue: sum(paidByButtonRows) + sum(handleRows),
     stuck,
   };
+}
+
+
+// --- Seguimientos del agente (shared/followUp.ts) -----------------------------
+// Todo tolerante: sin la tabla `igFollowUps` o sin `igLinkClicks.threadId` el
+// seguimiento 1 sigue funcionando como siempre y el 2 simplemente no sale.
+
+/** Conversaciones activas dentro de la ventana de 24 h, con quién habló último. */
+export async function getIgThreadsForFollowUp(now: Date, limit = 80): Promise<{ thread: IgThread; lastFromBot: boolean }[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const threads = await db.select().from(igThreads).where(and(
+    eq(igThreads.botPaused, 0),
+    isNotNull(igThreads.lastMessageAt),
+    gte(igThreads.lastInboundAt, new Date(now.getTime() - 24 * 60 * 60 * 1000)),
+  )).orderBy(desc(igThreads.lastMessageAt)).limit(limit);
+  const out: { thread: IgThread; lastFromBot: boolean }[] = [];
+  for (const thread of threads) {
+    const [last] = await db.select({ direction: igMessages.direction, source: igMessages.source }).from(igMessages)
+      .where(eq(igMessages.threadId, thread.id)).orderBy(desc(igMessages.id)).limit(1);
+    out.push({ thread, lastFromBot: last?.direction === 'out' && last.source === 'bot' });
+  }
+  return out;
+}
+
+export type IgFollowUpState = { stage: number; lastSentAt: Date | null; stoppedAt: Date | null };
+
+export async function getIgFollowUpStates(threadIds: number[]): Promise<Map<number, IgFollowUpState>> {
+  const map = new Map<number, IgFollowUpState>();
+  if (threadIds.length === 0) return map;
+  try {
+    const db = await getDb();
+    if (!db) return map;
+    const rows = await db.select().from(igFollowUps).where(inArray(igFollowUps.threadId, threadIds));
+    for (const r of rows) map.set(r.threadId, { stage: r.stage, lastSentAt: r.lastSentAt, stoppedAt: r.stoppedAt });
+  } catch (err) {
+    console.warn('[Database] No se pudo leer el estado de los seguimientos (¿falta la tabla igFollowUps?):', err);
+  }
+  return map;
+}
+
+/** Registra que se mandó el seguimiento `stage`. `false` si no se pudo guardar (falta la tabla). */
+export async function saveIgFollowUp(threadId: number, stage: number, sentAt: Date): Promise<boolean> {
+  try {
+    const db = await getDb();
+    if (!db) return false;
+    await db.insert(igFollowUps).values({ threadId, stage, lastSentAt: sentAt })
+      .onDuplicateKeyUpdate({ set: { stage, lastSentAt: sentAt } });
+    return true;
+  } catch (err) {
+    console.warn('[Database] No se pudo guardar el seguimiento (¿falta la tabla igFollowUps?):', err);
+    return false;
+  }
+}
+
+/** La persona dijo que no: no se le manda ningún seguimiento más. */
+export async function stopIgFollowUps(threadId: number): Promise<boolean> {
+  try {
+    const db = await getDb();
+    if (!db) return false;
+    const now = new Date();
+    await db.insert(igFollowUps).values({ threadId, stage: 2, stoppedAt: now })
+      .onDuplicateKeyUpdate({ set: { stoppedAt: now } });
+    return true;
+  } catch (err) {
+    console.warn('[Database] No se pudo detener el seguimiento (¿falta la tabla igFollowUps?):', err);
+    return false;
+  }
+}
+
+/** Último clic en el botón de compra de cada conversación (embudo, #529). */
+export async function getIgThreadLastClicks(threadIds: number[], since: Date): Promise<Map<number, Date>> {
+  const map = new Map<number, Date>();
+  if (threadIds.length === 0) return map;
+  try {
+    const db = await getDb();
+    if (!db) return map;
+    const rows = await db.select({ threadId: igLinkClicks.threadId, createdAt: igLinkClicks.createdAt }).from(igLinkClicks)
+      .where(and(inArray(igLinkClicks.threadId, threadIds), gte(igLinkClicks.createdAt, since)));
+    for (const r of rows) {
+      if (r.threadId == null) continue;
+      const prev = map.get(r.threadId);
+      if (!prev || r.createdAt > prev) map.set(r.threadId, r.createdAt);
+    }
+  } catch (err) {
+    console.warn('[Database] No se pudieron leer los clics (¿falta la migración de igLinkClicks.threadId?):', err);
+  }
+  return map;
 }

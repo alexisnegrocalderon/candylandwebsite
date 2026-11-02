@@ -327,16 +327,40 @@ function AgentSettingsCard({ agent }: { agent: AgentDraft }) {
               onCheckedChange={(followUpEnabled) => setDraft({ ...draft, followUpEnabled })}
             />
           </div>
-          <div className="max-w-[180px] space-y-2">
-            <Label>Minutos de silencio</Label>
-            <Input
-              type="number" min={1} max={1440}
-              value={draft.followUpMinutes}
-              onChange={(e) => setDraft({ ...draft, followUpMinutes: Number(e.target.value) })}
+          <div className="flex flex-wrap gap-4">
+            <div className="max-w-[180px] space-y-2">
+              <Label>Minutos de silencio (1.º)</Label>
+              <Input
+                type="number" min={1} max={1440}
+                value={draft.followUpMinutes}
+                onChange={(e) => setDraft({ ...draft, followUpMinutes: Number(e.target.value) })}
+              />
+            </div>
+            <div className="max-w-[200px] space-y-2">
+              <Label>Horas para el 2.º (0 = no)</Label>
+              <Input
+                type="number" min={0} max={22}
+                value={draft.followUp2Hours}
+                onChange={(e) => setDraft({ ...draft, followUp2Hours: Number(e.target.value) })}
+              />
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Se manda hasta un seguimiento a los minutos de silencio (o ~20 min después de tocar el botón de compra sin comprar) y un segundo a las horas
+            que pongas, siempre dentro de las 24 h que deja Instagram. Se detienen si la persona dice que no, si ya compró o si la conversación pasó a una persona.
+          </p>
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="font-medium">Seguimientos escritos por la IA</p>
+              <p className="text-sm text-muted-foreground">Retoman lo que la persona dijo (cómo viene, sus dudas) y llevan el botón con su acceso ya elegido. Apagado = siempre el mensaje de abajo.</p>
+            </div>
+            <Switch
+              checked={draft.followUpPersonalized}
+              onCheckedChange={(followUpPersonalized) => setDraft({ ...draft, followUpPersonalized })}
             />
           </div>
           <div className="space-y-2">
-            <Label>Mensaje de cierre</Label>
+            <Label>Mensaje de cierre (si la IA está apagada o falla)</Label>
             <Input
               value={draft.followUpMessage}
               maxLength={IG_MAX_REPLY_CHARS}

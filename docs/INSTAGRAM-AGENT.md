@@ -381,3 +381,14 @@ El coach semanal detectó cuatro problemas; esto es lo que hace el agente ahora 
 - **Clics por conversación**: el botón de compra del agente pasa por `/api/go?o=agente&t=<hilo>&to=…` (`trackedUrl(url, threadId)`), que guarda el clic con la conversación (`igLinkClicks.threadId`, migración `0143_agent_funnel`) y redirige al checkout. Sin la migración el clic igual se cuenta, sin la conversación.
 - **`getAgentFunnel(since)`** (`server/db.ts`): conversaciones → preguntaron por entradas → recibieron el botón → tocaron el botón → empezaron a pagar → compraron. Las compras se atribuyen por el botón (`utm_campaign` «agente…») **o** por el @ de Instagram de la ficha del cliente contra el de la conversación (compra hasta 45 días después de la primera conversación), así cuenta quien pagó desde otro navegador.
 - **Panel** (Agente → Ventas): tarjeta «Embudo de ventas del agente» con el % de cada paso, dónde más se cae y la lista de quienes tocaron el botón y no compraron. El coach semanal recibe el embudo y apunta sus sugerencias al paso donde más se cae.
+
+## 16. Seguimientos personalizados (entrega 2)
+
+El cron `/api/cron/instagram-followup` (cada 15 min) manda **hasta dos seguimientos por conversación**, siempre dentro de las 24 h de Meta. El cálculo de cuándo y a quién es puro (`shared/followUp.ts › planFollowUp`, con tests); el envío está en `server/instagramFollowUp.ts` y el texto lo redacta Haiku (`server/instagramFollowUpDraft.ts`).
+
+- **Seguimiento 1**: a los `followUpMinutes` de silencio (30 por defecto), o ~20 min después de tocar el botón de compra sin comprar (variante «¿pudiste entrar? ¿te ayudo?», que cubre el «rescate de compra abandonada»: la orden no lleva la conversación, así que se detecta por el clic, no por la orden pendiente).
+- **Seguimiento 2**: `followUp2Hours` (20) desde el último mensaje de la persona, mínimo 3 h después del primero. 0 lo apaga.
+- Cada uno retoma lo que la persona dijo (ficha + historial), lleva el botón con su acceso ya elegido (por el contador de clics, para el embudo) y nunca trae un link escrito. Si la IA falla: el 1 cae al mensaje fijo de siempre; el 2 no sale.
+- **Se detienen** si la persona dijo que no (`followUpIntent`), si ya compró (su @ está entre los compradores de la próxima fecha, o lo dijo), si la IA decide que no corresponde (conversación personal) o si el hilo pasó a una persona. Con «lo pienso» solo sale un seguimiento. Un hilo detenido se reevalúa si la persona vuelve a escribir.
+- **Estado** en la tabla nueva `igFollowUps` (migración `0144_ig_follow_ups`), aparte de `igThreads` para que una migración atrasada no rompa la bandeja. Sin la tabla el seguimiento 1 funciona como siempre y el 2 no sale.
+- Ajustes del agente: minutos de silencio, horas del segundo, y el interruptor «Seguimientos escritos por la IA».
