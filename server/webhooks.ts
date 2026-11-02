@@ -17,6 +17,7 @@ import { nanoid } from 'nanoid';
 import { generateTicketQR } from './qr';
 import { sendEmail, buildOrderEmail, buildMissionTopupEmail, buildTierUpEmail, buildAlmostTierEmail, buildGiftEmail, buildBirthdayTierUnlockedEmail, buildTopupEmail } from './email';
 import { EMAIL_BASE_URL } from './emailLayout';
+import { getEventColabBrand } from './coproduction';
 import { applyPendingCardPin } from './playcardTopup';
 import { giftQuantityForOrder } from '../shared/giftQuantity';
 import { missionCutoff, missionCapPrice, personasForAccesoSlug, MISSION_300_GOAL } from '../shared/mission300';
@@ -473,8 +474,10 @@ async function sendMissionDepositEmail(order: any): Promise<{ success: boolean }
 
   const ambassadorCode = await ensureOwnAmbassadorCode(db, order);
   const templateConfig = normalizeOrderEmailConfig((await getSiteSettings()).emailTemplateConfig as any);
+  const colab = await getEventColabBrand(event.id);
 
   const html = buildOrderEmail({
+    colab: colab ?? undefined,
     buyerName: order.buyerName,
     eventTitle: event.title,
     eventDate: formatEventDate(new Date(event.eventDate)),
@@ -539,8 +542,10 @@ async function sendConfirmationEmailForOrder(order: any): Promise<{ success: boo
   const extras = await getOrderExtras(order.id);
   const templateConfig = normalizeOrderEmailConfig((await getSiteSettings()).emailTemplateConfig as any);
   const partner = await getPartnerCampaignForOrder(order.id);
+  const colab = await getEventColabBrand(event.id);
 
   const html = buildOrderEmail({
+    colab: colab ?? undefined,
     buyerName: order.buyerName,
     eventTitle: event.title,
     eventDate: formatEventDate(new Date(event.eventDate)),

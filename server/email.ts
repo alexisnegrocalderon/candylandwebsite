@@ -295,6 +295,24 @@ function escapeEmailText(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+/** Franja de marca compartida (Playroom × socio) para los correos de una colab. */
+function colabStrip(colab?: { partnerName: string; partnerLogoUrl: string; eventName: string }): string {
+  if (!colab) return '';
+  const logo = colab.partnerLogoUrl
+    ? (colab.partnerLogoUrl.startsWith('http') ? colab.partnerLogoUrl : `${EMAIL_BASE_URL}${colab.partnerLogoUrl}`)
+    : '';
+  const partner = logo
+    ? `<img src="${logo}" alt="${escapeEmailText(colab.partnerName)}" height="34" style="height:34px;width:auto;vertical-align:middle;" />`
+    : `<span style="color:#e9d9b0;font-size:13px;font-weight:800;letter-spacing:0.25em;">${escapeEmailText(colab.partnerName.toUpperCase())}</span>`;
+  return `
+      <div style="text-align:center;padding:14px 12px;margin:0 0 18px;background:#0c0908;border:1px solid #d6b25e55;border-radius:14px;">
+        <span style="color:#e9d9b0;font-size:13px;font-weight:800;letter-spacing:0.25em;vertical-align:middle;">PLAYROOM</span>
+        <span style="color:#E477EA;font-size:16px;padding:0 12px;vertical-align:middle;">×</span>
+        ${partner}
+        <div style="color:#d6b25e;font-size:11px;font-weight:700;letter-spacing:0.3em;margin-top:8px;">${escapeEmailText(colab.eventName)}</div>
+      </div>`;
+}
+
 export function buildOrderEmail(data: {
   buyerName: string;
   eventTitle: string;
@@ -331,6 +349,8 @@ export function buildOrderEmail(data: {
   contestInvite?: { permalink: string; drawText: string; multiplier: number };
   /** Entrada REGALADA: el mensaje que escribió quien regala (va arriba, como una nota). */
   giftMessage?: string | null;
+  /** Evento de una co-producción activa: franja con ambos logos arriba y despedida firmada por las dos productoras. */
+  colab?: { partnerName: string; partnerLogoUrl: string; eventName: string };
 }) {
   const cfg = data.templateConfig ?? DEFAULT_ORDER_EMAIL_CONFIG;
   const ticketNames = data.items.map(i => i.name).join(', ');
@@ -358,6 +378,7 @@ export function buildOrderEmail(data: {
       ctaStyle: 'pastel',
     }),
     body: `
+      ${colabStrip(data.colab)}
       ${giftMessageBlock(data.giftMessage)}
       <!-- SALUDO -->
       <h2 style="color:${INK};font-size:22px;font-weight:800;margin:0 0 6px;">👋 Hola ${data.buyerName}</h2>
@@ -576,6 +597,7 @@ export function buildOrderEmail(data: {
       <div style="text-align:center;padding:24px 0;">
         <p style="font-size:32px;margin:0 0 8px;">🍭</p>
         <p style="color:${INK};font-size:16px;font-weight:800;margin:0 0 6px;">Nos vemos en ${data.eventTitle}</p>
+        ${data.colab ? `<p style="color:#d6b25e;font-size:12px;font-weight:800;letter-spacing:0.2em;margin:0 0 8px;">PLAYROOM × ${escapeEmailText(data.colab.partnerName.toUpperCase())}</p>` : ''}
         <p style="color:${MUTED};font-size:13px;line-height:1.6;margin:0;">
           ${fillPlaceholders(cfg.farewellText, { evento: data.eventTitle })}
         </p>
