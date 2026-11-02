@@ -100,16 +100,16 @@ describe('landing pública antes de lanzar', () => {
     vi.mocked(db.getTicketTypesByEventId).mockResolvedValue(tipos);
   });
 
-  it('por defecto el público ve solo el teaser: sin evento ni accesos', async () => {
-    vi.mocked(coproductionSvc.getCoproductionBySlug).mockResolvedValue(conLanding({}));
+  it('con la opción apagada el público ve solo el teaser: sin evento ni accesos', async () => {
+    vi.mocked(coproductionSvc.getCoproductionBySlug).mockResolvedValue(conLanding({ showTicketsEarly: false }));
     const r: any = await caller(null).coproduction.publicGet({ slug: 'dalmore' });
     expect(r.early).toBe(false);
     expect(r.event).toBeNull();
     expect(r.ticketTypes).toEqual([]);
   });
 
-  it('con "mostrar tickets antes de lanzar" el público ve los accesos, sin compra y sin cupos exactos', async () => {
-    vi.mocked(coproductionSvc.getCoproductionBySlug).mockResolvedValue(conLanding({ showTicketsEarly: true }));
+  it('por defecto (o encendida) el público ve los accesos, sin compra y sin cupos exactos', async () => {
+    vi.mocked(coproductionSvc.getCoproductionBySlug).mockResolvedValue(conLanding({}));
     const r: any = await caller(null).coproduction.publicGet({ slug: 'dalmore' });
     expect(r.early).toBe(true);
     expect(r.isLive).toBe(false);
@@ -120,7 +120,7 @@ describe('landing pública antes de lanzar', () => {
   });
 
   it('con el link de vista previa el dueño ve los accesos y un diagnóstico', async () => {
-    vi.mocked(coproductionSvc.getCoproductionBySlug).mockResolvedValue(conLanding({}));
+    vi.mocked(coproductionSvc.getCoproductionBySlug).mockResolvedValue(conLanding({ showTicketsEarly: false }));
     const r: any = await caller(null).coproduction.publicGet({ slug: 'dalmore', preview: 'tok-secreto-123' });
     expect(r.preview).toBe(true);
     expect(r.early).toBe(false);
@@ -128,8 +128,8 @@ describe('landing pública antes de lanzar', () => {
     expect(r.diag).toEqual({ eventLinked: true, accesos: 2, hidden: 1, blockedByPresale: 0 });
   });
 
-  it('un token equivocado no abre nada', async () => {
-    vi.mocked(coproductionSvc.getCoproductionBySlug).mockResolvedValue(conLanding({}));
+  it('un token equivocado no abre nada (con la opción apagada)', async () => {
+    vi.mocked(coproductionSvc.getCoproductionBySlug).mockResolvedValue(conLanding({ showTicketsEarly: false }));
     const r: any = await caller(null).coproduction.publicGet({ slug: 'dalmore', preview: 'otro-token' });
     expect(r.preview).toBe(false);
     expect(r.ticketTypes).toEqual([]);
