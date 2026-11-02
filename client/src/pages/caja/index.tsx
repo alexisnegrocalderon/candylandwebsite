@@ -2326,18 +2326,26 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
 
             {/* Método de pago -- mismo lugar visual que las pestañas Delivery/Dine In/Takeaway de la referencia.
                 'saldo' (pedido explícito del dueño) exige conexión siempre -- deshabilitado sin señal. */}
-            <div className="grid grid-cols-4 gap-2">
-              {(['saldo', 'efectivo', 'debito', 'credito'] as const).map((m) => (
-                <button
-                  key={m}
-                  disabled={m === 'saldo' && !isOnline}
-                  onClick={() => { setPaymentMethod(m); if (m === 'saldo') { setShowEmailStep(true); if (!buyerEmail.trim() && isOnline) setScanningCustomer(true); } else { setPayToken(null); setSupervisorName(null); } }}
-                  aria-pressed={paymentMethod === m}
-                  className={`admin-tab h-12 rounded-xl text-xs font-semibold capitalize disabled:opacity-30 ${paymentMethod === m ? 'admin-tab-active' : ''}`}
-                >
-                  {m === 'saldo' ? '💳 Playcard / App' : m === 'efectivo' ? '💵 Efectivo' : m === 'debito' ? 'Débito' : 'Crédito'}
-                </button>
-              ))}
+            <div className="grid grid-cols-3 gap-2">
+              {/* Tres medios: Playcard / App (QR), Efectivo y Tarjeta. Débito o crédito se pregunta al cobrar, cuando se ve el voucher. */}
+              {(['saldo', 'efectivo', 'tarjeta'] as const).map((m) => {
+                const active = m === 'tarjeta' ? paymentMethod === 'debito' || paymentMethod === 'credito' : paymentMethod === m;
+                return (
+                  <button
+                    key={m}
+                    disabled={m === 'saldo' && !isOnline}
+                    onClick={() => {
+                      if (m === 'tarjeta') { if (!active) setPaymentMethod('debito'); }
+                      else setPaymentMethod(m);
+                      if (m === 'saldo') { setShowEmailStep(true); if (!buyerEmail.trim() && isOnline) setScanningCustomer(true); } else { setPayToken(null); setSupervisorName(null); }
+                    }}
+                    aria-pressed={active}
+                    className={`admin-tab h-12 rounded-xl text-xs font-semibold disabled:opacity-30 ${active ? 'admin-tab-active' : ''}`}
+                  >
+                    {m === 'saldo' ? '💳 Playcard (QR)' : m === 'efectivo' ? '💵 Efectivo' : '💳 Tarjeta'}
+                  </button>
+                );
+              })}
             </div>
             {paymentMethod === 'saldo' && !isOnline && (
               <p className="text-xs text-amber-400 -mt-1">Sin conexión no se puede cobrar con la Playcard -- elige otro medio de pago.</p>
@@ -2400,7 +2408,7 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
               {paymentMethod === 'efectivo' ? 'Cobrar en efectivo'
                 : paymentMethod === 'qr' ? 'QR terminal cobrado — Confirmar'
                 : paymentMethod === 'saldo' ? (confirming ? 'Cobrando…' : isMixed ? `Saldo $${prepaid!.toLocaleString('es-CL')} + $${amountDue.toLocaleString('es-CL')} ${complementLabel}` : 'Cobrar con la Playcard')
-                : 'Cobrar con máquina'}
+                : 'Cobrar con tarjeta'}
             </Button>
           </aside>
         </div>
@@ -2409,7 +2417,7 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
       {paymentStep === 'card' && (
         <div className="fixed inset-0 z-30 bg-black/90 backdrop-blur-sm flex items-center justify-center p-6">
           <div className="w-full max-w-sm admin-glass-sheet rounded-3xl p-6 text-center space-y-4">
-            <p className="text-xs uppercase tracking-widest text-white/60">Cobrar con máquina</p>
+            <p className="text-xs uppercase tracking-widest text-white/60">Cobrar con tarjeta</p>
             <p className="font-heading font-extrabold text-5xl">${amountDue.toLocaleString('es-CL')}</p>
             {isMixed && <p className="text-xs text-amber-200">Diferencia: ${prepaid!.toLocaleString('es-CL')} ya van con saldo</p>}
             <p className="text-white/60 text-sm">Pasa la tarjeta en el POS y espera la aprobación.</p>
