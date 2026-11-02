@@ -4,6 +4,7 @@ import { motion, useScroll, useTransform } from 'framer-motion';
 import { ArrowRight, CalendarDays, ChevronDown, Instagram, MapPin, Users } from 'lucide-react';
 import type { CoproductionLanding } from '@shared/coproduction';
 import { CANDYLAND } from '@/config/candyland';
+import { ParticleTitle } from './ParticleTitle';
 
 /* Secciones de la landing PLAYMORE (Playroom × Dalmore). Paleta y fuentes en
  * ./playmore.css. Todo el contenido sale de `landing` (editable desde
@@ -120,16 +121,8 @@ export function PlaymoreHero({ landing, partnerName, buyHref, preview, minPrice 
           PLAYROOM <span className="text-[var(--pm-orchid)]">×</span> {partnerName.toUpperCase()} {preview && <span className="ml-2 text-amber-300">· VISTA PREVIA</span>}
         </motion.p>
 
-        {/* Un solo foil dorado para toda la palabra (por letra se cortaba el
-            degradado): se revela abriendo el espaciado y enfocando. */}
-        <motion.h1
-          className="playmore-sans playmore-gold text-[15vw] font-extrabold leading-[0.85] sm:text-[12vw] lg:text-[10.5rem]"
-          initial={{ opacity: 0, letterSpacing: '0.25em', filter: 'blur(14px)', scale: 1.08 }}
-          animate={{ opacity: 1, letterSpacing: '-0.04em', filter: 'blur(0px)', scale: 1 }}
-          transition={{ delay: 0.5, duration: 1.6, ease: [0.22, 1, 0.36, 1] }}
-        >
-          {landing.eventName}
-        </motion.h1>
+        {/* El nombre hecho de partículas doradas: llegan, forman la palabra y reaccionan al cursor o al dedo. */}
+        <ParticleTitle text={landing.eventName} />
 
         <motion.p initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 1.4, duration: 0.9 }}
           className="playmore-serif mt-6 max-w-2xl text-2xl italic text-[var(--pm-cream)]/90 sm:text-3xl">

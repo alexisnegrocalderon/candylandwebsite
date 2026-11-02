@@ -7,6 +7,7 @@ import {
 } from './ticketArt';
 import { playRip } from './playmoreAudio';
 import { useCountdown } from './sections';
+import { DUST_GATHER_MS, TicketDust } from './TicketDust';
 
 /* Intro cinematográfico de PLAYMORE: un ticket negro y oro aparece desde la
  * oscuridad aleteando como papel, se acomoda al centro y la persona arranca
@@ -363,7 +364,8 @@ function WebGLTicket({ data, countdownIso, partnerLogoUrl, soundOn, onToggleSoun
         return !!hit?.uv && hit.uv.x > 0.66;
       };
       const tear = () => {
-        if (phase !== 'idle' && phase !== 'enter') return;
+        // Antes de que el ticket exista (solo hay polvo) no se puede arrancar.
+        if (phase !== 'idle' && !(phase === 'enter' && performance.now() - phaseStart > DUST_GATHER_MS + 600)) return;
         phase = 'torn';
         phaseStart = performance.now();
         // El talón sale hacia afuera y cae girando.
@@ -418,7 +420,11 @@ function WebGLTicket({ data, countdownIso, partnerLogoUrl, soundOn, onToggleSoun
       const t0 = performance.now();
       let last = t0;
       let lastLogo = 0;
-      const ENTER_MS = 2600;
+      // Primero el polvo dibuja el ticket (TicketDust); recién ahí aparece el 3D,
+      // con un fundido y el papel asentándose.
+      const SETTLE_MS = 1100;
+      const ENTER_MS = DUST_GATHER_MS + SETTLE_MS;
+      shared.uOpacity.value = 0;
       const loop = (now: number) => {
         raf = requestAnimationFrame(loop);
         const dt = Math.min(0.05, (now - last) / 1000);
@@ -438,12 +444,13 @@ function WebGLTicket({ data, countdownIso, partnerLogoUrl, soundOn, onToggleSoun
         shared.uSheen.value = ((time % 4.2) / 4.2) * 2.4 - 0.6;
 
         if (phase === 'enter') {
-          const k = ease.outCubic(clamp01(since / ENTER_MS));
-          ticket.position.set(lerp(-0.6, 0, k), lerp(1.3, 0, k), lerp(-10, 0, k));
-          ticket.rotation.set(lerp(1.15, 0.06, k), lerp(-1.5, -0.1, k), lerp(0.9, 0.02, k));
+          const k = ease.outCubic(clamp01((since - DUST_GATHER_MS) / SETTLE_MS));
+          shared.uOpacity.value = clamp01((since - DUST_GATHER_MS) / 650);
+          ticket.position.set(0, lerp(0.14, 0, k), lerp(-1.1, 0, k));
+          ticket.rotation.set(lerp(0.3, 0.06, k), lerp(-0.35, -0.1, k), lerp(0.12, 0.02, k));
           shared.uFlutter.value = lerp(0.3, 0.03, k);
           shared.uCurl.value = lerp(0.95, 0, k);
-          if (since >= ENTER_MS) { phase = 'idle'; phaseStart = now; setReady(true); onReadyRef.current?.(); }
+          if (since >= ENTER_MS) { shared.uOpacity.value = 1; phase = 'idle'; phaseStart = now; setReady(true); onReadyRef.current?.(); }
         } else if (phase === 'idle') {
           ticket.position.y = Math.sin(time * 1.1) * 0.035;
           ticket.position.x = 0;
@@ -508,6 +515,7 @@ function WebGLTicket({ data, countdownIso, partnerLogoUrl, soundOn, onToggleSoun
     <div className="playmore-intro fixed inset-0 z-[60] overflow-hidden bg-[#0c0908]" role="dialog" aria-label="Intro: tu ticket para PLAYMORE">
       <div className="playmore-grain pointer-events-none absolute inset-0" aria-hidden="true" />
       <div ref={mountRef} className="absolute inset-0" />
+      <TicketDust art={data} />
       <div ref={flashRef} className="pointer-events-none absolute inset-0 opacity-0" aria-hidden="true"
         style={{ background: 'radial-gradient(circle at 50% 50%, #fff6e0 0%, #E477EA 30%, #96159D 60%, #0c0908 100%)' }} />
       <IntroChrome
