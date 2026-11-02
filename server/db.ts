@@ -14,7 +14,8 @@ import { ambassadorBuyerDiscount, bestBuyerDiscount, effectiveBuyerDiscountPerce
 import { normalizeIgHandle, saysAlreadyBought, type BuyerCandidate } from "../shared/igCustomerLink";
 import { computeFans, FAN_WINDOW_DAYS } from "../shared/igEngagement";
 import { reservedCouponUses } from '../shared/couponReservation';
-import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, memberCoupons, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyCharges, partyEventConfig, partyConnections, partyMessages, partyBlocks, partyReports, partyPhotos, partySwipes, partyCostumeVotes, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog, emailEvents, eventSurveys, eventSurveySettings, accessCredits, type AccessCredit, igComments, type IgComment, igReferrals, type IgReferralRow, igLinkClicks, staffMembers, staffShifts, aiUsage, attendeeContacts } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, memberCoupons, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyCharges, partyEventConfig, partyConnections, partyMessages, partyBlocks, partyReports, partyPhotos, partySwipes, partyCostumeVotes, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog, emailEvents, eventSurveys, eventSurveySettings, accessCredits, type AccessCredit, igComments, type IgComment, igReferrals, type IgReferralRow, igLinkClicks, staffMembers, staffShifts, aiUsage, attendeeContacts, coproductions } from "../drizzle/schema";
+import { discountOrigin } from "../shared/discountOrigin";
 import { ENV } from './_core/env';
 import { ensurePartyIdentitySchema } from './partySchema';
 import { ensureLockerSchema } from './lockerSchema';
@@ -720,6 +721,18 @@ async function releaseStaleMemberCouponUse<T extends { id: number; usedCount: nu
   }
 }
 
+/** ¿El evento es el de una co-producción (colaboración con otra productora)? Si no se puede saber, `false`. */
+async function isCoproductionEventId(eventId: number): Promise<boolean> {
+  try {
+    const db = await getDb();
+    if (!db) return false;
+    const [row] = await db.select({ id: coproductions.id }).from(coproductions).where(eq(coproductions.eventId, eventId)).limit(1);
+    return !!row;
+  } catch {
+    return false;
+  }
+}
+
 export async function validateDiscountCode(code: string, eventId: number) {
   const db = await getDb();
   if (!db) return { valid: false, message: 'Service unavailable' };
@@ -737,6 +750,11 @@ export async function validateDiscountCode(code: string, eventId: number) {
   if (discount.validUntil && new Date(discount.validUntil) < new Date()) return { valid: false, message: 'Código expirado' };
   if (discount.validFrom && new Date(discount.validFrom) > new Date()) return { valid: false, message: 'Código aún no válido' };
   if (discount.eventId && discount.eventId !== eventId) return { valid: false, message: 'Código no válido para este evento' };
+  // Los cupones de socio no atados a un evento (los que genera el sistema solo) no valen en la colaboración:
+  // ahí solo sirven códigos hechos para ese evento.
+  if (!discount.eventId && discountOrigin(discount) === 'socio' && await isCoproductionEventId(eventId)) {
+    return { valid: false, message: 'Este cupón no vale en este evento' };
+  }
 
   return { valid: true, discount };
 }
@@ -827,7 +845,8 @@ export async function getActiveFlashPromo(eventId: number) {
 export async function getAllDiscountCodes() {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(discountCodes).orderBy(desc(discountCodes.createdAt));
+  const rows = await db.select().from(discountCodes).orderBy(desc(discountCodes.createdAt));
+  return rows.map((r) => ({ ...r, origin: discountOrigin(r) }));
 }
 
 export async function createDiscountCode(data: any) {

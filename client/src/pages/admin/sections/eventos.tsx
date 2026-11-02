@@ -22,6 +22,7 @@ import { openEventPackInStudio } from '@/components/admin/studio/handoff';
 import { TableSkeleton } from '@/components/admin/TableSkeleton';
 import { computePhasePrice, nextPhase, normalizeTandaSchedule, type TandaPhase } from '@shared/tandaSchedule';
 import { formatChileShortDate } from '@shared/chileDate';
+import { DISCOUNT_ORIGIN_LABEL, discountOrigin, isAutomaticDiscount, type DiscountOrigin } from '@shared/discountOrigin';
 import { ACCESO_SLUG_OPTIONS, AccesoSlug, AmbassadorRow, ProgramConfigTab, clp, fromChileInputValue, onMutationError, toChileInputValue } from './shared';
 
 /* Toda escritura del admin pasa por acá: sin esto, un error del servidor
@@ -1208,12 +1209,17 @@ export function DiscountsManager() {
     code: '', description: '', discountType: 'percentage' as 'percentage' | 'fixed', discountValue: 0, maxUses: 0, validUntil: '',
   });
   const [showForm, setShowForm] = useState(false);
-  // Evento y producto de regalo opcionales ('' = sin evento / sin regalo).
+  // Evento del código: '' = todavía no elegido (hay que elegir), 'all' = vale en TODOS los eventos (se marca a propósito),
+  // o el id del evento. El producto de regalo es opcional ('' = sin regalo).
   const [newEventId, setNewEventId] = useState('');
+  const eventChosen = newEventId !== '';
+  const specificEventId = newEventId && newEventId !== 'all' ? Number(newEventId) : null;
+  const [tab, setTab] = useState<'manual' | 'auto'>('manual');
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
   const [newGiftId, setNewGiftId] = useState('');
   const { data: formTicketTypes } = trpc.events.listTicketTypes.useQuery(
-    { eventId: Number(newEventId) },
-    { enabled: !!newEventId },
+    { eventId: specificEventId ?? 0 },
+    { enabled: specificEventId != null },
   );
   const giftOptions = ((formTicketTypes as any[]) ?? []).filter((t) => t.status === 'active' && t.category !== 'acceso');
 
@@ -1263,7 +1269,8 @@ export function DiscountsManager() {
       maxUses: d.maxUses ?? 0,
       validUntil: toChileInputValue(d.validUntil),
     });
-    setNewEventId(d.eventId ? String(d.eventId) : '');
+    // Un código tuyo sin evento hay que decidirlo: queda sin elegir hasta que digas si es de un evento o de todos.
+    setNewEventId(d.eventId ? String(d.eventId) : isAutomaticDiscount(d) ? 'all' : '');
     setNewGiftId(d.giftTicketTypeId ? String(d.giftTicketTypeId) : '');
     setEditActive(!!d.isActive);
     setShowForm(true);
@@ -1272,7 +1279,7 @@ export function DiscountsManager() {
 
   const handleSave = async () => {
     if (editingId == null) return handleCreate();
-    if (!newGiftId && !newDiscount.discountValue) return;
+    if ((!newGiftId && !newDiscount.discountValue) || !eventChosen) return;
     try {
       await updateDiscount.mutateAsync({
         id: editingId,
@@ -1280,7 +1287,7 @@ export function DiscountsManager() {
         discountType: newDiscount.discountType,
         discountValue: newDiscount.discountValue,
         maxUses: newDiscount.maxUses || null,
-        eventId: newEventId ? Number(newEventId) : null,
+        eventId: specificEventId,
         giftTicketTypeId: newGiftId ? Number(newGiftId) : null,
         validUntil: newDiscount.validUntil ? fromChileInputValue(newDiscount.validUntil) : null,
         isActive: editActive,
@@ -1292,11 +1299,11 @@ export function DiscountsManager() {
   };
 
   const handleCreate = async () => {
-    if (!newDiscount.code || (!newGiftId && !newDiscount.discountValue)) return;
+    if (!newDiscount.code || (!newGiftId && !newDiscount.discountValue) || !eventChosen) return;
     try {
       await createDiscount.mutateAsync({
         ...newDiscount,
-        eventId: newEventId ? Number(newEventId) : undefined,
+        eventId: specificEventId ?? undefined,
         giftTicketTypeId: newGiftId ? Number(newGiftId) : undefined,
         maxUses: newDiscount.maxUses || undefined,
         validUntil: newDiscount.validUntil ? fromChileInputValue(newDiscount.validUntil) : undefined,
@@ -1333,27 +1340,29 @@ export function DiscountsManager() {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <Label>Evento (opcional)</Label>
-                <Select value={newEventId || 'none'} onValueChange={(v) => { setNewEventId(v === 'none' ? '' : v); setNewGiftId(''); }}>
-                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                <Label>¿Para qué evento es este código?</Label>
+                <Select value={newEventId || 'pick'} onValueChange={(v) => { setNewEventId(v === 'pick' ? '' : v); setNewGiftId(''); }}>
+                  <SelectTrigger className={`mt-1 ${eventChosen ? '' : 'border-amber-400'}`}><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="none">Todos los eventos</SelectItem>
+                    <SelectItem value="pick" disabled>Elige un evento…</SelectItem>
                     {((eventsData as any[]) ?? []).filter((e) => e.status !== 'past' && e.status !== 'cancelled').map((e) => (
-                      <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>
+                      <SelectItem key={e.id} value={String(e.id)}>Solo {e.title}</SelectItem>
                     ))}
+                    <SelectItem value="all">Todos los eventos (vale en cualquier fiesta)</SelectItem>
                   </SelectContent>
                 </Select>
+                {!eventChosen && <p className="text-xs text-amber-500 mt-1">Elige un evento, o «Todos los eventos» si de verdad debe valer siempre.</p>}
               </div>
               <div>
                 <Label>Producto de regalo (opcional)</Label>
-                <Select value={newGiftId || 'none'} onValueChange={(v) => setNewGiftId(v === 'none' ? '' : v)} disabled={!newEventId}>
+                <Select value={newGiftId || 'none'} onValueChange={(v) => setNewGiftId(v === 'none' ? '' : v)} disabled={specificEventId == null}>
                   <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">Sin regalo</SelectItem>
                     {giftOptions.map((t) => (<SelectItem key={t.id} value={String(t.id)}>{t.name}</SelectItem>))}
                   </SelectContent>
                 </Select>
-                {!newEventId && <p className="text-xs text-muted-foreground mt-1">Elige un evento para regalar un producto.</p>}
+                {specificEventId == null && <p className="text-xs text-muted-foreground mt-1">Elige un evento (no «Todos») para regalar un producto.</p>}
               </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1364,17 +1373,20 @@ export function DiscountsManager() {
               <label className="flex items-center gap-2 text-sm"><Switch checked={editActive} onCheckedChange={setEditActive} /> Código activo</label>
             )}
             <div className="flex gap-2">
-              <WriteButton onClick={handleSave}>{editingId != null ? 'Guardar cambios' : 'Crear Código'}</WriteButton>
+              <WriteButton onClick={handleSave} disabled={!eventChosen}>{editingId != null ? 'Guardar cambios' : 'Crear Código'}</WriteButton>
               <Button variant="outline" onClick={resetForm}>Cancelar</Button>
             </div>
           </CardContent>
         </Card>
       )}
 
-      <div className="space-y-3">
-        {discountsLoading && <TableSkeleton rows={3} />}
-        {!discountsLoading && discounts.length === 0 && <p className="text-sm text-muted-foreground">Todavía no hay códigos de descuento.</p>}
-        {discounts.map((d: any) => (
+      {(() => {
+        const manual = discounts.filter((d: any) => !isAutomaticDiscount(d));
+        const auto = discounts.filter((d: any) => isAutomaticDiscount(d));
+        const pending = manual.filter((d: any) => !d.eventId).length;
+        const groups = (Object.keys(DISCOUNT_ORIGIN_LABEL) as DiscountOrigin[]).filter((o) => o !== 'manual')
+          .map((o) => ({ origin: o, items: auto.filter((d: any) => discountOrigin(d) === o) })).filter((g) => g.items.length > 0);
+        const renderRow = (d: any) => (
           <Card key={d.id}>
             <CardContent className="pt-4 flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center">
               <div className="min-w-0">
@@ -1384,7 +1396,11 @@ export function DiscountsManager() {
                   {d.giftTicketTypeId ? '🎁 Regalo' : d.discountType === 'percentage' ? `${d.discountValue}%` : `$${Number(d.discountValue).toLocaleString('es-CL')}`}
                 </span>
                 <span className="text-muted-foreground text-sm ml-3">Usos: {d.usedCount}/{d.maxUses || '∞'}</span>
-                <span className="text-muted-foreground text-sm ml-3">{d.eventId ? `Evento: ${eventTitleFor(d)}` : 'Todos los eventos'}</span>
+                {d.eventId
+                  ? <span className="text-muted-foreground text-sm ml-3">Evento: {((eventsData as any[]) ?? []).find((e) => e.id === d.eventId)?.title ?? `#${d.eventId}`}</span>
+                  : isAutomaticDiscount(d)
+                    ? <span className="text-muted-foreground text-sm ml-3">Sin evento fijo</span>
+                    : <span className="text-xs ml-3 px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400">Falta definir evento (hoy vale en todos)</span>}
               </div>
               <div className="flex flex-wrap gap-2 sm:shrink-0">
                 <Button variant="outline" size="sm" title="Editar" aria-label="Editar" onClick={() => startEdit(d)}>
@@ -1406,8 +1422,46 @@ export function DiscountsManager() {
               </div>
             </CardContent>
           </Card>
-        ))}
-      </div>
+        );
+        return (
+          <>
+            <div className="flex flex-wrap gap-2">
+              <Button variant={tab === 'manual' ? 'default' : 'outline'} size="sm" onClick={() => setTab('manual')}>
+                Míos (manuales) · {manual.length}{pending > 0 && <span className={`ml-2 rounded-full px-2 ${tab === 'manual' ? 'bg-black/30 text-amber-200' : 'bg-amber-500/25 text-amber-400'}`}>{pending} por definir</span>}
+              </Button>
+              <Button variant={tab === 'auto' ? 'default' : 'outline'} size="sm" onClick={() => setTab('auto')}>
+                Automáticos del sistema · {auto.length}
+              </Button>
+            </div>
+            {discountsLoading && <TableSkeleton rows={3} />}
+            {tab === 'manual' && (
+              <div className="space-y-3">
+                {!discountsLoading && manual.length === 0 && <p className="text-sm text-muted-foreground">Todavía no has creado códigos a mano.</p>}
+                {manual.map(renderRow)}
+              </div>
+            )}
+            {tab === 'auto' && (
+              <div className="space-y-3">
+                <p className="text-sm text-muted-foreground">Los crea el sistema solo (cupones de socio, cumpleañeros, promo relámpago, Instagram). Para los tuyos usa «Nuevo Código».</p>
+                {!discountsLoading && groups.length === 0 && <p className="text-sm text-muted-foreground">No hay códigos automáticos.</p>}
+                {groups.map((g) => {
+                  const open = !!openGroups[g.origin];
+                  return (
+                    <div key={g.origin} className="space-y-2">
+                      <Button variant="outline" className="w-full justify-between" onClick={() => setOpenGroups({ ...openGroups, [g.origin]: !open })}>
+                        <span>{DISCOUNT_ORIGIN_LABEL[g.origin]} · {g.items.length}</span>
+                        {open ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                      </Button>
+                      {open && g.items.slice(0, 50).map(renderRow)}
+                      {open && g.items.length > 50 && <p className="text-xs text-muted-foreground">Se muestran los 50 más recientes de {g.items.length}.</p>}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </>
+        );
+      })()}
     </div>
   );
 }
