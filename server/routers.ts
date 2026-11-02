@@ -8209,6 +8209,10 @@ export const appRouter = router({
     profit: adminReadProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
       return db.getProfitReport(input.eventId);
     }),
+    // Pantalla «Resultados» de Cierre: cuánto, qué y quién vendió, en una sola consulta.
+    results: adminReadProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
+      return db.getEventResults(input.eventId);
+    }),
     // IA: preguntas simples sobre ventas/movimientos, con los datos ya
     // agregados del sistema (ver server/adminQa.ts). adminProcedure (no
     // adminReadProcedure) porque dispara una llamada a IA con costo, mismo

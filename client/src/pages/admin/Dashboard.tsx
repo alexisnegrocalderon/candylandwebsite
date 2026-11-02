@@ -64,6 +64,7 @@ const EventBudgetSimulatorView = lazy(() => import('./sections/finanzas').then((
 const EventOverview = lazy(() => import('./sections/noche').then((m) => ({ default: m.EventOverview })));
 const EventsManager = lazy(() => import('./sections/eventos').then((m) => ({ default: m.EventsManager })));
 const FlashPromoCard = lazy(() => import('./sections/noche').then((m) => ({ default: m.FlashPromoCard })));
+const ResultadosView = lazy(() => import('./sections/resultados').then((m) => ({ default: m.ResultadosView })));
 const GastosView = lazy(() => import('./sections/finanzas').then((m) => ({ default: m.GastosView })));
 const LeadsView = lazy(() => import('./sections/clientes').then((m) => ({ default: m.LeadsView })));
 const MailingHistoryView = lazy(() => import('./sections/mensajes').then((m) => ({ default: m.MailingHistoryView })));
@@ -168,6 +169,7 @@ const ADMIN_SECTIONS = [
   { id: 'mejor-disfraz', label: 'Mejor disfraz', hub: 'envivo', icon: Trophy, render: () => <MejorDisfrazView /> },
   { id: 'flash-promo', label: 'Promo Flash', hub: 'envivo', icon: Zap, render: () => <FlashPromoCard /> },
   // 4 · Cierre: resultados y P&L del evento, y la encuesta a los asistentes.
+  { id: 'cierre-resultados', label: 'Resultados', hub: 'cierre', icon: ListChecks, render: () => <ResultadosView /> },
   { id: 'gastos', label: 'Gastos y P&L', hub: 'cierre', icon: Receipt, render: () => <GastosView /> },
   { id: 'event-survey', label: 'Encuestas', hub: 'cierre', icon: Star, render: () => <EventSurveyView /> },
   // Clientes: la base y todo lo que se hace con una persona (ficha, solteros, cupones y regalos a su app).

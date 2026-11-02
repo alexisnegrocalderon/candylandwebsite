@@ -17,6 +17,7 @@ import { reservedCouponUses } from '../shared/couponReservation';
 import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, memberCoupons, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyCharges, partyEventConfig, partyConnections, partyMessages, partyBlocks, partyReports, partyPhotos, partySwipes, partyCostumeVotes, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog, emailEvents, eventSurveys, eventSurveySettings, accessCredits, type AccessCredit, igComments, type IgComment, igReferrals, type IgReferralRow, igLinkClicks, staffMembers, staffShifts, aiUsage, attendeeContacts, coproductions } from "../drizzle/schema";
 import { discountOrigin } from "../shared/discountOrigin";
 import { presaleAllows } from "../shared/presaleExtras";
+import { buildProductRows, buildWhoRows, columnOf, registerColumn, NO_REGISTER_COLUMN, WEB_COLUMN, type ResultLine, type WhoOrder } from "../shared/eventResults";
 import { ENV } from './_core/env';
 import { ensurePartyIdentitySchema } from './partySchema';
 import { ensureLockerSchema } from './lockerSchema';
@@ -3984,6 +3985,60 @@ export async function getProfitReport(eventId: number) {
       marginPercent: e.hasCost && e.revenue > 0 ? Math.round(((e.revenue - e.cost) / e.revenue) * 1000) / 10 : null,
     }))
     .sort((a, b) => b.revenue - a.revenue);
+}
+
+/** Todo lo que la pantalla «Resultados» de Cierre necesita en una sola consulta: cuánto se vendió (web / caja y medio
+ * de pago), qué se vendió (unidades por producto y por caja, con los productos repetidos juntos) y quién lo vendió. */
+export async function getEventResults(eventId: number) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const breakdown = await getEventSalesBreakdown(eventId);
+  const orderRows = await db.select({
+    id: orders.id, channel: orders.channel, registerId: orders.registerId, operatorId: orders.operatorId,
+    total: orders.total, refundAmount: orders.refundAmount, paymentStatus: orders.paymentStatus, paymentMethod: orders.paymentMethod,
+  }).from(orders).where(and(eq(orders.eventId, eventId), inArray(orders.paymentStatus, ['approved', 'refunded'])));
+
+  // Unidades: solo ventas aprobadas (una anulación o devolución no cuenta como vendida).
+  const approved = (orderRows as any[]).filter((o) => o.paymentStatus === 'approved');
+  const orderById = new Map<number, any>(approved.map((o) => [o.id, o]));
+  const itemRows = orderById.size === 0 ? [] : await db.select({
+    orderId: orderItems.orderId, quantity: orderItems.quantity, unitPrice: orderItems.unitPrice,
+    name: ticketTypes.name, category: ticketTypes.category,
+  }).from(orderItems)
+    .innerJoin(ticketTypes, eq(ticketTypes.id, orderItems.ticketTypeId))
+    .innerJoin(orders, eq(orders.id, orderItems.orderId))
+    .where(and(eq(orders.eventId, eventId), eq(orders.paymentStatus, 'approved')));
+  const lines: ResultLine[] = (itemRows as any[]).map((r) => ({
+    name: r.name, category: r.category, quantity: r.quantity, revenue: Number(r.unitPrice) * r.quantity,
+    column: columnOf(orderById.get(r.orderId) ?? { channel: 'caja', registerId: null }),
+  }));
+
+  const regRows = await db.select({ id: registers.id, name: registers.name }).from(registers);
+  const opRows = await db.select({ id: operators.id, name: operators.name }).from(operators);
+  const registerNames = new Map<number, string>((regRows as any[]).map((r) => [r.id, r.name]));
+  const operatorNames = new Map<number, string>((opRows as any[]).map((o) => [o.id, o.name]));
+
+  const whoOrders: WhoOrder[] = (orderRows as any[]).map((o) => ({
+    channel: o.channel, registerId: o.registerId, operatorId: o.operatorId, total: Number(o.total),
+    refundAmount: o.refundAmount == null ? null : Number(o.refundAmount), paymentStatus: o.paymentStatus, paymentMethod: o.paymentMethod,
+  }));
+
+  const columnIds = new Set<number>();
+  for (const l of lines) if (l.column.startsWith('r:')) columnIds.add(Number(l.column.slice(2)));
+  const columns = [
+    ...Array.from(columnIds).sort((a, b) => a - b).map((id) => ({ key: registerColumn(id), label: registerNames.get(id) ?? `Caja #${id}` })),
+    ...(lines.some((l) => l.column === NO_REGISTER_COLUMN) ? [{ key: NO_REGISTER_COLUMN, label: 'Sin caja' }] : []),
+    ...(lines.some((l) => l.column === WEB_COLUMN) ? [{ key: WEB_COLUMN, label: 'Web' }] : []),
+  ];
+
+  return {
+    breakdown,
+    columns,
+    products: buildProductRows(lines),
+    byRegister: buildWhoRows(whoOrders, 'register', registerNames, 'Sin caja asignada'),
+    byOperator: buildWhoRows(whoOrders, 'operator', operatorNames, 'Sin operador'),
+  };
 }
 
 /** Reparto con el proveedor de cocina (pedido explícito del usuario): de
