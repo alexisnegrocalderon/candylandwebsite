@@ -60,7 +60,7 @@ export function PartnerMark({ logoUrl, name, className = '', imgClassName }: { l
 }
 
 export function BuyButton({ href, onClick, children, className = '' }: { href?: string; onClick?: () => void; children: ReactNode; className?: string }) {
-  const cls = `group relative inline-flex h-14 items-center gap-3 overflow-hidden whitespace-nowrap rounded-full px-6 text-[12.5px] font-bold tracking-[0.16em] text-[#141210] shadow-[0_18px_50px_-12px_rgba(247,231,168,0.55)] transition active:scale-[0.98] sm:px-9 sm:text-sm sm:tracking-[0.25em] ${className}`;
+  const cls = `group relative inline-flex h-14 max-w-full items-center justify-center gap-3 overflow-hidden whitespace-nowrap rounded-full px-6 text-[12.5px] font-bold tracking-[0.16em] text-[#141210] shadow-[0_18px_50px_-12px_rgba(247,231,168,0.55)] transition active:scale-[0.98] sm:px-9 sm:text-sm sm:tracking-[0.25em] ${className}`;
   const inner = (
     <>
       <span className="relative z-10">{children}</span>
@@ -150,17 +150,21 @@ export function PlaymoreHero({ landing, partnerName, buyHref, preview, early = f
           ))}
         </motion.div>
 
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 2.1, duration: 0.9 }} className="mt-10">
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 2.1, duration: 0.9 }} className="mt-8 flex w-full max-w-[calc(100vw-2.5rem)] justify-center sm:mt-10 sm:max-w-none">
           {buyHref ? (
             <BuyButton href={buyHref} onClick={onBuy}>COMPRAR ENTRADAS</BuyButton>
           ) : preview || early ? (
-            <a href="#accesos" onClick={(e) => { if (onBuy) { e.preventDefault(); onBuy(); } }} className="inline-flex h-14 items-center gap-3 whitespace-nowrap rounded-full border border-[#d6b25e]/60 bg-black/40 px-7 text-[11px] font-bold tracking-[0.2em] text-[var(--pm-sand)] backdrop-blur transition hover:bg-white/5 sm:text-xs">{early ? 'VER LOS TICKETS · COMPRA MUY PRONTO' : 'VER LOS TICKETS · PAGO AL ACTIVAR'} <ArrowRight className="h-4 w-4" /></a>
+            <a href="#accesos" onClick={(e) => { if (onBuy) { e.preventDefault(); onBuy(); } }}
+              className="inline-flex h-14 max-w-full items-center justify-center gap-2.5 rounded-full border border-[#d6b25e]/60 bg-black/40 px-6 text-center text-[11px] font-bold leading-tight tracking-[0.18em] text-[var(--pm-sand)] backdrop-blur transition hover:bg-white/5 sm:gap-3 sm:px-8 sm:text-xs sm:tracking-[0.2em]">
+              <span>VER LOS TICKETS<span className="hidden sm:inline"> · {early ? 'COMPRA MUY PRONTO' : 'PAGO AL ACTIVAR'}</span></span>
+              <ArrowRight className="h-4 w-4 shrink-0" />
+            </a>
           ) : (
-            <div className="flex flex-col items-center gap-3 sm:flex-row">
-              <span className="text-xs tracking-[0.3em] text-[var(--pm-sand)]/80">ENTRADAS MUY PRONTO · ENTÉRATE PRIMERO</span>
-              <div className="flex gap-2">
-                <a href={CANDYLAND.redes.instagram} target="_blank" rel="noreferrer" className="inline-flex h-11 items-center gap-2 rounded-full border border-[#d6b25e]/40 px-5 text-xs font-semibold tracking-[0.15em] hover:bg-white/5"><Instagram className="h-4 w-4" /> PLAYROOM</a>
-                <a href={DALMORE_INSTAGRAM} target="_blank" rel="noreferrer" className="inline-flex h-11 items-center gap-2 rounded-full border border-[#d6b25e]/40 px-5 text-xs font-semibold tracking-[0.15em] hover:bg-white/5"><Instagram className="h-4 w-4" /> {partnerName.toUpperCase()}</a>
+            <div className="flex w-full flex-col items-center gap-3 sm:w-auto sm:flex-row">
+              <span className="text-center text-[11px] tracking-[0.22em] text-[var(--pm-sand)]/80 sm:text-xs sm:tracking-[0.3em]">ENTRADAS MUY PRONTO · ENTÉRATE PRIMERO</span>
+              <div className="flex flex-wrap justify-center gap-2">
+                <a href={CANDYLAND.redes.instagram} target="_blank" rel="noreferrer" className="inline-flex h-11 items-center gap-2 rounded-full border border-[#d6b25e]/40 px-4 text-[11px] font-semibold tracking-[0.12em] sm:px-5 sm:text-xs sm:tracking-[0.15em] hover:bg-white/5"><Instagram className="h-4 w-4" /> PLAYROOM</a>
+                <a href={DALMORE_INSTAGRAM} target="_blank" rel="noreferrer" className="inline-flex h-11 items-center gap-2 rounded-full border border-[#d6b25e]/40 px-4 text-[11px] font-semibold tracking-[0.12em] sm:px-5 sm:text-xs sm:tracking-[0.15em] hover:bg-white/5"><Instagram className="h-4 w-4" /> {partnerName.toUpperCase()}</a>
               </div>
             </div>
           )}
