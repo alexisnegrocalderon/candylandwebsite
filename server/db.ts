@@ -1,4 +1,6 @@
 import { giftMessageData } from '../shared/giftFlow';
+import { triageComment } from '../shared/commentTriage';
+import type { AgentFunnelCounts } from '../shared/agentFunnel';
 import { eq, desc, and, sql, or, gt, gte, lt, lte, like, inArray, notInArray, isNull, isNotNull, ne, getTableColumns } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { randomBytes } from "crypto";
@@ -9736,11 +9738,18 @@ export async function countIgReferralsSince(since: Date): Promise<{ source: stri
 // Embudo de Instagram por origen: chats, clics y compras.
 // ---------------------------------------------------------------------------
 
-export async function recordIgLinkClick(origin: string, path: string | null): Promise<void> {
+export async function recordIgLinkClick(origin: string, path: string | null, threadId?: number | null): Promise<void> {
+  const base = { origin: origin.slice(0, 100), path: path?.slice(0, 300) ?? null };
   try {
     const db = await getDb();
     if (!db) return;
-    await db.insert(igLinkClicks).values({ origin: origin.slice(0, 100), path: path?.slice(0, 300) ?? null });
+    try {
+      await db.insert(igLinkClicks).values({ ...base, ...(threadId ? { threadId } : {}) });
+    } catch (err) {
+      // Sin la migración de `threadId` el clic igual se cuenta (sin la conversación).
+      if (!threadId) throw err;
+      await db.insert(igLinkClicks).values(base);
+    }
   } catch (err) {
     console.warn('[Database] No se pudo registrar el clic (¿falta la tabla igLinkClicks?):', err);
   }
@@ -9873,4 +9882,96 @@ export async function listAiUsageSince(since: Date): Promise<{ feature: string; 
     console.warn('[Database] No se pudo leer el gasto de IA (¿falta la tabla aiUsage?):', err);
     return [];
   }
+}
+
+
+/** Embudo de ventas del agente (shared/agentFunnel.ts): de la conversación a la
+ * compra. Las compras se atribuyen por el botón del agente (`utm_campaign`
+ * «agente…») O por el @ de Instagram del comprador, aunque haya terminado de
+ * pagar desde otro navegador. Todo tolerante: sin la migración de `threadId`
+ * simplemente no hay clics por conversación. */
+export async function getAgentFunnel(since: Date): Promise<AgentFunnelCounts & { stuck: { threadId: number; username: string | null; clickedAt: Date }[] }> {
+  const empty = { conversations: 0, interested: 0, buttonSent: 0, clicked: 0, checkoutStarted: 0, paid: 0, paidByButton: 0, paidByHandle: 0, revenue: 0, stuck: [] };
+  const db = await getDb();
+  if (!db) return empty;
+
+  const cohort = await db.select({ id: igThreads.id, username: igThreads.username }).from(igThreads).where(gte(igThreads.lastInboundAt, since));
+  const ids = cohort.map((t) => t.id);
+
+  let interested = 0;
+  let buttonSent = 0;
+  if (ids.length > 0) {
+    const inbound = await db.select({ threadId: igMessages.threadId, text: igMessages.text }).from(igMessages)
+      .where(and(inArray(igMessages.threadId, ids), eq(igMessages.direction, 'in'), gte(igMessages.createdAt, since)));
+    interested = new Set(inbound.filter((m) => m.text && triageComment(m.text).purchaseIntent).map((m) => m.threadId)).size;
+    const sent = await db.selectDistinct({ threadId: igMessages.threadId }).from(igMessages)
+      .where(and(inArray(igMessages.threadId, ids), eq(igMessages.direction, 'out'), like(igMessages.text, '[botón] Comprar%'), gte(igMessages.createdAt, since)));
+    buttonSent = sent.length;
+  }
+
+  const clickedAt = new Map<number, Date>();
+  try {
+    const clicks = await db.select({ threadId: igLinkClicks.threadId, createdAt: igLinkClicks.createdAt }).from(igLinkClicks)
+      .where(and(isNotNull(igLinkClicks.threadId), gte(igLinkClicks.createdAt, since)));
+    const inCohort = new Set(ids);
+    for (const c of clicks) {
+      if (c.threadId == null || !inCohort.has(c.threadId)) continue;
+      const prev = clickedAt.get(c.threadId);
+      if (!prev || c.createdAt > prev) clickedAt.set(c.threadId, c.createdAt);
+    }
+  } catch (err) {
+    console.warn('[Database] No se pudieron leer los clics por conversación (¿falta la migración de igLinkClicks.threadId?):', err);
+  }
+
+  const orderRows = await db.select({
+    id: orders.id, total: orders.total, createdAt: orders.createdAt, buyerEmail: orders.buyerEmail,
+    campaign: orders.utmCampaign, status: orders.paymentStatus,
+  }).from(orders).where(and(eq(orders.channel, 'web'), gte(orders.createdAt, since)));
+  const byButton = orderRows.filter((o) => (o.campaign ?? '').startsWith('agente'));
+  const paidByButtonRows = byButton.filter((o) => o.status === 'approved');
+  const checkoutStarted = byButton.filter((o) => o.status !== 'refunded').length;
+
+  // Compras sin la marca del botón (otro navegador, otro día) de personas que
+  // ya habían conversado con el agente: se cruza el @ de Instagram del cliente.
+  const otherApproved = orderRows.filter((o) => o.status === 'approved' && !(o.campaign ?? '').startsWith('agente'));
+  const matchedThreads = new Set<number>();
+  let handleRows: typeof otherApproved = [];
+  if (otherApproved.length > 0) {
+    const emails = Array.from(new Set(otherApproved.map((o) => o.buyerEmail.trim().toLowerCase())));
+    const custs = await db.select({ email: customers.email, instagram: customers.instagram }).from(customers).where(inArray(customers.email, emails));
+    const handleByEmail = new Map(custs.map((c) => [c.email.toLowerCase(), normalizeIgHandle(c.instagram)]));
+    const allThreads = await db.select({ id: igThreads.id, username: igThreads.username, createdAt: igThreads.createdAt }).from(igThreads).where(isNotNull(igThreads.username));
+    const byHandle = new Map<string, { id: number; createdAt: Date }[]>();
+    for (const t of allThreads) {
+      const h = normalizeIgHandle(t.username);
+      if (h) byHandle.set(h, [...(byHandle.get(h) ?? []), { id: t.id, createdAt: t.createdAt }]);
+    }
+    const DAY = 24 * 60 * 60 * 1000;
+    handleRows = otherApproved.filter((o) => {
+      const h = handleByEmail.get(o.buyerEmail.trim().toLowerCase());
+      const hit = h ? (byHandle.get(h) ?? []).filter((t) => t.createdAt <= o.createdAt && o.createdAt.getTime() - t.createdAt.getTime() <= 45 * DAY) : [];
+      hit.forEach((t) => matchedThreads.add(t.id));
+      return hit.length > 0;
+    });
+  }
+
+  const sum = (rows: { total: unknown }[]) => rows.reduce((t, r) => t + Number(r.total ?? 0), 0);
+  const nameById = new Map(cohort.map((t) => [t.id, t.username]));
+  const stuck = Array.from(clickedAt, ([threadId, at]) => ({ threadId, username: nameById.get(threadId) ?? null, clickedAt: at }))
+    .filter((c) => !matchedThreads.has(c.threadId))
+    .sort((a, b) => b.clickedAt.getTime() - a.clickedAt.getTime())
+    .slice(0, 15);
+
+  return {
+    conversations: cohort.length,
+    interested,
+    buttonSent,
+    clicked: clickedAt.size,
+    checkoutStarted,
+    paid: paidByButtonRows.length + handleRows.length,
+    paidByButton: paidByButtonRows.length,
+    paidByHandle: handleRows.length,
+    revenue: sum(paidByButtonRows) + sum(handleRows),
+    stuck,
+  };
 }

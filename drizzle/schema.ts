@@ -3001,10 +3001,14 @@ export const igLinkClicks = mysqlTable("igLinkClicks", {
   id: int("id").autoincrement().primaryKey(),
   origin: varchar("origin", { length: 100 }).notNull(),
   path: varchar("path", { length: 300 }),
+  // Conversación del agente que mandó el botón (embudo de ventas del agente,
+  // shared/agentFunnel.ts). Null en los botones que no vienen de una conversación.
+  threadId: int("threadId"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => ({
   originIdx: index("ig_link_clicks_origin_idx").on(table.origin),
   createdIdx: index("ig_link_clicks_created_idx").on(table.createdAt),
+  threadIdx: index("ig_link_clicks_thread_idx").on(table.threadId),
 }));
 
 // ---------------------------------------------------------------------------

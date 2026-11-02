@@ -25,6 +25,7 @@ import { formatChileDateTime } from '@shared/chileDate';
 import { BRAND_BLOCKS, SALES_BLOCKS, joinBlocks, splitBlocks, type BlockDef } from '@shared/agentKnowledgeBlocks';
 import { classifyHandoffNoise, NOISE_LABEL } from '@shared/agentKnowledge';
 import { IG_MAX_REPLY_CHARS, type InstagramAgentConfig } from '@shared/instagramAgentConfig';
+import { biggestDrop, DROP_ADVICE, funnelStages } from '@shared/agentFunnel';
 
 /* Bandeja del agente que contesta el Instagram (server/instagram.ts).
  *
@@ -557,6 +558,69 @@ function AgentButtonsCard() {
           <span className="shrink-0 rounded-full bg-primary/10 px-3 py-1 font-medium">Comprar entrada 🔥</span>
           <span className="min-w-0 truncate text-right text-xs text-muted-foreground">Próxima fecha (con tu link de compra)</span>
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** De la conversación a la compra: cuántas personas llegan a cada paso y dónde
+ * se cae la mayoría. Cuenta también a quien compró desde otro navegador si su
+ * @ de Instagram está en su ficha de cliente. */
+function AgentFunnelCard({ onOpen }: { onOpen: (threadId: number) => void }) {
+  const [days, setDays] = useState(30);
+  const { data, isLoading } = trpc.instagram.agentFunnel.useQuery({ days }, { retry: false, staleTime: 60_000 });
+  const clp = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
+  const stages = data ? funnelStages(data) : [];
+  const drop = biggestDrop(stages);
+  const top = stages[0]?.count || 1;
+  return (
+    <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+      <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
+        <CardTitle className="flex items-center gap-2"><TrendingUp className="w-5 h-5" /> Embudo de ventas del agente</CardTitle>
+        <div className="flex gap-1">
+          {[7, 30].map((d) => <Button key={d} size="sm" variant={days === d ? 'default' : 'outline'} onClick={() => setDays(d)}>{d} días</Button>)}
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {isLoading && <p className="text-sm text-muted-foreground">Calculando…</p>}
+        {data && (
+          <>
+            <div className="space-y-2">
+              {stages.map((s) => (
+                <div key={s.key}>
+                  <div className="flex items-baseline justify-between gap-3 text-sm">
+                    <span className="min-w-0 truncate">{s.label}</span>
+                    <span className="shrink-0 tabular-nums"><strong>{s.count}</strong>{s.ofPrevious != null && <span className="text-xs text-muted-foreground"> · {s.ofPrevious}%</span>}</span>
+                  </div>
+                  <div className="mt-1 h-2 overflow-hidden rounded-full bg-muted">
+                    <div className="h-full rounded-full bg-primary/70" style={{ width: `${Math.max(2, (s.count / top) * 100)}%` }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Compras: {data.paidByButton} por el botón del agente + {data.paidByHandle} de personas que habían conversado y compraron por otro camino (se cruza su @ de Instagram) · {clp(data.revenue)}.
+              El porcentaje es respecto del paso anterior.
+            </p>
+            {drop && (
+              <p className="rounded-xl bg-amber-500/10 p-3 text-sm">
+                <strong>Donde más se cae: «{drop.label}» ({drop.ofPrevious}%).</strong> {DROP_ADVICE[drop.key]}
+              </p>
+            )}
+            {data.stuck.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-sm font-medium">Tocaron el botón y no compraron (escríbeles tú)</p>
+                {data.stuck.map((c) => (
+                  <button key={c.threadId} onClick={() => onOpen(c.threadId)} className="flex w-full items-center justify-between gap-3 rounded-xl border p-2.5 text-left text-sm hover:border-primary/40">
+                    <span className="truncate">{c.username ? `@${c.username}` : 'Sin @ (abrir conversación)'}</span>
+                    <span className="shrink-0 text-xs text-muted-foreground">{formatChileDateTime(c.clickedAt)}</span>
+                  </button>
+                ))}
+                <p className="text-xs text-muted-foreground">Puede que alguno ya haya comprado con otro Instagram: ábrelos para revisar.</p>
+              </div>
+            )}
+          </>
+        )}
       </CardContent>
     </Card>
   );
@@ -1134,6 +1198,7 @@ export function AgentSection({ tab }: { tab: AgentTab | typeof WA_TAB }) {
         <div className="space-y-6">
           {!!pendingHandoffs?.length && <p className="text-sm text-amber-500">{pendingHandoffs.length} {pendingHandoffs.length === 1 ? 'conversación esperando' : 'conversaciones esperando'} al equipo (abajo, «Derivaciones»).</p>}
           <AgentSalesCard />
+          <AgentFunnelCard onOpen={openThread} />
           <FansCard onOpen={openThread} />
           <AgentCoachCard />
           <KnowledgeCard />

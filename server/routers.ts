@@ -4071,6 +4071,9 @@ export const appRouter = router({
       await db.updateSiteSettings({ instagramAgentConfig: { ...current, customLinkCodes: codes } });
       return { codes };
     }),
+    agentFunnel: adminProcedure.input(z.object({ days: z.number().int().min(1).max(90).default(30) })).query(async ({ input }) => {
+      return db.getAgentFunnel(new Date(Date.now() - input.days * 24 * 60 * 60 * 1000));
+    }),
     agentSales: adminProcedure.query(async () => {
       const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
       const [last7Days, total] = await Promise.all([db.getAgentSalesSummary(weekAgo), db.getAgentSalesSummary()]);

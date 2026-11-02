@@ -9,11 +9,13 @@ import {
   getWaMessages,
   listAgentHandoffLog,
   getAgentSalesSummary,
+  getAgentFunnel,
   getAgentCoachReport,
 } from './db';
 import { sendEmail } from './email';
 import { normalizeInstagramAgentConfig } from '../shared/instagramAgentConfig';
 import { normalizeAgentCoachReport, type AgentCoachReport } from '../shared/agentCoach';
+import { biggestDrop, DROP_ADVICE, funnelStages } from '../shared/agentFunnel';
 import { chileHourOf, formatChileDate } from '../shared/chileDate';
 import { ADMIN_NOTIFICATION_EMAIL } from '../shared/const';
 
@@ -106,11 +108,12 @@ export async function runAgentCoach(opts: { now?: Date; trigger?: 'cron' | 'manu
   const recent = <T extends { lastMessageAt: Date | null }>(threads: T[]) =>
     threads.filter((t) => t.lastMessageAt && new Date(t.lastMessageAt).getTime() >= since.getTime()).slice(0, MAX_THREADS_PER_CHANNEL);
 
-  const [igThreads, waThreads, handoffs, sales] = await Promise.all([
+  const [igThreads, waThreads, handoffs, sales, funnel] = await Promise.all([
     listIgThreads(100).then(recent),
     listWaThreads(100).then(recent),
     listAgentHandoffLog({ onlyPending: false, limit: 100 }),
     getAgentSalesSummary(since),
+    getAgentFunnel(since).catch(() => null),
   ]);
 
   const transcripts: string[] = [];
@@ -145,6 +148,11 @@ export async function runAgentCoach(opts: { now?: Date; trigger?: 'cron' | 'manu
   const userContent = [
     `Semana analizada: ${formatChileDate(since, { withYear: true })} al ${formatChileDate(now, { withYear: true })}.`,
     `Conversaciones: ${stats.conversations}. Mensajes de clientes: ${stats.customerMessages}. Derivaciones a una persona: ${stats.handoffs}. Compras que entraron por un botón del agente: ${stats.agentOrders} ($${Math.round(stats.agentRevenue).toLocaleString('es-CL')}).`,
+    ...(funnel ? [
+      '',
+      'EMBUDO REAL DE LA SEMANA (Instagram): ' + funnelStages(funnel).map((st) => `${st.label}: ${st.count}${st.ofPrevious != null ? ` (${st.ofPrevious}% del paso anterior)` : ''}`).join(' -> ') + `. Compras por el botón: ${funnel.paidByButton}; compras de quienes habían conversado y pagaron por otro camino: ${funnel.paidByHandle}.`,
+      ...(biggestDrop(funnelStages(funnel)) ? [`Donde más se cae la gente: «${biggestDrop(funnelStages(funnel))!.label}». ${DROP_ADVICE[biggestDrop(funnelStages(funnel))!.key]} Haz que tus sugerencias apunten a arreglar ESE paso.`] : []),
+    ] : []),
     '',
     'LO QUE EL AGENTE YA SABE HOY ("Qué tiene que saber el agente") -- no sugieras repetir esto:',
     config.brandNotes,

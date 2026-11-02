@@ -20,4 +20,11 @@ describe('linkTracker', () => {
     expect(trackedUrl(wrapped)).toBe(wrapped);
     expect(trackedUrl('https://instagram.com/x')).toBe('https://instagram.com/x');
   });
+  it('lleva la conversación del agente para el embudo (t=)', () => {
+    const wrapped = trackedUrl('https://mansionplayroom.cl/checkout/aniversario?rapida=1&op=pareja&utm_campaign=agente', 42);
+    expect(wrapped).toBe('https://mansionplayroom.cl/api/go?o=agente&t=42&to=' + encodeURIComponent('/checkout/aniversario?rapida=1&op=pareja&utm_campaign=agente'));
+    // El destino sigue siendo una ruta interna segura y conserva el acceso elegido.
+    const to = new URL(wrapped).searchParams.get('to');
+    expect(safeInternalPath(to)).toBe('/checkout/aniversario?rapida=1&op=pareja&utm_campaign=agente');
+  });
 });
