@@ -73,6 +73,10 @@ export async function createCajaSale(
     redeemPlaycoins?: number;
     // PIN de la tarjeta -- requerido solo cuando paymentMethod === 'saldo'.
     cardPin?: string;
+    // Cobro MIXTO: parte del total con saldo (este monto) y el resto con `paymentMethod` (efectivo/débito/crédito/qr
+    // de terminal). Requiere lo mismo que el saldo: email + PIN de la tarjeta o QR de la app. Si el monto cubre todo
+    // el total, es un cobro 100% con saldo. Nunca se combina con canje de Playcoins.
+    saldoAmount?: number;
     // QR de «Pagar en caja» de la app de socios (server/memberPay.ts): reemplaza al PIN.
     // Vence en 2 min, sirve una sola vez y va ligado al correo de buyerEmail.
     payToken?: string;
@@ -103,7 +107,8 @@ export async function createCajaSale(
   // saldo. Si llegan con otro medio de pago -- la caja se quedaba con el último medio usado (débito, QR de
   // terminal, efectivo) al escanear el QR del cliente -- la venta se registraba bien pero el saldo NO se
   // descontaba y el cliente podía volver a gastarlo. Con token, el medio es saldo, siempre.
-  const paymentMethod = params.payToken ? "saldo" : params.paymentMethod;
+  const wantsMixed = Math.floor(params.saldoAmount ?? 0) > 0 && params.paymentMethod !== "saldo";
+  const paymentMethod = params.payToken && !wantsMixed ? "saldo" : params.paymentMethod;
 
   const ticketTypeIds = params.items.map(i => i.ticketTypeId);
   const tts = await db.select().from(ticketTypes).where(inArray(ticketTypes.id, ticketTypeIds));
@@ -200,6 +205,7 @@ export async function createCajaSale(
       payload: {
         items: lineItems, paymentMethod: paymentMethod, total,
         buyerEmail: params.buyerEmail ?? null, redeemRequested: params.redeemPlaycoins ?? 0,
+        ...(wantsMixed ? { saldoAmount: Math.floor(params.saldoAmount!) } : {}),
         ...(stockWarnings.length > 0 ? { stockWarnings } : {}),
         ...(appliedDiscountId ? { discountCode: params.discountCode!.trim().toUpperCase(), discountAmount } : {}),
         ...(params.lockerTag ? { lockerTag: params.lockerTag.trim(), lockerCustomerName: params.lockerCustomerName?.trim() } : {}),
@@ -246,13 +252,16 @@ export async function createCajaSale(
       let redeemedAmount = 0;
       let payCustomerId: number | null = null;
       let redeemConflictNote: string | undefined;
-      if (paymentMethod === 'saldo') {
+      // Cuánto se paga con saldo: todo (cobro 100% saldo) o la parte pedida (cobro mixto). El resto va por `paymentMethod`.
+      const saldoToSpend = paymentMethod === 'saldo' ? totalAfterDiscount : wantsMixed ? Math.min(Math.floor(params.saldoAmount!), totalAfterDiscount) : 0;
+      const fullBySaldo = saldoToSpend > 0 && saldoToSpend >= totalAfterDiscount;
+      if (saldoToSpend > 0) {
         if (!params.buyerEmail || (!params.cardPin && !params.payToken)) {
           throw new Error('Pagar con saldo necesita el email y el PIN de la tarjeta (o el QR de la app)');
         }
         let customerId: number;
         const supervisorId = params.payToken ? supervisorIdFromPayToken(params.payToken) : null;
-        if (supervisorId != null && totalAfterDiscount > SUPERVISOR_PAY_MAX_CLP) {
+        if (supervisorId != null && saldoToSpend > SUPERVISOR_PAY_MAX_CLP) {
           throw new Error(`Sin PIN solo se autoriza hasta $${SUPERVISOR_PAY_MAX_CLP.toLocaleString('es-CL')} por venta`);
         }
         if (params.payToken) {
@@ -269,7 +278,7 @@ export async function createCajaSale(
         }
         payCustomerId = customerId;
         const spend = await spendPrepaidAuthoritative({
-          customerId, amountClp: totalAfterDiscount,
+          customerId, amountClp: saldoToSpend,
           reason: 'spend_caja', opId: params.opId,
           note: supervisorId != null ? `Sin PIN: autorizado por supervisor #${supervisorId}` : undefined,
         });
@@ -277,7 +286,7 @@ export async function createCajaSale(
           if (params.payToken) await releasePayToken(params.payToken, params.opId);
           throw new Error(spend.conflictNote);
         }
-        spentSaldo = { customerId, amountClp: totalAfterDiscount };
+        spentSaldo = { customerId, amountClp: saldoToSpend };
       } else if (params.redeemPlaycoins && params.redeemPlaycoins > 0 && params.buyerEmail) {
         // Canje de Playcoins: SERVER-AUTHORITATIVE, dentro de este mismo
         // mutate() -- se relee el saldo real en el instante en que esta
@@ -301,7 +310,11 @@ export async function createCajaSale(
         await db.update(discountCodes).set({ usedCount: sql`usedCount + 1` }).where(eq(discountCodes.id, appliedDiscountId));
       }
 
-      const finalTotal = totalAfterDiscount - redeemedAmount;
+      // Lo que se cobra por el otro medio: en un cobro mixto el saldo ya cubrió su parte, así que la orden queda por el
+      // resto (igual que el canje de Playcoins) y los cierres de turno cuentan solo lo que entró por efectivo/máquina.
+      const finalTotal = fullBySaldo ? totalAfterDiscount : totalAfterDiscount - redeemedAmount - saldoToSpend;
+      const storedMethod = fullBySaldo ? 'saldo' : paymentMethod;
+      const mixedSaldoDiscount = fullBySaldo ? 0 : saldoToSpend;
       const buyerName = resolveCajaBuyerName({
         knownName: await lookupKnownBuyerName(db, params.buyerEmail),
         customerName: params.customerName,
@@ -318,11 +331,11 @@ export async function createCajaSale(
         customerId: orderCustomerId,
         eventId: params.eventId,
         subtotal: String(total),
-        discount: String(discountAmount + redeemedAmount),
+        discount: String(discountAmount + redeemedAmount + mixedSaldoDiscount),
         total: String(finalTotal),
         paymentStatus: "approved",
         paymentId: `CAJA-${params.opId}`,
-        paymentMethod: paymentMethod,
+        paymentMethod: storedMethod,
         channel: "caja",
         operatorId: params.operatorId,
         registerId: params.registerId ?? null,
@@ -372,7 +385,7 @@ export async function createCajaSale(
       // cajero capturó el email) -- sobre lo efectivamente pagado, no sobre
       // el precio antes del canje.
       if (params.buyerEmail) {
-        await awardPlaycoins({ email: params.buyerEmail, totalClp: finalTotal, reason: 'earn_caja', opId: params.opId });
+        await awardPlaycoins({ email: params.buyerEmail, totalClp: totalAfterDiscount - redeemedAmount, reason: 'earn_caja', opId: params.opId });
       }
 
       // El aviso de stock viaja junto al de Playcoins en el mismo campo: son

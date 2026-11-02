@@ -1057,22 +1057,23 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
             registerId={registerId}
             catalogVersion={snapshotQuery.dataUpdatedAt}
             isOnline={isOnline}
-            onSale={async (items, paymentMethod, buyerEmail, redeemPlaycoins, discountCode, lockerTag, lockerCustomerName, kitchenTicketNumber, customerName, cardPin, payToken) => {
+            onSale={async (items, paymentMethod, buyerEmail, redeemPlaycoins, discountCode, lockerTag, lockerCustomerName, kitchenTicketNumber, customerName, cardPin, payToken, saldoAmount) => {
               // Con saldo, reintentar la MISMA venta (la respuesta se perdió, se tocó dos veces) reusa el opId: el
               // servidor ya la conoce y no vuelve a descontar. Un opId nuevo por intento cobraba el saldo dos veces.
-              const attemptSig = paymentMethod === 'saldo' ? JSON.stringify([items, buyerEmail ?? '', discountCode ?? '']) : null;
+              const usesSaldo = paymentMethod === 'saldo' || !!saldoAmount;
+              const attemptSig = usesSaldo ? JSON.stringify([items, buyerEmail ?? '', discountCode ?? '', paymentMethod, saldoAmount ?? 0]) : null;
               const opId = attemptSig && saldoAttemptRef.current?.sig === attemptSig ? saldoAttemptRef.current.opId : newOpId();
               if (attemptSig) saldoAttemptRef.current = { sig: attemptSig, opId };
               const clientAt = (await correctedNow()).toISOString();
-              if (paymentMethod === 'saldo') {
-                // Saldo exige conexión siempre (decisión explícita del
+              if (usesSaldo) {
+                // Saldo (total o mixto) exige conexión siempre (decisión explícita del
                 // dueño): nunca se encola, se llama directo -- si falla
                 // (sin señal, PIN incorrecto, saldo insuficiente), el error
                 // se propaga tal cual a runConfirm/toast, sin quedar
                 // registrado en ningún lado (ni ops ni orders).
                 await saleWithSaldoMutation.mutateAsync({
                   opId, eventId: localEvent.id, registerId: registerId ?? undefined,
-                  items, paymentMethod, buyerEmail, cardPin, payToken,
+                  items, paymentMethod, buyerEmail, cardPin, payToken, saldoAmount,
                   discountCode, lockerTag, lockerCustomerName, kitchenTicketNumber, customerName, clientAt,
                 });
                 saldoAttemptRef.current = null;
@@ -1315,6 +1316,7 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
     customerName?: string,
     cardPin?: string,
     payToken?: string,
+    saldoAmount?: number,
   ) => void | Promise<void>;
 }) {
   const [catalog, setCatalog] = useState<CajaCatalogItem[]>([]);
@@ -1338,7 +1340,7 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
   const [cartOpen, setCartOpen] = useState(false);
   // Confirmación grande de la venta recién registrada (sin comanda/percha,
   // que tienen su propia pantalla con el número).
-  const [lastSale, setLastSale] = useState<{ total: number; method: string; change: number | null } | null>(null);
+  const [lastSale, setLastSale] = useState<{ total: number; method: string; change: number | null; saldo?: number } | null>(null);
   useEffect(() => {
     if (!lastSale) return;
     const id = window.setTimeout(() => setLastSale(null), 2200);
@@ -1416,6 +1418,8 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
   const [cardPin, setCardPin] = useState('');
   // QR de «Pagar en caja» de la app del socio: reemplaza al PIN (vence en 2 min, un solo uso).
   const [payToken, setPayToken] = useState<string | null>(null);
+  // Cobro mixto (saldo no alcanza): con qué se paga la diferencia.
+  const [complement, setComplement] = useState<'efectivo' | 'tarjeta' | 'qr'>('efectivo');
   const resolvePayToken = trpc.caja.resolvePayToken.useMutation();
   // Estado de la tarjeta del cliente identificado: saldo en plata (el que gasta «Saldo»), si tiene PIN y cuántos intentos le quedan.
   type CardStatus = { found: true; prepaidBalance: number; playcoins: number; hasPin: boolean; attemptsLeft: number; lockedUntil: string | null } | { found: false };
@@ -1430,6 +1434,24 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
   const [supervisorName, setSupervisorName] = useState<string | null>(null);
   const { data: supervisors } = trpc.caja.listSupervisors.useQuery({ eventId }, { enabled: supervisorOpen && isOnline });
   const authorizeCardPay = trpc.caja.authorizeCardPay.useMutation();
+  // Extras sin usar del cliente identificado: se ven junto a su saldo y se canjean de un toque.
+  const extrasEmail = buyerEmail.trim();
+  const customerExtrasQuery = trpc.caja.customerExtras.useQuery(
+    { eventId, email: extrasEmail },
+    { enabled: isOnline && showEmailStep && /^\S+@\S+\.\S+$/.test(extrasEmail), retry: false, staleTime: 0 },
+  );
+  const customerExtras = customerExtrasQuery.data ?? [];
+  const redeemExtra = trpc.caja.redeem.useMutation();
+  const redeemCustomerExtra = async (displayCode: string) => {
+    try {
+      const r = await redeemExtra.mutateAsync({ opId: newOpId(), eventId, displayCode, registerId: registerId ?? undefined, clientAt: (await correctedNow()).toISOString() });
+      if (r.result === 'applied') toast.success('Extra canjeado ✓');
+      else toast.error(r.conflictNote ?? 'No se pudo canjear');
+    } catch (err: any) {
+      toast.error(err?.message ?? 'No se pudo canjear (¿sin conexión?)');
+    }
+    void customerExtrasQuery.refetch();
+  };
   const [associatedName, setAssociatedName] = useState<string | null>(null);
   const [scanningCustomer, setScanningCustomer] = useState(false);
   // Buscador por nombre entre quienes YA ENTRARON a la fiesta -- para sumar
@@ -1740,7 +1762,12 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
   };
 
   const prepaid = cardStatus?.found ? cardStatus.prepaidBalance : null;
-  const saldoShort = paymentMethod === 'saldo' && prepaid != null && total > prepaid;
+  // 'Playcard / App' cobra con el saldo; si no alcanza, el resto se paga con otro medio (cobro mixto).
+  const saldoNone = paymentMethod === 'saldo' && prepaid != null && prepaid <= 0 && total > 0;
+  const isMixed = paymentMethod === 'saldo' && prepaid != null && prepaid > 0 && total > prepaid;
+  const saldoPart = paymentMethod === 'saldo' ? (isMixed ? prepaid! : total) : 0;
+  const amountDue = isMixed ? total - prepaid! : total;
+  const complementLabel = complement === 'efectivo' ? 'efectivo' : complement === 'tarjeta' ? 'tarjeta' : 'QR terminal';
   const noCardPin = paymentMethod === 'saldo' && cardStatus?.found === true && !cardStatus.hasPin && !payToken;
   const cardLocked = cardStatus?.found === true && cardStatus.lockedUntil != null;
 
@@ -1753,9 +1780,15 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
     if (paymentMethod === 'saldo') {
       if (!isOnline) { toast.error('Pagar con saldo necesita conexión'); return; }
       if (!buyerEmail.trim()) { toast.error('Falta el email de la tarjeta'); return; }
-      if (saldoShort) { toast.error(`Saldo insuficiente: faltan $${(total - (prepaid ?? 0)).toLocaleString('es-CL')}`); return; }
+      if (saldoNone) { toast.error('Esta tarjeta no tiene saldo: cobra con otro medio de pago'); return; }
       if (noCardPin) { toast.error('Esta tarjeta no tiene PIN: cobra con el QR de la app o con un supervisor'); return; }
       if (!payToken && !/^\d{4}$/.test(cardPin)) { toast.error('El PIN de la tarjeta tiene que tener 4 dígitos'); return; }
+    }
+    if (isMixed) {
+      if (complement === 'tarjeta') { setPaymentStep('card'); return; }
+      if (complement === 'efectivo') { setCashGiven(''); setPaymentStep('cash'); return; }
+      void confirmWith('qr');
+      return;
     }
     if (paymentMethod === 'debito' || paymentMethod === 'credito') { setPaymentStep('card'); return; }
     if (paymentMethod === 'efectivo') { setCashGiven(''); setPaymentStep('cash'); return; }
@@ -1799,7 +1832,8 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
     // Pagando con saldo no se combina con canje de Playcoins -- no se
     // mezclan los dos saldos en una misma venta (decisión explícita del
     // dueño).
-    const redeemAmount = method !== 'saldo' && balance != null ? clampRedeemAmount(Number(redeemInput || 0), Math.min(balance, total)) : 0;
+    const saldoAmount = isMixed && method !== 'saldo' ? prepaid! : undefined;
+    const redeemAmount = method !== 'saldo' && !saldoAmount && balance != null ? clampRedeemAmount(Number(redeemInput || 0), Math.min(balance, total)) : 0;
     // El número de comanda/percha se genera ACÁ, en la tablet, antes de
     // encolar la venta -- así funciona sin señal (ver nextKitchenTicketNumber
     // / nextLockerTagNumber).
@@ -1818,12 +1852,13 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
         needsLockerTag ? lockerCustomerName.trim() : undefined,
         kitchenTicketNumber,
         hasKitchenItems ? customerName.trim() : undefined,
-        method === 'saldo' && !payToken ? cardPin : undefined,
+        (method === 'saldo' || saldoAmount) && !payToken ? cardPin : undefined,
         payToken ?? undefined,
+        saldoAmount,
       );
     } catch (err: any) {
       const msg: string = err?.message ?? 'No se pudo registrar la venta. El carrito queda como está -- intenta de nuevo.';
-      if (method === 'saldo' && /PIN|bloquead/i.test(msg)) {
+      if ((method === 'saldo' || saldoAmount) && /PIN|bloquead/i.test(msg)) {
         // Error de PIN: se muestra en línea con los intentos que quedan y se limpia lo digitado.
         setPinError(msg);
         setCardPin('');
@@ -1834,7 +1869,7 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
     }
     if (!kitchenTicketNumber && !lockerTag) {
       const given = Number(cashGiven || 0);
-      setLastSale({ total, method, change: method === 'efectivo' && given >= total ? given - total : null });
+      setLastSale({ total, method, change: method === 'efectivo' && given >= amountDue ? given - amountDue : null, ...(saldoAmount ? { saldo: saldoAmount } : {}) });
     }
     // El stock local de insumos ya se descontó al encolar: se relee para el "quedan ~N".
     getLocalBarra().then(setBarra);
@@ -1849,6 +1884,7 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
     setCardStatus(null);
     setSupervisorName(null);
     setPayToken(null);
+    setComplement('efectivo');
     setShowEmailStep(false);
     setAssociatedName(null);
     setCustomerSearch('');
@@ -2163,14 +2199,39 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
                   {checkingBalance && !cardStatus && <p className="text-xs text-white/60">Consultando saldo…</p>}
                   {cardStatus?.found === false && <p className="text-xs font-semibold text-amber-300">No hay una cuenta con ese email.</p>}
                   {cardStatus?.found && (
-                    <div className={`rounded-xl border px-3 py-2 ${saldoShort ? 'border-red-400/40 bg-red-400/10' : 'border-emerald-400/30 bg-emerald-400/10'}`}>
-                      <p className={`text-sm font-bold ${saldoShort ? 'text-red-300' : 'text-emerald-300'}`}>
+                    <div className={`rounded-xl border px-3 py-2 ${saldoNone ? 'border-red-400/40 bg-red-400/10' : isMixed ? 'border-amber-400/40 bg-amber-400/10' : 'border-emerald-400/30 bg-emerald-400/10'}`}>
+                      <p className={`text-sm font-bold ${saldoNone ? 'text-red-300' : isMixed ? 'text-amber-300' : 'text-emerald-300'}`}>
                         Saldo ${cardStatus.prepaidBalance.toLocaleString('es-CL')}
-                        {total > 0 && (saldoShort
-                          ? ` · faltan $${(total - cardStatus.prepaidBalance).toLocaleString('es-CL')}`
-                          : ' · alcanza')}
+                        {total > 0 && (cardStatus.prepaidBalance <= 0
+                          ? ' · sin saldo'
+                          : total > cardStatus.prepaidBalance
+                            ? ` · cubre $${cardStatus.prepaidBalance.toLocaleString('es-CL')}, faltan $${(total - cardStatus.prepaidBalance).toLocaleString('es-CL')}`
+                            : ' · alcanza')}
                       </p>
                       <p className="text-[11px] text-white/60">{cardStatus.hasPin ? 'Tiene PIN' : 'Sin PIN definido'} · {cardStatus.playcoins} Playcoins</p>
+                    </div>
+                  )}
+                  {isMixed && (
+                    <div className="space-y-1">
+                      <p className="text-xs text-amber-200">Cobro mixto: ${prepaid!.toLocaleString('es-CL')} con saldo + <b>${amountDue.toLocaleString('es-CL')}</b> con:</p>
+                      <div className="grid grid-cols-3 gap-2">
+                        {([['efectivo', '💵 Efectivo'], ['tarjeta', '💳 Tarjeta'], ['qr', '📲 QR terminal']] as const).map(([k, label]) => (
+                          <button key={k} type="button" onClick={() => setComplement(k)} aria-pressed={complement === k}
+                            className={`admin-tab h-10 rounded-xl text-xs font-semibold ${complement === k ? 'admin-tab-active' : ''}`}>{label}</button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {cardStatus?.found && customerExtras.length > 0 && (
+                    <div className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 space-y-1.5">
+                      <p className="text-[11px] uppercase tracking-wide text-white/50">Extras por usar ({customerExtras.length})</p>
+                      {customerExtras.map((x) => (
+                        <div key={x.displayCode} className="flex items-center justify-between gap-2 text-sm">
+                          <span className="min-w-0 truncate">{x.name}{x.carried ? <span className="text-[11px] text-white/50"> · de {x.eventTitle}</span> : null}</span>
+                          <button type="button" disabled={!isOnline || redeemExtra.isPending} onClick={() => void redeemCustomerExtra(x.displayCode)}
+                            className="shrink-0 rounded-lg bg-emerald-500/20 px-3 py-1.5 text-xs font-bold text-emerald-300 disabled:opacity-40">Canjear</button>
+                        </div>
+                      ))}
                     </div>
                   )}
                   {payToken && (
@@ -2266,20 +2327,20 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
             {/* Método de pago -- mismo lugar visual que las pestañas Delivery/Dine In/Takeaway de la referencia.
                 'saldo' (pedido explícito del dueño) exige conexión siempre -- deshabilitado sin señal. */}
             <div className="grid grid-cols-5 gap-2">
-              {(['efectivo', 'debito', 'credito', 'qr', 'saldo'] as const).map((m) => (
+              {(['saldo', 'efectivo', 'debito', 'credito', 'qr'] as const).map((m) => (
                 <button
                   key={m}
                   disabled={m === 'saldo' && !isOnline}
-                  onClick={() => { setPaymentMethod(m); if (m === 'saldo') setShowEmailStep(true); else { setPayToken(null); setSupervisorName(null); } }}
+                  onClick={() => { setPaymentMethod(m); if (m === 'saldo') { setShowEmailStep(true); if (!buyerEmail.trim() && isOnline) setScanningCustomer(true); } else { setPayToken(null); setSupervisorName(null); } }}
                   aria-pressed={paymentMethod === m}
                   className={`admin-tab h-12 rounded-xl text-xs font-semibold capitalize disabled:opacity-30 ${paymentMethod === m ? 'admin-tab-active' : ''}`}
                 >
-                  {m === 'qr' ? '📲 QR' : m === 'saldo' ? '💳 Saldo' : m === 'efectivo' ? '💵 Efectivo' : m === 'debito' ? 'Débito' : 'Crédito'}
+                  {m === 'qr' ? '📲 QR terminal' : m === 'saldo' ? '💳 Playcard / App' : m === 'efectivo' ? '💵 Efectivo' : m === 'debito' ? 'Débito' : 'Crédito'}
                 </button>
               ))}
             </div>
             {paymentMethod === 'saldo' && !isOnline && (
-              <p className="text-xs text-amber-400 -mt-1">Sin conexión no se puede cobrar con saldo -- elige otro medio de pago.</p>
+              <p className="text-xs text-amber-400 -mt-1">Sin conexión no se puede cobrar con la Playcard -- elige otro medio de pago.</p>
             )}
 
             {/* Líneas del carrito -- el stepper +/- vive acá, ya no en la tarjeta del producto. */}
@@ -2333,12 +2394,12 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
 
             <Button
               className="w-full h-14 rounded-2xl text-base font-bold"
-              disabled={!hasItems || tooManyLockers || (paymentMethod === 'saldo' && (!isOnline || saldoShort || noCardPin)) || (confirming && paymentMethod === 'saldo')}
+              disabled={!hasItems || tooManyLockers || (paymentMethod === 'saldo' && (!isOnline || saldoNone || noCardPin)) || (confirming && paymentMethod === 'saldo')}
               onClick={startCheckout}
             >
               {paymentMethod === 'efectivo' ? 'Cobrar en efectivo'
-                : paymentMethod === 'qr' ? 'Cobrado en terminal — Confirmar'
-                : paymentMethod === 'saldo' ? (confirming ? 'Cobrando…' : 'Cobrar con saldo')
+                : paymentMethod === 'qr' ? 'QR terminal cobrado — Confirmar'
+                : paymentMethod === 'saldo' ? (confirming ? 'Cobrando…' : isMixed ? `Saldo $${prepaid!.toLocaleString('es-CL')} + $${amountDue.toLocaleString('es-CL')} ${complementLabel}` : 'Cobrar con la Playcard')
                 : 'Cobrar con máquina'}
             </Button>
           </aside>
@@ -2349,7 +2410,8 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
         <div className="fixed inset-0 z-30 bg-black/90 backdrop-blur-sm flex items-center justify-center p-6">
           <div className="w-full max-w-sm admin-glass-sheet rounded-3xl p-6 text-center space-y-4">
             <p className="text-xs uppercase tracking-widest text-white/60">Cobrar con máquina</p>
-            <p className="font-heading font-extrabold text-5xl">${total.toLocaleString('es-CL')}</p>
+            <p className="font-heading font-extrabold text-5xl">${amountDue.toLocaleString('es-CL')}</p>
+            {isMixed && <p className="text-xs text-amber-200">Diferencia: ${prepaid!.toLocaleString('es-CL')} ya van con saldo</p>}
             <p className="text-white/60 text-sm">Pasa la tarjeta en el POS y espera la aprobación.</p>
             {/* La noche de Candyland cerró con CERO ventas anotadas como
              * crédito y $200.500 de crédito en el voucher de la máquina: el
@@ -2364,7 +2426,7 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
                   key={m}
                   className={`h-14 text-base font-semibold ${paymentMethod === m ? 'bg-primary hover:bg-primary/90' : 'bg-white/[0.06] hover:bg-white/[0.12] text-white'}`}
                   disabled={confirming}
-                  onClick={() => { setPaymentMethod(m); setPayToken(null); setSupervisorName(null); confirmWith(m); }}
+                  onClick={() => { if (!isMixed) { setPaymentMethod(m); setPayToken(null); setSupervisorName(null); } confirmWith(m); }}
                 >
                   {confirming && paymentMethod === m ? 'Registrando…' : m === 'debito' ? 'Débito' : 'Crédito'}
                 </Button>
@@ -2379,11 +2441,11 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
 
       {paymentStep === 'cash' && (
         <CashPayment
-          total={total}
+          total={amountDue}
           value={cashGiven}
           onChange={setCashGiven}
           confirming={confirming}
-          onConfirm={confirm}
+          onConfirm={() => void confirmWith(isMixed ? 'efectivo' : paymentMethod)}
           onCancel={() => setPaymentStep(null)}
         />
       )}
@@ -2395,7 +2457,7 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
             <span className="flex h-16 w-16 items-center justify-center rounded-full bg-[var(--admin-success-bg)] text-[var(--admin-success-text)] shadow-[0_0_40px_rgba(34,197,94,0.35)]">
               <Check className="h-8 w-8" strokeWidth={3} />
             </span>
-            <span className="mt-2 text-sm text-white/70">Venta registrada · {PAYMENT_LABEL[lastSale.method] ?? lastSale.method}</span>
+            <span className="mt-2 text-sm text-white/70">Venta registrada · {lastSale.saldo ? `Saldo $${lastSale.saldo.toLocaleString('es-CL')} + ` : ''}{PAYMENT_LABEL[lastSale.method] ?? lastSale.method}</span>
             <span className="text-5xl font-bold tracking-tight tabular-nums">${lastSale.total.toLocaleString('es-CL')}</span>
             {lastSale.change !== null && lastSale.change > 0 && (
               <span className="mt-1 rounded-full bg-white/10 px-4 py-1.5 text-lg">Vuelto <b className="tabular-nums">${lastSale.change.toLocaleString('es-CL')}</b></span>
@@ -2438,7 +2500,7 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
   );
 }
 
-const PAYMENT_LABEL: Record<string, string> = { efectivo: 'Efectivo', debito: 'Débito', credito: 'Crédito', qr: 'QR', saldo: 'Saldo' };
+const PAYMENT_LABEL: Record<string, string> = { efectivo: 'Efectivo', debito: 'Débito', credito: 'Crédito', qr: 'QR terminal', saldo: 'Playcard' };
 
 /** Cobro en efectivo con teclado propio (no `type=number`: en tablet abre
  * un teclado distinto según el sistema y deja escribir signos). Billetes

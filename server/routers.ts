@@ -188,6 +188,7 @@ import * as demoAccount from "./demoAccount";
 import { normalizeMemberConfig } from "../shared/memberConfig";
 import * as memberCards from "./memberCards";
 import * as memberPay from "./memberPay";
+import { listCustomerExtrasForCaja } from "./caja/customerExtras";
 import { listSaldoCandidates, reconcileSaldoSale } from "./saldoReconciliation";
 import { isMemberEarlyAccess } from "../shared/memberConfig";
 import { draftPushCopy } from "./pushAi";
@@ -7357,6 +7358,12 @@ export const appRouter = router({
       const s = await db.getCardPinStatus(input.email);
       return s ? { found: true as const, ...s, lockedUntil: s.lockedUntil?.toISOString() ?? null } : { found: false as const };
     }),
+    // Extras sin usar del cliente identificado (se muestran en la caja junto a su saldo y Playcoins).
+    customerExtras: operatorProcedure.input(z.object({ eventId: z.number(), email: z.string().email() })).query(async ({ input }) => {
+      const rawDb = await db.getDb();
+      if (!rawDb) return [];
+      return listCustomerExtrasForCaja(rawDb, { email: input.email, eventId: input.eventId });
+    }),
     // Supervisores/admin del evento, para que el cajero elija quién autoriza un cobro sin PIN.
     listSupervisors: operatorProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
       const all = await db.listActiveOperatorsPublic(input.eventId);
@@ -7385,6 +7392,8 @@ export const appRouter = router({
       buyerEmail: z.string().email().optional(),
       cardPin: z.string().regex(/^\d{4}$/).optional(),
       payToken: z.string().max(80).optional(),
+      // Cobro mixto: cuánto se paga con saldo; el resto, con `paymentMethod`.
+      saldoAmount: z.number().int().min(1).optional(),
       redeemPlaycoins: z.number().int().min(0).optional(),
       discountCode: z.string().optional(),
       lockerTag: z.string().max(16).optional(),
@@ -7396,7 +7405,7 @@ export const appRouter = router({
       if (input.payToken && !(await members.getMemberConfig()).payments.cajaPay) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'El pago con la app no está activado' });
       }
-      if ((input.paymentMethod === 'saldo' || !!input.payToken) && (!input.buyerEmail || (!input.cardPin && !input.payToken))) {
+      if ((input.paymentMethod === 'saldo' || !!input.payToken || !!input.saldoAmount) && (!input.buyerEmail || (!input.cardPin && !input.payToken))) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'Pagar con saldo necesita el email y el PIN de la tarjeta (o el QR de la app)' });
       }
       const rawDb = await db.getDb();
@@ -7412,6 +7421,7 @@ export const appRouter = router({
           buyerEmail: input.buyerEmail,
           cardPin: input.cardPin,
           payToken: input.payToken,
+          saldoAmount: input.saldoAmount,
           redeemPlaycoins: input.redeemPlaycoins,
           discountCode: input.discountCode,
           lockerTag: input.lockerTag,
