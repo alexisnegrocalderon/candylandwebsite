@@ -657,6 +657,13 @@ export function CoproConfig() {
               <Input value={d.landing.heroImageUrl} placeholder="https://…" onChange={(e) => editLanding({ heroImageUrl: e.target.value })} />
             </div>
           </div>
+          <div className="flex items-start gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4 sm:col-span-2">
+            <Switch checked={d.landing.showTicketsEarly} onCheckedChange={(v) => editLanding({ showTicketsEarly: v })} />
+            <div>
+              <p className="text-sm font-semibold">Mostrar la página completa con los tickets (sin habilitar la compra)</p>
+              <p className="mt-1 text-xs text-muted-foreground">Para ver los accesos sin lanzar. Cualquiera que abra la dirección verá los tickets y cómo se compra, pero el pago sigue cerrado hasta "Activar evento". Mientras nadie conozca la dirección no hay problema. Recuerda guardar.</p>
+            </div>
+          </div>
           <div className="sm:col-span-2">
             <Label>Video de fondo de la portada (mp4, opcional)</Label>
             <Input className="mt-1" value={d.landing.heroVideoUrl} placeholder="https://…/video.mp4" onChange={(e) => editLanding({ heroVideoUrl: e.target.value })} />

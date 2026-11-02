@@ -55,6 +55,9 @@ export interface CoproductionLanding {
   faq: CoproductionFaq[];
   /** "La noche minuto a minuto": lo que pasa a cada hora. */
   timeline: CoproductionMoment[];
+  /** Antes de "Activar evento": muestra la página completa con los tickets (sin habilitar la compra).
+   * Para cuando la dirección todavía no la conoce nadie. */
+  showTicketsEarly: boolean;
 }
 
 export const DEFAULT_LANDING: CoproductionLanding = {
@@ -93,6 +96,7 @@ export const DEFAULT_LANDING: CoproductionLanding = {
     { q: '¿Cuándo me llega la dirección exacta?', a: 'Te llega por correo junto con tu entrada, después de comprar.' },
     { q: '¿Puedo ir sola o solo?', a: 'Sí. Mucha gente llega así y conoce gente adentro.' },
   ],
+  showTicketsEarly: false,
   timeline: [
     { time: '23:00', title: 'Se abren las puertas', text: 'Llegas, muestras tu QR y te recibe el equipo. El primer trago marca el comienzo.' },
     { time: '00:00', title: 'Dos pistas encendidas', text: 'Playroom y Dalmore suben la energía, cada uno con su sonido y su luz.' },
@@ -151,6 +155,7 @@ export function normalizeLanding(raw: unknown): CoproductionLanding {
         .filter((f) => f.q && f.a)
         .slice(0, 12)
       : d.faq,
+    showTicketsEarly: p.showTicketsEarly === true,
     timeline: Array.isArray(p.timeline)
       ? p.timeline
         .filter((m): m is CoproductionMoment => !!m && typeof (m as any).time === 'string' && typeof (m as any).title === 'string')

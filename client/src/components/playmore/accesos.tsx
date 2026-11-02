@@ -203,8 +203,8 @@ function TearTicket({ t, eventName, holder, index, dimmed, canBuy, onTear }: {
 
 // ── Hoja de compra ──────────────────────────────────────────────────────────
 
-function BuySheet({ t, holder, eventName, buyHref, demo, onClose }: {
-  t: PlaymoreTicketView; holder: string; eventName: string; buyHref: string; demo: boolean; onClose: () => void;
+function BuySheet({ t, holder, eventName, buyHref, demo, early, onClose }: {
+  t: PlaymoreTicketView; holder: string; eventName: string; buyHref: string; demo: boolean; early: boolean; onClose: () => void;
 }) {
   const [, navigate] = useLocation();
   const [qty, setQty] = useState(1);
@@ -244,7 +244,7 @@ function BuySheet({ t, holder, eventName, buyHref, demo, onClose }: {
         <button type="button" onClick={go} disabled={demo}
           className="group relative mt-6 flex h-14 w-full items-center justify-center gap-3 overflow-hidden rounded-full px-4 text-center text-[12px] font-bold tracking-[0.2em] text-[#141210] shadow-[0_18px_50px_-12px_rgba(247,231,168,0.55)] disabled:cursor-not-allowed disabled:opacity-70 sm:text-sm sm:tracking-[0.25em]"
           style={{ background: 'var(--pm-gold)' }}>
-          {demo ? 'VISTA PREVIA · EL PAGO SE ABRE AL ACTIVAR' : <>IR A PAGAR <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" /></>}
+          {demo ? (early ? 'LA COMPRA SE ABRE MUY PRONTO' : 'VISTA PREVIA · EL PAGO SE ABRE AL ACTIVAR') : <>IR A PAGAR <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" /></>}
         </button>
         <p className="mt-3 text-center text-[11px] text-[var(--pm-sand)]/50">Pago seguro · tu entrada con QR llega al correo</p>
       </motion.div>
@@ -254,8 +254,10 @@ function BuySheet({ t, holder, eventName, buyHref, demo, onClose }: {
 
 // ── Sección ─────────────────────────────────────────────────────────────────
 
-export function Accesos({ types, buyHref, eventName, tanda, initialGroup, preview = false }: {
-  types: PlaymoreTicketView[]; buyHref: string | null; eventName: string; tanda: PlaymoreTanda | null; initialGroup?: AccesoGroupKey | null; preview?: boolean;
+export interface AccesosDiag { eventLinked: boolean; accesos: number; hidden: number; blockedByPresale: number }
+
+export function Accesos({ types, buyHref, eventName, tanda, initialGroup, preview = false, early = false, diag = null }: {
+  types: PlaymoreTicketView[]; buyHref: string | null; eventName: string; tanda: PlaymoreTanda | null; initialGroup?: AccesoGroupKey | null; preview?: boolean; early?: boolean; diag?: AccesosDiag | null;
 }) {
   const [group, setGroup] = useState<AccesoGroupKey | null>(initialGroup ?? null);
   const [holder, setHolder] = useState(readName);
@@ -275,15 +277,22 @@ export function Accesos({ types, buyHref, eventName, tanda, initialGroup, previe
 
   // Vista previa del dueño: los tickets se ven completos y se puede recorrer la compra, pero el pago
   // recién se abre al activar el evento (el servidor igual rechaza órdenes antes).
-  const demo = !buyHref && preview;
+  const demo = !buyHref && (preview || early);
   if (types.length === 0) {
     if (!preview) return null;
+    // Le decimos al dueño exactamente por qué no aparece ningún acceso.
+    const why = !diag ? 'TODAVÍA NO HAY ACCESOS PARA MOSTRAR.'
+      : !diag.eventLinked ? 'LA CO-PRODUCCIÓN NO TIENE UN EVENTO ENLAZADO. EN CONFIGURACIÓN → "EVENTO ENLAZADO", ELIGE EL EVENTO Y GUARDA.'
+      : diag.accesos === 0 ? 'EL EVENTO ENLAZADO NO TIENE ACCESOS (TIPOS DE ENTRADA). CRÉALOS EN EL EVENTO.'
+      : diag.hidden >= diag.accesos ? `EL EVENTO TIENE ${diag.accesos} ACCESO(S) PERO TODOS ESTÁN OCULTOS. CÁMBIALOS A "ACTIVO" EN EL EVENTO.`
+      : diag.blockedByPresale > 0 ? 'LOS ACCESOS ESTÁN BLOQUEADOS POR LA REGLA "SOLO ENTRADA Y ESTACIONAMIENTO" DEL EVENTO.'
+      : 'NO ENCONTRÉ ACCESOS VISIBLES EN EL EVENTO ENLAZADO.';
     return (
       <section className="mx-auto max-w-3xl px-5 py-24 text-center" id="accesos">
         <Eyebrow>Accesos</Eyebrow>
         <h2 className="playmore-sans text-3xl font-extrabold tracking-[0.06em] sm:text-4xl">AQUÍ APARECEN TUS <span className="playmore-gold">TICKETS</span></h2>
         <p className="mx-auto mt-5 max-w-md rounded-2xl border border-amber-400/40 bg-amber-400/10 p-5 text-sm leading-relaxed text-amber-100">
-          VISTA PREVIA: TODAVÍA NO HAY ACCESOS PARA MOSTRAR. EN EL PANEL, ENLAZA LA CO-PRODUCCIÓN A SU EVENTO Y CREA LOS ACCESOS (TIPOS DE ENTRADA) DE ESE EVENTO.
+          VISTA PREVIA: {why}
         </p>
       </section>
     );
@@ -296,8 +305,8 @@ export function Accesos({ types, buyHref, eventName, tanda, initialGroup, previe
         <p className="playmore-sans mt-4 text-xs font-semibold tracking-[0.3em] text-[var(--pm-cream)]/70 sm:text-sm">El precio sube con cada tanda.</p>
       </motion.div>
       {demo && (
-        <p className="mx-auto mb-8 max-w-xl rounded-2xl border border-amber-400/40 bg-amber-400/10 px-4 py-3 text-center text-xs font-semibold leading-relaxed tracking-[0.12em] text-amber-100">
-          VISTA PREVIA: ASÍ SE COMPRA. ARRANCA UN TALÓN Y RECORRE EL PROCESO; EL PAGO SE ABRE AL ACTIVAR EL EVENTO.
+        <p className={`mx-auto mb-8 max-w-xl rounded-2xl border px-4 py-3 text-center text-xs font-semibold leading-relaxed tracking-[0.12em] ${early ? 'border-[#d6b25e]/40 bg-[#d6b25e]/10 text-[var(--pm-sand)]' : 'border-amber-400/40 bg-amber-400/10 text-amber-100'}`}>
+          {early ? 'LA COMPRA SE ABRE MUY PRONTO. ARRANCA UN TALÓN Y MIRA CÓMO SE COMPRA.' : 'VISTA PREVIA: ASÍ SE COMPRA. ARRANCA UN TALÓN Y RECORRE EL PROCESO; EL PAGO SE ABRE AL ACTIVAR EL EVENTO.'}
         </p>
       )}
       {tanda && <TandaPanel tanda={tanda} />}
@@ -333,7 +342,7 @@ export function Accesos({ types, buyHref, eventName, tanda, initialGroup, previe
         </motion.div>
       )}
       <AnimatePresence>
-        {sheet && (buyHref || demo) && <BuySheet key={sheet.id} t={sheet} holder={holder.trim()} eventName={eventName} buyHref={buyHref ?? ''} demo={demo} onClose={() => setSheet(null)} />}
+        {sheet && (buyHref || demo) && <BuySheet key={sheet.id} t={sheet} holder={holder.trim()} eventName={eventName} buyHref={buyHref ?? ''} demo={demo} early={early} onClose={() => setSheet(null)} />}
       </AnimatePresence>
     </section>
   );

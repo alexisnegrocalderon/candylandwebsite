@@ -72,8 +72,8 @@ export function BuyButton({ href, children, className = '' }: { href: string; ch
 
 // ── Hero ───────────────────────────────────────────────────────────────────
 
-export function PlaymoreHero({ landing, partnerName, buyHref, preview, minPrice }: {
-  landing: CoproductionLanding; partnerName: string; buyHref: string | null; preview: boolean; minPrice: number | null;
+export function PlaymoreHero({ landing, partnerName, buyHref, preview, early = false, minPrice }: {
+  landing: CoproductionLanding; partnerName: string; buyHref: string | null; preview: boolean; early?: boolean; minPrice: number | null;
 }) {
   const ref = useRef<HTMLElement>(null);
   const { scrollYProgress } = useScroll({ target: ref, offset: ['start start', 'end start'] });
@@ -150,8 +150,8 @@ export function PlaymoreHero({ landing, partnerName, buyHref, preview, minPrice 
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 2.1, duration: 0.9 }} className="mt-10">
           {buyHref ? (
             <BuyButton href={buyHref}>COMPRAR ENTRADAS</BuyButton>
-          ) : preview ? (
-            <a href="#accesos" className="inline-flex h-14 items-center gap-3 whitespace-nowrap rounded-full border border-[#d6b25e]/60 bg-black/40 px-7 text-[11px] font-bold tracking-[0.2em] text-[var(--pm-sand)] backdrop-blur transition hover:bg-white/5 sm:text-xs">VER LOS TICKETS · PAGO AL ACTIVAR <ArrowRight className="h-4 w-4" /></a>
+          ) : preview || early ? (
+            <a href="#accesos" className="inline-flex h-14 items-center gap-3 whitespace-nowrap rounded-full border border-[#d6b25e]/60 bg-black/40 px-7 text-[11px] font-bold tracking-[0.2em] text-[var(--pm-sand)] backdrop-blur transition hover:bg-white/5 sm:text-xs">{early ? 'VER LOS TICKETS · COMPRA MUY PRONTO' : 'VER LOS TICKETS · PAGO AL ACTIVAR'} <ArrowRight className="h-4 w-4" /></a>
           ) : (
             <div className="flex flex-col items-center gap-3 sm:flex-row">
               <span className="text-xs tracking-[0.3em] text-[var(--pm-sand)]/80">ENTRADAS MUY PRONTO · ENTÉRATE PRIMERO</span>

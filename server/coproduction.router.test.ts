@@ -86,3 +86,58 @@ describe('evento de co-producción sin activar', () => {
     expect(db.createOrder).not.toHaveBeenCalled();
   });
 });
+
+describe('landing pública antes de lanzar', () => {
+  const evento = { id: 42, slug: 'playmore', title: 'PLAYMORE', eventDate: new Date('2026-12-05T01:00:00Z'), imageUrl: null, presaleParkingOnly: 0 } as any;
+  const tipos = [
+    { id: 1, name: 'Dúo', price: '36000', status: 'active', category: 'acceso', accesoSlug: 'duo', totalStock: 100, soldCount: 10, stockPoolId: null, originalPrice: null, salesEnd: null },
+    { id: 2, name: 'Oculto', price: '1000', status: 'hidden', category: 'acceso', accesoSlug: null, totalStock: 10, soldCount: 0, stockPoolId: null, originalPrice: null, salesEnd: null },
+  ] as any;
+  const conLanding = (landing: any) => ({ ...dalmore, landing, previewToken: 'tok-secreto-123' });
+
+  beforeEach(() => {
+    vi.mocked(db.getEventById).mockResolvedValue(evento);
+    vi.mocked(db.getTicketTypesByEventId).mockResolvedValue(tipos);
+  });
+
+  it('por defecto el público ve solo el teaser: sin evento ni accesos', async () => {
+    vi.mocked(coproductionSvc.getCoproductionBySlug).mockResolvedValue(conLanding({}));
+    const r: any = await caller(null).coproduction.publicGet({ slug: 'dalmore' });
+    expect(r.early).toBe(false);
+    expect(r.event).toBeNull();
+    expect(r.ticketTypes).toEqual([]);
+  });
+
+  it('con "mostrar tickets antes de lanzar" el público ve los accesos, sin compra y sin cupos exactos', async () => {
+    vi.mocked(coproductionSvc.getCoproductionBySlug).mockResolvedValue(conLanding({ showTicketsEarly: true }));
+    const r: any = await caller(null).coproduction.publicGet({ slug: 'dalmore' });
+    expect(r.early).toBe(true);
+    expect(r.isLive).toBe(false);
+    expect(r.preview).toBe(false);
+    expect(r.diag).toBeNull();
+    expect(r.ticketTypes.map((t: any) => t.name)).toEqual(['Dúo']);
+    expect(JSON.stringify(r.ticketTypes)).not.toMatch(/totalStock|soldCount|remaining/);
+  });
+
+  it('con el link de vista previa el dueño ve los accesos y un diagnóstico', async () => {
+    vi.mocked(coproductionSvc.getCoproductionBySlug).mockResolvedValue(conLanding({}));
+    const r: any = await caller(null).coproduction.publicGet({ slug: 'dalmore', preview: 'tok-secreto-123' });
+    expect(r.preview).toBe(true);
+    expect(r.early).toBe(false);
+    expect(r.ticketTypes).toHaveLength(1);
+    expect(r.diag).toEqual({ eventLinked: true, accesos: 2, hidden: 1, blockedByPresale: 0 });
+  });
+
+  it('un token equivocado no abre nada', async () => {
+    vi.mocked(coproductionSvc.getCoproductionBySlug).mockResolvedValue(conLanding({}));
+    const r: any = await caller(null).coproduction.publicGet({ slug: 'dalmore', preview: 'otro-token' });
+    expect(r.preview).toBe(false);
+    expect(r.ticketTypes).toEqual([]);
+  });
+
+  it('el diagnóstico avisa si no hay evento enlazado', async () => {
+    vi.mocked(coproductionSvc.getCoproductionBySlug).mockResolvedValue({ ...conLanding({}), eventId: null });
+    const r: any = await caller(null).coproduction.publicGet({ slug: 'dalmore', preview: 'tok-secreto-123' });
+    expect(r.diag).toEqual({ eventLinked: false, accesos: 0, hidden: 0, blockedByPresale: 0 });
+  });
+});

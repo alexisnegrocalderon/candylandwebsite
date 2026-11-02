@@ -43,7 +43,8 @@ export default function PlayroomDalmore() {
   const { data, isLoading } = trpc.coproduction.publicGet.useQuery({ slug: SLUG, preview }, { retry: false });
   // Sin logo subido en Configuración se usa el de Dalmore que viene con la página.
   const landing = data?.landing && { ...data.landing, partnerLogoUrl: data.landing.partnerLogoUrl || DALMORE_MARK };
-  const full = !!data && (data.isLive || data.preview);
+  // Contenido completo: evento activo, vista previa del dueño, o "mostrar tickets antes de lanzar".
+  const full = !!data && (data.isLive || data.preview || data.early);
   const checkoutHref = data?.event ? `/checkout/${data.event.slug}` : null;
   // En la vista previa se ve todo, pero la compra recién se abre al activar
   // (el servidor igual rechaza órdenes de un evento sin activar).
@@ -116,14 +117,14 @@ export default function PlayroomDalmore() {
               <span><span className="playmore-gold font-bold">{invite.name}</span> ya tiene su entrada{invite.label ? <> · viene en <span className="font-bold">{invite.label}</span></> : ''}. Súmate →</span>
             </motion.a>
           )}
-          <PlaymoreHero landing={landing} partnerName={data.partnerName} buyHref={buyHref} preview={data.preview} minPrice={minPrice} />
+          <PlaymoreHero landing={landing} partnerName={data.partnerName} buyHref={buyHref} preview={data.preview} early={data.early} minPrice={minPrice} />
           <QuickFacts landing={landing} />
           <TwoWorlds landing={landing} partnerName={data.partnerName} />
           {full && (
             <>
               <NightTimeline moments={landing.timeline} />
               <Gallery urls={landing.galleryUrls} />
-              <Accesos types={data.ticketTypes} buyHref={buyHref} eventName={landing.eventName} tanda={tanda} initialGroup={invite?.group ?? null} preview={data.preview} />
+              <Accesos types={data.ticketTypes} buyHref={buyHref} eventName={landing.eventName} tanda={tanda} initialGroup={invite?.group ?? null} preview={data.preview} early={data.early} diag={data.diag} />
             </>
           )}
           <CodeAndFaq landing={landing} eventName={landing.eventName} />
@@ -132,7 +133,7 @@ export default function PlayroomDalmore() {
           {/* Compras reales recientes (sin nombres ni cantidades) */}
           {full && <LivePurchases slug={SLUG} preview={preview} />}
           {/* Botón flotante de compra: ticket dorado que acompaña toda la página */}
-          <FloatingBuy href={buyHref} tanda={tanda} preview={data.preview} />
+          <FloatingBuy href={buyHref} tanda={tanda} preview={data.preview || data.early} />
         </motion.main>
       )}
     </div>

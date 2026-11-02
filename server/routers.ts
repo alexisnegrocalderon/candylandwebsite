@@ -4574,16 +4574,26 @@ export const appRouter = router({
       const previewOk = !isLive && !!input.preview && safeCompare(input.preview, cp.previewToken);
       const full = isLive || previewOk || ctx.user?.role === 'admin';
       const landing = normalizeLanding(cp.landing);
-      if (!full) {
-        return { isLive: false, preview: false, partnerName: cp.partnerName, landing: { ...landing, galleryUrls: [], faq: [] }, event: null, ticketTypes: [] };
+      // "Mostrar tickets antes de lanzar" (Configuración): la página completa con sus accesos, sin compra.
+      const early = !full && landing.showTicketsEarly;
+      if (!full && !early) {
+        return { isLive: false, preview: false, early: false, partnerName: cp.partnerName, landing: { ...landing, galleryUrls: [], faq: [] }, event: null, ticketTypes: [], diag: null };
       }
       const event = cp.eventId ? await db.getEventById(cp.eventId) : null;
       const types = event ? await db.getTicketTypesByEventId(event.id) : [];
+      const visible = types.filter((t: any) => t.status !== 'hidden' && presaleAllows(event, t));
+      // Diagnóstico solo para el dueño (vista previa / admin): por qué no aparece un acceso.
+      const diag = full && !isLive ? {
+        eventLinked: !!event,
+        accesos: types.filter((t: any) => t.category === 'acceso').length,
+        hidden: types.filter((t: any) => t.status === 'hidden').length,
+        blockedByPresale: types.filter((t: any) => t.status !== 'hidden' && !presaleAllows(event, t)).length,
+      } : null;
       return {
-        isLive, preview: !isLive, partnerName: cp.partnerName, landing,
+        isLive, preview: full && !isLive, early, diag, partnerName: cp.partnerName, landing,
         event: event ? { slug: event.slug, title: event.title, eventDate: event.eventDate, imageUrl: event.imageUrl } : null,
         // Tanda: solo porcentajes, nunca cupos exactos (ni el total ni lo que queda).
-        ticketTypes: types.filter((t: any) => t.status !== 'hidden' && presaleAllows(event, t)).map((t: any) => {
+        ticketTypes: visible.map((t: any) => {
           const usesPool = t.stockPoolId != null && t.poolTotalCap != null;
           const total = usesPool ? Number(t.poolTotalCap) : Number(t.totalStock ?? 0);
           const unlimited = !usesPool && isUnlimitedStock(total);
