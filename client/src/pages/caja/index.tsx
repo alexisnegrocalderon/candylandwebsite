@@ -1332,7 +1332,8 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
   // casi siempre el mismo); 'saldo' nunca, porque exige datos del cliente.
   const [paymentMethod, setPaymentMethod] = useState<'efectivo' | 'debito' | 'credito' | 'qr' | 'saldo'>(() => {
     const last = localStorage.getItem('caja_last_payment');
-    return last === 'efectivo' || last === 'debito' || last === 'credito' || last === 'qr' ? last : 'debito';
+    // 'qr' (terminal externo) ya no se ofrece: una tablet que lo tenía guardado arranca en débito.
+    return last === 'efectivo' || last === 'debito' || last === 'credito' ? last : 'debito';
   });
   useEffect(() => { if (paymentMethod !== 'saldo') localStorage.setItem('caja_last_payment', paymentMethod); }, [paymentMethod]);
   // Celular/tablet vertical: el carrito es una hoja que se abre desde la
@@ -1419,7 +1420,7 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
   // QR de «Pagar en caja» de la app del socio: reemplaza al PIN (vence en 2 min, un solo uso).
   const [payToken, setPayToken] = useState<string | null>(null);
   // Cobro mixto (saldo no alcanza): con qué se paga la diferencia.
-  const [complement, setComplement] = useState<'efectivo' | 'tarjeta' | 'qr'>('efectivo');
+  const [complement, setComplement] = useState<'efectivo' | 'tarjeta'>('efectivo');
   const resolvePayToken = trpc.caja.resolvePayToken.useMutation();
   // Estado de la tarjeta del cliente identificado: saldo en plata (el que gasta «Saldo»), si tiene PIN y cuántos intentos le quedan.
   type CardStatus = { found: true; prepaidBalance: number; playcoins: number; hasPin: boolean; attemptsLeft: number; lockedUntil: string | null } | { found: false };
@@ -1767,7 +1768,7 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
   const isMixed = paymentMethod === 'saldo' && prepaid != null && prepaid > 0 && total > prepaid;
   const saldoPart = paymentMethod === 'saldo' ? (isMixed ? prepaid! : total) : 0;
   const amountDue = isMixed ? total - prepaid! : total;
-  const complementLabel = complement === 'efectivo' ? 'efectivo' : complement === 'tarjeta' ? 'tarjeta' : 'QR terminal';
+  const complementLabel = complement === 'efectivo' ? 'efectivo' : 'tarjeta';
   const noCardPin = paymentMethod === 'saldo' && cardStatus?.found === true && !cardStatus.hasPin && !payToken;
   const cardLocked = cardStatus?.found === true && cardStatus.lockedUntil != null;
 
@@ -1786,8 +1787,7 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
     }
     if (isMixed) {
       if (complement === 'tarjeta') { setPaymentStep('card'); return; }
-      if (complement === 'efectivo') { setCashGiven(''); setPaymentStep('cash'); return; }
-      void confirmWith('qr');
+      setCashGiven(''); setPaymentStep('cash');
       return;
     }
     if (paymentMethod === 'debito' || paymentMethod === 'credito') { setPaymentStep('card'); return; }
@@ -2214,8 +2214,8 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
                   {isMixed && (
                     <div className="space-y-1">
                       <p className="text-xs text-amber-200">Cobro mixto: ${prepaid!.toLocaleString('es-CL')} con saldo + <b>${amountDue.toLocaleString('es-CL')}</b> con:</p>
-                      <div className="grid grid-cols-3 gap-2">
-                        {([['efectivo', '💵 Efectivo'], ['tarjeta', '💳 Tarjeta'], ['qr', '📲 QR terminal']] as const).map(([k, label]) => (
+                      <div className="grid grid-cols-2 gap-2">
+                        {([['efectivo', '💵 Efectivo'], ['tarjeta', '💳 Tarjeta']] as const).map(([k, label]) => (
                           <button key={k} type="button" onClick={() => setComplement(k)} aria-pressed={complement === k}
                             className={`admin-tab h-10 rounded-xl text-xs font-semibold ${complement === k ? 'admin-tab-active' : ''}`}>{label}</button>
                         ))}
@@ -2326,8 +2326,8 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
 
             {/* Método de pago -- mismo lugar visual que las pestañas Delivery/Dine In/Takeaway de la referencia.
                 'saldo' (pedido explícito del dueño) exige conexión siempre -- deshabilitado sin señal. */}
-            <div className="grid grid-cols-5 gap-2">
-              {(['saldo', 'efectivo', 'debito', 'credito', 'qr'] as const).map((m) => (
+            <div className="grid grid-cols-4 gap-2">
+              {(['saldo', 'efectivo', 'debito', 'credito'] as const).map((m) => (
                 <button
                   key={m}
                   disabled={m === 'saldo' && !isOnline}
@@ -2335,7 +2335,7 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
                   aria-pressed={paymentMethod === m}
                   className={`admin-tab h-12 rounded-xl text-xs font-semibold capitalize disabled:opacity-30 ${paymentMethod === m ? 'admin-tab-active' : ''}`}
                 >
-                  {m === 'qr' ? '📲 QR terminal' : m === 'saldo' ? '💳 Playcard / App' : m === 'efectivo' ? '💵 Efectivo' : m === 'debito' ? 'Débito' : 'Crédito'}
+                  {m === 'saldo' ? '💳 Playcard / App' : m === 'efectivo' ? '💵 Efectivo' : m === 'debito' ? 'Débito' : 'Crédito'}
                 </button>
               ))}
             </div>
