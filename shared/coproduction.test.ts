@@ -60,3 +60,13 @@ describe('timeline de la landing', () => {
     expect(normalizeLanding({ timeline: [] }).timeline).toEqual([]);
   });
 });
+
+describe('logo del socio', () => {
+  it('ignora los JPG (traen fondo) y deja pasar PNG/WebP', () => {
+    const base = 'https://x.public.blob.vercel-storage.com/coproduction/landing/logo';
+    expect(normalizeLanding({ partnerLogoUrl: `${base}.jpeg` }).partnerLogoUrl).toBe('');
+    expect(normalizeLanding({ partnerLogoUrl: `${base}.JPG?v=2` }).partnerLogoUrl).toBe('');
+    expect(normalizeLanding({ partnerLogoUrl: `${base}.png` }).partnerLogoUrl).toBe(`${base}.png`);
+    expect(normalizeLanding({ partnerLogoUrl: `${base}.webp` }).partnerLogoUrl).toBe(`${base}.webp`);
+  });
+});

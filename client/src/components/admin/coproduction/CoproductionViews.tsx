@@ -668,6 +668,7 @@ export function CoproConfig() {
               <ImageUploadField value={d.landing.partnerLogoUrl} onChange={(url) => editLanding({ partnerLogoUrl: url })} pathPrefix="coproduction/landing" />
               <Input value={d.landing.partnerLogoUrl} placeholder="https://…" onChange={(e) => editLanding({ partnerLogoUrl: e.target.value })} />
             </div>
+            <p className="mt-1 text-xs text-muted-foreground">Sube un <b>PNG o WebP con fondo transparente</b>. Un JPG trae su propio fondo (cielo, negro, blanco) y se ve mal sobre la página, así que se ignora y se usa el logo transparente que ya viene incluido.</p>
           </div>
           <div className="sm:col-span-2">
             <Label>Galería (fotos del salón / fiestas anteriores)</Label>

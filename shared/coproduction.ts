@@ -110,6 +110,9 @@ const strList = (v: unknown, max: number, maxItems: number, fallback: string[]) 
     ? v.filter((x): x is string => typeof x === 'string').map((x) => x.trim().slice(0, max)).filter(Boolean).slice(0, maxItems)
     : fallback;
 
+/** Logo en JPG/JPEG: formato sin transparencia (siempre trae fondo). */
+export const isOpaqueLogo = (u: string) => /\.jpe?g$/i.test(u.split(/[?#]/)[0]);
+
 /** Solo https (o rutas del propio sitio) para las imágenes de la landing. */
 const isSafeImageUrl = (u: string) => u === '' || /^https:\/\//.test(u) || /^\/[^/]/.test(u);
 
@@ -129,7 +132,9 @@ export function normalizeLanding(raw: unknown): CoproductionLanding {
     capacity: Number.isInteger(Number(p.capacity)) && Number(p.capacity) > 0 ? Math.min(Number(p.capacity), 100000) : d.capacity,
     heroImageUrl: isSafeImageUrl(heroImageUrl) ? heroImageUrl : '',
     heroVideoUrl: /^https:\/\/\S+$/.test(str(p.heroVideoUrl, 500, '')) ? str(p.heroVideoUrl, 500, '') : '',
-    partnerLogoUrl: isSafeImageUrl(partnerLogoUrl) ? partnerLogoUrl : '',
+    // Un JPG no puede ser transparente: se vería con su fondo (cielo, negro, blanco).
+    // Se ignora y la landing usa el logo transparente que ya trae la página.
+    partnerLogoUrl: isSafeImageUrl(partnerLogoUrl) && !isOpaqueLogo(partnerLogoUrl) ? partnerLogoUrl : '',
     eventName: str(p.eventName, 40, d.eventName) || d.eventName,
     timeText: str(p.timeText, 20, d.timeText),
     countdownIso: typeof p.countdownIso === 'string' && !Number.isNaN(Date.parse(p.countdownIso)) ? p.countdownIso.slice(0, 40) : d.countdownIso,
