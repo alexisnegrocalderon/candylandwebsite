@@ -26,7 +26,9 @@ export function registerLinkTrackerRoute(app: Express) {
     // Los bots que arman la vista previa del link no cuentan como clic.
     const ua = String(req.headers['user-agent'] ?? '');
     if (!/facebookexternalhit|bot|crawler|spider|preview/i.test(ua)) {
-      await recordIgLinkClick(cleanOrigin(req.query.o), path.split('?')[0]);
+      // `t` = conversación del agente que mandó el botón (embudo de ventas).
+      const t = Number(req.query.t);
+      await recordIgLinkClick(cleanOrigin(req.query.o), path.split('?')[0], Number.isInteger(t) && t > 0 ? t : null);
     }
     res.redirect(302, `${APP_URL}${path}`);
   });

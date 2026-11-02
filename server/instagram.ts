@@ -30,7 +30,7 @@ import { handleRankingDm } from './contestRanking';
 import { extractPhotos } from '../shared/contestPhoto';
 import { sendInstagramMessage, sendPrivateReply, sendButtonMessage, sendImageMessage, fetchInstagramProfile, canReplyWithinWindow } from './instagramSend';
 import { resolveInstagramBuyLink, resolveEventCardImage } from './instagramInteractive';
-import { resolvePageLink, splitIntoBubbles } from './agentLinks';
+import { resolvePageLink, splitIntoBubbles, trackedUrl } from './agentLinks';
 import { sendPushToAdmins } from './push';
 import { normalizeInstagramAgentConfig, normalizeIgUsername, PERSONAL_HANDOFF_REASON } from '../shared/instagramAgentConfig';
 import type { IgKeywordAutomation } from '../drizzle/schema';
@@ -450,7 +450,9 @@ async function handleMessagingEvent(event: MetaMessaging): Promise<void> {
     const origin = (await latestIgReferrals([senderId])).get(senderId) ?? null;
     const resolved = await resolveInstagramBuyLink(new Date(), 'agente', referralUtmContent(origin), { key: result.accessOption, quantity: result.quantity });
     if (resolved) {
-      linkButton = { title: resolved.buttonTitle, url: resolved.url };
+      // Pasa por el contador de clics con la conversación: así el embudo sabe
+      // quién tocó el botón (server/linkTracker.ts).
+      linkButton = { title: resolved.buttonTitle, url: trackedUrl(resolved.url, thread.id) };
       try {
         const { mid: imageMid } = await sendImageMessage({ id: senderId }, resolved.imageUrl);
         await appendIgMessage({ threadId: thread.id, mid: imageMid, direction: 'out', source: 'bot', text: '[imagen]' });

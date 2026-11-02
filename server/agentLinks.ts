@@ -174,12 +174,13 @@ export function withAgentUtm(url: string, channel: AgentLinkChannel, campaign: s
 /** Pasa un link del sitio por el contador de clics (`/api/go`, ver
  * server/linkTracker.ts), que redirige al mismo destino con sus UTM. Links
  * de otros dominios quedan igual. El origen es `utm_content` (o la campaña). */
-export function trackedUrl(url: string): string {
+export function trackedUrl(url: string, threadId?: number | null): string {
   try {
     const u = new URL(url);
     if (u.host !== new URL(APP_URL).host || u.pathname.startsWith('/api/go')) return url;
     const origin = u.searchParams.get('utm_content') || u.searchParams.get('utm_campaign') || 'sin-origen';
-    return `${APP_URL}/api/go?o=${encodeURIComponent(origin)}&to=${encodeURIComponent(u.pathname + u.search + u.hash)}`;
+    const thread = threadId ? `&t=${threadId}` : '';
+    return `${APP_URL}/api/go?o=${encodeURIComponent(origin)}${thread}&to=${encodeURIComponent(u.pathname + u.search + u.hash)}`;
   } catch {
     return url;
   }

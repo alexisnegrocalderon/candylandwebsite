@@ -375,3 +375,9 @@ El coach semanal detectó cuatro problemas; esto es lo que hace el agente ahora 
 - Si el modelo olvida `accessOption`, `inferAccessKey` lo deduce de lo que dijo la persona o de su ficha («somos pareja», «voy sola»); si calzan dos accesos distintos no adivina. `soltero` y `dos-hombres` piden código de comunidad y nunca llevan botón directo.
 - **Datos del prompt**: cada acceso trae su llave entre corchetes (`Dúo [pareja]: $45.000`).
 - **Reglas de venta** (`WARM_SALES_RULES`, no editables desde el panel): regla de los dos mensajes (a más tardar en la segunda respuesta con interés, precio de su acceso + botón, sin pedir permiso), botón una vez por conversación, guion de objeciones (primera vez, precio, «lo pienso», pareja, grupo) y el bloque `AYUDA DURANTE LA COMPRA` con los pasos reales del checkout. Sin descuentos ni incentivos desde el chat.
+
+## 15. Embudo de ventas del agente (entrega 1, parte B)
+
+- **Clics por conversación**: el botón de compra del agente pasa por `/api/go?o=agente&t=<hilo>&to=…` (`trackedUrl(url, threadId)`), que guarda el clic con la conversación (`igLinkClicks.threadId`, migración `0143_agent_funnel`) y redirige al checkout. Sin la migración el clic igual se cuenta, sin la conversación.
+- **`getAgentFunnel(since)`** (`server/db.ts`): conversaciones → preguntaron por entradas → recibieron el botón → tocaron el botón → empezaron a pagar → compraron. Las compras se atribuyen por el botón (`utm_campaign` «agente…») **o** por el @ de Instagram de la ficha del cliente contra el de la conversación (compra hasta 45 días después de la primera conversación), así cuenta quien pagó desde otro navegador.
+- **Panel** (Agente → Ventas): tarjeta «Embudo de ventas del agente» con el % de cada paso, dónde más se cae y la lista de quienes tocaron el botón y no compraron. El coach semanal recibe el embudo y apunta sus sugerencias al paso donde más se cae.
