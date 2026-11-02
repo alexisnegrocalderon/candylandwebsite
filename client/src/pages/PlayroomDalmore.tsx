@@ -13,6 +13,7 @@ import {
 } from '@/components/playmore/sections';
 import { startMusic, stopMusic } from '@/components/playmore/playmoreAudio';
 import { Accesos, StickyBuyBar } from '@/components/playmore/accesos';
+import { LivePurchases } from '@/components/playmore/LivePurchases';
 
 // El 3D (three.js) se descarga aparte y solo si se ve el intro.
 const TicketIntro = lazy(() => import('@/components/playmore/TicketIntro').then((m) => ({ default: m.TicketIntro })));
@@ -164,6 +165,8 @@ export default function PlayroomDalmore() {
           <CodeAndFaq landing={landing} eventName={landing.eventName} />
           <PlaymoreFooter landing={landing} partnerName={data.partnerName} />
 
+          {/* Compras reales recientes (sin nombres ni cantidades) */}
+          {full && <LivePurchases slug={SLUG} preview={preview} />}
           {/* Barra fija: cuenta regresiva a que suba el precio + comprar */}
           {buyHref && <StickyBuyBar href={buyHref} minPrice={minPrice} tanda={tanda} />}
         </motion.main>

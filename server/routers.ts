@@ -4555,6 +4555,15 @@ export const appRouter = router({
       if (!event) return null;
       return coproductionSvc.getEventColabBrand(event.id);
     }),
+    /* Aviso "en vivo" de la landing: últimas compras web (acceso y hora, nada más).
+     * Mismo criterio que publicGet: solo con el evento activo o en vista previa. */
+    recentPurchases: publicProcedure.input(z.object({ slug: z.string().max(50), preview: z.string().max(64).optional() })).query(async ({ input, ctx }) => {
+      const cp = await coproductionSvc.getCoproductionBySlug(input.slug);
+      if (!cp?.eventId) return [];
+      const ok = cp.isLive === 1 || (!!input.preview && safeCompare(input.preview, cp.previewToken)) || ctx.user?.role === 'admin';
+      if (!ok) return [];
+      return coproductionSvc.getRecentPurchases(cp.eventId);
+    }),
     publicGet: publicProcedure.input(z.object({ slug: z.string().max(50), preview: z.string().max(64).optional() })).query(async ({ input, ctx }) => {
       const cp = await coproductionSvc.getCoproductionBySlug(input.slug);
       if (!cp) return null;

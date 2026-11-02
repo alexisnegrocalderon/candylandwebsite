@@ -5,7 +5,7 @@
  * Las tablas son nuevas (drizzle/0108_coproductions.sql): si la migración no
  * está aplicada, las lecturas devuelven null/vacío en vez de romper el sitio. */
 import { randomBytes, randomInt } from 'crypto';
-import { and, desc, eq, inArray, ne } from 'drizzle-orm';
+import { and, desc, eq, gt, inArray, ne } from 'drizzle-orm';
 import {
   coproductions, coproductionInvites, coproductionExpenses, events, expenses, orders, orderItems, tickets, ticketTypes,
   type Coproduction,
@@ -362,4 +362,25 @@ export async function getEventColabBrand(eventId: number): Promise<ColabBrand | 
     const landing = normalizeLanding(cp.landing);
     return { slug: cp.slug, partnerName: cp.partnerName, partnerLogoUrl: landing.partnerLogoUrl, eventName: landing.eventName };
   }, null);
+}
+
+/** Compras web recientes de un evento para el aviso "en vivo" de la landing:
+ * solo el nombre del acceso y cuándo. Sin nombres, montos ni cantidades. */
+export async function getRecentPurchases(eventId: number, hours = 48): Promise<{ name: string; at: string }[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return safe(async () => {
+    const since = new Date(Date.now() - hours * 3_600_000);
+    const rows = await db.select({ name: ticketTypes.name, at: orders.createdAt })
+      .from(orders)
+      .innerJoin(orderItems, eq(orderItems.orderId, orders.id))
+      .innerJoin(ticketTypes, eq(ticketTypes.id, orderItems.ticketTypeId))
+      .where(and(
+        eq(orders.eventId, eventId), eq(orders.paymentStatus, 'approved'), eq(orders.channel, 'web'),
+        eq(ticketTypes.category, 'acceso'), gt(orders.createdAt, since),
+      ))
+      .orderBy(desc(orders.createdAt))
+      .limit(8);
+    return rows.map((r) => ({ name: r.name, at: new Date(r.at).toISOString() }));
+  }, []);
 }
