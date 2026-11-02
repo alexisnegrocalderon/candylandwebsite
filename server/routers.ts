@@ -2291,7 +2291,11 @@ export const appRouter = router({
     // Página pública "Mi entrada" (/verificar/:ticketCode) — de solo lectura,
     // el ticketCode ya funciona como token portador (viene del QR/email).
     getByCode: publicProcedure.input(z.object({ ticketCode: z.string() })).query(async ({ input }) => {
-      return db.getTicketByCode(input.ticketCode);
+      const t = await db.getTicketByCode(input.ticketCode);
+      if (!t) return t;
+      // Marca compartida si el evento es de una co-producción activa.
+      const colab = t.eventId ? await coproductionSvc.getEventColabBrand(t.eventId) : null;
+      return { ...t, colab };
     }),
   }),
 

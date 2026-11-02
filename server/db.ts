@@ -658,6 +658,7 @@ export async function getTicketByCode(ticketCode: string) {
 
   return {
     ticketCode: ticket.ticketCode,
+    eventId: ticket.eventId,
     status: ticket.status,
     qrImageUrl: ticket.qrImageUrl,
     holderName: ticket.holderName,
