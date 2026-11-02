@@ -273,3 +273,26 @@
 .pm-checkout input::placeholder, .pm-checkout textarea::placeholder { color: rgba(233, 217, 176, 0.35); }
 .pm-checkout input:focus, .pm-checkout select:focus, .pm-checkout textarea:focus { border-color: #f7e7a8; outline: none; box-shadow: 0 0 0 3px rgba(214, 178, 94, 0.2); }
 .pm-checkout input[type="email"] { text-transform: none; }
+
+/* Checkout de colab en una sola pantalla: sin scroll en el celular ni en la tablet. Títulos y
+ * márgenes más chicos, los datos en una grilla (2 columnas desde 640 px) y el banner bajo. */
+.pm-compact h1 { font-size: 1.45rem; line-height: 1.15; margin-bottom: 0.15rem; }
+.pm-compact h1 + p { font-size: 0.78rem; line-height: 1.35; margin-bottom: 0.7rem; }
+.pm-compact .pm-banner { margin-bottom: 0.7rem; padding-top: 0.45rem; padding-bottom: 0.45rem; }
+.pm-compact .pm-banner img { height: 1.7rem; }
+.pm-datos { display: grid; grid-template-columns: 1fr; gap: 0.5rem 0.9rem; }
+.pm-datos > .pm-wide { grid-column: 1 / -1; }
+.pm-datos label { font-size: 0.68rem; letter-spacing: 0.14em; margin-bottom: 0.2rem; }
+.pm-datos .pm-wide, .pm-datos .pm-wide * { letter-spacing: normal; }
+.pm-datos input:not([type="checkbox"]) { height: 2.6rem; font-size: 0.9rem; }
+.pm-datos button { min-height: 2.2rem; }
+@media (min-width: 640px) { .pm-datos { grid-template-columns: 1fr 1fr; } }
+/* Altura baja (celulares chicos, tablet apaisada): todavía más compacto. */
+@media (max-height: 760px) {
+  .pm-compact h1 + p { display: none; }
+}
+@media (max-height: 720px) {
+  .pm-compact h1 { font-size: 1.25rem; }
+  .pm-compact .pm-banner { display: none; }
+  .pm-datos input:not([type="checkbox"]) { height: 2.35rem; }
+}

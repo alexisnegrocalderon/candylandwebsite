@@ -58,6 +58,12 @@ describe('datos obligatorios', () => {
     expect(firstPurchaseProblem({ doc: '11.111.111-1', instagram: 'https://instagram.com/ana_p', phone: '123' })).toMatch(/WhatsApp/);
   });
 
+  it('un evento de colab (PLAYMORE) no pide Instagram, pero sí documento y teléfono', () => {
+    expect(firstPurchaseProblem({ doc: '11.111.111-1', instagram: '', phone: '+56912345678', requireInstagram: false })).toBeNull();
+    expect(firstPurchaseProblem({ doc: '11.111.111-2', instagram: '', phone: '+56912345678', requireInstagram: false })).toMatch(/RUT/);
+    expect(firstPurchaseProblem({ doc: '11.111.111-1', instagram: '', phone: '123', requireInstagram: false })).toMatch(/WhatsApp/);
+  });
+
   it('solicitud de soltero: nombre y apellido, RUT, Instagram y teléfono', () => {
     const ok = { fullName: 'Juan Pérez', rut: '11.111.111-1', instagram: '@juanp', phone: '+56 9 1234 5678' };
     expect(solteroRequestProblem(ok)).toBeNull();

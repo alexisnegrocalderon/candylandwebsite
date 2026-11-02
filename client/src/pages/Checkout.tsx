@@ -655,6 +655,8 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
     };
   };
 
+  // Campos del comprador: en un evento de colab no se pide el Instagram.
+  const compradorCampos = useMemo(() => CAMPOS_COMPRADOR.filter((f) => !(colabBrand && f.name === 'instagram')), [colabBrand]);
   type Paso = { id: string; titulo: string; sub?: string; keys: string[] };
   // Evento de colab: si el acceso ya viene elegido desde la página (selector de tickets), no se vuelve a preguntar.
   const colabPreselected = !!colabBrand && accesoTickets.some((t: any) => t.accesoSlug === initialFromUrl && t.status === 'active');
@@ -671,7 +673,7 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
       ? { id: 'acceso', titulo: '¿Con quién vienes?', sub: isPartner ? 'Tu precio especial de la comunidad' : appEventLine, keys: [] }
       : { id: 'acceso', titulo: `✨ ¿Cómo vienes a ${eventLabel}?`, sub: 'Toca tu opción.', keys: [] };
     // Todos los datos del comprador en UNA pantalla (antes era una pantalla por dato).
-    const pasoDatos: Paso = { id: 'datos', titulo: 'Tus datos', sub: isPartner ? 'Con tu correo y documento revisamos tu acceso de la comunidad. Son 100% privados.' : 'Para enviarte la entrada y validarla en la puerta. Son 100% privados.', keys: CAMPOS_COMPRADOR.map((f) => `buyer__${f.name}`) };
+    const pasoDatos: Paso = { id: 'datos', titulo: 'Tus datos', sub: isPartner ? 'Con tu correo y documento revisamos tu acceso de la comunidad. Son 100% privados.' : 'Para enviarte la entrada y validarla en la puerta. Son 100% privados.', keys: compradorCampos.map((f) => `buyer__${f.name}`) };
     // Link de la comunidad: primero los datos (ahí se valida que no sea ya cliente), y recién después los
     // accesos, con el precio especial a la vista. Nadie ve ese precio sin haber pasado la validación.
     if (isPartner) { p.push(pasoDatos); if (pasoAcceso) p.push(pasoAcceso); }
@@ -693,7 +695,7 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
       ? { id: 'resumen', titulo: 'Revisa y paga', sub: 'Suma extras si quieres y confirma el total.', keys: [] }
       : { id: 'resumen', titulo: colabBrand ? 'Último paso' : '✨ Último paso', sub: 'Agrega lo que quieras, revisa el total y paga.', keys: [] });
     return p;
-  }, [camposAcceso, skipAcceso, colabBrand, eventLabel, groupSize, requiresCommunityCode, useDbExtras, isPartner, partner?.headline, appMode, appEventLine]);
+  }, [camposAcceso, compradorCampos, skipAcceso, colabBrand, eventLabel, groupSize, requiresCommunityCode, useDbExtras, isPartner, partner?.headline, appMode, appEventLine]);
 
   // En la App cada paso es una entrada del historial: el gesto de volver y «atrás» llevan al paso anterior.
   const [paso, setPaso, exitSteps] = useHistoryStep('compra.paso', appMode);
@@ -711,10 +713,10 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
 
   /* ── Formulario (todos los campos, validación por paso) ──── */
   const allFields = useMemo(() => {
-    const buyer = CAMPOS_COMPRADOR.map((f) => ({ key: `buyer__${f.name}`, field: f }));
+    const buyer = compradorCampos.map((f) => ({ key: `buyer__${f.name}`, field: f }));
     const extra = camposAcceso.map((f) => ({ key: `acceso__${f.name}`, field: f }));
     return [...buyer, ...extra];
-  }, [camposAcceso]);
+  }, [camposAcceso, compradorCampos]);
 
   const schema = useMemo(() => buildSchema(allFields), [allFields]);
 
@@ -1261,8 +1263,8 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
 
   if (ordenPago) {
     return (
-      <div className={`min-h-dvh pb-16 ${appMode ? 'pt-[max(16px,env(safe-area-inset-top))]' : 'pt-20'}`}>
-        <div className="container max-w-lg">
+      <div className={`min-h-dvh ${colabBrand ? 'pm-compact pb-6 pt-3' : `pb-16 ${appMode ? 'pt-[max(16px,env(safe-area-inset-top))]' : 'pt-20'}`}`}>
+        <div className={`container ${colabBrand ? 'max-w-xl' : 'max-w-lg'}`}>
           {appMode ? (
             <>
               <div className="flex h-11 items-center justify-between">
@@ -1301,6 +1303,7 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
             <div className={appMode ? 'account-glass rounded-[26px] p-4' : undefined}>
             <PaymentBrick
               simulate={previewMode === 'owner'}
+              variant={colabBrand ? 'card' : 'payment'}
               tone={colabBrand ? 'playmore' : appMode ? 'dark' : 'light'}
               orderNumber={ordenPago.orderNumber}
               amount={ordenPago.total}
@@ -1357,8 +1360,8 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
   const companionChoices = (repurchase.data?.companions ?? []).filter((c) => !usedCompanion(c));
 
   return (
-    <div className={`min-h-dvh pb-40 flex flex-col ${appMode ? '' : 'pt-20'}`}>
-      <div className="container max-w-lg flex-1">
+    <div className={`min-h-dvh flex flex-col ${colabBrand ? 'pm-compact pb-28 pt-3' : `pb-40 ${appMode ? '' : 'pt-20'}`}`}>
+      <div className={`container flex-1 ${colabBrand ? 'max-w-xl' : 'max-w-lg'}`}>
         {/* Encabezado + progreso. En la app: barra de navegación propia (‹ paso anterior, ✕ cerrar). */}
         {appMode ? (
           <div className="sticky top-0 z-30 -mx-4 mb-4 px-4 pb-3 pt-[max(10px,env(safe-area-inset-top))] backdrop-blur-xl bg-[#0b0612]/70">
@@ -1572,19 +1575,19 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
 
               {/* Paso: tus datos — todo en una pantalla, con el +18 como check. */}
               {pasoActual.id === 'datos' && (
-                <div className="space-y-4">
-                  {CAMPOS_COMPRADOR.filter((f) => f.type !== 'checkbox').map((f, i) => (
+                <div className={colabBrand ? 'pm-datos' : 'space-y-4'}>
+                  {compradorCampos.filter((f) => f.type !== 'checkbox').map((f, i) => (
                     <div key={f.name}>
                       <Label htmlFor={`buyer__${f.name}`} className="mb-1.5 block text-sm font-semibold">{DATO_LABEL[f.name] ?? f.label}</Label>
                       <SingleFieldInput fieldKey={`buyer__${f.name}`} field={f} register={register} setValue={setValue} watch={watch} error={err(`buyer__${f.name}`)} onEnter={continuar} autoFocus={i === 0 && !watch('buyer__nombre')} compact />
                     </div>
                   ))}
-                  <label className={`flex items-start gap-3 rounded-2xl border p-4 cursor-pointer transition-colors ${watch('buyer__mayorEdad') ? 'border-primary bg-primary/10' : 'border-border/60'}`}>
+                  <label className={`pm-wide flex items-start gap-3 rounded-2xl border ${colabBrand ? 'p-3' : 'p-4'} cursor-pointer transition-colors ${watch('buyer__mayorEdad') ? 'border-primary bg-primary/10' : 'border-border/60'}`}>
                     <input type="checkbox" {...register('buyer__mayorEdad' as any)} className="mt-0.5 w-5 h-5 shrink-0 accent-[oklch(0.70_0.19_340)]" />
                     <span className="text-sm leading-snug"><span className="font-semibold">Confirmo que soy mayor de {minAge} años</span> y llevaré mi carnet o pasaporte a la entrada.</span>
                   </label>
-                  {err('buyer__mayorEdad') && <p className="text-sm text-destructive -mt-2" role="alert">{err('buyer__mayorEdad')}</p>}
-                  <label className="flex items-center gap-2.5 text-sm text-muted-foreground cursor-pointer">
+                  {err('buyer__mayorEdad') && <p className="pm-wide text-sm text-destructive -mt-2" role="alert">{err('buyer__mayorEdad')}</p>}
+                  <label className="pm-wide flex items-center gap-2.5 text-sm text-muted-foreground cursor-pointer">
                     <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} className="w-4 h-4 accent-[oklch(0.70_0.19_340)]" />
                     Recordar mis datos en este teléfono para la próxima compra
                   </label>

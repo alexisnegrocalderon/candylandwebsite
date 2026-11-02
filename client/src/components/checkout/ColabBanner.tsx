@@ -16,7 +16,7 @@ export function ColabBanner({ eventSlug, preview }: { eventSlug: string; preview
   if (!brand) return null;
   const logo = brand.partnerLogoUrl || (brand.slug === 'dalmore' ? DALMORE_MARK : '');
   return (
-    <div className="mb-5 flex items-center justify-center gap-4 rounded-2xl border border-[#d6b25e]/40 bg-[#0c0908] px-4 py-3 text-[#e9d9b0]">
+    <div className="pm-banner mb-5 flex items-center justify-center gap-4 rounded-2xl border border-[#d6b25e]/40 bg-[#0c0908] px-4 py-3 text-[#e9d9b0]">
       <img src="/playmore/playroom-logo.png" alt="Mansion Playroom" className="h-9 w-auto" />
       <span className="text-[#E477EA]" aria-hidden="true">×</span>
       {logo

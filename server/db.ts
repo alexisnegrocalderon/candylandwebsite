@@ -1723,6 +1723,7 @@ export async function createOrder(input: {
       docTipo: parseBuyerDocTipo(input.attendeeData),
       instagram: parseAttendeeInstagram(input.attendeeData),
       phone: input.buyerPhone,
+      requireInstagram: !(await isCoproductionEventId(event.id)),
     });
     if (problem) throw new Error(`Para tu primera compra: ${problem.charAt(0).toLowerCase()}${problem.slice(1)}`);
   }

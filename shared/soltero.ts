@@ -60,8 +60,9 @@ export function phoneProblem(phone: string | null | undefined): string | null {
 }
 
 /** Lo que tiene que dejar quien compra por primera vez. null = está todo. */
-export function firstPurchaseProblem(d: { doc?: string | null; docTipo?: string | null; instagram?: string | null; phone?: string | null }): string | null {
-  return documentProblem(d.doc, d.docTipo) ?? instagramProblem(d.instagram) ?? phoneProblem(d.phone);
+export function firstPurchaseProblem(d: { doc?: string | null; docTipo?: string | null; instagram?: string | null; phone?: string | null; requireInstagram?: boolean }): string | null {
+  // Los eventos de co-producción (PLAYMORE) no piden el Instagram.
+  return documentProblem(d.doc, d.docTipo) ?? (d.requireInstagram === false ? null : instagramProblem(d.instagram)) ?? phoneProblem(d.phone);
 }
 
 /** La solicitud de aprobación de soltero desde la app. null = está todo. */
