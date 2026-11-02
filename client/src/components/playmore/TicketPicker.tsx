@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'wouter';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ArrowRight, Check, Minus, Plus, Ticket, X } from 'lucide-react';
+import { ArrowRight, Check, Ticket, X } from 'lucide-react';
 import { buyHrefFor, groupOf, type PlaymoreTanda, type PlaymoreTicketView } from '@shared/playmoreTanda';
 import { clp } from './sections';
 
@@ -12,7 +12,6 @@ import { clp } from './sections';
  * pero con la cara de PLAYMORE. */
 
 const NAME_KEY = 'playmore.ticket-name';
-const MAX_QTY = 6;
 
 function readName(): string {
   try { return sessionStorage.getItem(NAME_KEY) ?? ''; } catch { return ''; }
@@ -33,7 +32,6 @@ export function TicketPicker({ open, onClose, types, buyHref, eventName, tanda, 
   const accesos = useMemo(() => types.filter((t) => t.category === 'acceso'), [types]);
   const extras = useMemo(() => types.filter((t) => t.category !== 'acceso' && t.status !== 'soldout'), [types]);
   const [selId, setSelId] = useState<number | null>(null);
-  const [qty, setQty] = useState(1);
   const [holder, setHolder] = useState('');
   const closeRef = useRef<HTMLButtonElement>(null);
 
@@ -42,7 +40,6 @@ export function TicketPicker({ open, onClose, types, buyHref, eventName, tanda, 
     if (!open) return;
     const first = tanda?.featured && tanda.featured.status !== 'soldout' ? tanda.featured : accesos.find((t) => t.status === 'active' && t.hasStock);
     setSelId(first?.id ?? null);
-    setQty(1);
     setHolder(readName());
     closeRef.current?.focus();
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -55,17 +52,17 @@ export function TicketPicker({ open, onClose, types, buyHref, eventName, tanda, 
   }, [open]);
 
   const sel = accesos.find((t) => t.id === selId) ?? null;
-  const total = sel ? sel.price * qty : 0;
-  const people = sel ? (groupOf(sel.accesoSlug)?.people ?? 1) * qty : 0;
+  const total = sel ? sel.price : 0;
+  const people = sel ? (groupOf(sel.accesoSlug)?.people ?? 1) : 0;
   const pick = (t: PlaymoreTicketView) => {
     if (t.status === 'soldout' || !t.hasStock) return;
-    if (t.id !== selId) { setSelId(t.id); setQty(1); try { navigator.vibrate?.(8); } catch { /* sin vibración */ } }
+    if (t.id !== selId) { setSelId(t.id); try { navigator.vibrate?.(8); } catch { /* sin vibración */ } }
   };
   const setName = (v: string) => { setHolder(v); try { sessionStorage.setItem(NAME_KEY, v); } catch { /* sin almacenamiento */ } };
   const pay = () => {
     if (!sel || demo || !buyHref) return;
     onClose();
-    navigate(buyHrefFor(buyHref, sel, { qty, nombre: holder.trim() }));
+    navigate(buyHrefFor(buyHref, sel, { qty: 1, nombre: holder.trim() }));
   };
 
   return (
@@ -94,6 +91,7 @@ export function TicketPicker({ open, onClose, types, buyHref, eventName, tanda, 
                   {tanda.soldPct != null && tanda.soldPct >= 10 ? `TANDA ACTUAL · ${tanda.soldPct}% VENDIDO` : 'PRIMERA TANDA ABIERTA'}
                 </p>
               )}
+              <p className="mb-3 text-[10.5px] font-semibold leading-relaxed tracking-[0.18em] text-[var(--pm-sand)]/70">ENTRADA NOMINATIVA: UN ACCESO POR COMPRA, CON LOS DATOS DE QUIEN ASISTE.</p>
               <div className="space-y-3">
                 {accesos.map((t) => {
                   const soldout = t.status === 'soldout' || !t.hasStock;
@@ -122,20 +120,6 @@ export function TicketPicker({ open, onClose, types, buyHref, eventName, tanda, 
                           )}
                         </span>
                       </button>
-                      <AnimatePresence initial={false}>
-                        {on && (
-                          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
-                            <div className="mx-3 flex items-center justify-between rounded-b-2xl border border-t-0 border-[#d6b25e]/30 bg-white/[0.03] px-4 py-3">
-                              <span className="text-[11px] font-semibold tracking-[0.25em] text-[var(--pm-sand)]/80">CANTIDAD</span>
-                              <div className="flex items-center gap-4">
-                                <button type="button" aria-label="Menos" disabled={qty <= 1} onClick={() => setQty((q) => Math.max(1, q - 1))} className="grid h-9 w-9 place-items-center rounded-full border border-[#d6b25e]/40 disabled:opacity-30"><Minus className="h-4 w-4" /></button>
-                                <span className="playmore-sans w-5 text-center text-lg font-extrabold tabular-nums" aria-live="polite">{qty}</span>
-                                <button type="button" aria-label="Más" disabled={qty >= MAX_QTY} onClick={() => setQty((q) => Math.min(MAX_QTY, q + 1))} className="grid h-9 w-9 place-items-center rounded-full border border-[#d6b25e]/40 disabled:opacity-30"><Plus className="h-4 w-4" /></button>
-                              </div>
-                            </div>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
                     </div>
                   );
                 })}
@@ -159,7 +143,7 @@ export function TicketPicker({ open, onClose, types, buyHref, eventName, tanda, 
             <div className="shrink-0 border-t border-[#d6b25e]/25 bg-black/60 px-5 pb-[max(env(safe-area-inset-bottom),1rem)] pt-3 backdrop-blur">
               <div className="mb-3 flex items-end justify-between">
                 <span className="text-[11px] font-semibold tracking-[0.3em] text-[var(--pm-sand)]/70">
-                  {sel ? `${qty} × ${sel.name}${people > 1 ? ` · ${people} PERSONAS` : ''}` : 'ELIGE UN ACCESO'}
+                  {sel ? `${sel.name}${people > 1 ? ` · ${people} PERSONAS` : ''}` : 'ELIGE UN ACCESO'}
                 </span>
                 <span className="playmore-sans playmore-gold text-3xl font-extrabold tabular-nums">{clp(total)}</span>
               </div>

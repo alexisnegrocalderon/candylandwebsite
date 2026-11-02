@@ -395,3 +395,13 @@ export async function getBrandForOrder(orderNumber: string): Promise<ColabBrand 
   const [o] = await safe(() => db.select({ eventId: orders.eventId }).from(orders).where(eq(orders.orderNumber, orderNumber.trim())).limit(1), []);
   return o ? getEventColabBrand(o.eventId) : null;
 }
+
+/** El evento está enlazado a una co-producción (sus entradas son nominativas: una por compra). */
+export async function isEventColab(eventId: number): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  return safe(async () => {
+    const [row] = await db.select({ id: coproductions.id }).from(coproductions).where(eq(coproductions.eventId, eventId)).limit(1);
+    return !!row;
+  }, false);
+}

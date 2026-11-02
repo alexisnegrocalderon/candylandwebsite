@@ -12,6 +12,7 @@ vi.mock('./coproduction', async (importOriginal) => {
     getCoproductionBySlug: vi.fn(),
     getCoproductionOverview: vi.fn(),
     isEventHiddenByCoproduction: vi.fn(),
+    isEventColab: vi.fn(),
   };
 });
 
@@ -146,5 +147,44 @@ describe('landing pública antes de lanzar', () => {
     vi.mocked(coproductionSvc.getCoproductionBySlug).mockResolvedValue({ ...conLanding({}), eventId: null });
     const r: any = await caller(null).coproduction.publicGet({ slug: 'dalmore', preview: 'tok-secreto-123' });
     expect(r.diag).toEqual({ eventLinked: false, accesos: 0, hidden: 0, blockedByPresale: 0 });
+  });
+});
+
+describe('entradas nominativas: un solo acceso por compra', () => {
+  const evento = { id: 42, slug: 'playmore', title: 'PLAYMORE', eventDate: new Date('2026-12-05T01:00:00Z'), presaleParkingOnly: 0 } as any;
+  const tipos = [
+    { id: 1, name: 'Acceso Soltera', category: 'acceso' },
+    { id: 2, name: 'Acceso Pareja', category: 'acceso' },
+    { id: 3, name: 'Estacionamiento', category: 'extra' },
+  ] as any;
+  const base = { eventSlug: 'playmore', buyerName: 'A', buyerEmail: 'a@b.cl' };
+
+  beforeEach(() => {
+    vi.mocked(db.getEventBySlug).mockResolvedValue(evento);
+    vi.mocked(db.getTicketTypesByEventId).mockResolvedValue(tipos);
+    vi.mocked(coproductionSvc.isEventHiddenByCoproduction).mockResolvedValue(false);
+    vi.mocked(coproductionSvc.isEventColab).mockResolvedValue(true);
+    vi.mocked(db.createOrder).mockResolvedValue({ orderNumber: 'X1', total: 10000 } as any);
+  });
+
+  it('rechaza 2 entradas del mismo acceso', async () => {
+    await expect(caller(null).orders.create({ ...base, items: [{ ticketTypeId: 1, quantity: 2 }] })).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    expect(db.createOrder).not.toHaveBeenCalled();
+  });
+
+  it('rechaza dos accesos distintos en la misma compra', async () => {
+    await expect(caller(null).orders.create({ ...base, items: [{ ticketTypeId: 1, quantity: 1 }, { ticketTypeId: 2, quantity: 1 }] })).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    expect(db.createOrder).not.toHaveBeenCalled();
+  });
+
+  it('un acceso con su estacionamiento sí pasa (el extra no cuenta)', async () => {
+    await caller(null).orders.create({ ...base, items: [{ ticketTypeId: 1, quantity: 1 }, { ticketTypeId: 3, quantity: 1 }] }).catch(() => undefined);
+    expect(db.createOrder).toHaveBeenCalledTimes(1);
+  });
+
+  it('un evento que no es de colab no tiene este límite', async () => {
+    vi.mocked(coproductionSvc.isEventColab).mockResolvedValue(false);
+    await caller(null).orders.create({ ...base, items: [{ ticketTypeId: 1, quantity: 3 }] }).catch(() => undefined);
+    expect(db.createOrder).toHaveBeenCalledTimes(1);
   });
 });

@@ -1879,6 +1879,15 @@ export const appRouter = router({
       if (target && await coproductionSvc.isEventHiddenByCoproduction(target.id)) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'Las entradas de este evento todavía no están a la venta.' });
       }
+      // Eventos de co-producción (PLAYMORE): las entradas son nominativas y exclusivas de quien las compra,
+      // así que va un solo acceso por compra (cada uno lleva los datos de su dueño).
+      if (target && await coproductionSvc.isEventColab(target.id)) {
+        const types = await db.getTicketTypesByEventId(target.id);
+        const accesoQty = input.items.reduce((sum, it) => sum + ((types as any[]).find((t) => t.id === it.ticketTypeId)?.category === 'acceso' ? it.quantity : 0), 0);
+        if (accesoQty > 1) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Las entradas de este evento son nominativas: va un solo acceso por compra, con los datos de quien asiste.' });
+        }
+      }
       // Preventa anticipada de socios: hasta la fecha del evento solo compra quien entró a «Mi cuenta» con el mismo correo.
       if (target && isMemberEarlyAccess(target)) {
         const me = getMemberEmail(ctx.req);

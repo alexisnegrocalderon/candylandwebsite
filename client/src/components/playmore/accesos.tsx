@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'wouter';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { ArrowRight, Minus, Plus, Ticket, X } from 'lucide-react';
+import { ArrowRight, Ticket, X } from 'lucide-react';
 import {
   ACCESO_GROUPS, buyHrefFor, groupOf, type AccesoGroupKey, type PlaymoreTanda, type PlaymoreTicketView,
 } from '@shared/playmoreTanda';
@@ -19,7 +19,6 @@ import { playRip } from './playmoreAudio';
  * La tanda (lo vendido y cuándo sube el precio) va arriba, siempre en %. */
 
 const NAME_KEY = 'playmore.ticket-name';
-const MAX_QTY = 6;
 
 function readName(): string {
   try { return sessionStorage.getItem(NAME_KEY) ?? ''; } catch { return ''; }
@@ -209,7 +208,6 @@ function BuySheet({ t, holder, eventName, buyHref, demo, early, onClose }: {
   t: PlaymoreTicketView; holder: string; eventName: string; buyHref: string; demo: boolean; early: boolean; onClose: () => void;
 }) {
   const [, navigate] = useLocation();
-  const [qty, setQty] = useState(1);
   const closeRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     closeRef.current?.focus();
@@ -219,7 +217,7 @@ function BuySheet({ t, holder, eventName, buyHref, demo, early, onClose }: {
     document.body.style.overflow = 'hidden';
     return () => { window.removeEventListener('keydown', onKey); document.body.style.overflow = prev; };
   }, [onClose]);
-  const go = () => { if (!demo) navigate(buyHrefFor(buyHref, t, { qty, nombre: holder })); };
+  const go = () => { if (!demo) navigate(buyHrefFor(buyHref, t, { qty: 1, nombre: holder })); };
   return (
     <motion.div className="fixed inset-0 z-[70] flex items-end justify-center sm:items-center" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
       <button type="button" aria-label="Cerrar" className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} tabIndex={-1} />
@@ -231,17 +229,10 @@ function BuySheet({ t, holder, eventName, buyHref, demo, early, onClose }: {
         <p className="text-[10px] font-semibold tracking-[0.4em] text-[var(--pm-orchid)]">{eventName}</p>
         <p className="playmore-sans mt-2 text-2xl font-extrabold">{t.name}</p>
         {holder && <p className="playmore-sans playmore-gold mt-1 text-sm font-bold tracking-[0.18em]">A NOMBRE DE {holder}</p>}
-        <div className="mt-6 flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-          <span className="text-sm text-[var(--pm-sand)]/80">Cantidad</span>
-          <div className="flex items-center gap-4">
-            <button type="button" aria-label="Menos" disabled={qty <= 1} onClick={() => setQty((q) => Math.max(1, q - 1))} className="grid h-10 w-10 place-items-center rounded-full border border-[#d6b25e]/40 disabled:opacity-30"><Minus className="h-4 w-4" /></button>
-            <span className="playmore-sans w-6 text-center text-xl font-extrabold tabular-nums" aria-live="polite">{qty}</span>
-            <button type="button" aria-label="Más" disabled={qty >= MAX_QTY} onClick={() => setQty((q) => Math.min(MAX_QTY, q + 1))} className="grid h-10 w-10 place-items-center rounded-full border border-[#d6b25e]/40 disabled:opacity-30"><Plus className="h-4 w-4" /></button>
-          </div>
-        </div>
+        <p className="mt-5 rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-center text-[11px] font-semibold leading-relaxed tracking-[0.18em] text-[var(--pm-sand)]/80">ENTRADA NOMINATIVA: UN ACCESO POR COMPRA, CON LOS DATOS DE QUIEN ASISTE.</p>
         <div className="mt-5 flex items-end justify-between">
           <span className="text-xs tracking-[0.3em] text-[var(--pm-sand)]/70">TOTAL</span>
-          <span className="playmore-sans playmore-gold text-3xl font-extrabold tabular-nums">{clp(t.price * qty)}</span>
+          <span className="playmore-sans playmore-gold text-3xl font-extrabold tabular-nums">{clp(t.price)}</span>
         </div>
         <button type="button" onClick={go} disabled={demo}
           className="group relative mt-6 flex h-14 w-full items-center justify-center gap-3 overflow-hidden rounded-full px-4 text-center text-[12px] font-bold tracking-[0.2em] text-[#141210] shadow-[0_18px_50px_-12px_rgba(247,231,168,0.55)] disabled:cursor-not-allowed disabled:opacity-70 sm:text-sm sm:tracking-[0.25em]"
