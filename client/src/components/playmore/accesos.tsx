@@ -64,8 +64,10 @@ function TandaPanel({ tanda }: { tanda: PlaymoreTanda }) {
         <p className="playmore-sans text-2xl font-extrabold sm:text-3xl" role="status">Se agotó esta tanda · pronto la siguiente</p>
       ) : (
         <>
-          {tanda.soldPct != null && (
+          {tanda.soldPct != null && tanda.soldPct >= 10 ? (
             <p className="playmore-sans text-2xl font-extrabold sm:text-3xl">Ya se vendió el <span className="playmore-gold tabular-nums">{tanda.soldPct}%</span> de esta tanda</p>
+          ) : (
+            <p className="playmore-sans text-2xl font-extrabold sm:text-3xl">La primera tanda <span className="playmore-gold">está abierta</span></p>
           )}
           {tanda.salesEnd && (
             <div className="mt-5">
@@ -73,7 +75,7 @@ function TandaPanel({ tanda }: { tanda: PlaymoreTanda }) {
               <PriceRiseCountdown iso={tanda.salesEnd} />
             </div>
           )}
-          {tanda.soldPct != null && (
+          {tanda.soldPct != null && tanda.soldPct >= 10 && (
             <div className="mt-6" role="progressbar" aria-valuenow={tanda.soldPct} aria-valuemin={0} aria-valuemax={100} aria-label="Cupo vendido de la tanda">
               <div className="h-3 overflow-hidden rounded-full bg-white/10">
                 <motion.div initial={{ width: 0 }} whileInView={{ width: `${tanda.soldPct}%` }} viewport={{ once: true }} transition={{ duration: 1.4, ease: [0.22, 1, 0.36, 1] }}
@@ -315,7 +317,7 @@ export function Accesos({ types, buyHref, eventName, tanda, initialGroup, previe
       {accesos.length > 0 && (
         <motion.div {...reveal} className="mx-auto mb-10 max-w-md text-center">
           <label htmlFor="pm-holder" className="text-[11px] font-semibold tracking-[0.4em] text-[var(--pm-sand)]/80">TU NOMBRE EN EL TICKET</label>
-          <input id="pm-holder" value={holder} onChange={(e) => setHolder(e.target.value.slice(0, 40))} placeholder="ESCRÍBELO Y MÍRALO IMPRESO" autoComplete="given-name"
+          <input id="pm-holder" value={holder} onChange={(e) => setHolder(e.target.value.slice(0, 40))} placeholder="ESCRIBE TU NOMBRE" autoComplete="given-name"
             className="playmore-sans mt-3 w-full border-b border-[#d6b25e]/40 bg-transparent pb-2 text-center text-xl font-bold tracking-[0.18em] text-[var(--pm-sand)] outline-none transition placeholder:text-white/25 focus:border-[#f7e7a8]" />
         </motion.div>
       )}
