@@ -978,11 +978,20 @@ describe('normalizeInstagramAgentConfig', () => {
   // El recordatorio de cierre arranca PRENDIDO por defecto (a diferencia de
   // `enabled`, que arranca apagado) -- solo tiene efecto cuando `enabled`
   // también está prendido, así que no hay riesgo de que se active solo.
-  it('el recordatorio de cierre arranca prendido, con 120 minutos y un mensaje por defecto', () => {
+  it('el seguimiento arranca prendido, a los 30 minutos, personalizado y con un segundo a las 20 horas', () => {
     const config = normalizeInstagramAgentConfig({});
     expect(config.followUpEnabled).toBe(true);
-    expect(config.followUpMinutes).toBe(120);
+    expect(config.followUpMinutes).toBe(30);
+    expect(config.followUpPersonalized).toBe(true);
+    expect(config.followUp2Hours).toBe(20);
     expect(config.followUpMessage.length).toBeGreaterThan(0);
+  });
+
+  it('el segundo seguimiento se puede apagar (0) y se acota a 22 horas', () => {
+    expect(normalizeInstagramAgentConfig({ followUp2Hours: 0 }).followUp2Hours).toBe(0);
+    expect(normalizeInstagramAgentConfig({ followUp2Hours: 99 }).followUp2Hours).toBe(22);
+    expect(normalizeInstagramAgentConfig({ followUp2Hours: 'x' }).followUp2Hours).toBe(20);
+    expect(normalizeInstagramAgentConfig({ followUpPersonalized: false }).followUpPersonalized).toBe(false);
   });
 
   it('solo se apaga con un false explícito', () => {

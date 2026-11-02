@@ -3470,3 +3470,19 @@ export const panelSupervisors = mysqlTable("panel_supervisors", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
+
+// ---------------------------------------------------------------------------
+// Estado de los seguimientos del agente por conversación (server/instagramFollowUp.ts).
+// Tabla aparte (y no columnas de igThreads) a propósito: si la migración
+// llega tarde, las lecturas de la bandeja no se rompen. `stage` = cuántos
+// seguimientos se mandaron en la ronda de silencio actual (0 a 2).
+// ---------------------------------------------------------------------------
+
+export const igFollowUps = mysqlTable("igFollowUps", {
+  threadId: int("threadId").primaryKey(),
+  stage: int("stage").default(0).notNull(),
+  lastSentAt: timestamp("lastSentAt"),
+  // La persona dijo que no (o es una conversación personal): no se le escribe más.
+  stoppedAt: timestamp("stoppedAt"),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});

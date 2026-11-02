@@ -49,7 +49,7 @@ export interface InstagramAgentConfig {
    * server/instagramFollowUp.ts. Solo tiene efecto si `enabled` también
    * está prendido. */
   followUpEnabled: boolean;
-  /** Minutos de silencio antes de mandar el recordatorio de cierre. */
+  /** Minutos de silencio antes de mandar el primer seguimiento. */
   followUpMinutes: number;
   /** El recordatorio en sí -- fijo, no lo genera la IA (a diferencia del
    * cierre de "última respuesta del tope diario" en
@@ -57,6 +57,13 @@ export interface InstagramAgentConfig {
    * curso: lo dispara un cron sin ningún mensaje nuevo que darle de contexto
    * al modelo). */
   followUpMessage: string;
+  /** Los seguimientos los escribe la IA según lo que la persona dijo (su acceso,
+   * sus dudas) y llevan el botón con su acceso ya elegido. Apagado = siempre el
+   * mensaje fijo de arriba. */
+  followUpPersonalized: boolean;
+  /** Horas desde el último mensaje de la persona para el SEGUNDO seguimiento
+   * (siempre dentro de las 24 h que deja Meta). 0 = no mandar un segundo. */
+  followUp2Hours: number;
   /** Lo que se manda cuando el mensaje que llega es SOLO un agradecimiento
    * por lo ya conversado ("muchas gracias", sin ninguna pregunta nueva) --
    * pedido explícito del dueño: eso no se deriva ni pausa el bot, se contesta
@@ -115,9 +122,11 @@ export const DEFAULT_INSTAGRAM_AGENT_CONFIG: InstagramAgentConfig = {
   dailyReplyLimitPerThread: 30,
   styleExamples: '',
   followUpEnabled: true,
-  followUpMinutes: 120,
+  followUpMinutes: 30,
   // Sin URL a propósito: el recordatorio va con el botón de compra abajo.
   followUpMessage: 'Cuando quieras retomamos 💜 mientras tanto puedes ver fechas y entradas acá abajo 👇',
+  followUpPersonalized: true,
+  followUp2Hours: 20,
   thanksMessage: 'Un gusto y cualquier otra cosa que necesites estamos aquí para poder ayudar',
   autoResumeHours: 3,
   noAiAccounts: [],
@@ -174,6 +183,10 @@ export function normalizeInstagramAgentConfig(raw: unknown): InstagramAgentConfi
     followUpMinutes: Number.isFinite(followUpMinutes) && followUpMinutes > 0
       ? Math.min(Math.floor(followUpMinutes), 1440)
       : DEFAULT_INSTAGRAM_AGENT_CONFIG.followUpMinutes,
+    followUpPersonalized: partial.followUpPersonalized !== false,
+    followUp2Hours: Number.isFinite(Number(partial.followUp2Hours)) && partial.followUp2Hours !== undefined
+      ? Math.min(Math.max(Math.floor(Number(partial.followUp2Hours)), 0), 22)
+      : DEFAULT_INSTAGRAM_AGENT_CONFIG.followUp2Hours,
     followUpMessage: typeof partial.followUpMessage === 'string' && partial.followUpMessage.trim().length > 0
       ? partial.followUpMessage
       : DEFAULT_INSTAGRAM_AGENT_CONFIG.followUpMessage,
