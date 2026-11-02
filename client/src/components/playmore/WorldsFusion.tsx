@@ -46,7 +46,7 @@ function sampleText(text: string, w: number, h: number, size: number): { pts: [n
   x.textBaseline = 'middle';
   x.fillText(text, w / 2, h * TEXT_PCT);
   const data = x.getImageData(0, 0, w, h).data;
-  const step = w < 520 ? 3 : 3;
+  const step = w < 720 ? 4 : 3;
   const pts: [number, number][] = [];
   for (let py = 0; py < h; py += step) for (let px = 0; px < w; px += step) if (data[(py * w + px) * 4 + 3] > 140) pts.push([px, py]);
   return { pts, y: h * TEXT_PCT };
@@ -61,7 +61,7 @@ function buildScene(w: number, h: number, dpr: number, name: string, playroom: H
   while (m.measureText(name).width > w * 0.88 && size > 40) { size -= 4; m.font = `800 ${size}px "Montserrat Variable", "Montserrat", system-ui, sans-serif`; }
   const { pts, y } = sampleText(name, Math.round(w), Math.round(h), size);
   const r = rng(7);
-  const cap = vertical ? 1100 : 2600;
+  const cap = vertical ? 650 : 2600;
   const chosen = pts.length > cap ? pts.filter(() => r() < cap / pts.length) : pts;
   const particles: Particle[] = chosen.map(([tx, ty]) => ({
     a: r() * Math.PI * 2,
@@ -309,7 +309,7 @@ function FusionStage({ landing, partnerName }: { landing: CoproductionLanding; p
   const intro = 1 - smooth((p - 0.12) / 0.1);
   const outro = smooth((p - 0.86) / 0.07);
   return (
-    <section ref={sectionRef} className="relative" style={{ height: '380vh' }} aria-label="Dos mundos, una noche">
+    <section ref={sectionRef} className="relative" style={{ height: '260vh' }} aria-label="Dos mundos, una noche">
       <div ref={stageRef} className="sticky top-0 h-dvh w-full overflow-hidden">
         <canvas ref={canvasRef} className="absolute inset-0" aria-hidden="true" />
 

@@ -51,7 +51,7 @@ export function NightTimeline({ moments }: { moments: CoproductionMoment[] }) {
 
   const m = moments[active];
   return (
-    <section ref={ref} className="relative" style={{ height: `${Math.max(2, n) * 70}vh` }} aria-label="La noche minuto a minuto">
+    <section ref={ref} className="relative" style={{ height: `${Math.max(2, n) * 50}vh` }} aria-label="La noche minuto a minuto">
       <div className="sticky top-0 flex h-dvh flex-col items-center justify-center overflow-hidden px-5">
         <AnimatePresence>
           <motion.div key={active} className="pointer-events-none absolute inset-0" style={{ background: LIGHTS[active % LIGHTS.length] }}

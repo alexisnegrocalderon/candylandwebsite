@@ -1,29 +1,23 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo } from 'react';
 import { Link } from 'wouter';
-import { AnimatePresence, motion } from 'framer-motion';
-import { Volume2, VolumeX } from 'lucide-react';
+import { motion } from 'framer-motion';
 import { trpc } from '@/lib/trpc';
 import { useSeo } from '@/hooks/useSeo';
 import { colabSlugForHost } from '@shared/colabHosts';
 import { ACCESO_GROUPS, deriveTanda } from '@shared/playmoreTanda';
 import '@/components/playmore/playmore.css';
 import {
-  CodeAndFaq, DALMORE_MARK, Experience, Gallery, PlaymoreFooter, PlaymoreHero, PlaymoreMarquee,
+  CodeAndFaq, DALMORE_MARK, Gallery, PlaymoreFooter, PlaymoreHero, QuickFacts,
 } from '@/components/playmore/sections';
-import { startMusic, stopMusic } from '@/components/playmore/playmoreAudio';
-import { ticketDate } from '@/components/playmore/ticketArt';
 import { Accesos, StickyBuyBar } from '@/components/playmore/accesos';
 import { LivePurchases } from '@/components/playmore/LivePurchases';
 import { NightTimeline } from '@/components/playmore/NightTimeline';
 import { TwoWorlds } from '@/components/playmore/WorldsFusion';
 
-// El 3D (three.js) se descarga aparte y solo si se ve el intro.
-const TicketIntro = lazy(() => import('@/components/playmore/TicketIntro').then((m) => ({ default: m.TicketIntro })));
-
 /* Landing PLAYMORE: la co-producción Playroom × Dalmore (/playroomdalmore).
  *
- * Empieza con el intro cinematográfico del ticket (se arranca el talón para
- * entrar, sin video de por medio) y sigue con la portada y las secciones. Mientras el dueño no la
+ * Abre directo en la portada (sin intro): hero → la fusión de los dos mundos →
+ * la noche minuto a minuto → accesos → código y preguntas. Mientras el dueño no la
  * active, el servidor (coproduction.publicGet) solo entrega el teaser: sin
  * precios ni compra, y el checkout del evento rechaza ventas. Con
  * `?preview=<token>` (Configuración → Vista previa) se ve completa. */
@@ -55,19 +49,6 @@ export default function PlayroomDalmore() {
   // (el servidor igual rechaza órdenes de un evento sin activar).
   const buyHref = data?.isLive && checkoutHref ? checkoutHref : null;
 
-  // intro (ticket) → site (portada y secciones).
-  const [stage, setStage] = useState<'intro' | 'site'>('intro');
-  const entered = stage === 'site';
-  const [soundOn, setSoundOn] = useState(false);
-  const soundRef = useRef(soundOn);
-  soundRef.current = soundOn;
-  const toggleSound = useCallback(() => {
-    setSoundOn((on) => {
-      if (on) stopMusic(); else startMusic();
-      return !on;
-    });
-  }, []);
-  useEffect(() => () => stopMusic(), []);
   // El fondo del sitio es claro: sin esto se asoma al hacer scroll rápido o
   // al estirar la página en el celular.
   useEffect(() => {
@@ -93,11 +74,6 @@ export default function PlayroomDalmore() {
       if (meta && prevColor !== undefined) meta.content = prevColor;
     };
   }, []);
-  const toSite = useCallback(() => {
-    setStage('site');
-    if (soundRef.current) startMusic();
-    window.scrollTo(0, 0);
-  }, []);
   useSeo({
     title: landing ? `${landing.eventName} · Playroom × Dalmore · ${full ? landing.dateText : 'Próximamente'}` : 'Playroom × Dalmore',
     description: landing?.headline ?? 'Playroom × Dalmore',
@@ -119,51 +95,19 @@ export default function PlayroomDalmore() {
     );
   }
 
-  const target = Date.parse(landing.countdownIso);
-  const daysLeft = Number.isFinite(target) ? Math.max(0, Math.floor((target - Date.now()) / 86_400_000)) : null;
   const active = data.ticketTypes.filter((t) => t.status === 'active' && t.price > 0);
   const minPrice = active.length ? Math.min(...active.map((t) => t.price)) : null;
   const tanda = deriveTanda(data.ticketTypes, Date.now());
 
   return (
     <div className="playmore relative min-h-dvh overflow-x-clip">
-      <AnimatePresence>
-        {stage === 'intro' && (
-          <motion.div key="intro" exit={{ opacity: 0 }} transition={{ duration: 0.6 }}>
-            <Suspense fallback={<div className="fixed inset-0 z-[60] bg-[#0c0908]" />}>
-              <TicketIntro
-                data={{
-                  eventName: landing.eventName,
-                  partnerName: data.partnerName,
-                  dateText: ticketDate(landing.countdownIso),
-                  timeText: landing.timeText,
-                  venueText: landing.venueText,
-                  daysLeft,
-                }}
-                countdownIso={landing.countdownIso}
-                partnerLogoUrl={landing.partnerLogoUrl}
-                soundOn={soundOn}
-                onToggleSound={toggleSound}
-                onEnter={toSite}
-                onSkip={toSite}
-              />
-            </Suspense>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {entered && (
-        <motion.main initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.9 }}>
+      {(
+        <motion.main initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }}>
           {data.preview && (
             <div className="sticky top-0 z-50 bg-amber-400 px-4 py-2 text-center text-xs font-bold tracking-[0.15em] text-black">
               VISTA PREVIA PRIVADA · EL PÚBLICO TODAVÍA VE "PRÓXIMAMENTE"
             </div>
           )}
-
-          <button type="button" onClick={toggleSound} aria-label={soundOn ? 'Silenciar' : 'Activar sonido'} aria-pressed={soundOn}
-            className={`fixed right-4 z-40 flex h-11 w-11 items-center justify-center rounded-full border border-[#d6b25e]/40 bg-black/50 text-[var(--pm-sand)] backdrop-blur-md transition hover:bg-black/70 ${data.preview ? 'top-12' : 'top-4'}`}>
-            {soundOn ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
-          </button>
 
           {invite?.name && (
             <motion.a href="#accesos" initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.6 }}
@@ -173,14 +117,13 @@ export default function PlayroomDalmore() {
             </motion.a>
           )}
           <PlaymoreHero landing={landing} partnerName={data.partnerName} buyHref={buyHref} preview={data.preview} minPrice={minPrice} />
-          <PlaymoreMarquee partnerName={data.partnerName} />
+          <QuickFacts landing={landing} />
           <TwoWorlds landing={landing} partnerName={data.partnerName} />
           {full && (
             <>
-              <Experience landing={landing} />
               <NightTimeline moments={landing.timeline} />
               <Gallery urls={landing.galleryUrls} />
-              <Accesos types={data.ticketTypes} buyHref={buyHref} eventName={landing.eventName} tanda={tanda} soundOn={soundOn} initialGroup={invite?.group ?? null} />
+              <Accesos types={data.ticketTypes} buyHref={buyHref} eventName={landing.eventName} tanda={tanda} initialGroup={invite?.group ?? null} />
             </>
           )}
           <CodeAndFaq landing={landing} eventName={landing.eventName} />

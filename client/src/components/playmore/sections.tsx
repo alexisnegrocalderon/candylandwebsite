@@ -168,62 +168,37 @@ export function PlaymoreHero({ landing, partnerName, buyHref, preview, minPrice 
   );
 }
 
-// ── Marquesina ─────────────────────────────────────────────────────────────
-
-export function PlaymoreMarquee({ partnerName }: { partnerName: string }) {
-  const words = ['ELECTRONIC MUSIC', 'EXPERIENCES', 'PLAYROOM', partnerName.toUpperCase(), 'NO ES PARA TODOS', 'PLAYMORE'];
-  const row = (outline: boolean) => (
-    <div className="flex shrink-0 items-center">
-      {words.map((w, i) => (
-        <span key={i} className="flex items-center">
-          <span className={`playmore-sans px-6 text-5xl font-extrabold tracking-[-0.02em] sm:text-7xl ${outline ? 'playmore-outline' : 'playmore-gold'}`}>{w}</span>
-          <span className="playmore-serif text-4xl italic text-[var(--pm-orchid)] sm:text-6xl">×</span>
-        </span>
-      ))}
-    </div>
-  );
-  return (
-    <section className="relative overflow-hidden border-y border-[#d6b25e]/15 bg-[var(--pm-ink-2)] py-8 sm:py-10" aria-hidden="true">
-      <div className="playmore-marquee">{row(false)}{row(false)}</div>
-      <div className="playmore-marquee reverse mt-4">{row(true)}{row(true)}</div>
-    </section>
-  );
-}
-
 // ── Dos mundos, una noche ──────────────────────────────────────────────────
 
-// ── Experiencia y zonas ────────────────────────────────────────────────────
+// ── Lo esencial de la noche ────────────────────────────────────────────────
 
-export function Experience({ landing }: { landing: CoproductionLanding }) {
+/** Una franja liviana tras la portada: las ideas de la noche y el dress code en una línea. */
+export function QuickFacts({ landing }: { landing: CoproductionLanding }) {
+  const items = landing.highlights.slice(0, 4);
+  if (items.length === 0 && !landing.dressCode) return null;
   return (
-    <section className="relative overflow-hidden py-24 sm:py-32">
-      <div className="pointer-events-none absolute -left-40 top-20 h-96 w-96 rounded-full bg-[var(--pm-magenta)]/25 blur-[120px]" aria-hidden="true" />
-      <div className="mx-auto max-w-6xl px-5">
-        <motion.div {...reveal} className="mb-12 grid gap-6 md:grid-cols-2 md:items-end">
-          <div>
-            <Eyebrow>La experiencia</Eyebrow>
-            <h2 className="playmore-sans text-4xl font-extrabold leading-[0.95] tracking-[-0.03em] sm:text-6xl">Un salón gigante.<br /><span className="playmore-gold">{landing.capacityText}.</span></h2>
-          </div>
-          <p className="text-[var(--pm-cream)]/75 md:text-lg">{landing.subheadline}</p>
-        </motion.div>
-        <div className="grid gap-px overflow-hidden rounded-[2rem] border border-[#d6b25e]/20 bg-[#d6b25e]/20 sm:grid-cols-2">
-          {landing.highlights.map((h, i) => (
-            <motion.div key={h} {...reveal} transition={{ ...reveal.transition, delay: i * 0.08 }}
-              className="group relative bg-[var(--pm-ink)] p-8 transition-colors hover:bg-[#140d12] sm:p-10">
-              <span className="playmore-serif playmore-gold text-5xl italic">{String(i + 1).padStart(2, '0')}</span>
-              <p className="mt-4 text-lg leading-snug text-[var(--pm-cream)]/90">{h}</p>
-              <span className="absolute bottom-0 left-0 h-px w-0 bg-gradient-to-r from-[var(--pm-orchid)] to-[var(--pm-sky)] transition-all duration-700 group-hover:w-full" />
-            </motion.div>
+    <section className="mx-auto max-w-5xl px-5 py-14 sm:py-20">
+      {items.length > 0 && (
+        <motion.ul {...reveal} className="grid grid-cols-2 gap-x-6 gap-y-7 sm:grid-cols-4">
+          {items.map((h, i) => (
+            <li key={h} className="text-center">
+              <span className="playmore-serif playmore-gold text-3xl italic">{String(i + 1).padStart(2, '0')}</span>
+              <p className="mt-2 text-[13px] leading-snug text-[var(--pm-cream)]/80 sm:text-sm">{h}</p>
+            </li>
           ))}
-        </div>
-        <motion.div {...reveal} className="mt-6 flex flex-col gap-3 rounded-[2rem] border border-[#d6b25e]/20 bg-[linear-gradient(110deg,rgba(150,21,157,0.25),rgba(12,9,8,0.6)_60%)] p-8 sm:flex-row sm:items-center sm:gap-8 sm:p-10">
-          <span className="text-[11px] font-semibold tracking-[0.45em] text-[var(--pm-orchid)]">DRESS CODE</span>
-          <p className="playmore-serif text-2xl italic leading-snug sm:text-3xl">{landing.dressCode}</p>
-        </motion.div>
-      </div>
+        </motion.ul>
+      )}
+      {landing.dressCode && (
+        <motion.p {...reveal} className="mx-auto mt-10 max-w-3xl text-center text-[var(--pm-cream)]/75">
+          <span className="mr-3 text-[11px] font-semibold tracking-[0.4em] text-[var(--pm-orchid)]">DRESS CODE</span>
+          <span className="playmore-serif text-lg italic sm:text-xl">{landing.dressCode}</span>
+        </motion.p>
+      )}
     </section>
   );
 }
+
+// ── Galería ────────────────────────────────────────────────────────────────
 
 export function Gallery({ urls }: { urls: string[] }) {
   if (urls.length === 0) return null;

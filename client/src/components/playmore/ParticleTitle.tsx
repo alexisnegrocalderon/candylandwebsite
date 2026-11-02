@@ -73,7 +73,8 @@ export function ParticleTitle({ text, delayMs = 500 }: { text: string; delayMs?:
       const tw = ox.measureText(text);
       ox.fillText(text, W / 2, H / 2 + (tw.actualBoundingBoxAscent - tw.actualBoundingBoxDescent) / 2);
       const data = ox.getImageData(0, 0, W, H).data;
-      const step = size > 120 ? 2.2 : 2;
+      // En celular menos partículas (más livianas, igual de nítidas a ese tamaño).
+      const step = W < 640 ? 2.7 : size > 120 ? 2.2 : 2;
       const dotSize = step * 1.12;
       const next: P[] = [];
       for (let y = 0; y < H; y += step) {

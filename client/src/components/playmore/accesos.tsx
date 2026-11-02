@@ -142,8 +142,8 @@ function WhoPicker({ groups, value, onChange, fromPrice }: {
 
 // ── Ticket con talón ────────────────────────────────────────────────────────
 
-function TearTicket({ t, eventName, holder, index, dimmed, canBuy, sound, onTear }: {
-  t: PlaymoreTicketView; eventName: string; holder: string; index: number; dimmed: boolean; canBuy: boolean; sound: boolean; onTear: (t: PlaymoreTicketView) => void;
+function TearTicket({ t, eventName, holder, index, dimmed, canBuy, onTear }: {
+  t: PlaymoreTicketView; eventName: string; holder: string; index: number; dimmed: boolean; canBuy: boolean; onTear: (t: PlaymoreTicketView) => void;
 }) {
   const reduce = useReducedMotion();
   const [torn, setTorn] = useState(false);
@@ -152,7 +152,7 @@ function TearTicket({ t, eventName, holder, index, dimmed, canBuy, sound, onTear
   const tear = () => {
     if (!buyable || torn) return;
     setTorn(true);
-    if (sound) playRip();
+    playRip();
     window.setTimeout(() => onTear(t), reduce ? 0 : 420);
     // El talón vuelve a su lugar detrás de la hoja (por si cierra y elige otro).
     window.setTimeout(() => setTorn(false), 1100);
@@ -254,8 +254,8 @@ function BuySheet({ t, holder, eventName, buyHref, onClose }: {
 
 // ── Sección ─────────────────────────────────────────────────────────────────
 
-export function Accesos({ types, buyHref, eventName, tanda, initialGroup, soundOn = false }: {
-  types: PlaymoreTicketView[]; buyHref: string | null; eventName: string; tanda: PlaymoreTanda | null; initialGroup?: AccesoGroupKey | null; soundOn?: boolean;
+export function Accesos({ types, buyHref, eventName, tanda, initialGroup }: {
+  types: PlaymoreTicketView[]; buyHref: string | null; eventName: string; tanda: PlaymoreTanda | null; initialGroup?: AccesoGroupKey | null;
 }) {
   const [group, setGroup] = useState<AccesoGroupKey | null>(initialGroup ?? null);
   const [holder, setHolder] = useState(readName);
@@ -294,7 +294,7 @@ export function Accesos({ types, buyHref, eventName, tanda, initialGroup, soundO
 
       <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
         {ordered.map((t, i) => (
-          <TearTicket key={t.id} t={t} index={i} eventName={eventName} holder={holder.trim()} canBuy={!!buyHref} sound={soundOn}
+          <TearTicket key={t.id} t={t} index={i} eventName={eventName} holder={holder.trim()} canBuy={!!buyHref}
             dimmed={!!group && groupOf(t.accesoSlug)?.key !== group} onTear={setSheet} />
         ))}
       </div>
