@@ -1666,7 +1666,42 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
                 </div>
               )}
 
-              {pasoActual.id === 'resumen' && useDbExtras && (
+              {/* Evento de colab: el estacionamiento (y los extras) a la vista, sin menú que abrir. */}
+              {pasoActual.id === 'resumen' && useDbExtras && colabBrand && prepagoTickets.length > 0 && (
+                <section className="mb-3 rounded-2xl border border-primary/40 bg-primary/5 p-3.5" aria-label="Extras">
+                  <p className="mb-2.5 text-xs font-extrabold tracking-[0.18em] text-primary">
+                    {prepagoTickets.every((t: any) => /estacionamiento/i.test(t.name)) ? 'ASEGURA TU ESTACIONAMIENTO' : 'ASEGURA TU ESTACIONAMIENTO Y EXTRAS'}
+                  </p>
+                  <div className="space-y-2">
+                    {prepagoTickets.map((t: any) => {
+                      const q = dbExtraQty[t.id] || 0;
+                      const remaining = t.totalStock - (t.soldCount ?? 0);
+                      const max = Math.min(t.maxPerOrder ?? 10, remaining);
+                      const set = (d: number) => setDbExtraQty((prev) => ({ ...prev, [t.id]: Math.max(0, Math.min(max, (prev[t.id] || 0) + d)) }));
+                      return (
+                        <div key={t.id} className={`flex items-center gap-2.5 rounded-xl border px-3 py-2.5 transition-colors ${q > 0 ? 'border-primary bg-primary/10' : 'border-border/60'}`}>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[11.5px] font-bold leading-tight tracking-[-0.01em] [overflow-wrap:anywhere]">{t.name}</p>
+                            {t.totalStock <= 100 && remaining > 0 && remaining <= 20 && <p className="mt-0.5 text-[10.5px] font-semibold tracking-wide text-primary">CUPOS LIMITADOS</p>}
+                          </div>
+                          <span className="shrink-0 pl-1 text-[13px] font-extrabold tabular-nums">{formatCLP(Number(t.price))}</span>
+                          {q > 0 ? (
+                            <div className="flex shrink-0 items-center gap-1.5">
+                              <button type="button" onClick={() => set(-1)} aria-label={`Quitar ${t.name}`} className="grid h-7 w-7 place-items-center rounded-full border border-border text-lg leading-none">−</button>
+                              <span className="w-3 text-center text-sm font-bold tabular-nums">{q}</span>
+                              <button type="button" onClick={() => set(1)} disabled={q >= max} aria-label={`Agregar ${t.name}`} className="grid h-7 w-7 place-items-center rounded-full bg-primary text-lg leading-none text-primary-foreground disabled:opacity-40">+</button>
+                            </div>
+                          ) : (
+                            <button type="button" onClick={() => set(1)} disabled={max <= 0} aria-label={`Agregar ${t.name}`} className="shrink-0 rounded-full border border-primary px-3 py-1.5 text-[11px] font-bold tracking-[0.14em] text-primary disabled:opacity-40">AGREGAR</button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              )}
+
+              {pasoActual.id === 'resumen' && useDbExtras && !colabBrand && (
                 <details className="group mb-4 glass-candy rounded-2xl" open={dbExtrasTotal > 0 || isPartner}>
                   {appMode ? (
                     <DisclosureSummary icon={<Sparkles className="h-5 w-5" />} title={isPartner ? 'Estacionamiento y extras' : '¿Agregamos algo más?'} hint="Opcional · lo retiras sin pagar de nuevo" badge={dbExtrasTotal > 0 ? formatCLP(dbExtrasTotal) : undefined} />
