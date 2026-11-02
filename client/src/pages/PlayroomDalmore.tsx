@@ -6,9 +6,10 @@ import { trpc } from '@/lib/trpc';
 import { useSeo } from '@/hooks/useSeo';
 import { CHILE_TZ } from '@shared/chileDate';
 import { colabSlugForHost } from '@shared/colabHosts';
+import { deriveTanda } from '@shared/playmoreTanda';
 import '@/components/playmore/playmore.css';
 import {
-  Accesos, BuyButton, CodeAndFaq, DALMORE_MARK, Experience, Gallery, PlaymoreFooter, PlaymoreHero, PlaymoreMarquee, TwoWorlds, clp,
+  Accesos, CodeAndFaq, DALMORE_MARK, Experience, Gallery, PlaymoreFooter, PlaymoreHero, PlaymoreMarquee, StickyBuyBar, TwoWorlds,
 } from '@/components/playmore/sections';
 import { startMusic, stopMusic } from '@/components/playmore/playmoreAudio';
 
@@ -107,6 +108,7 @@ export default function PlayroomDalmore() {
   const daysLeft = Number.isFinite(target) ? Math.max(0, Math.floor((target - Date.now()) / 86_400_000)) : null;
   const active = data.ticketTypes.filter((t) => t.status === 'active' && t.price > 0);
   const minPrice = active.length ? Math.min(...active.map((t) => t.price)) : null;
+  const tanda = deriveTanda(data.ticketTypes, Date.now());
 
   return (
     <div className="playmore relative min-h-dvh overflow-x-hidden">
@@ -155,18 +157,14 @@ export default function PlayroomDalmore() {
             <>
               <Experience landing={landing} />
               <Gallery urls={landing.galleryUrls} />
-              <Accesos types={data.ticketTypes} buyHref={buyHref} eventName={landing.eventName} />
+              <Accesos types={data.ticketTypes} buyHref={buyHref} eventName={landing.eventName} tanda={tanda} />
             </>
           )}
           <CodeAndFaq landing={landing} eventName={landing.eventName} />
           <PlaymoreFooter landing={landing} partnerName={data.partnerName} />
 
-          {/* Botón de compra fijo en celular */}
-          {buyHref && (
-            <div className="fixed inset-x-0 bottom-0 z-40 flex justify-center bg-gradient-to-t from-black/80 to-transparent p-3 pb-[max(env(safe-area-inset-bottom),0.75rem)] sm:hidden">
-              <BuyButton href={buyHref} className="w-full justify-center">COMPRAR{minPrice != null ? ` · DESDE ${clp(minPrice)}` : ''}</BuyButton>
-            </div>
-          )}
+          {/* Barra fija: cuenta regresiva a que suba el precio + comprar */}
+          {buyHref && <StickyBuyBar href={buyHref} minPrice={minPrice} tanda={tanda} />}
         </motion.main>
       )}
     </div>

@@ -276,6 +276,7 @@ import QRCode from "qrcode";
 import { consumeBackupCode, createTotpSecret, generateBackupCodes, parseBackupCodes, safeCompare, totpUri, verifyTotp } from "./adminSecurity";
 import { ADMIN_WEBAUTHN_USER_ID_B64URL, ADMIN_WEBAUTHN_USER_NAME, ADMIN_WEBAUTHN_USER_DISPLAY_NAME, buildAuthenticationOptions, buildRegistrationOptions, getRpIdAndOrigin, verifyAuthentication, verifyRegistration } from "./webauthn";
 import { presaleAllows } from "../shared/presaleExtras";
+import { isUnlimitedStock } from "../shared/stock";
 
 const SHIFT_CLOSE_REPORT_EMAIL = ADMIN_NOTIFICATION_EMAIL;
 
@@ -4562,7 +4563,20 @@ export const appRouter = router({
       return {
         isLive, preview: !isLive, partnerName: cp.partnerName, landing,
         event: event ? { slug: event.slug, title: event.title, eventDate: event.eventDate, imageUrl: event.imageUrl } : null,
-        ticketTypes: types.filter((t: any) => t.status !== 'hidden' && presaleAllows(event, t)).map((t: any) => ({ id: t.id, name: t.name, price: Number(t.price), status: t.status, accesoSlug: t.accesoSlug })),
+        // Cupo y tanda como en la home de Playroom: solo lo que queda y el %, nunca el total.
+        ticketTypes: types.filter((t: any) => t.status !== 'hidden' && presaleAllows(event, t)).map((t: any) => {
+          const usesPool = t.stockPoolId != null && t.poolTotalCap != null;
+          const total = usesPool ? Number(t.poolTotalCap) : Number(t.totalStock ?? 0);
+          const unlimited = !usesPool && isUnlimitedStock(total);
+          const remaining = unlimited ? null : usesPool ? Number(t.poolRemaining) : Math.max(0, total - Number(t.soldCount ?? 0));
+          return {
+            id: t.id, name: t.name, price: Number(t.price), status: t.status, accesoSlug: t.accesoSlug, category: String(t.category),
+            originalPrice: t.originalPrice ? Number(t.originalPrice) : null,
+            salesEnd: t.salesEnd ? new Date(t.salesEnd).toISOString() : null,
+            remaining,
+            soldPct: remaining == null ? null : Math.min(100, Math.round(((total - remaining) / Math.max(1, total)) * 100)),
+          };
+        }),
       };
     }),
   }),

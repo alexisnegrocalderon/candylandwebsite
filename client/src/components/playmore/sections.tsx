@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Link } from 'wouter';
-import { motion, useScroll, useTransform } from 'framer-motion';
+import { Link, useLocation } from 'wouter';
+import { motion, useReducedMotion, useScroll, useTransform } from 'framer-motion';
 import { ArrowRight, CalendarDays, ChevronDown, Instagram, MapPin, Users } from 'lucide-react';
 import type { CoproductionLanding } from '@shared/coproduction';
 import { CANDYLAND } from '@/config/candyland';
+import { buyHrefFor, type PlaymoreTanda, type PlaymoreTicketView } from '@shared/playmoreTanda';
 
 /* Secciones de la landing PLAYMORE (Playroom × Dalmore). Paleta y fuentes en
  * ./playmore.css. Todo el contenido sale de `landing` (editable desde
@@ -23,7 +24,6 @@ const reveal = {
   transition: { duration: 0.8, ease: [0.22, 1, 0.36, 1] },
 } as const;
 
-export interface TicketTypeView { id: number; name: string; price: number; status: string }
 
 // ── Utilidades ─────────────────────────────────────────────────────────────
 
@@ -291,8 +291,116 @@ export function Gallery({ urls }: { urls: string[] }) {
 
 // ── Accesos ────────────────────────────────────────────────────────────────
 
-export function Accesos({ types, buyHref, eventName }: { types: TicketTypeView[]; buyHref: string | null; eventName: string }) {
+/** Cuenta regresiva a que suba el precio (se monta solo si hay un cierre futuro). */
+function PriceRiseCountdown({ iso, compact = false }: { iso: string; compact?: boolean }) {
+  const c = useCountdown(iso);
+  if (c.over) return null;
+  const units: [number, string][] = [[c.days, 'DÍAS'], [c.hours, 'HRS'], [c.minutes, 'MIN'], [c.seconds, 'SEG']];
+  if (compact) {
+    return (
+      <span className="tabular-nums" aria-label="Tiempo para que suba el precio">
+        {c.days > 0 && `${c.days}d `}{String(c.hours).padStart(2, '0')}h {String(c.minutes).padStart(2, '0')}m {String(c.seconds).padStart(2, '0')}s
+      </span>
+    );
+  }
+  return (
+    <div className="flex items-center justify-center gap-2 sm:gap-3" role="timer" aria-label="Tiempo para que suba el precio">
+      {units.map(([v, label], i) => (
+        <div key={label} className="flex items-center gap-2 sm:gap-3">
+          <div className="min-w-[3.4rem] rounded-xl border border-[#d6b25e]/30 bg-black/40 px-2 py-2 text-center">
+            <p className="playmore-sans playmore-gold text-2xl font-extrabold tabular-nums leading-none sm:text-3xl">{String(v).padStart(2, '0')}</p>
+            <p className="mt-1 text-[9px] font-semibold tracking-[0.3em] text-[var(--pm-sand)]/70">{label}</p>
+          </div>
+          {i < units.length - 1 && <span className="text-[#d6b25e]/50">:</span>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** La tanda que se vende hoy: cuánto cupo queda, qué tan llena va y cuándo sube el precio. */
+function TandaPanel({ tanda }: { tanda: PlaymoreTanda }) {
+  return (
+    <motion.div {...reveal} className="mx-auto mb-12 max-w-3xl rounded-3xl border border-[#d6b25e]/35 bg-[radial-gradient(120%_100%_at_50%_0%,rgba(150,21,157,0.28),transparent_65%),#0c0908] p-6 text-center sm:p-8">
+      <p className="mb-3 inline-flex items-center gap-2 text-[11px] font-semibold tracking-[0.4em] text-[var(--pm-fuchsia)]">
+        <span className="h-2 w-2 animate-pulse rounded-full bg-[var(--pm-fuchsia)]" aria-hidden="true" /> TANDA ACTUAL
+      </p>
+      {tanda.soldOut ? (
+        <p className="playmore-sans text-2xl font-extrabold sm:text-3xl" role="status">Se agotó esta tanda · pronto la siguiente</p>
+      ) : (
+        <>
+          {tanda.remaining != null && (
+            <p className="playmore-sans text-2xl font-extrabold sm:text-3xl">Quedan <span className="playmore-gold tabular-nums">{tanda.remaining}</span> cupos a este precio</p>
+          )}
+          {tanda.salesEnd && (
+            <div className="mt-5">
+              <p className="mb-3 text-[11px] font-semibold tracking-[0.35em] text-[var(--pm-sand)]/80">EL PRECIO SUBE EN</p>
+              <PriceRiseCountdown iso={tanda.salesEnd} />
+            </div>
+          )}
+          {tanda.soldPct != null && (
+            <div className="mt-6" role="progressbar" aria-valuenow={tanda.soldPct} aria-valuemin={0} aria-valuemax={100} aria-label="Cupo vendido de la tanda">
+              <div className="h-3 overflow-hidden rounded-full bg-white/10">
+                <motion.div initial={{ width: 0 }} whileInView={{ width: `${tanda.soldPct}%` }} viewport={{ once: true }} transition={{ duration: 1.4, ease: [0.22, 1, 0.36, 1] }}
+                  className="h-full rounded-full bg-gradient-to-r from-[#7a5a22] via-[#f7e7a8] to-[#E477EA]" />
+              </div>
+              <p className="mt-2 text-xs tracking-[0.2em] text-[var(--pm-sand)]/70">{tanda.soldPct}% VENDIDO</p>
+            </div>
+          )}
+        </>
+      )}
+    </motion.div>
+  );
+}
+
+/** Un acceso como ticket: se arranca el talón (arrastrándolo o tocándolo) y se entra al checkout con ese acceso ya elegido. */
+function TearTicket({ t, href, eventName, index }: { t: PlaymoreTicketView; href: string | null; eventName: string; index: number }) {
+  const [, navigate] = useLocation();
+  const reduce = useReducedMotion();
+  const [torn, setTorn] = useState(false);
+  const soldout = t.status === 'soldout' || (t.remaining != null && t.remaining <= 0);
+  const canBuy = !!href && !soldout;
+  const tear = () => {
+    if (!canBuy || torn) return;
+    setTorn(true);
+    window.setTimeout(() => navigate(href!), reduce ? 0 : 520);
+  };
+  return (
+    <motion.div {...reveal} transition={{ ...reveal.transition, delay: index * 0.06 }}>
+      <div className={`playmore-ticket-card relative flex rounded-2xl ${soldout ? 'opacity-60' : ''}`}>
+        <div className="min-w-0 flex-1 p-6">
+          <p className="text-[10px] font-semibold tracking-[0.4em] text-[var(--pm-orchid)]">{eventName}</p>
+          <p className="mt-2 text-lg font-bold leading-tight">{t.name}</p>
+          <p className="mt-4 flex items-baseline gap-2">
+            <span className={`text-3xl font-extrabold tabular-nums ${soldout ? 'text-white/40 line-through' : 'playmore-gold'}`}>{t.price > 0 ? clp(t.price) : 'Gratis'}</span>
+            {t.originalPrice != null && t.originalPrice > t.price && !soldout && <span className="text-sm text-white/40 line-through tabular-nums">{clp(t.originalPrice)}</span>}
+          </p>
+        </div>
+        <motion.button
+          type="button"
+          disabled={!canBuy}
+          onClick={tear}
+          aria-label={canBuy ? `Comprar ${t.name}` : `${t.name} agotado`}
+          drag={canBuy && !reduce ? 'x' : false}
+          dragConstraints={{ left: 0, right: 0 }}
+          dragElastic={{ left: 0, right: 0.7 }}
+          onDragEnd={(_, info) => { if (info.offset.x > 45) tear(); }}
+          animate={torn ? { x: 150, rotate: 16, opacity: 0 } : { x: 0, rotate: 0, opacity: 1 }}
+          transition={{ duration: 0.5, ease: [0.5, 0, 0.2, 1] }}
+          className={`flex w-[92px] shrink-0 touch-pan-y items-center justify-center rounded-r-2xl border-l border-dashed border-[#d6b25e]/35 ${canBuy ? 'cursor-grab bg-[#d6b25e]/5 hover:bg-[#d6b25e]/10 active:cursor-grabbing' : 'cursor-default'}`}>
+          <span className="rotate-90 whitespace-nowrap text-[11px] font-bold tracking-[0.3em] text-[var(--pm-sand)]">
+            {soldout ? 'AGOTADO' : <>ARRANCA <span aria-hidden="true">→</span></>}
+          </span>
+        </motion.button>
+      </div>
+    </motion.div>
+  );
+}
+
+export function Accesos({ types, buyHref, eventName, tanda }: { types: PlaymoreTicketView[]; buyHref: string | null; eventName: string; tanda: PlaymoreTanda | null }) {
   if (types.length === 0) return null;
+  const accesos = types.filter((t) => t.category === 'acceso');
+  const extras = types.filter((t) => t.category !== 'acceso');
   return (
     <section className="mx-auto max-w-6xl px-5 py-24 sm:py-32" id="accesos">
       <motion.div {...reveal} className="mb-12 text-center">
@@ -300,36 +408,49 @@ export function Accesos({ types, buyHref, eventName }: { types: TicketTypeView[]
         <h2 className="playmore-sans text-4xl font-extrabold tracking-[-0.03em] sm:text-6xl">Elige tu <span className="playmore-gold">ticket</span></h2>
         <p className="playmore-serif mt-4 text-xl italic text-[var(--pm-cream)]/70">El precio sube con cada tanda.</p>
       </motion.div>
+      {tanda && <TandaPanel tanda={tanda} />}
       <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-        {types.map((t, i) => {
-          const soldout = t.status === 'soldout';
-          const content = (
-            <>
-              <div className="min-w-0 flex-1 p-6">
-                <p className="text-[10px] font-semibold tracking-[0.4em] text-[var(--pm-orchid)]">{eventName}</p>
-                <p className="mt-2 text-lg font-bold leading-tight">{t.name}</p>
-                <p className={`mt-4 text-3xl font-extrabold tabular-nums ${soldout ? 'text-white/40 line-through' : 'playmore-gold'}`}>{t.price > 0 ? clp(t.price) : 'Gratis'}</p>
-              </div>
-              <div className="flex w-[92px] shrink-0 items-center justify-center border-l border-dashed border-[#d6b25e]/35">
-                <span className="rotate-90 whitespace-nowrap text-[11px] font-bold tracking-[0.35em] text-[var(--pm-sand)]">{soldout ? 'AGOTADO' : 'ADMIT'}</span>
-              </div>
-            </>
-          );
-          return (
-            <motion.div key={t.id} {...reveal} transition={{ ...reveal.transition, delay: i * 0.06 }}>
-              {buyHref && !soldout ? (
-                <Link href={buyHref} className="playmore-ticket-card flex rounded-2xl transition hover:-translate-y-1 hover:shadow-[0_20px_50px_-20px_rgba(228,119,234,0.6)]">{content}</Link>
-              ) : (
-                <div className={`playmore-ticket-card flex rounded-2xl ${soldout ? 'opacity-60' : ''}`}>{content}</div>
-              )}
-            </motion.div>
-          );
-        })}
+        {accesos.map((t, i) => (
+          <TearTicket key={t.id} t={t} index={i} eventName={eventName} href={buyHref ? buyHrefFor(buyHref, t) : null} />
+        ))}
       </div>
+      {accesos.length > 0 && buyHref && <p className="mt-5 text-center text-xs tracking-[0.2em] text-[var(--pm-sand)]/60">ARRASTRA O TOCA EL TALÓN PARA ENTRAR</p>}
+      {extras.length > 0 && (
+        <motion.div {...reveal} className="mx-auto mt-10 max-w-3xl rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+          <p className="mb-3 text-center text-[11px] font-semibold tracking-[0.4em] text-[var(--pm-orchid)]">SUMA A TU NOCHE</p>
+          <ul className="flex flex-wrap items-center justify-center gap-x-8 gap-y-2">
+            {extras.map((t) => (
+              <li key={t.id} className="text-sm text-[var(--pm-cream)]/85">
+                {t.name} <span className="playmore-gold ml-1 font-bold tabular-nums">{t.price > 0 ? clp(t.price) : 'Gratis'}</span>
+                {t.status === 'soldout' && <span className="ml-2 text-xs text-white/40">agotado</span>}
+              </li>
+            ))}
+          </ul>
+        </motion.div>
+      )}
       {buyHref && (
         <div className="mt-12 flex justify-center"><BuyButton href={buyHref}>COMPRAR ENTRADAS</BuyButton></div>
       )}
     </section>
+  );
+}
+
+/** Barra fija al pie: cuenta regresiva a que suba el precio + el botón de comprar. */
+export function StickyBuyBar({ href, minPrice, tanda }: { href: string; minPrice: number | null; tanda: PlaymoreTanda | null }) {
+  const rise = tanda && !tanda.soldOut ? tanda.salesEnd : null;
+  return (
+    <div className={`fixed inset-x-0 bottom-0 z-40 flex justify-center bg-gradient-to-t from-black/85 to-transparent p-3 pb-[max(env(safe-area-inset-bottom),0.75rem)] ${rise ? '' : 'sm:hidden'}`}>
+      <div className="flex w-full max-w-xl items-center gap-3 sm:rounded-full sm:border sm:border-[#d6b25e]/30 sm:bg-black/70 sm:py-2 sm:pl-6 sm:pr-2 sm:backdrop-blur-md">
+        {rise && (
+          <p className="hidden min-w-0 flex-1 text-[10px] font-semibold leading-tight tracking-[0.25em] text-[var(--pm-sand)]/80 min-[380px]:block">
+            EL PRECIO SUBE EN<br /><span className="playmore-gold text-sm tracking-normal"><PriceRiseCountdown iso={rise} compact /></span>
+          </p>
+        )}
+        <BuyButton href={href} className={`justify-center ${rise ? 'h-12 flex-1 px-5 sm:flex-none' : 'w-full'}`}>
+          <span className="whitespace-nowrap">COMPRAR{!rise && minPrice != null ? ` · DESDE ${clp(minPrice)}` : ''}</span>
+        </BuyButton>
+      </div>
+    </div>
   );
 }
 
