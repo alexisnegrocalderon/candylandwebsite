@@ -137,21 +137,23 @@ function drawScene(ctx: CanvasRenderingContext2D, sc: Scene, p: number, name: st
     const baseW = vertical ? Math.min(w * 0.62, 300) : Math.min(w * 0.3, 380);
     const scale = (1 + approach * 0.22) * (1 - implode * 0.92);
     const alpha = 1 - Math.pow(implode, 1.6);
-    const logo = (img: HTMLImageElement | null, pos: { x: number; y: number }) => {
+    // Colores originales intactos: se dibujan tal cual (sin mezcla aditiva) y solo
+    // al fundirse (implode) se les suma el resplandor blanco-dorado.
+    const logo = (img: HTMLImageElement | null, pos: { x: number; y: number }, tint: string) => {
       if (!img) return;
       const lw = baseW * scale, lh = (lw * img.naturalHeight) / img.naturalWidth;
       ctx.save();
-      ctx.globalCompositeOperation = 'lighter';
       ctx.globalAlpha = alpha;
-      ctx.shadowColor = 'rgba(255,240,200,0.8)';
-      ctx.shadowBlur = 20 + approach * 40 + implode * 80;
+      const melt = clamp(implode * 1.4);
+      ctx.shadowColor = melt > 0.02 ? `rgba(255,244,214,${melt * 0.95})` : tint;
+      ctx.shadowBlur = melt > 0.02 ? 10 + melt * 90 : 10;
       // Al implosionar, cada logo se pega al centro.
       const x = pos.x + (cx - pos.x) * implode, y = pos.y + (cy - pos.y) * implode;
       ctx.drawImage(img, x - lw / 2, y - lh / 2, lw, lh);
       ctx.restore();
     };
-    logo(sc.playroom, L);
-    logo(sc.partner, R);
+    logo(sc.playroom, L, 'rgba(244,114,182,0.35)');
+    logo(sc.partner, R, 'rgba(214,178,94,0.35)');
   }
 
   // Punto de fusión: crece, se vuelve blanco-dorado y estalla.
