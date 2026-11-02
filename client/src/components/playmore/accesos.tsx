@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'wouter';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { ArrowRight, Minus, Plus, X } from 'lucide-react';
+import { ArrowRight, Minus, Plus, Ticket, X } from 'lucide-react';
 import {
   ACCESO_GROUPS, buyHrefFor, groupOf, type AccesoGroupKey, type PlaymoreTanda, type PlaymoreTicketView,
 } from '@shared/playmoreTanda';
-import { BuyButton, Eyebrow, clp, reveal, useCountdown } from './sections';
+import { Eyebrow, clp, reveal, useCountdown } from './sections';
 import { playRip } from './playmoreAudio';
 
 /* Accesos de PLAYMORE: comprar como parte de la noche.
@@ -320,43 +320,84 @@ export function Accesos({ types, buyHref, eventName, tanda, initialGroup }: {
   );
 }
 
-/** Barra fija al pie: cuenta regresiva a que suba el precio + botón que lleva a los accesos. */
-export function StickyBuyBar({ href, minPrice, tanda }: { href: string; minPrice: number | null; tanda: PlaymoreTanda | null }) {
-  const rise = tanda && !tanda.soldOut ? tanda.salesEnd : null;
-  // Se esconde mientras los accesos están a la vista: ahí se compra arrancando el talón.
+/** Botón flotante de compra: un ticket dorado con perforación que aparece al bajar,
+ * alterna el precio y la cuenta regresiva, y según dónde estés hace lo más útil:
+ * lejos de los accesos te lleva a elegir ticket; dentro de ellos, directo a pagar.
+ * Sin evento activado solo se muestra en la vista previa del dueño. */
+export function FloatingBuy({ href, minPrice, tanda, preview }: {
+  href: string | null; minPrice: number | null; tanda: PlaymoreTanda | null; preview: boolean;
+}) {
+  const reduce = useReducedMotion();
+  const [, navigate] = useLocation();
+  const [scrolled, setScrolled] = useState(false);
   const [inAccesos, setInAccesos] = useState(false);
+  const [showCount, setShowCount] = useState(false);
+  const rise = tanda && !tanda.soldOut ? tanda.salesEnd : null;
+  const soldOut = !!tanda?.soldOut;
+
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 160);
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
   useEffect(() => {
     const el = document.getElementById('accesos');
     if (!el || typeof IntersectionObserver === 'undefined') return;
-    const io = new IntersectionObserver(([e]) => setInAccesos(e.isIntersecting), { threshold: 0.15 });
+    const io = new IntersectionObserver(([e]) => setInAccesos(e.isIntersecting), { threshold: 0.12 });
     io.observe(el);
     return () => io.disconnect();
   }, []);
-  const toAccesos = (e: React.MouseEvent) => {
-    const el = document.getElementById('accesos');
-    if (!el) return;
-    e.preventDefault();
-    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  // Cada 3,5 s la segunda línea alterna entre el precio y el tiempo que queda.
+  useEffect(() => {
+    if (!rise || minPrice == null) return;
+    const t = window.setInterval(() => setShowCount((v) => !v), 3500);
+    return () => window.clearInterval(t);
+  }, [rise, minPrice]);
+
+  if ((!href && !preview) || soldOut) return null;
+  const goPay = inAccesos && !!href;
+  const label = goPay ? 'IR A PAGAR' : 'COMPRAR ENTRADA';
+  const onClick = () => {
+    if (goPay && href) { navigate(href); return; }
+    document.getElementById('accesos')?.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
   };
+  const sub = rise && (showCount || minPrice == null)
+    ? <>SUBE EN <PriceRiseCountdown iso={rise} compact /></>
+    : minPrice != null ? <>DESDE {clp(minPrice)}</> : <>ELIGE TU ACCESO</>;
+
   return (
-    <AnimatePresence>
-      {!inAccesos && (
-        <motion.div initial={{ y: 80 }} animate={{ y: 0 }} exit={{ y: 80 }} transition={{ duration: 0.3 }}
-          className={`fixed inset-x-0 bottom-0 z-40 flex justify-center bg-gradient-to-t from-black/85 to-transparent p-3 pb-[max(env(safe-area-inset-bottom),0.75rem)] ${rise ? '' : 'sm:hidden'}`}>
-          <div className="flex w-full max-w-xl items-center gap-3 sm:rounded-full sm:border sm:border-[#d6b25e]/30 sm:bg-black/70 sm:py-2 sm:pl-6 sm:pr-2 sm:backdrop-blur-md">
-            {rise && (
-              <p className="hidden min-w-0 flex-1 text-[10px] font-semibold leading-tight tracking-[0.25em] text-[var(--pm-sand)]/80 min-[380px]:block">
-                EL PRECIO SUBE EN<br /><span className="playmore-gold text-sm tracking-normal"><PriceRiseCountdown iso={rise} compact /></span>
-              </p>
-            )}
-            <span onClickCapture={toAccesos} className={rise ? 'flex-1 sm:flex-none' : 'w-full'}>
-              <BuyButton href={href} className={`w-full justify-center ${rise ? 'h-12 px-5' : ''}`}>
-                <span className="whitespace-nowrap">COMPRAR{!rise && minPrice != null ? ` · DESDE ${clp(minPrice)}` : ''}</span>
-              </BuyButton>
-            </span>
-          </div>
-        </motion.div>
-      )}
-    </AnimatePresence>
+    <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-3 pb-[max(env(safe-area-inset-bottom),0.9rem)] sm:justify-end sm:px-6 sm:pb-6">
+      <AnimatePresence>
+        {scrolled && (
+          <motion.div
+            initial={{ y: 90, opacity: 0, scale: 0.9 }} animate={{ y: 0, opacity: 1, scale: 1 }} exit={{ y: 90, opacity: 0 }}
+            transition={{ type: 'spring', damping: 20, stiffness: 240 }}
+            className="pointer-events-auto relative w-full max-w-[340px] sm:w-[330px]">
+            {/* Onda que invita a tocar */}
+            {!reduce && <span className="pm-fab-ring" aria-hidden="true" />}
+            <div className={reduce ? '' : 'pm-fab'}>
+              <button type="button" onClick={onClick} aria-label={`${label}${minPrice != null ? `, desde ${clp(minPrice)}` : ''}`}
+                className="pm-fab-body group flex h-[64px] w-full items-stretch text-left text-[#141210] transition-transform active:scale-[0.97]">
+                <span className="flex min-w-0 flex-1 flex-col justify-center pl-7 pr-3">
+                  <span className="flex items-center gap-2 text-[13px] font-extrabold tracking-[0.22em]">
+                    <Ticket className="h-4 w-4 shrink-0" aria-hidden="true" /> {label}
+                  </span>
+                  <AnimatePresence mode="wait" initial={false}>
+                    <motion.span key={String(showCount && !!rise)} initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }} transition={{ duration: 0.25 }}
+                      className="mt-0.5 block truncate text-[10.5px] font-bold tracking-[0.18em] opacity-75">{sub}</motion.span>
+                  </AnimatePresence>
+                </span>
+                <span className="pm-fab-stub flex w-[70px] shrink-0 items-center justify-center">
+                  <span className="grid h-9 w-9 place-items-center rounded-full bg-[#141210] text-[#f7e7a8] shadow-[0_0_0_3px_rgba(20,18,16,0.15)] transition-transform group-hover:translate-x-0.5">
+                    <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                  </span>
+                </span>
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
   );
 }

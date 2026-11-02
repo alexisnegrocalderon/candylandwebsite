@@ -61,7 +61,7 @@ export function PartnerMark({ logoUrl, name, className = '', imgClassName }: { l
 export function BuyButton({ href, children, className = '' }: { href: string; children: ReactNode; className?: string }) {
   return (
     <Link href={href}
-      className={`group relative inline-flex h-14 items-center gap-3 overflow-hidden rounded-full px-9 text-sm font-bold tracking-[0.25em] text-[#141210] shadow-[0_18px_50px_-12px_rgba(247,231,168,0.55)] transition active:scale-[0.98] ${className}`}
+      className={`group relative inline-flex h-14 items-center gap-3 overflow-hidden whitespace-nowrap rounded-full px-6 text-[12.5px] font-bold tracking-[0.16em] text-[#141210] sm:px-9 sm:text-sm sm:tracking-[0.25em] shadow-[0_18px_50px_-12px_rgba(247,231,168,0.55)] transition active:scale-[0.98] ${className}`}
       style={{ background: 'var(--pm-gold)' }}>
       <span className="relative z-10">{children}</span>
       <ArrowRight className="relative z-10 h-4 w-4 transition-transform group-hover:translate-x-1" />
@@ -149,7 +149,7 @@ export function PlaymoreHero({ landing, partnerName, buyHref, preview, minPrice 
 
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 2.1, duration: 0.9 }} className="mt-10">
           {buyHref ? (
-            <BuyButton href={buyHref}>COMPRAR ENTRADAS{minPrice != null ? ` · DESDE ${clp(minPrice)}` : ''}</BuyButton>
+            <BuyButton href={buyHref}>COMPRAR ENTRADAS{minPrice != null && <span className="hidden sm:inline"> · DESDE {clp(minPrice)}</span>}</BuyButton>
           ) : preview ? (
             <span className="inline-flex h-14 items-center rounded-full border border-[#d6b25e]/40 px-8 text-xs font-semibold tracking-[0.25em] text-[var(--pm-sand)]">LA COMPRA SE HABILITA AL ACTIVAR</span>
           ) : (

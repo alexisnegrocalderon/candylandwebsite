@@ -152,3 +152,53 @@
   .playmore-gold, .playmore-velvet, .playmore-marquee, .playmore-hint, .playmore-lite-ticket,
   .playmore-beams::before, .playmore-beams::after { animation: none !important; }
 }
+
+/* Botón flotante de compra: un ticket dorado con perforación, muescas y brillo. */
+.pm-fab {
+  filter: drop-shadow(0 14px 26px rgba(247, 231, 168, 0.32)) drop-shadow(0 0 20px rgba(228, 119, 234, 0.4));
+  animation: pm-fab-bob 3.4s ease-in-out infinite, pm-fab-wiggle 9s ease-in-out 5s infinite;
+}
+.pm-fab-body {
+  position: relative;
+  overflow: hidden;
+  border-radius: 14px;
+  background: linear-gradient(105deg, #7a5a22 0%, #c9a24c 16%, #f7e7a8 40%, #d6b25e 60%, #9c7630 82%, #e9cf85 100%);
+  /* Muescas de ticket a los dos lados. */
+  -webkit-mask-image: radial-gradient(circle 9px at 0 50%, transparent 97%, #000), radial-gradient(circle 9px at 100% 50%, transparent 97%, #000);
+  -webkit-mask-composite: source-in;
+  mask-image: radial-gradient(circle 9px at 0 50%, transparent 97%, #000), radial-gradient(circle 9px at 100% 50%, transparent 97%, #000);
+  mask-composite: intersect;
+}
+.pm-fab-body::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(110deg, transparent 35%, rgba(255, 255, 255, 0.7) 50%, transparent 65%);
+  transform: translateX(-130%);
+  animation: pm-fab-sheen 3.8s ease-in-out 1.4s infinite;
+  pointer-events: none;
+}
+/* Perforación entre el texto y el talón. */
+.pm-fab-stub { border-left: 2px dashed rgba(20, 18, 16, 0.4); background: rgba(20, 18, 16, 0.06); }
+.pm-fab-ring {
+  position: absolute;
+  inset: -2px;
+  border-radius: 16px;
+  border: 1.5px solid rgba(228, 119, 234, 0.8);
+  box-shadow: 0 0 22px rgba(228, 119, 234, 0.5);
+  animation: pm-fab-ring 2.6s ease-out 1.2s infinite;
+  pointer-events: none;
+}
+@keyframes pm-fab-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+@keyframes pm-fab-wiggle {
+  0%, 92%, 100% { rotate: 0deg; }
+  94% { rotate: -2.2deg; } 96% { rotate: 2.2deg; } 98% { rotate: -1.2deg; }
+}
+@keyframes pm-fab-sheen { 0% { transform: translateX(-130%); } 45%, 100% { transform: translateX(130%); } }
+@keyframes pm-fab-ring {
+  0% { opacity: 0.9; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1.22, 1.55); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pm-fab, .pm-fab-body::after, .pm-fab-ring { animation: none !important; }
+}

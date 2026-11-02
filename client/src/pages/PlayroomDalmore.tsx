@@ -9,7 +9,7 @@ import '@/components/playmore/playmore.css';
 import {
   CodeAndFaq, DALMORE_MARK, Gallery, PlaymoreFooter, PlaymoreHero, QuickFacts,
 } from '@/components/playmore/sections';
-import { Accesos, StickyBuyBar } from '@/components/playmore/accesos';
+import { Accesos, FloatingBuy } from '@/components/playmore/accesos';
 import { LivePurchases } from '@/components/playmore/LivePurchases';
 import { NightTimeline } from '@/components/playmore/NightTimeline';
 import { TwoWorlds } from '@/components/playmore/WorldsFusion';
@@ -131,8 +131,8 @@ export default function PlayroomDalmore() {
 
           {/* Compras reales recientes (sin nombres ni cantidades) */}
           {full && <LivePurchases slug={SLUG} preview={preview} />}
-          {/* Barra fija: cuenta regresiva a que suba el precio + comprar */}
-          {buyHref && <StickyBuyBar href={buyHref} minPrice={minPrice} tanda={tanda} />}
+          {/* Botón flotante de compra: ticket dorado que acompaña toda la página */}
+          <FloatingBuy href={buyHref} minPrice={minPrice} tanda={tanda} preview={data.preview} />
         </motion.main>
       )}
     </div>
