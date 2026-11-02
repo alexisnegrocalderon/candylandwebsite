@@ -35,7 +35,7 @@ import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useSt
 import { dropOrphanLayers, goBack, holdScroll, navDirection, routeScrollTarget } from "@/lib/appNav";
 import { hasWelcomeParam } from "@shared/welcome";
 import { DARK_CHROME_BG, isDarkRoute } from "@/lib/darkChrome";
-import { colabSlugForHost } from "@shared/colabHosts";
+import { colabSlugForHost, isColabHost } from "@shared/colabHosts";
 // La portada "/" pasa por HalloweenHome: renderiza la Home oficial tal cual,
 // y solo le agrega la paleta Halloween si el switch del admin está prendido
 // (o siempre en /halloween, la vista previa).
@@ -127,7 +127,8 @@ function useMemberAppMode(location: string, hideChrome: boolean) {
   // guardada, igual se abre «Mi cuenta» con lo guardado (ver lib/offlineAccount.ts).
   const loggedIn = installed && (!!session?.loggedIn || (isError && hasAccountSnapshot()));
   // Solo la primera pantalla: si abre en la portada y tiene sesión, se va a su cuenta.
-  const [firstLoad, setFirstLoad] = useState(() => installed && location === '/');
+  // En la colab no se salta a «Mi cuenta»: siempre se ve la landing.
+  const [firstLoad, setFirstLoad] = useState(() => installed && location === '/' && !isColabHost(window.location.hostname));
   useEffect(() => {
     if (!firstLoad || isLoading) return;
     if (loggedIn) navigate('/cuenta', { replace: true });
@@ -366,7 +367,8 @@ function App() {
           <Toaster position="top-center" />
           {/* La notificación de bienvenida abre esta ventana (`/?bienvenida=1`) desde cualquier pantalla. */}
           <WelcomeGate />
-          {!hideChrome && <InstallAppPrompt />}
+          {/* La colab (dalmore./playmore.) no invita a instalar la app de Playroom. */}
+          {!hideChrome && !isColabHost(window.location.hostname) && <InstallAppPrompt />}
           {holdForAccount ? (hasAccountSnapshot() ? <AccountSkeleton /> : <div className="fixed inset-0 bg-[#0b0612]" />) : memberApp ? (
             // Los colores de la app (oscuros) también en las páginas de contenido del sitio que se abren desde acá.
             // La transición es una sola, la del Router: antes había otra acá encima y se animaban dos a la vez.

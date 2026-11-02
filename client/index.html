@@ -172,6 +172,8 @@
         try {
           var d = document.documentElement;
           if (d.getAttribute('data-splash')) return;
+          // Las direcciones de la colab (dalmore. / playmore.) no llevan la intro de Playroom.
+          if (/^(dalmore|playmore)\.mansionplayroom\.cl$/.test(location.hostname)) return;
           var standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
           var home = location.pathname === '/';
           var seen = false;
