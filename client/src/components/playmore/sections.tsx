@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'wouter';
-import { motion, useScroll, useTransform } from 'framer-motion';
+import { motion, useMotionValue, useScroll, useTransform } from 'framer-motion';
 import { ArrowRight, CalendarDays, ChevronDown, Instagram, MapPin, Users } from 'lucide-react';
 import type { CoproductionLanding } from '@shared/coproduction';
 import { CANDYLAND } from '@/config/candyland';
+import { setWorld } from './playmoreAudio';
 
 /* Secciones de la landing PLAYMORE (Playroom × Dalmore). Paleta y fuentes en
  * ./playmore.css. Todo el contenido sale de `landing` (editable desde
@@ -199,29 +200,47 @@ export function PlaymoreMarquee({ partnerName }: { partnerName: string }) {
 
 // ── Dos mundos, una noche ──────────────────────────────────────────────────
 
-export function TwoWorlds({ landing, partnerName }: { landing: CoproductionLanding; partnerName: string }) {
+export function TwoWorlds({ landing, partnerName, soundOn = false, onToggleSound }: {
+  landing: CoproductionLanding; partnerName: string; soundOn?: boolean; onToggleSound?: () => void;
+}) {
   const ref = useRef<HTMLElement>(null);
   const { scrollYProgress } = useScroll({ target: ref, offset: ['start end', 'center center'] });
   const leftX = useTransform(scrollYProgress, [0, 1], [-60, 0]);
   const rightX = useTransform(scrollYProgress, [0, 1], [60, 0]);
   const midScale = useTransform(scrollYProgress, [0.6, 1], [0.6, 1]);
   const midOpacity = useTransform(scrollYProgress, [0.6, 1], [0, 1]);
+  // Crossfader: 0 = Playroom, 100 = el socio. Mueve la luz, las tarjetas y la mezcla del beat.
+  const fader = useMotionValue(50);
+  const [faderVal, setFaderVal] = useState(50);
+  const leftOpacity = useTransform(fader, [0, 50, 100], [1, 0.95, 0.4]);
+  const rightOpacity = useTransform(fader, [0, 50, 100], [0.4, 0.95, 1]);
+  const leftScale = useTransform(fader, [0, 50, 100], [1.03, 1, 0.96]);
+  const rightScale = useTransform(fader, [0, 50, 100], [0.96, 1, 1.03]);
+  const playroomGlow = useTransform(fader, [0, 100], [0.9, 0]);
+  const partnerGlow = useTransform(fader, [0, 100], [0, 0.9]);
+  const onFader = (v: number) => { fader.set(v); setFaderVal(v); setWorld(v / 100); };
+  const faderLabel = faderVal < 35 ? 'Más Playroom' : faderVal > 65 ? `Más ${partnerName}` : 'Las dos pistas';
 
   return (
     <section ref={ref} className="relative mx-auto max-w-6xl px-5 py-24 sm:py-32">
+      {/* Luz de cada mundo: la mueve el fader. */}
+      <motion.div style={{ opacity: playroomGlow }} aria-hidden="true"
+        className="pointer-events-none absolute inset-0 -z-0 bg-[radial-gradient(50%_45%_at_25%_55%,rgba(244,114,182,0.28),transparent_70%),radial-gradient(40%_40%_at_40%_70%,rgba(125,211,252,0.18),transparent_70%)]" />
+      <motion.div style={{ opacity: partnerGlow }} aria-hidden="true"
+        className="pointer-events-none absolute inset-0 -z-0 bg-[radial-gradient(50%_45%_at_75%_55%,rgba(150,21,157,0.35),transparent_70%),radial-gradient(40%_40%_at_65%_70%,rgba(214,178,94,0.22),transparent_70%)]" />
       <motion.div {...reveal} className="mb-14 text-center">
         <Eyebrow>Dos mundos, una noche</Eyebrow>
         <h2 className="playmore-serif text-4xl italic leading-tight sm:text-6xl">Cuando el juego se encuentra<br className="hidden sm:block" /> con el código</h2>
       </motion.div>
       <div className="relative grid gap-5 md:grid-cols-2 md:gap-0">
-        <motion.article style={{ x: leftX }}
+        <motion.article style={{ x: leftX, opacity: leftOpacity, scale: leftScale }}
           className="relative overflow-hidden rounded-[2rem] border border-white/10 bg-[radial-gradient(120%_90%_at_0%_0%,rgba(244,114,182,0.25),transparent_60%),radial-gradient(90%_80%_at_100%_100%,rgba(125,211,252,0.18),transparent_60%),#120d10] p-8 sm:p-10 md:mr-[-1px] md:rounded-r-none">
           <img src="/playmore/playroom-logo.png" alt="Mansion Playroom" className="mb-6 h-20 w-auto max-w-[13rem] object-contain" />
           <p className="text-[11px] font-semibold tracking-[0.4em] text-[var(--pm-fuchsia)]">PLAYROOM</p>
           <h3 className="playmore-sans mt-2 text-3xl font-extrabold">El juego</h3>
           <p className="mt-4 leading-relaxed text-[var(--pm-cream)]/80">{landing.playroomBlurb}</p>
         </motion.article>
-        <motion.article style={{ x: rightX }}
+        <motion.article style={{ x: rightX, opacity: rightOpacity, scale: rightScale }}
           className="relative overflow-hidden rounded-[2rem] border border-white/10 bg-[radial-gradient(120%_90%_at_100%_0%,rgba(150,21,157,0.4),transparent_60%),#120c12] p-8 text-right sm:p-10 md:rounded-l-none">
           <div className="mb-6 flex justify-end">
             {/* El logo completo (con "DALMORE") luce mejor acá que el isotipo. */}
@@ -237,6 +256,27 @@ export function TwoWorlds({ landing, partnerName }: { landing: CoproductionLandi
           <span className="playmore-serif playmore-gold text-5xl italic">×</span>
         </motion.div>
       </div>
+
+      {/* Crossfader de DJ: de un mundo al otro. */}
+      <motion.div {...reveal} className="relative mx-auto mt-12 max-w-xl text-center">
+        <p className="mb-4 text-[11px] font-semibold tracking-[0.4em] text-[var(--pm-sand)]/80">MEZCLA LOS DOS MUNDOS</p>
+        <div className="rounded-3xl border border-white/10 bg-black/40 px-5 pb-5 pt-6 backdrop-blur">
+          <div className="mb-3 flex items-center justify-between text-[10px] font-bold tracking-[0.3em]">
+            <span className="text-[var(--pm-fuchsia)]">PLAYROOM</span>
+            <span className="text-[var(--pm-orchid)]">{partnerName.toUpperCase()}</span>
+          </div>
+          <input type="range" min={0} max={100} value={faderVal} onChange={(e) => onFader(Number(e.target.value))}
+            aria-label={`Crossfader entre Playroom y ${partnerName}`} aria-valuetext={faderLabel}
+            className="playmore-fader w-full" />
+          <p className="playmore-serif mt-3 text-lg italic text-[var(--pm-cream)]/80" aria-live="polite">{faderLabel}</p>
+          {onToggleSound && !soundOn && (
+            <button type="button" onClick={onToggleSound}
+              className="mt-3 inline-flex h-9 items-center gap-2 rounded-full border border-[#d6b25e]/40 px-4 text-[11px] font-semibold tracking-[0.2em] text-[var(--pm-sand)] hover:bg-white/5">
+              ACTIVA EL SONIDO Y ESCUCHA LA MEZCLA
+            </button>
+          )}
+        </div>
+      </motion.div>
     </section>
   );
 }

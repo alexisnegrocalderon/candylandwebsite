@@ -154,7 +154,7 @@ export default function PlayroomDalmore() {
 
           <PlaymoreHero landing={landing} partnerName={data.partnerName} buyHref={buyHref} preview={data.preview} minPrice={minPrice} />
           <PlaymoreMarquee partnerName={data.partnerName} />
-          <TwoWorlds landing={landing} partnerName={data.partnerName} />
+          <TwoWorlds landing={landing} partnerName={data.partnerName} soundOn={soundOn} onToggleSound={toggleSound} />
           {full && (
             <>
               <Experience landing={landing} />
