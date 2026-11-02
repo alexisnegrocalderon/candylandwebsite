@@ -1,5 +1,6 @@
 import express, { Router, type Request, type Response } from 'express';
 import { ENV } from './_core/env';
+import { isDmSpam, isReactionOnly } from '../shared/dmTriage';
 import { clip, pushTitle } from '../shared/pushText';
 import {
   getOrCreateWaThread,
@@ -256,7 +257,7 @@ export async function handleInboundMessage(message: WaInboundMessage, profileNam
   // una persona, sin mandar nada automático (mismo criterio que Instagram).
   if (text.length === 0) {
     await setWaThreadBotPaused(thread.id, true, 'Llegó un adjunto sin texto (audio, foto, sticker)');
-    await notifyHandoff(thread.id, who, '[adjunto]', 'Mandó un audio o archivo sin texto');
+    await notifyHandoff(thread.id, who, '[adjunto]', 'Mandó un audio o archivo sin texto', { log: false });
     return;
   }
 
@@ -302,6 +303,16 @@ export async function handleInboundMessage(message: WaInboundMessage, profileNam
   const isFinalReplyOfDay = repliesToday === waConfig.dailyReplyLimitPerThread - 1;
   const history = await getWaMessages(thread.id, agentConfig.historyLimit + 1);
   const previous = history.filter((m) => m.id !== saved.id);
+
+  // Mismo criterio que Instagram: spam de alguien con quien nunca hablamos y
+  // emojis o risas sueltas no gastan respuesta ni avisan al dueño.
+  const talkedBefore = previous.some((m) => m.direction === 'out');
+  if (!talkedBefore && isDmSpam(text)) {
+    await setWaThreadBotPaused(thread.id, true, 'Spam: sin respuesta');
+    return;
+  }
+  const lastOut = [...previous].reverse().find((m) => m.direction === 'out');
+  if (isReactionOnly(text) && !(lastOut?.text ?? '').includes('?')) return;
 
   const result = await runInstagramAgent({
     incomingText: text,

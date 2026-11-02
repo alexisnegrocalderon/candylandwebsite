@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import express, { Router, type Request, type Response } from 'express';
+import { classifyAttachments, isDmSpam, isReactionOnly } from '../shared/dmTriage';
 import { clip, pushTitle } from '../shared/pushText';
 import { ENV } from './_core/env';
 import {
@@ -354,7 +355,15 @@ async function handleMessagingEvent(event: MetaMessaging): Promise<void> {
   // mensaje automático (mandar el aviso de derivación acá sería contestarle
   // como negocio a lo que puede ser, y de hecho suele ser, un chat personal).
   if (text.length === 0) {
-    await silentHandoff(thread.id, thread.username ?? senderId, text, 'Llegó un adjunto sin texto (reel, foto, audio)');
+    // Reel, post o historia compartidos, sticker o corazón: casi siempre un
+    // amigo mandando algo. Queda guardado en la bandeja, pero ni pausa el
+    // hilo ni manda un push (era la mayor parte del ruido del reporte semanal).
+    if (classifyAttachments(attachments) === 'share') return;
+    // Foto, video, audio o archivo: puede ser un comprobante o un problema
+    // real, así que lo ve una persona (push), pero no se anota en el registro
+    // de derivaciones que lee el coach: no es una pregunta que el agente
+    // tuviera que saber contestar.
+    await silentHandoff(thread.id, thread.username ?? senderId, text, 'Llegó un adjunto sin texto (foto, video, audio)', { log: false });
     return;
   }
 
@@ -378,6 +387,19 @@ async function handleMessagingEvent(event: MetaMessaging): Promise<void> {
   // El mensaje que acaba de llegar viaja aparte en el prompt, no como parte
   // del historial -- si no, el modelo lo vería dos veces.
   const previous = history.filter((m) => m.id !== saved.id);
+
+  // Publicidad y spam por DM, de alguien con quien nunca conversamos: sin
+  // respuesta, sin push y sin registro de derivación. El hilo queda pausado y
+  // marcado en la bandeja para que el bot no le conteste nunca.
+  const talkedBefore = previous.some((m) => m.direction === 'out');
+  if (!talkedBefore && isDmSpam(text)) {
+    await setIgThreadBotPaused(thread.id, true, 'Spam: sin respuesta');
+    return;
+  }
+  // Solo emojis o risas ("😂", "jajaja"): no es una consulta. Se deja pasar
+  // únicamente si es la respuesta a una pregunta nuestra (ahí un 👍 es un sí).
+  const lastOut = [...previous].reverse().find((m) => m.direction === 'out');
+  if (isReactionOnly(text) && !(lastOut?.text ?? '').includes('?')) return;
 
   // Primer mensaje de la persona: bienvenida (con o sin "gracias por
   // seguirnos") y una pregunta de enganche que no se repite.
@@ -755,9 +777,9 @@ async function handoff(
  * mal marcado), la conversación no puede quedar en silencio total sin que
  * nadie se entere. El costo de un push de más en un chat de amigo es mínimo
  * comparado con perder una consulta real sin que el dueño lo sepa. */
-async function silentHandoff(threadId: number, who: string, incoming: string, reason: string): Promise<void> {
+async function silentHandoff(threadId: number, who: string, incoming: string, reason: string, opts: { log?: boolean } = {}): Promise<void> {
   await setIgThreadBotPaused(threadId, true, reason);
-  await notifyHandoff(threadId, who, incoming, reason);
+  await notifyHandoff(threadId, who, incoming, reason, opts);
 }
 
 /** Push al celular del admin. Solo en las derivaciones, no en cada DM: un
