@@ -132,7 +132,7 @@ export default function PlayroomDalmore() {
           {/* Compras reales recientes (sin nombres ni cantidades) */}
           {full && <LivePurchases slug={SLUG} preview={preview} />}
           {/* Botón flotante de compra: ticket dorado que acompaña toda la página */}
-          <FloatingBuy href={buyHref} minPrice={minPrice} tanda={tanda} preview={data.preview} />
+          <FloatingBuy href={buyHref} tanda={tanda} preview={data.preview} />
         </motion.main>
       )}
     </div>

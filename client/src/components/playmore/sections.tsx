@@ -149,7 +149,7 @@ export function PlaymoreHero({ landing, partnerName, buyHref, preview, minPrice 
 
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 2.1, duration: 0.9 }} className="mt-10">
           {buyHref ? (
-            <BuyButton href={buyHref}>COMPRAR ENTRADAS{minPrice != null && <span className="hidden sm:inline"> · DESDE {clp(minPrice)}</span>}</BuyButton>
+            <BuyButton href={buyHref}>COMPRAR ENTRADAS</BuyButton>
           ) : preview ? (
             <span className="inline-flex h-14 items-center rounded-full border border-[#d6b25e]/40 px-8 text-xs font-semibold tracking-[0.25em] text-[var(--pm-sand)]">LA COMPRA SE HABILITA AL ACTIVAR</span>
           ) : (

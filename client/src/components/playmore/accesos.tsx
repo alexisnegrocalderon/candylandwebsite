@@ -324,8 +324,8 @@ export function Accesos({ types, buyHref, eventName, tanda, initialGroup }: {
  * alterna el precio y la cuenta regresiva, y según dónde estés hace lo más útil:
  * lejos de los accesos te lleva a elegir ticket; dentro de ellos, directo a pagar.
  * Sin evento activado solo se muestra en la vista previa del dueño. */
-export function FloatingBuy({ href, minPrice, tanda, preview }: {
-  href: string | null; minPrice: number | null; tanda: PlaymoreTanda | null; preview: boolean;
+export function FloatingBuy({ href, tanda, preview }: {
+  href: string | null; tanda: PlaymoreTanda | null; preview: boolean;
 }) {
   const reduce = useReducedMotion();
   const [, navigate] = useLocation();
@@ -348,12 +348,12 @@ export function FloatingBuy({ href, minPrice, tanda, preview }: {
     io.observe(el);
     return () => io.disconnect();
   }, []);
-  // Cada 3,5 s la segunda línea alterna entre el precio y el tiempo que queda.
+  // Cada 3,5 s la segunda línea alterna entre la invitación y el tiempo que queda.
   useEffect(() => {
-    if (!rise || minPrice == null) return;
+    if (!rise) return;
     const t = window.setInterval(() => setShowCount((v) => !v), 3500);
     return () => window.clearInterval(t);
-  }, [rise, minPrice]);
+  }, [rise]);
 
   if ((!href && !preview) || soldOut) return null;
   const goPay = inAccesos && !!href;
@@ -362,9 +362,9 @@ export function FloatingBuy({ href, minPrice, tanda, preview }: {
     if (goPay && href) { navigate(href); return; }
     document.getElementById('accesos')?.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
   };
-  const sub = rise && (showCount || minPrice == null)
-    ? <>SUBE EN <PriceRiseCountdown iso={rise} compact /></>
-    : minPrice != null ? <>DESDE {clp(minPrice)}</> : <>ELIGE TU ACCESO</>;
+  const sub = rise && showCount
+    ? <>EL PRECIO SUBE EN <PriceRiseCountdown iso={rise} compact /></>
+    : <>ELIGE TU ACCESO</>;
 
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-3 pb-[max(env(safe-area-inset-bottom),0.9rem)] sm:justify-end sm:px-6 sm:pb-6">
@@ -377,7 +377,7 @@ export function FloatingBuy({ href, minPrice, tanda, preview }: {
             {/* Onda que invita a tocar */}
             {!reduce && <span className="pm-fab-ring" aria-hidden="true" />}
             <div className={reduce ? '' : 'pm-fab'}>
-              <button type="button" onClick={onClick} aria-label={`${label}${minPrice != null ? `, desde ${clp(minPrice)}` : ''}`}
+              <button type="button" onClick={onClick} aria-label={label}
                 className="pm-fab-body group flex h-[64px] w-full items-stretch text-left text-[#141210] transition-transform active:scale-[0.97]">
                 <span className="flex min-w-0 flex-1 flex-col justify-center pl-7 pr-3">
                   <span className="flex items-center gap-2 text-[13px] font-extrabold tracking-[0.22em]">
