@@ -569,7 +569,7 @@ export function CoproConfig() {
           <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-[oklch(0.6_0.2_290)]"><Rocket className="h-5 w-5 text-white" /></span>
           <div>
             <p className="font-semibold">{setup.isLive ? 'Evento activo: a la venta y en tu home' : 'Evento oculto'}</p>
-            <p className="text-sm text-muted-foreground">{setup.isLive ? '/playroomdalmore muestra todo y se puede comprar.' : '/playroomdalmore muestra "Próximamente" y nadie puede comprar.'}</p>
+            <p className="text-sm text-muted-foreground">{setup.isLive ? 'dalmore.mansionplayroom.cl muestra todo y se puede comprar.' : 'dalmore.mansionplayroom.cl muestra "Próximamente" y nadie puede comprar.'}</p>
           </div>
         </div>
         <Switch checked={setup.isLive} disabled={setLive.isPending} onCheckedChange={(live) => {
@@ -633,7 +633,7 @@ export function CoproConfig() {
 
       {/* Landing */}
       <section className="admin-clay space-y-4 p-5">
-        <p className="font-semibold">Landing /playroomdalmore</p>
+        <p className="font-semibold">Landing dalmore.mansionplayroom.cl</p>
         <div className="grid gap-3 sm:grid-cols-2">
           <div><Label>Nombre de la noche (ticket y portada)</Label><Input className="mt-1" value={d.landing.eventName} onChange={(e) => editLanding({ eventName: e.target.value })} /></div>
           <div><Label>Título de la pestaña del navegador</Label><Input className="mt-1" value={d.landing.title} onChange={(e) => editLanding({ title: e.target.value })} /></div>

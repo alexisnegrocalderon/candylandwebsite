@@ -193,7 +193,8 @@ export function registerSsrMetaRoutes(app: Express) {
 
   // Landing de la co-producción con Dalmore. Mientras no esté activa queda
   // fuera de los buscadores; al activarla sí se indexa. Se sirve en
-  // /playroomdalmore y en la raíz de su subdominio (shared/colabHosts.ts).
+  // la raíz de su subdominio (shared/colabHosts.ts); el middleware reescribe
+  // esa raíz a /playroomdalmore. En mansionplayroom.cl esa ruta da 404.
   const colabLanding = async (req: Request, res: Response, slug: string) => {
     const template = loadTemplateOrFail(res);
     if (!template) return;
@@ -221,7 +222,15 @@ export function registerSsrMetaRoutes(app: Express) {
       sendHtml(res, template);
     }
   };
-  app.get("/playroomdalmore", (req: Request, res: Response) => colabLanding(req, res, colabSlugForHost(req.hostname) ?? "dalmore"));
+  app.get("/playroomdalmore", (req: Request, res: Response, next: NextFunction) => {
+    const slug = colabSlugForHost(req.hostname);
+    // En mansionplayroom.cl esta dirección ya no existe (la colab vive en sus subdominios).
+    if (!slug) {
+      res.status(404);
+      return next();
+    }
+    return colabLanding(req, res, slug);
+  });
   app.get("/", (req: Request, res: Response, next: NextFunction) => {
     const slug = colabSlugForHost(req.hostname);
     if (!slug) return next();

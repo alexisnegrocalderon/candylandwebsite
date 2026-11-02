@@ -217,9 +217,10 @@ function Router() {
           {/* Link privado de la comunidad electrónica (B2B Aldo Medel x German
               Courtin): precio especial, ver shared/partnerCampaign.ts. */}
           <Route path="/electronica">{() => <Checkout partnerSlug="electronica" />}</Route>
-          {/* Co-producción con Dalmore: "Próximamente" hasta que el dueño la
-              active (ver server/coproduction.ts). */}
-          <Route path="/playroomdalmore" component={PlayroomDalmore} />
+          {/* Co-producción con Dalmore: vive en sus subdominios (shared/colabHosts.ts);
+              en mansionplayroom.cl esta ruta ya no existe. "Próximamente" hasta que el
+              dueño la active (ver server/coproduction.ts). */}
+          <Route path="/playroomdalmore">{() => (isColabHost(window.location.hostname) ? <PlayroomDalmore /> : <NotFound />)}</Route>
           <Route path="/pago/exito" component={PaymentSuccess} />
           <Route path="/pago/error" component={PaymentFailure} />
           <Route path="/nosotros" component={About} />

@@ -8,14 +8,6 @@
       "includeFiles": "**/index.html"
     }
   },
-  "redirects": [
-    {
-      "source": "/playroomdalmore",
-      "has": [{ "type": "host", "value": "(www\\.)?mansionplayroom\\.cl" }],
-      "destination": "https://dalmore.mansionplayroom.cl/",
-      "permanent": false
-    }
-  ],
   "rewrites": [
     {
       "source": "/api/:path*",
