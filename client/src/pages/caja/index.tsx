@@ -590,6 +590,8 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
   // todo lo demás en esta pantalla, NUNCA se encola offline -- exige
   // conexión siempre, así que llama caja.sale directo en vez de enqueueOp.
   const saleWithSaldoMutation = trpc.caja.sale.useMutation();
+  // opId del último intento de venta con saldo: un reintento de la misma venta lo reusa (ver onSale).
+  const saldoAttemptRef = useRef<{ sig: string; opId: string } | null>(null);
 
   const [localEvent, setLocalEvent] = useState<{ id: number; title: string; slug: string } | null>(null);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
@@ -1056,7 +1058,11 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
             catalogVersion={snapshotQuery.dataUpdatedAt}
             isOnline={isOnline}
             onSale={async (items, paymentMethod, buyerEmail, redeemPlaycoins, discountCode, lockerTag, lockerCustomerName, kitchenTicketNumber, customerName, cardPin, payToken) => {
-              const opId = newOpId();
+              // Con saldo, reintentar la MISMA venta (la respuesta se perdió, se tocó dos veces) reusa el opId: el
+              // servidor ya la conoce y no vuelve a descontar. Un opId nuevo por intento cobraba el saldo dos veces.
+              const attemptSig = paymentMethod === 'saldo' ? JSON.stringify([items, buyerEmail ?? '', discountCode ?? '']) : null;
+              const opId = attemptSig && saldoAttemptRef.current?.sig === attemptSig ? saldoAttemptRef.current.opId : newOpId();
+              if (attemptSig) saldoAttemptRef.current = { sig: attemptSig, opId };
               const clientAt = (await correctedNow()).toISOString();
               if (paymentMethod === 'saldo') {
                 // Saldo exige conexión siempre (decisión explícita del
@@ -1069,6 +1075,7 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
                   items, paymentMethod, buyerEmail, cardPin, payToken,
                   discountCode, lockerTag, lockerCustomerName, kitchenTicketNumber, customerName, clientAt,
                 });
+                saldoAttemptRef.current = null;
               } else {
                 await enqueueOp({
                   opId, type: 'sale', items, paymentMethod, buyerEmail, redeemPlaycoins,
@@ -1720,6 +1727,7 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
     try {
       const r = await authorizeCardPay.mutateAsync({ eventId, email: buyerEmail.trim(), supervisorId, pin: supervisorPin });
       setPayToken(r.token);
+      setPaymentMethod('saldo');
       setSupervisorName(r.supervisorName);
       setSupervisorOpen(false);
       setSupervisorPin('');
@@ -1869,6 +1877,9 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
         setBalance(r.playcoins);
         setRedeemInput('');
         setPayToken(raw.trim());
+        // El QR de la app cobra SIEMPRE con saldo: sin esto quedaba el último medio usado (débito, QR de terminal,
+        // efectivo) y la venta se registraba sin descontar el saldo del cliente.
+        setPaymentMethod('saldo');
         toast.success(`Autorizado por la app ✓ · Saldo $${r.prepaidBalance.toLocaleString('es-CL')}`);
       } catch (err: any) {
         toast.error(err?.message ?? 'No se pudo leer el QR de pago');
@@ -2259,7 +2270,7 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
                 <button
                   key={m}
                   disabled={m === 'saldo' && !isOnline}
-                  onClick={() => { setPaymentMethod(m); if (m === 'saldo') setShowEmailStep(true); }}
+                  onClick={() => { setPaymentMethod(m); if (m === 'saldo') setShowEmailStep(true); else { setPayToken(null); setSupervisorName(null); } }}
                   aria-pressed={paymentMethod === m}
                   className={`admin-tab h-12 rounded-xl text-xs font-semibold capitalize disabled:opacity-30 ${paymentMethod === m ? 'admin-tab-active' : ''}`}
                 >
@@ -2353,7 +2364,7 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
                   key={m}
                   className={`h-14 text-base font-semibold ${paymentMethod === m ? 'bg-primary hover:bg-primary/90' : 'bg-white/[0.06] hover:bg-white/[0.12] text-white'}`}
                   disabled={confirming}
-                  onClick={() => { setPaymentMethod(m); confirmWith(m); }}
+                  onClick={() => { setPaymentMethod(m); setPayToken(null); setSupervisorName(null); confirmWith(m); }}
                 >
                   {confirming && paymentMethod === m ? 'Registrando…' : m === 'debito' ? 'Débito' : 'Crédito'}
                 </Button>

@@ -49,6 +49,7 @@ export function CajaAdminView() {
         )}
       </div>
 
+      <SaldoReconciliationCard eventId={null} />
       {activeEventId && <ResetTestDataCard eventId={activeEventId} eventTitle={events.find((e: any) => e.id === activeEventId)?.title ?? ''} />}
       <RecurringExpensesPanel />
       <AdminAuditPanel />
@@ -112,6 +113,94 @@ export function ResetTestDataCard({ eventId, eventTitle }: { eventId: number; ev
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Ventas de caja que se cobraron sin descontar el saldo de la tarjeta (el QR de la app dejaba el medio de pago en
+ * débito/QR/efectivo). Lista las sospechosas y descuenta SOLO las que el admin marca, con su clave. */
+export function SaldoReconciliationCard({ eventId }: { eventId: number | null }) {
+  const utils = trpc.useUtils();
+  const q = trpc.caja.saldoCandidates.useQuery({ eventId: eventId ?? undefined }, { retry: false });
+  const [picked, setPicked] = useState<Record<number, boolean>>({});
+  const [password, setPassword] = useState('');
+  const clp = (n: number) => `$${n.toLocaleString('es-CL')}`;
+  const rows = q.data ?? [];
+  const chosen = rows.filter((r) => picked[r.orderId]);
+  const apply = trpc.caja.saldoReconcile.useMutation({
+    onSuccess: (res) => {
+      const ok = res.filter((r) => r.ok);
+      const bad = res.filter((r) => !r.ok);
+      toast.success(`Listo: ${ok.length} venta(s) descontadas del saldo (${clp(ok.reduce((s, r) => s + r.charged, 0))}).${bad.length ? ` ${bad.length} no se pudieron: ${bad.map((b) => b.message).join(' · ')}` : ''}`);
+      setPicked({}); setPassword('');
+      void utils.caja.saldoCandidates.invalidate();
+    },
+    onError: onMutationError,
+  });
+
+  return (
+    <Card className="rounded-2xl border-0 shadow-md shadow-black/5 border-l-4 border-l-rose-500">
+      <CardHeader><CardTitle>Ventas cobradas sin descontar saldo</CardTitle></CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-sm text-muted-foreground">
+          Ventas de caja pagadas con otro medio (débito, QR, efectivo…) a nombre de clientes que habían cargado saldo y cuya tarjeta no tiene el descuento.
+          Marca solo las que de verdad se pagaron con saldo (las de «QR de la app» son las más probables); al confirmar se descuenta del saldo y la venta pasa a figurar como «saldo».
+          Si el saldo ya no alcanza, se descuenta lo que quede y se informa el faltante.
+        </p>
+        {q.isLoading && <p className="text-sm text-muted-foreground">Buscando…</p>}
+        {!q.isLoading && rows.length === 0 && <p className="text-sm text-muted-foreground">No hay ventas pendientes de conciliar.</p>}
+        {rows.length > 0 && (
+          <div className="max-h-96 overflow-y-auto rounded-lg border border-border/50">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-muted/80 backdrop-blur">
+                <tr>
+                  <th className="px-3 py-2" />
+                  <th className="text-left px-3 py-2 font-medium">Cliente</th>
+                  <th className="text-left px-3 py-2 font-medium">Venta</th>
+                  <th className="text-right px-3 py-2 font-medium">Monto</th>
+                  <th className="text-right px-3 py-2 font-medium">Saldo hoy</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.orderId} className="border-t border-border/40">
+                    <td className="px-3 py-2"><Checkbox checked={!!picked[r.orderId]} onCheckedChange={(v) => setPicked((p) => ({ ...p, [r.orderId]: v === true }))} aria-label={`Marcar ${r.orderNumber}`} /></td>
+                    <td className="px-3 py-2"><div className="font-medium">{r.buyerName}</div><div className="text-xs text-muted-foreground">{r.buyerEmail}</div></td>
+                    <td className="px-3 py-2">
+                      <div>{r.orderNumber} · {r.paymentMethod}</div>
+                      <div className="text-xs text-muted-foreground">{formatChileDateTime(r.createdAt)}{r.hadPayQr ? ' · 📲 mostró el QR de la app' : ''}</div>
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums">{clp(r.total)}</td>
+                    <td className={`px-3 py-2 text-right tabular-nums ${r.balance < r.total ? 'text-amber-600' : ''}`}>{clp(r.balance)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {rows.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => setPicked(Object.fromEntries(rows.filter((r) => r.hadPayQr).map((r) => [r.orderId, true])))}>Marcar las del QR de la app</Button>
+            <Button variant="ghost" size="sm" onClick={() => setPicked({})}>Limpiar</Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button disabled={chosen.length === 0 || apply.isPending} className="ml-auto">Descontar {chosen.length > 0 ? `${chosen.length} venta(s) · ${clp(chosen.reduce((s, r) => s + Math.min(r.total, r.balance), 0))}` : ''}</Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>¿Descontar el saldo de {chosen.length} venta(s)?</AlertDialogTitle>
+                  <AlertDialogDescription>Se resta el monto de cada venta del saldo de la tarjeta del cliente y la venta pasa a figurar como pagada con saldo. Queda registrado en el movimiento de cada tarjeta y en la bitácora.</AlertDialogDescription>
+                </AlertDialogHeader>
+                <Input type="password" autoFocus value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Tu clave de admin" />
+                <AlertDialogFooter>
+                  <AlertDialogCancel onClick={() => setPassword('')}>Cancelar</AlertDialogCancel>
+                  <AlertDialogAction disabled={!password || apply.isPending} onClick={(e) => { e.preventDefault(); apply.mutate({ orderIds: chosen.map((r) => r.orderId), adminPassword: password }); }}>Sí, descontar</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -389,6 +478,7 @@ export function AdminAuditPanel() {
     'devices.delete': 'Eliminó un dispositivo',
     'registers.delete': 'Eliminó una caja',
     'caja.resetTestData': 'Reinició los datos de prueba de un evento',
+    'caja.saldoReconcile': 'Descontó el saldo de una venta de caja cobrada sin descontarlo',
     'cajaReports.deleteShiftClosing': 'Eliminó un cierre de turno',
   };
 

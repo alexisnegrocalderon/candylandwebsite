@@ -188,6 +188,7 @@ import * as demoAccount from "./demoAccount";
 import { normalizeMemberConfig } from "../shared/memberConfig";
 import * as memberCards from "./memberCards";
 import * as memberPay from "./memberPay";
+import { listSaldoCandidates, reconcileSaldoSale } from "./saldoReconciliation";
 import { isMemberEarlyAccess } from "../shared/memberConfig";
 import { draftPushCopy } from "./pushAi";
 import { normalizeCustomerPushConfig } from "../shared/customerPushConfig";
@@ -7390,7 +7391,7 @@ export const appRouter = router({
       if (input.payToken && !(await members.getMemberConfig()).payments.cajaPay) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'El pago con la app no está activado' });
       }
-      if (input.paymentMethod === 'saldo' && (!input.buyerEmail || (!input.cardPin && !input.payToken))) {
+      if ((input.paymentMethod === 'saldo' || !!input.payToken) && (!input.buyerEmail || (!input.cardPin && !input.payToken))) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'Pagar con saldo necesita el email y el PIN de la tarjeta (o el QR de la app)' });
       }
       const rawDb = await db.getDb();
@@ -7421,6 +7422,22 @@ export const appRouter = router({
       } catch (err) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo registrar la venta' });
       }
+    }),
+
+    // Ventas de caja cobradas SIN descontar el saldo de la tarjeta (ver server/saldoReconciliation.ts).
+    saldoCandidates: adminProcedure.input(z.object({ eventId: z.number().optional() })).query(async ({ input }) => {
+      const rows = await listSaldoCandidates({ eventId: input.eventId });
+      return rows.map((r) => ({ ...r, createdAt: r.createdAt.toISOString() }));
+    }),
+    // Descuenta el saldo de las ventas que el admin confirmó, con su clave. Cada una queda en la bitácora.
+    saldoReconcile: adminPasswordProcedure.input(z.object({ orderIds: z.array(z.number()).min(1).max(100) })).mutation(async ({ input, ctx }) => {
+      const results = [];
+      for (const orderId of input.orderIds) {
+        const r = await reconcileSaldoSale(orderId, 'Conciliación: la venta se cobró sin descontar el saldo');
+        results.push(r);
+        if (r.ok) await db.recordAdminAudit({ action: 'caja.saldoReconcile', targetType: 'order', targetId: orderId, payload: r, ip: clientIp(ctx) });
+      }
+      return results;
     }),
 
     // Reset de datos de prueba de caja/cocina/guardarropía antes del

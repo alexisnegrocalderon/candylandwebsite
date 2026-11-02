@@ -9,10 +9,12 @@ const validateDiscountCode = vi.fn(async (_code: string, _eventId: number) => ({
 const redeemPlaycoinsAuthoritative = vi.fn(async () => ({ ok: true as const, redeemed: 0, balanceAfter: 0 }));
 const verifyCardPin = vi.fn(async (_p: { email: string; pin: string }) => ({ ok: true as const, customerId: 1 }));
 const spendPrepaidAuthoritative = vi.fn(async (_p: { customerId: number; amountClp: number; reason: string; opId: string; note?: string }) => ({ ok: true as const, balanceAfter: 0 }));
+const refundPrepaidForVoidedSale = vi.fn(async (_p: { customerId: number; amountClp: number; voidOpId: string; note: string }) => {});
 const ensureCustomerIdForEmail = vi.fn(async (email?: string | null) => (email ? 7 : null));
 vi.mock("../db", () => ({
   ensureCustomerIdForEmail: (...args: [string | null | undefined]) => ensureCustomerIdForEmail(...args),
   awardPlaycoins: vi.fn(async () => {}),
+  refundPrepaidForVoidedSale: (...args: [{ customerId: number; amountClp: number; voidOpId: string; note: string }]) => refundPrepaidForVoidedSale(...args),
   redeemPlaycoinsAuthoritative: (...args: any[]) => redeemPlaycoinsAuthoritative(...(args as [])),
   validateDiscountCode: (...args: [string, number]) => validateDiscountCode(...args),
   verifyCardPin: (...args: [{ email: string; pin: string }]) => verifyCardPin(...args),
@@ -47,6 +49,7 @@ function makeFakeDb(state: {
   existingOp?: { result: string; conflictNote?: string | null };
   existingLockerTag?: boolean;
   existingKitchenTicketNumber?: boolean;
+  failOrderInsert?: boolean;
 }) {
   const calls = {
     order: null as Record<string, unknown> | null,
@@ -82,7 +85,7 @@ function makeFakeDb(state: {
     },
     insert: (table: unknown) => ({
       values: async (values: Record<string, unknown>) => {
-        if (table === orders) { calls.order = values; return [{ insertId: 777 }]; }
+        if (table === orders) { if (state.failOrderInsert) throw new Error("Failed query: insert orders"); calls.order = values; return [{ insertId: 777 }]; }
         if (table === orderItems) { calls.items.push(values); return [{ insertId: 1 }]; }
         if (table === ops) { calls.op = values; return [{ insertId: 1 }]; }
         if (table === lockerItems) { calls.lockerInsert = values; return [{ insertId: 1 }]; }
@@ -391,6 +394,45 @@ describe("createCajaSale", () => {
         customerId: 42, amountClp: 5000, reason: "spend_caja", opId: baseParams.opId,
       });
       expect(calls.order).toMatchObject({ paymentMethod: "saldo", total: "5000", customerId: 42 });
+    });
+
+    describe("QR de la app (payToken) con otro medio de pago seleccionado", () => {
+      const appToken = "PLAYPAY:v1:AbCdEfGhIjKlMnOp.ZyXwVuTsRqPoNmLkJiHgFe";
+
+      it("siempre cobra con saldo: la caja se quedaba con el último medio (débito/QR/efectivo) y no descontaba", async () => {
+        spendPrepaidAuthoritative.mockClear();
+        spendPrepaidAuthoritative.mockResolvedValueOnce({ ok: true, balanceAfter: 1000 });
+        for (const method of ["efectivo", "debito", "credito", "qr"] as const) {
+          const { db, calls } = makeFakeDb({ products: [piscola] });
+          await createCajaSale(db, { ...baseParams, opId: `op-${method}`, paymentMethod: method, buyerEmail: "cliente@test.cl", payToken: appToken, items: [{ ticketTypeId: 1, quantity: 1 }] });
+          expect(calls.order).toMatchObject({ paymentMethod: "saldo", total: "5000" });
+          expect(calls.op?.payload).toMatchObject({ paymentMethod: "saldo" });
+        }
+        expect(spendPrepaidAuthoritative).toHaveBeenCalled();
+        expect(spendPrepaidAuthoritative.mock.calls[0][0]).toMatchObject({ amountClp: 5000, reason: "spend_caja" });
+      });
+    });
+
+    it("si algo falla después de descontar el saldo, lo devuelve y libera el QR (no queda plata cobrada sin venta)", async () => {
+      refundPrepaidForVoidedSale.mockClear();
+      releasePayToken.mockClear();
+      spendPrepaidAuthoritative.mockResolvedValueOnce({ ok: true, balanceAfter: 0 });
+      const { db } = makeFakeDb({ products: [piscola], failOrderInsert: true });
+      await expect(
+        createCajaSale(db, { ...baseParams, paymentMethod: "saldo", buyerEmail: "cliente@test.cl", payToken: "PLAYPAY:v1:AbCdEfGhIjKlMnOp.ZyXwVuTsRqPoNmLkJiHgFe", items: [{ ticketTypeId: 1, quantity: 1 }] })
+      ).rejects.toThrow();
+      expect(refundPrepaidForVoidedSale).toHaveBeenCalledWith(expect.objectContaining({ customerId: 42, amountClp: 5000, voidOpId: baseParams.opId }));
+      expect(releasePayToken).toHaveBeenCalled();
+    });
+
+    it("no devuelve nada si el cobro con saldo ya había sido rechazado", async () => {
+      refundPrepaidForVoidedSale.mockClear();
+      spendPrepaidAuthoritative.mockResolvedValueOnce({ ok: false, conflictNote: "Saldo insuficiente para cubrir el 100% de esta venta" } as any);
+      const { db } = makeFakeDb({ products: [piscola] });
+      await expect(
+        createCajaSale(db, { ...baseParams, paymentMethod: "saldo", buyerEmail: "cliente@test.cl", cardPin: "1234", items: [{ ticketTypeId: 1, quantity: 1 }] })
+      ).rejects.toThrow(/insuficiente/);
+      expect(refundPrepaidForVoidedSale).not.toHaveBeenCalled();
     });
 
     describe("autorización de supervisor (cliente que olvidó el PIN)", () => {
