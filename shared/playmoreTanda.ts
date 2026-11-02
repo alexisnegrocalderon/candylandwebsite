@@ -1,8 +1,8 @@
 /* Tanda vigente de la landing PLAYMORE: qué se está vendiendo hoy, cuánto
  * falta para que cierre y cuánto del cupo ya se llevó. Mismo criterio que la
  * tarjeta de tanda de la home de Playroom (Home.tsx): el acceso destacado es
- * el Dúo, o el más barato. Nunca se muestra el cupo total, solo lo que queda
- * y el porcentaje vendido. */
+ * el Dúo, o el más barato. Solo se muestran porcentajes: nunca cupos exactos
+ * (ni el total ni lo que queda). */
 
 export interface PlaymoreTicketView {
   id: number;
@@ -14,15 +14,14 @@ export interface PlaymoreTicketView {
   originalPrice: number | null;
   /** ISO: cuando cierra esta tanda y sube el precio. */
   salesEnd: string | null;
-  /** Cupo que queda (null = sin tope). */
-  remaining: number | null;
-  /** Porcentaje del cupo ya vendido, 0-100 (null = sin tope). */
+  /** ¿Queda cupo? (sin tope = true). El número exacto nunca sale del servidor. */
+  hasStock: boolean;
+  /** Porcentaje del cupo ya vendido, 0-100 (null = sin tope). Nunca 100 si todavía queda cupo. */
   soldPct: number | null;
 }
 
 export interface PlaymoreTanda {
   featured: PlaymoreTicketView;
-  remaining: number | null;
   soldPct: number | null;
   /** Cuándo sube el precio (solo si todavía no pasó). */
   salesEnd: string | null;
@@ -38,10 +37,9 @@ export function deriveTanda(types: PlaymoreTicketView[], nowMs: number): Playmor
   const end = featured.salesEnd ? Date.parse(featured.salesEnd) : NaN;
   return {
     featured,
-    remaining: featured.remaining,
     soldPct: featured.soldPct,
     salesEnd: Number.isFinite(end) && end > nowMs ? featured.salesEnd : null,
-    soldOut: active.length === 0 || (featured.remaining != null && featured.remaining <= 0),
+    soldOut: active.length === 0 || !featured.hasStock,
   };
 }
 

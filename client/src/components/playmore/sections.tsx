@@ -329,8 +329,8 @@ function TandaPanel({ tanda }: { tanda: PlaymoreTanda }) {
         <p className="playmore-sans text-2xl font-extrabold sm:text-3xl" role="status">Se agotó esta tanda · pronto la siguiente</p>
       ) : (
         <>
-          {tanda.remaining != null && (
-            <p className="playmore-sans text-2xl font-extrabold sm:text-3xl">Quedan <span className="playmore-gold tabular-nums">{tanda.remaining}</span> cupos a este precio</p>
+          {tanda.soldPct != null && (
+            <p className="playmore-sans text-2xl font-extrabold sm:text-3xl">Ya se vendió el <span className="playmore-gold tabular-nums">{tanda.soldPct}%</span> de esta tanda</p>
           )}
           {tanda.salesEnd && (
             <div className="mt-5">
@@ -344,7 +344,7 @@ function TandaPanel({ tanda }: { tanda: PlaymoreTanda }) {
                 <motion.div initial={{ width: 0 }} whileInView={{ width: `${tanda.soldPct}%` }} viewport={{ once: true }} transition={{ duration: 1.4, ease: [0.22, 1, 0.36, 1] }}
                   className="h-full rounded-full bg-gradient-to-r from-[#7a5a22] via-[#f7e7a8] to-[#E477EA]" />
               </div>
-              <p className="mt-2 text-xs tracking-[0.2em] text-[var(--pm-sand)]/70">{tanda.soldPct}% VENDIDO</p>
+              <p className="mt-2 text-xs tracking-[0.2em] text-[var(--pm-sand)]/70">{Math.max(0, 100 - tanda.soldPct)}% DISPONIBLE</p>
             </div>
           )}
         </>
@@ -358,7 +358,7 @@ function TearTicket({ t, href, eventName, index }: { t: PlaymoreTicketView; href
   const [, navigate] = useLocation();
   const reduce = useReducedMotion();
   const [torn, setTorn] = useState(false);
-  const soldout = t.status === 'soldout' || (t.remaining != null && t.remaining <= 0);
+  const soldout = t.status === 'soldout' || !t.hasStock;
   const canBuy = !!href && !soldout;
   const tear = () => {
     if (!canBuy || torn) return;

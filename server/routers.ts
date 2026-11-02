@@ -4563,7 +4563,7 @@ export const appRouter = router({
       return {
         isLive, preview: !isLive, partnerName: cp.partnerName, landing,
         event: event ? { slug: event.slug, title: event.title, eventDate: event.eventDate, imageUrl: event.imageUrl } : null,
-        // Cupo y tanda como en la home de Playroom: solo lo que queda y el %, nunca el total.
+        // Tanda: solo porcentajes, nunca cupos exactos (ni el total ni lo que queda).
         ticketTypes: types.filter((t: any) => t.status !== 'hidden' && presaleAllows(event, t)).map((t: any) => {
           const usesPool = t.stockPoolId != null && t.poolTotalCap != null;
           const total = usesPool ? Number(t.poolTotalCap) : Number(t.totalStock ?? 0);
@@ -4573,8 +4573,9 @@ export const appRouter = router({
             id: t.id, name: t.name, price: Number(t.price), status: t.status, accesoSlug: t.accesoSlug, category: String(t.category),
             originalPrice: t.originalPrice ? Number(t.originalPrice) : null,
             salesEnd: t.salesEnd ? new Date(t.salesEnd).toISOString() : null,
-            remaining,
-            soldPct: remaining == null ? null : Math.min(100, Math.round(((total - remaining) / Math.max(1, total)) * 100)),
+            // Solo porcentaje (nunca cupos exactos); 100% solo si de verdad no queda nada.
+            hasStock: remaining == null || remaining > 0,
+            soldPct: remaining == null ? null : remaining <= 0 ? 100 : Math.min(99, Math.round(((total - remaining) / Math.max(1, total)) * 100)),
           };
         }),
       };

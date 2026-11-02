@@ -3,7 +3,7 @@ import { buyHrefFor, deriveTanda, type PlaymoreTicketView } from './playmoreTand
 
 const t = (o: Partial<PlaymoreTicketView>): PlaymoreTicketView => ({
   id: 1, name: 'Dúo', price: 30000, status: 'active', accesoSlug: 'duo', category: 'acceso',
-  originalPrice: null, salesEnd: null, remaining: 40, soldPct: 20, ...o,
+  originalPrice: null, salesEnd: null, hasStock: true, soldPct: 20, ...o,
 });
 const now = Date.parse('2026-11-10T12:00:00-03:00');
 
@@ -20,7 +20,7 @@ describe('deriveTanda', () => {
     expect(r.salesEnd).toBeNull();
   });
   it('todo agotado → tanda agotada; extras no cuentan', () => {
-    expect(deriveTanda([t({ status: 'soldout', remaining: 0 })], now)!.soldOut).toBe(true);
+    expect(deriveTanda([t({ status: 'soldout', hasStock: false })], now)!.soldOut).toBe(true);
     expect(deriveTanda([t({ category: 'extra' })], now)).toBeNull();
   });
 });
