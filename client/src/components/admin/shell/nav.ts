@@ -26,8 +26,8 @@ export interface AdminHub {
  * es de una fiesta sola. "ajustes" va aparte, abajo del separador. */
 export const ADMIN_HUBS: AdminHub[] = [
   { id: 'inicio', label: 'Inicio', icon: Home, mobile: true },
-  { id: 'preparar', label: '1 · Preparar', icon: ClipboardList, perEvent: true },
   { id: 'coproduccion', label: 'Playroom × Dalmore', icon: Handshake },
+  { id: 'preparar', label: '1 · Preparar', icon: ClipboardList, perEvent: true },
   { id: 'vender', label: '2 · Vender', icon: Ticket, mobile: true, perEvent: true },
   { id: 'comunicar', label: 'Comunicar', icon: Megaphone },
   { id: 'envivo', label: '3 · En vivo', icon: Radio, mobile: true, perEvent: true },
