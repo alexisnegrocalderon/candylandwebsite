@@ -396,6 +396,63 @@ describe("createCajaSale", () => {
       expect(calls.order).toMatchObject({ paymentMethod: "saldo", total: "5000", customerId: 42 });
     });
 
+    describe("cobro mixto: parte con saldo y el resto con otro medio", () => {
+      beforeEach(() => { spendPrepaidAuthoritative.mockClear(); verifyCardPin.mockClear(); });
+
+      it("descuenta solo la parte pedida del saldo y la orden queda por el resto, con el medio de la diferencia", async () => {
+        verifyCardPin.mockResolvedValueOnce({ ok: true, customerId: 42 });
+        spendPrepaidAuthoritative.mockResolvedValueOnce({ ok: true, balanceAfter: 0 });
+        const { db, calls } = makeFakeDb({ products: [piscola] }); // $5.000
+
+        const res = await createCajaSale(db, {
+          ...baseParams, paymentMethod: "efectivo", saldoAmount: 2000, buyerEmail: "cliente@test.cl", cardPin: "1234",
+          items: [{ ticketTypeId: 1, quantity: 1 }],
+        });
+
+        expect(res.result).toBe("applied");
+        expect(spendPrepaidAuthoritative).toHaveBeenCalledWith(expect.objectContaining({ customerId: 42, amountClp: 2000, reason: "spend_caja" }));
+        expect(calls.order).toMatchObject({ paymentMethod: "efectivo", subtotal: "5000", total: "3000", discount: "2000", customerId: 42 });
+        expect(calls.op?.payload).toMatchObject({ saldoAmount: 2000 });
+      });
+
+      it("con el QR de la app tampoco se fuerza a saldo total: respeta el medio de la diferencia", async () => {
+        spendPrepaidAuthoritative.mockResolvedValueOnce({ ok: true, balanceAfter: 0 });
+        const { db, calls } = makeFakeDb({ products: [piscola] });
+        await createCajaSale(db, {
+          ...baseParams, paymentMethod: "debito", saldoAmount: 1500, buyerEmail: "cliente@test.cl",
+          payToken: "PLAYPAY:v1:AbCdEfGhIjKlMnOp.ZyXwVuTsRqPoNmLkJiHgFe", items: [{ ticketTypeId: 1, quantity: 1 }],
+        });
+        expect(spendPrepaidAuthoritative).toHaveBeenCalledWith(expect.objectContaining({ amountClp: 1500 }));
+        expect(calls.order).toMatchObject({ paymentMethod: "debito", total: "3500" });
+      });
+
+      it("si el saldo pedido cubre todo el total, es un cobro 100% saldo", async () => {
+        verifyCardPin.mockResolvedValueOnce({ ok: true, customerId: 42 });
+        spendPrepaidAuthoritative.mockResolvedValueOnce({ ok: true, balanceAfter: 0 });
+        const { db, calls } = makeFakeDb({ products: [piscola] });
+        await createCajaSale(db, { ...baseParams, paymentMethod: "efectivo", saldoAmount: 9000, buyerEmail: "cliente@test.cl", cardPin: "1234", items: [{ ticketTypeId: 1, quantity: 1 }] });
+        expect(spendPrepaidAuthoritative).toHaveBeenCalledWith(expect.objectContaining({ amountClp: 5000 }));
+        expect(calls.order).toMatchObject({ paymentMethod: "saldo", total: "5000", discount: "0" });
+      });
+
+      it("sin PIN ni QR no hay cobro mixto y no se toca el saldo", async () => {
+        const { db } = makeFakeDb({ products: [piscola] });
+        await expect(
+          createCajaSale(db, { ...baseParams, paymentMethod: "efectivo", saldoAmount: 2000, buyerEmail: "cliente@test.cl", items: [{ ticketTypeId: 1, quantity: 1 }] })
+        ).rejects.toThrow();
+        expect(spendPrepaidAuthoritative).not.toHaveBeenCalled();
+      });
+
+      it("el canje de Playcoins no se mezcla con el saldo", async () => {
+        verifyCardPin.mockResolvedValueOnce({ ok: true, customerId: 42 });
+        spendPrepaidAuthoritative.mockResolvedValueOnce({ ok: true, balanceAfter: 0 });
+        redeemPlaycoinsAuthoritative.mockClear();
+        const { db } = makeFakeDb({ products: [piscola] });
+        await createCajaSale(db, { ...baseParams, paymentMethod: "efectivo", saldoAmount: 2000, redeemPlaycoins: 3000, buyerEmail: "cliente@test.cl", cardPin: "1234", items: [{ ticketTypeId: 1, quantity: 1 }] });
+        expect(redeemPlaycoinsAuthoritative).not.toHaveBeenCalled();
+      });
+    });
+
     describe("QR de la app (payToken) con otro medio de pago seleccionado", () => {
       const appToken = "PLAYPAY:v1:AbCdEfGhIjKlMnOp.ZyXwVuTsRqPoNmLkJiHgFe";
 
