@@ -49,6 +49,7 @@ export function CajaAdminView() {
         )}
       </div>
 
+      <CajaTestAccountCard />
       <SaldoReconciliationCard eventId={null} />
       {activeEventId && <ResetTestDataCard eventId={activeEventId} eventTitle={events.find((e: any) => e.id === activeEventId)?.title ?? ''} />}
       <RecurringExpensesPanel />
@@ -113,6 +114,68 @@ export function ResetTestDataCard({ eventId, eventTitle }: { eventId: number; ev
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Cuenta de prueba para ensayar la caja: la misma de Admin → Cuenta de prueba (server/demoAccount.ts), pero a mano en la
+ * sección Caja. Trae $15.000 de saldo, Playcoins y extras sin usar. Se entra a la App con el correo que se escribe acá
+ * (llega el código), se abre el QR «Pagar en caja» y se escanea desde la caja en modo prueba. */
+export function CajaTestAccountCard() {
+  const utils = trpc.useUtils();
+  const { data, isLoading } = trpc.demoAccount.status.useQuery(undefined, { refetchInterval: 10_000 });
+  const [email, setEmail] = useState('');
+  const [name, setName] = useState('');
+  const refresh = () => utils.demoAccount.status.invalidate();
+  const create = trpc.demoAccount.create.useMutation({
+    onSuccess: () => { refresh(); toast.success('Cuenta de prueba lista: entra a la App con ese correo'); },
+    onError: onMutationError,
+  });
+  const del = trpc.demoAccount.delete.useMutation({
+    onSuccess: () => { refresh(); toast.success('Cuenta de prueba borrada'); },
+    onError: onMutationError,
+  });
+  return (
+    <Card className="rounded-2xl border-0 shadow-md shadow-black/5 border-l-4 border-l-sky-500">
+      <CardHeader><CardTitle>Probar la caja con una cuenta de prueba</CardTitle></CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-sm text-muted-foreground">
+          Crea un cliente de prueba con <b>$15.000 de saldo</b>, Playcoins y extras sin usar, sin tocar plata ni clientes reales.
+          Entra a la App con su correo (te llega el código), abre el QR «Pagar en caja» y escanéalo desde la caja cuando muestre
+          «🧪 Modo prueba» (es automático fuera del horario del evento). Para volver a $15.000, anula las ventas de prueba en el historial de la caja o recrea la cuenta.
+        </p>
+        {isLoading && <p className="text-sm text-muted-foreground">Cargando…</p>}
+        {data?.exists && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border/50 p-3">
+            <div className="min-w-0">
+              <p className="font-semibold truncate">{data.email}</p>
+              <p className="text-xs text-muted-foreground">Cuenta de prueba activa · entra a la App con este correo</p>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={() => navigator.clipboard?.writeText(data.email ?? '').then(() => toast.success('Correo copiado'), () => toast.error('No se pudo copiar'))}>Copiar correo</Button>
+              <WriteButton variant="outline" size="sm" disabled={del.isPending}
+                onClick={() => { if (confirm('¿Borrar la cuenta de prueba completa?')) del.mutate(); }}>Borrar</WriteButton>
+            </div>
+          </div>
+        )}
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="text-sm">
+            <span className="mb-1 block text-muted-foreground">Correo para entrar</span>
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="tu.otro.correo@gmail.com"
+              className="h-10 w-72 max-w-full rounded-lg border border-border bg-background px-3" />
+          </label>
+          <label className="text-sm">
+            <span className="mb-1 block text-muted-foreground">Nombre</span>
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Camila Prueba"
+              className="h-10 w-48 rounded-lg border border-border bg-background px-3" />
+          </label>
+          <WriteButton disabled={create.isPending || !email.includes('@')}
+            onClick={() => { if (!data?.exists || confirm('Esto borra la cuenta de prueba anterior y crea una nueva. ¿Seguir?')) create.mutate({ email, name }); }}>
+            {create.isPending ? 'Creando…' : data?.exists ? 'Recrear cuenta' : 'Crear cuenta de prueba'}
+          </WriteButton>
+        </div>
+        <p className="text-xs text-muted-foreground">Usa un correo que nunca haya comprado (uno secundario tuyo): al borrar se borra ese cliente completo.</p>
       </CardContent>
     </Card>
   );
