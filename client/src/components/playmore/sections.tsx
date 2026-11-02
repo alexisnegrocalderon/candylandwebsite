@@ -115,7 +115,7 @@ export function PlaymoreHero({ landing, partnerName, buyHref, preview, early = f
             className="relative h-16 w-auto max-w-[9.5rem] object-contain sm:h-20 sm:max-w-[12rem]" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 1, delay: 0.2 }} />
           <motion.span style={{ opacity: crossOpacity }} className="playmore-serif relative mx-2 text-3xl italic text-[var(--pm-sand)]">×</motion.span>
           <motion.div style={{ x: rightX }} className="relative" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 1, delay: 0.35 }}>
-            <PartnerMark logoUrl={landing.partnerLogoUrl} name={partnerName} className="h-20 w-20 text-[5.5rem] sm:h-24 sm:w-24 sm:text-[6.5rem]" imgClassName="h-16 w-28 sm:h-24 sm:w-40" />
+            <PartnerMark logoUrl={landing.partnerLogoUrl === DALMORE_MARK ? DALMORE_LOGO : landing.partnerLogoUrl} name={partnerName} className="h-20 w-20 text-[5.5rem] sm:h-24 sm:w-24 sm:text-[6.5rem]" imgClassName="h-16 w-auto max-w-[9.5rem] sm:h-24 sm:max-w-[12rem]" />
           </motion.div>
         </div>
 
