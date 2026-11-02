@@ -22,6 +22,7 @@ import { openEventPackInStudio } from '@/components/admin/studio/handoff';
 import { TableSkeleton } from '@/components/admin/TableSkeleton';
 import { computePhasePrice, nextPhase, normalizeTandaSchedule, type TandaPhase } from '@shared/tandaSchedule';
 import { formatChileShortDate } from '@shared/chileDate';
+import { presaleAllows } from '@shared/presaleExtras';
 import { DISCOUNT_ORIGIN_LABEL, discountOrigin, isAutomaticDiscount, type DiscountOrigin } from '@shared/discountOrigin';
 import { ACCESO_SLUG_OPTIONS, AccesoSlug, AmbassadorRow, ProgramConfigTab, clp, fromChileInputValue, onMutationError, toChileInputValue } from './shared';
 
@@ -272,29 +273,45 @@ export function TicketTypeRow({ tt, eventId }: { tt: any; eventId: number }) {
   );
 }
 
-export function TicketTypesList({ eventId }: { eventId: number }) {
+export function TicketTypesList({ eventId, presaleOnly = false }: { eventId: number; presaleOnly?: boolean }) {
   const { data: ticketTypesData } = trpc.events.listTicketTypes.useQuery({ eventId });
   const ticketTypes = ticketTypesData ?? [];
+  const [showOthers, setShowOthers] = useState(false);
 
   if (ticketTypes.length === 0) {
     return <p className="text-muted-foreground text-xs mt-3">Todavía no hay entradas para este evento.</p>;
   }
 
-  const accesos = ticketTypes.filter((tt: any) => tt.category !== 'extra');
-  const extras = ticketTypes.filter((tt: any) => tt.category === 'extra');
+  // Evento «solo entrada y estacionamiento»: se ven las entradas y el estacionamiento; el resto (la Carta copiada de
+  // otra fiesta) queda plegado, sin borrarse.
+  const sold = presaleOnly ? ticketTypes.filter((tt: any) => presaleAllows({ presaleParkingOnly: 1 }, tt) && (tt.category === 'acceso' || tt.category === 'extra')) : ticketTypes;
+  const others = presaleOnly ? ticketTypes.filter((tt: any) => !sold.includes(tt)) : [];
+  const accesos = sold.filter((tt: any) => tt.category !== 'extra');
+  const extras = sold.filter((tt: any) => tt.category === 'extra');
 
   return (
     <div className="mt-3 space-y-4 border-t border-border/50 pt-3">
       {accesos.length > 0 && (
         <div className="space-y-2">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Accesos</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{presaleOnly ? 'Entradas' : 'Accesos'}</p>
           {accesos.map((tt: any) => <TicketTypeRow key={tt.id} tt={tt} eventId={eventId} />)}
         </div>
       )}
       {extras.length > 0 && (
         <div className="space-y-2">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Extras</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{presaleOnly ? 'Estacionamiento' : 'Extras'}</p>
           {extras.map((tt: any) => <TicketTypeRow key={tt.id} tt={tt} eventId={eventId} />)}
+        </div>
+      )}
+      {presaleOnly && accesos.length === 0 && extras.length === 0 && (
+        <p className="text-muted-foreground text-xs">Todavía no hay entradas ni estacionamiento: crea la primera con «Entrada».</p>
+      )}
+      {others.length > 0 && (
+        <div className="space-y-2">
+          <Button variant="outline" size="sm" onClick={() => setShowOthers(!showOthers)}>
+            {others.length} productos de la Carta (no se venden en este evento) {showOthers ? '▲' : '▼'}
+          </Button>
+          {showOthers && others.map((tt: any) => <TicketTypeRow key={tt.id} tt={tt} eventId={eventId} />)}
         </div>
       )}
     </div>
@@ -983,7 +1000,7 @@ export function EventCard({ event, onDeleted, expanded, onToggleExpand }: { even
             </div>
           </div>
         )}
-        <TicketTypesList eventId={event.id} />
+        <TicketTypesList eventId={event.id} presaleOnly={!!event.presaleParkingOnly} />
         <div className="mt-3 flex flex-wrap items-start gap-3">
           <AdvanceTandaDialog event={event} />
           <TandaScheduleEditor event={event} />

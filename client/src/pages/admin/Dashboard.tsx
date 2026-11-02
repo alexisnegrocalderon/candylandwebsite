@@ -125,9 +125,9 @@ const ADMIN_SECTIONS = [
   { id: 'discounts', label: 'Descuentos', hub: 'preparar', icon: Percent, render: () => <DiscountsManager /> },
   { id: 'community', label: 'Códigos Comunidad', hub: 'preparar', icon: Users, render: () => <CommunityCodesManager /> },
   { id: 'staff', label: 'Staff', hub: 'preparar', icon: Users, render: () => <StaffManager /> },
-  { id: 'caja', label: 'Caja', hub: 'preparar', icon: Store, render: () => <CajaAdminView /> },
-  { id: 'carta', label: 'Carta de la Fiesta', hub: 'preparar', icon: Martini, render: () => <CartaManager /> },
-  { id: 'insumos', label: 'Stock de Barra', hub: 'preparar', icon: Wine, render: () => <InsumosManager /> },
+  { id: 'caja', needsCaja: true, label: 'Caja', hub: 'preparar', icon: Store, render: () => <CajaAdminView /> },
+  { id: 'carta', needsCaja: true, label: 'Carta de la Fiesta', hub: 'preparar', icon: Martini, render: () => <CartaManager /> },
+  { id: 'insumos', needsCaja: true, label: 'Stock de Barra', hub: 'preparar', icon: Wine, render: () => <InsumosManager /> },
   // Co-producción (Playroom × Dalmore): aparece junto a la preparación porque se arma con el evento.
   { id: 'copro-resumen', label: 'Resumen', hub: 'coproduccion', icon: LayoutDashboard, render: () => <CoproResumen /> },
   { id: 'copro-asistentes', label: 'Asistentes', hub: 'coproduccion', icon: Users, render: () => <CoproAsistentes /> },

@@ -6,6 +6,7 @@ import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { useIsSupervisor } from '@/lib/demoMode';
 import { EventSwitcher } from './EventSwitcher';
+import { useTonightEvent } from '@/hooks/useTonightEvent';
 import { ADMIN_HUBS, hubBadgeCount, type AdminHub, type AdminHubId, type ShellSection } from './nav';
 import { CommandPalette } from './CommandPalette';
 import { GiftDialog } from '@/components/admin/staff/GiftDialog';
@@ -88,7 +89,13 @@ export function AdminShell({ sections: allSections, activeSection, onOpenSection
   const { data: giftAccess } = trpc.orders.canGift.useQuery(undefined, { enabled: !isDemo && !isSupervisor, retry: false, staleTime: 5 * 60_000 });
 
   // El menú no muestra las pantallas ocultas (`hidden`), salvo la que está abierta; el buscador sí las encuentra.
-  const sections = useMemo(() => allSections.filter((s) => !s.hidden || s.id === activeSection), [allSections, activeSection]);
+  // Evento sin caja de la plataforma (solo entrada y estacionamiento por la web): sin sus pantallas de caja, carta y stock.
+  const { events: shellEvents, eventId: shellEventId } = useTonightEvent();
+  const noCaja = !!((shellEvents ?? []) as any[]).find((e) => e.id === shellEventId)?.presaleParkingOnly;
+  const sections = useMemo(
+    () => allSections.filter((s) => (!s.hidden || s.id === activeSection) && !(noCaja && s.needsCaja && s.id !== activeSection)),
+    [allSections, activeSection, noCaja],
+  );
   const current = sections.find((s) => s.id === activeSection) ?? sections[0];
   const activeHub = current.hub;
   const hubSections = sections.filter((s) => s.hub === activeHub);
