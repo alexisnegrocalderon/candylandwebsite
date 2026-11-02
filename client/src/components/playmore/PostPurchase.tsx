@@ -143,7 +143,7 @@ export function ColabPostPurchase({ eventSlug, holderName, accesoSlug, accessLab
     let alive = true;
     const art: TicketArtData = {
       eventName: brand.eventName, partnerName: brand.partnerName, dateText: ticketDate(brand.countdownIso),
-      timeText: brand.timeText, venueText: brand.venueText, daysLeft: null, holderName: name || undefined, accessLabel: accessLabel || undefined,
+      timeText: brand.timeText, venueText: brand.venueText, daysLeft: null, holderName: name || undefined, accessLabel: accessLabel || 'Adquirido',
     };
     (async () => {
       const ticket = await renderTicket(art, brand.partnerLogoUrl || (brand.slug === 'dalmore' ? DALMORE_MARK : ''));
@@ -180,7 +180,7 @@ export function ColabPostPurchase({ eventSlug, holderName, accesoSlug, accessLab
 
   return (
     <div className="playmore mb-8 rounded-[2rem] border border-[#d6b25e]/35 bg-[radial-gradient(120%_70%_at_50%_0%,rgba(150,21,157,0.35),transparent_60%),#0c0908] px-4 py-7 text-left text-[var(--pm-cream)] sm:px-7">
-      <p className="text-center text-[11px] font-semibold tracking-[0.4em] text-[var(--pm-orchid)]">TU TICKET {brand.eventName}</p>
+      <p className="text-center text-[11px] font-semibold tracking-[0.4em] text-[var(--pm-orchid)]">TU TICKET {brand.eventName} · ADQUIRIDO</p>
       <div className="mt-5">
         {front && back ? <Ticket3D front={front} back={back} /> : <div className="mx-auto aspect-[3/1] w-full max-w-md animate-pulse rounded-xl bg-white/5" />}
       </div>
@@ -192,7 +192,7 @@ export function ColabPostPurchase({ eventSlug, holderName, accesoSlug, accessLab
         </button>
         <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
           <p className="text-sm font-bold">Que tu grupo se sume</p>
-          <p className="mt-1 text-xs text-[var(--pm-sand)]/70">Les llega la página con tu nombre{group ? ' y el mismo acceso ya elegido' : ''}.</p>
+          <p className="mt-1 text-xs text-[var(--pm-sand)]/70">{name || group ? `Les llega la página${name ? ' con tu nombre' : ''}${group ? `${name ? ' y' : ' con'} el mismo acceso ya elegido` : ''}.` : 'Pásales la página para que se sumen.'}</p>
           <div className="mt-3 grid grid-cols-2 gap-2">
             <a href={`https://wa.me/?text=${encodeURIComponent(inviteText)}`} target="_blank" rel="noopener noreferrer"
               className="flex h-11 items-center justify-center gap-2 rounded-full border border-[#d6b25e]/40 text-xs font-semibold tracking-[0.15em] hover:bg-white/5">

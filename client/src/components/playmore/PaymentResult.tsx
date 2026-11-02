@@ -14,7 +14,7 @@ const DALMORE_LOGO = '/playmore/dalmore-logo.png';
 type Kind = 'ok' | 'pending' | 'error';
 
 const COPY: Record<Kind, { title: string; text: string; Icon: typeof Check }> = {
-  ok: { title: '¡Estás dentro!', text: 'Tu pago se confirmó. Te enviamos tu entrada con el QR al correo (revisa también spam).', Icon: Check },
+  ok: { title: '¡Ya estás dentro!', text: 'Tu ticket está adquirido y confirmado. Te lo enviamos al correo con tu QR (revisa también spam).', Icon: Check },
   pending: { title: 'Pago en revisión', text: 'Cuando Mercado Pago lo confirme te llega la entrada al correo. No hace falta que pagues de nuevo.', Icon: Clock },
   error: { title: 'No se procesó el pago', text: 'No se realizó ningún cargo. Puedes intentarlo otra vez cuando quieras.', Icon: X },
 };
