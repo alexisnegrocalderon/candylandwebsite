@@ -8,6 +8,7 @@ import { getPartnerCampaignBySlug } from "./partnerCampaigns";
 import { getCoproductionBySlug } from "./coproduction";
 import { getPublicContest } from "./contests";
 import { normalizeLanding } from "../shared/coproduction";
+import { COLAB_HOSTS, colabSlugForHost } from "../shared/colabHosts";
 import { PARTNER_DEFAULT_HEADLINE } from "../shared/partnerCampaign";
 import { EVENT_BRAND } from "../shared/eventBrand";
 
@@ -181,12 +182,13 @@ export function registerSsrMetaRoutes(app: Express) {
   });
 
   // Landing de la co-producción con Dalmore. Mientras no esté activa queda
-  // fuera de los buscadores; al activarla sí se indexa.
-  app.get("/playroomdalmore", async (_req: Request, res: Response) => {
+  // fuera de los buscadores; al activarla sí se indexa. Se sirve en
+  // /playroomdalmore y en la raíz de su subdominio (shared/colabHosts.ts).
+  const colabLanding = async (res: Response, slug: string) => {
     const template = loadTemplateOrFail(res);
     if (!template) return;
     try {
-      const cp = await getCoproductionBySlug("dalmore").catch(() => null);
+      const cp = await getCoproductionBySlug(slug).catch(() => null);
       const landing = normalizeLanding(cp?.landing);
       const live = cp?.isLive === 1;
       const title = `${landing.title} · ${live ? landing.dateText : "Próximamente"}`;
@@ -194,7 +196,8 @@ export function registerSsrMetaRoutes(app: Express) {
         ? `${landing.headline} ${landing.venueText}. ${landing.capacityText}.`
         : `${landing.title}: muy pronto. ${landing.venueText}.`;
       const image = landing.heroImageUrl.startsWith("https://") ? landing.heroImageUrl : await resolveDefaultOgImage();
-      const url = `${SITE_URL}/playroomdalmore`;
+      const host = Object.entries(COLAB_HOSTS).find(([, s]) => s === slug)?.[0];
+      const url = host ? `https://${host}/` : `${SITE_URL}/playroomdalmore`;
       sendHtml(res, injectMeta(template, {
         title, description,
         ogTitle: title, ogDescription: description, ogUrl: url, ogImage: image,
@@ -203,9 +206,15 @@ export function registerSsrMetaRoutes(app: Express) {
         ...(live ? {} : { robots: "noindex, nofollow" }),
       }));
     } catch (err) {
-      console.error("[ssrMeta] /playroomdalmore falló, sirviendo template sin inyectar:", err);
+      console.error("[ssrMeta] landing de colab falló, sirviendo template sin inyectar:", err);
       sendHtml(res, template);
     }
+  };
+  app.get("/playroomdalmore", (_req: Request, res: Response) => colabLanding(res, "dalmore"));
+  app.get("/", (req: Request, res: Response, next: NextFunction) => {
+    const slug = colabSlugForHost(req.hostname);
+    if (!slug) return next();
+    return colabLanding(res, slug);
   });
 
   // Bases del concurso de Instagram activo: vista previa con el premio al

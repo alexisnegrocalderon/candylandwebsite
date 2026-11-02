@@ -4536,6 +4536,13 @@ export const appRouter = router({
 
     // Landing pública: sin activar solo muestra "Próximamente", salvo con el
     // link de vista previa. Nunca expone la clave ni nada del panel.
+    /* Marca compartida de un evento con co-producción ACTIVA (checkout, correos,
+     * entrada). null si el evento no es de una colab o todavía no se activa. */
+    brandForEvent: publicProcedure.input(z.object({ eventSlug: z.string().max(120) })).query(async ({ input }) => {
+      const event = await db.getEventBySlug(input.eventSlug);
+      if (!event) return null;
+      return coproductionSvc.getEventColabBrand(event.id);
+    }),
     publicGet: publicProcedure.input(z.object({ slug: z.string().max(50), preview: z.string().max(64).optional() })).query(async ({ input, ctx }) => {
       const cp = await coproductionSvc.getCoproductionBySlug(input.slug);
       if (!cp) return null;

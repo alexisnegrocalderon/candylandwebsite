@@ -37,6 +37,7 @@ import { AccessList, type AccessRow, type Person } from '@/components/checkout/A
 import { DisclosureSummary, ExtraRow } from '@/components/checkout/ExtraRow';
 import { PurchaseCelebration } from '@/components/site/PurchaseCelebration';
 import { PartnerIntro } from '@/components/checkout/PartnerIntro';
+import { ColabBanner } from '@/components/checkout/ColabBanner';
 
 /** Mini vista previa de la Tarjeta Playroom, mostrada justo donde se pide el
  * PIN -- para que quede claro que el PIN protege ESTA tarjeta (saldo +
@@ -1340,6 +1341,8 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
           </div>
           </>
         )}
+
+        {!isPartner && <ColabBanner eventSlug={eventSlug} />}
 
         {/* Sello discreto de la comunidad (sin precio: el valor recién se ve
             en el resumen, después de validar los datos). */}

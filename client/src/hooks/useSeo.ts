@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { colabSlugForHost } from '@shared/colabHosts';
 
 const SITE_URL = 'https://mansionplayroom.cl';
 
@@ -19,7 +20,9 @@ function setCanonical(path: string) {
     el.setAttribute('rel', 'canonical');
     document.head.appendChild(el);
   }
-  el.setAttribute('href', `${SITE_URL}${path}`);
+  // En el subdominio de una colab, la dirección canónica es la del propio subdominio.
+  const origin = colabSlugForHost(window.location.hostname) ? window.location.origin : SITE_URL;
+  el.setAttribute('href', `${origin}${path}`);
 }
 
 /** Actualiza title/description/OG/canonical por ruta -- SPA sin SSR, así que

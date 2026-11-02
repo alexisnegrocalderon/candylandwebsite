@@ -35,6 +35,7 @@ import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useSt
 import { dropOrphanLayers, goBack, holdScroll, navDirection, routeScrollTarget } from "@/lib/appNav";
 import { hasWelcomeParam } from "@shared/welcome";
 import { DARK_CHROME_BG, isDarkRoute } from "@/lib/darkChrome";
+import { colabSlugForHost } from "@shared/colabHosts";
 // La portada "/" pasa por HalloweenHome: renderiza la Home oficial tal cual,
 // y solo le agrega la paleta Halloween si el switch del admin está prendido
 // (o siempre en /halloween, la vista previa).
@@ -207,7 +208,7 @@ function Router() {
         transition={enter.transition}
       >
         <Switch>
-          <Route path="/">{() => (isAppMode() ? <AppHome /> : <HalloweenHome />)}</Route>
+          <Route path="/">{() => (colabSlugForHost(window.location.hostname) ? <PlayroomDalmore /> : isAppMode() ? <AppHome /> : <HalloweenHome />)}</Route>
           <Route path="/halloween">{() => <HalloweenHome force />}</Route>
           <Route path="/eventos" component={isAppMode() ? AppEvents : Events} />
           <Route path="/eventos/:slug" component={isAppMode() ? AppEvents : EventDetail} />
@@ -304,7 +305,7 @@ function App() {
   const isPoster = location === '/playmatch/afiche';
   // La landing de la co-producción con Dalmore tiene su propio botón de
   // compra: la navbar ("Comprar entradas" del evento de Playroom) confundiría.
-  const isCoproLanding = location === '/playroomdalmore';
+  const isCoproLanding = location === '/playroomdalmore' || (location === '/' && !!colabSlugForHost(window.location.hostname));
   const hideChrome = isPoster || isCaja || isAdmin || isParty || isPuerta || isCocina || isGuardarropia || isGastos || isTicket;
   // Ni el cursor ni el scroll suave hacen nada en touch (ver isFinePointer),
   // así que en celular no se pide su chunk -- antes se importaban eager en

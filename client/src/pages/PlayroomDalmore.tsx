@@ -5,6 +5,7 @@ import { Volume2, VolumeX } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { useSeo } from '@/hooks/useSeo';
 import { CHILE_TZ } from '@shared/chileDate';
+import { colabSlugForHost } from '@shared/colabHosts';
 import '@/components/playmore/playmore.css';
 import {
   Accesos, BuyButton, CodeAndFaq, DALMORE_MARK, Experience, Gallery, PlaymoreFooter, PlaymoreHero, PlaymoreMarquee, TwoWorlds, clp,
@@ -22,7 +23,8 @@ const TicketIntro = lazy(() => import('@/components/playmore/TicketIntro').then(
  * precios ni compra, y el checkout del evento rechaza ventas. Con
  * `?preview=<token>` (Configuración → Vista previa) se ve completa. */
 
-const SLUG = 'dalmore';
+/** Co-producción de esta página: la del subdominio, o la de Dalmore. */
+const SLUG = colabSlugForHost(typeof window !== 'undefined' ? window.location.hostname : null) ?? 'dalmore';
 
 /** "04 DIC 2026" en hora de Chile, para el ticket. */
 function ticketDate(iso: string): string {
@@ -83,7 +85,7 @@ export default function PlayroomDalmore() {
   useSeo({
     title: landing ? `${landing.eventName} · Playroom × Dalmore · ${full ? landing.dateText : 'Próximamente'}` : 'Playroom × Dalmore',
     description: landing?.headline ?? 'Playroom × Dalmore',
-    path: '/playroomdalmore',
+    path: colabSlugForHost(window.location.hostname) ? '/' : '/playroomdalmore',
     image: landing?.heroImageUrl || undefined,
     noindex: !data?.isLive,
   });
