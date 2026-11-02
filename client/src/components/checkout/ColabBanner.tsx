@@ -1,4 +1,8 @@
+import { lazy, Suspense } from 'react';
 import { trpc } from '@/lib/trpc';
+
+// Ticket girable, story y link de grupo: solo se descarga si el evento es una colab.
+const ColabPostPurchase = lazy(() => import('@/components/playmore/PostPurchase').then((m) => ({ default: m.ColabPostPurchase })));
 
 /* Cabecera de marca compartida del checkout cuando el evento es una
  * co-producción activa (ej. PLAYMORE · Playroom × Dalmore). Para cualquier
@@ -21,4 +25,11 @@ export function ColabBanner({ eventSlug }: { eventSlug: string }) {
       <span className="hidden border-l border-[#d6b25e]/30 pl-4 text-[11px] font-semibold tracking-[0.3em] text-[#d6b25e] sm:inline">{brand.eventName}</span>
     </div>
   );
+}
+
+/** Después de pagar un evento colab: ticket con su nombre, story y link para el grupo. */
+export function ColabAfterPurchase(props: { eventSlug: string; holderName: string; accesoSlug?: string | null; accessLabel?: string }) {
+  const { data: brand } = trpc.coproduction.brandForEvent.useQuery({ eventSlug: props.eventSlug }, { enabled: !!props.eventSlug, retry: false, staleTime: 5 * 60_000 });
+  if (!brand) return null;
+  return <Suspense fallback={null}><ColabPostPurchase {...props} /></Suspense>;
 }

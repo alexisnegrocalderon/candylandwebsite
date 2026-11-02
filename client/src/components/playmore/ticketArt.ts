@@ -33,6 +33,18 @@ export interface TicketArtData {
   timeText: string;
   venueText: string;
   daysLeft: number | null;
+  /** Ticket ya comprado: nombre de quien lo lleva y su acceso (Dúo, Trío...). */
+  holderName?: string;
+  accessLabel?: string;
+}
+
+/** "04 DIC 2026" en hora de Chile, para el ticket. */
+export function ticketDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const parts = new Intl.DateTimeFormat('es-CL', { timeZone: 'America/Santiago', day: '2-digit', month: 'short', year: 'numeric' }).formatToParts(d);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
+  return `${get('day')} ${get('month').replace('.', '').toUpperCase()} ${get('year')}`;
 }
 
 export const FONT_SANS = '"Montserrat Variable", "Montserrat", system-ui, sans-serif';
@@ -175,7 +187,7 @@ export function drawTicketBody(canvas: HTMLCanvasElement, data: TicketArtData) {
   // Bajada en serif itálica.
   ctx.font = `italic 500 44px ${FONT_SERIF}`;
   ctx.fillStyle = '#e9d9b0';
-  ctx.fillText(`Una noche. Dos mundos. ${data.venueText.split(',')[0]}.`, tx, 150 + size + 34);
+  ctx.fillText(data.holderName ? `A nombre de ${data.holderName}` : `Una noche. Dos mundos. ${data.venueText.split(',')[0]}.`, tx, 150 + size + 34);
 
   // Fila inferior: fecha, hora, admit two.
   const rowY = h - 150;
@@ -190,7 +202,7 @@ export function drawTicketBody(canvas: HTMLCanvasElement, data: TicketArtData) {
 
   ctx.font = `800 54px ${FONT_SANS}`;
   ctx.fillStyle = goldGradient(ctx, right - 360, 0, right, 0);
-  spaced(ctx, 'ADMIT TWO', right, rowY + 52, 2, 'right');
+  spaced(ctx, data.accessLabel ? data.accessLabel.toUpperCase() : 'ADMIT TWO', right, rowY + 52, 2, 'right');
 
   if (data.daysLeft != null && data.daysLeft >= 0) {
     ctx.font = `700 22px ${FONT_SANS}`;

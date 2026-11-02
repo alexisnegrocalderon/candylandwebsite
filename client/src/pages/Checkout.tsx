@@ -37,7 +37,7 @@ import { AccessList, type AccessRow, type Person } from '@/components/checkout/A
 import { DisclosureSummary, ExtraRow } from '@/components/checkout/ExtraRow';
 import { PurchaseCelebration } from '@/components/site/PurchaseCelebration';
 import { PartnerIntro } from '@/components/checkout/PartnerIntro';
-import { ColabBanner } from '@/components/checkout/ColabBanner';
+import { ColabAfterPurchase, ColabBanner } from '@/components/checkout/ColabBanner';
 
 /** Mini vista previa de la Tarjeta Playroom, mostrada justo donde se pide el
  * PIN -- para que quede claro que el PIN protege ESTA tarjeta (saldo +
@@ -1176,11 +1176,12 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
       <div className="min-h-dvh pt-24 pb-16 flex items-center justify-center">
         <div className="container max-w-md text-center">
           <div className="w-16 h-16 rounded-full glass-candy flex items-center justify-center mx-auto mb-5 text-3xl">🍭</div>
-          <h1 className="font-heading font-extrabold text-2xl md:text-3xl tracking-tight mb-2">¡Bienvenidx a {EVENTO.nombre}!</h1>
+          <h1 className="font-heading font-extrabold text-2xl md:text-3xl tracking-tight mb-2">¡Bienvenidx a {event?.title ?? EVENTO.nombre}!</h1>
           <p className="text-muted-foreground text-sm mb-3">Tu pago se confirmó y tu acceso ya fue enviado a tu correo. Revisa tu bandeja de entrada.</p>
           <p className="text-muted-foreground text-sm mb-8">
             Si no lo encuentras, revisa tu carpeta de <span className="font-semibold text-foreground">spam o correo no deseado</span> — dependiendo del filtro de tu correo, puede haberse ido para allá.
           </p>
+          {!isPartner && <ColabAfterPurchase eventSlug={eventSlug} holderName={watch('buyer__nombre' as any) || ''} accesoSlug={accesoSlug} accessLabel={acceso?.nombre} />}
           {!isPartner && <ContestBuyerInvite eventSlug={event?.slug} />}
           {isPartner && partner && (
             <div className="glass-candy rounded-2xl p-5 mb-6 text-left space-y-3">

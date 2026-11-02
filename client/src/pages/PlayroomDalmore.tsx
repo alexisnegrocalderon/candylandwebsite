@@ -4,14 +4,14 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Volume2, VolumeX } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { useSeo } from '@/hooks/useSeo';
-import { CHILE_TZ } from '@shared/chileDate';
 import { colabSlugForHost } from '@shared/colabHosts';
-import { deriveTanda } from '@shared/playmoreTanda';
+import { ACCESO_GROUPS, deriveTanda } from '@shared/playmoreTanda';
 import '@/components/playmore/playmore.css';
 import {
   CodeAndFaq, DALMORE_MARK, Experience, Gallery, PlaymoreFooter, PlaymoreHero, PlaymoreMarquee, TwoWorlds,
 } from '@/components/playmore/sections';
 import { startMusic, stopMusic } from '@/components/playmore/playmoreAudio';
+import { ticketDate } from '@/components/playmore/ticketArt';
 import { Accesos, StickyBuyBar } from '@/components/playmore/accesos';
 import { LivePurchases } from '@/components/playmore/LivePurchases';
 import { NightTimeline } from '@/components/playmore/NightTimeline';
@@ -30,18 +30,20 @@ const TicketIntro = lazy(() => import('@/components/playmore/TicketIntro').then(
 /** Co-producción de esta página: la del subdominio, o la de Dalmore. */
 const SLUG = colabSlugForHost(typeof window !== 'undefined' ? window.location.hostname : null) ?? 'dalmore';
 
-/** "04 DIC 2026" en hora de Chile, para el ticket. */
-function ticketDate(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  const parts = new Intl.DateTimeFormat('es-CL', { timeZone: CHILE_TZ, day: '2-digit', month: 'short', year: 'numeric' }).formatToParts(d);
-  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
-  return `${get('day')} ${get('month').replace('.', '').toUpperCase()} ${get('year')}`;
-}
-
 export default function PlayroomDalmore() {
   const preview = useMemo(() => {
     try { return new URLSearchParams(window.location.search).get('preview') ?? undefined; } catch { return undefined; }
+  }, []);
+  // Link de grupo de alguien que ya compró (?invita=Camila&acceso=duo): se muestra
+  // quién invitó y los accesos abren con ese grupo elegido.
+  const invite = useMemo(() => {
+    try {
+      const q = new URLSearchParams(window.location.search);
+      const name = (q.get('invita') ?? '').replace(/[^A-Za-zÀ-ÿ '-]/g, '').trim().slice(0, 24);
+      const g = q.get('acceso');
+      const group = ACCESO_GROUPS.find((x) => x.key === g)?.key ?? null;
+      return name || group ? { name, group, label: ACCESO_GROUPS.find((x) => x.key === g)?.label } : null;
+    } catch { return null; }
   }, []);
   const { data, isLoading } = trpc.coproduction.publicGet.useQuery({ slug: SLUG, preview }, { retry: false });
   // Sin logo subido en Configuración se usa el de Dalmore que viene con la página.
@@ -162,6 +164,13 @@ export default function PlayroomDalmore() {
             {soundOn ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
           </button>
 
+          {invite?.name && (
+            <motion.a href="#accesos" initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.6 }}
+              className="relative z-30 mx-auto mt-4 flex w-fit max-w-[92vw] items-center gap-2 rounded-full border border-[#d6b25e]/50 bg-black/60 px-4 py-2 text-xs text-[var(--pm-sand)] backdrop-blur-md">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-[var(--pm-fuchsia)]" aria-hidden="true" />
+              <span><span className="playmore-gold font-bold">{invite.name}</span> ya tiene su entrada{invite.label ? <> · viene en <span className="font-bold">{invite.label}</span></> : ''}. Súmate →</span>
+            </motion.a>
+          )}
           <PlaymoreHero landing={landing} partnerName={data.partnerName} buyHref={buyHref} preview={data.preview} minPrice={minPrice} />
           <PlaymoreMarquee partnerName={data.partnerName} />
           <TwoWorlds landing={landing} partnerName={data.partnerName} soundOn={soundOn} onToggleSound={toggleSound} />
@@ -170,7 +179,7 @@ export default function PlayroomDalmore() {
               <Experience landing={landing} />
               <NightTimeline moments={landing.timeline} />
               <Gallery urls={landing.galleryUrls} />
-              <Accesos types={data.ticketTypes} buyHref={buyHref} eventName={landing.eventName} tanda={tanda} soundOn={soundOn} />
+              <Accesos types={data.ticketTypes} buyHref={buyHref} eventName={landing.eventName} tanda={tanda} soundOn={soundOn} initialGroup={invite?.group ?? null} />
             </>
           )}
           <CodeAndFaq landing={landing} eventName={landing.eventName} />

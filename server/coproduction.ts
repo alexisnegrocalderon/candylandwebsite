@@ -351,7 +351,11 @@ export async function getCoproductionSplit(cp: Coproduction) {
 
 /** Marca compartida de un evento con co-producción activa: lo que ven el
  * checkout, los correos y la entrada. null si no es una colab (o no está activa). */
-export interface ColabBrand { slug: string; partnerName: string; partnerLogoUrl: string; eventName: string }
+export interface ColabBrand {
+  slug: string; partnerName: string; partnerLogoUrl: string; eventName: string;
+  /** Para el ticket y la story post-compra. */
+  countdownIso: string; timeText: string; venueText: string;
+}
 
 export async function getEventColabBrand(eventId: number): Promise<ColabBrand | null> {
   const db = await getDb();
@@ -360,7 +364,10 @@ export async function getEventColabBrand(eventId: number): Promise<ColabBrand | 
     const [cp] = await db.select().from(coproductions).where(eq(coproductions.eventId, eventId)).limit(1);
     if (!cp || cp.isLive !== 1) return null;
     const landing = normalizeLanding(cp.landing);
-    return { slug: cp.slug, partnerName: cp.partnerName, partnerLogoUrl: landing.partnerLogoUrl, eventName: landing.eventName };
+    return {
+      slug: cp.slug, partnerName: cp.partnerName, partnerLogoUrl: landing.partnerLogoUrl, eventName: landing.eventName,
+      countdownIso: landing.countdownIso, timeText: landing.timeText, venueText: landing.venueText,
+    };
   }, null);
 }
 
