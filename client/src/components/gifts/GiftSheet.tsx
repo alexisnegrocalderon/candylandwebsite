@@ -96,6 +96,7 @@ export function GiftSheet({ open, onClose, team = [], initialIds = [], initialRe
   const [mode, setMode] = useState<'directo' | 'pase'>('directo');
   const [anyAccess, setAnyAccess] = useState(false);
   const [anyQty, setAnyQty] = useState(1);
+  const [anyEvent, setAnyEvent] = useState(false);
   const [validDays, setValidDays] = useState<number | null>(null);
   const [result, setResult] = useState<{ ok: number; bad: { email: string; error?: string }[]; resumen: string } | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -103,7 +104,7 @@ export function GiftSheet({ open, onClose, team = [], initialIds = [], initialRe
   const reset = (keepRecipients: Recipient[] = [], keepIds: number[] = []) => {
     setStep(keepRecipients.length || keepIds.length ? 'que' : 'quien');
     setRecipients(keepRecipients); setStaffIds(keepIds); setAudienceId(null); setQ(''); setQty({}); setMessage(''); setReason('');
-    setPacks(loadPacks()); setMode('directo'); setAnyAccess(false); setAnyQty(1); setValidDays(null); setResult(null); setPickedEventId(null);
+    setPacks(loadPacks()); setMode('directo'); setAnyAccess(false); setAnyQty(1); setAnyEvent(false); setValidDays(null); setResult(null); setPickedEventId(null);
   };
   /** «Regalar a otra persona»: vuelve al paso 1 con lo mismo elegido para regalar (cambia solo a quién y el mensaje). */
   const anotherPerson = () => { setRecipients([]); setStaffIds([]); setAudienceId(null); setQ(''); setMessage(''); setResult(null); setStep('quien'); };
@@ -144,6 +145,8 @@ export function GiftSheet({ open, onClose, team = [], initialIds = [], initialRe
   const allProducts = [...products.entradas, ...products.tragos];
   const accesos = products.entradas.filter((t) => t.category === 'acceso');
   const passAny = mode === 'pase' && anyAccess && accesos.length > 0;
+  // Un pase «a elección» puede valer para cualquier evento: queda en Cupones y la persona lo usa cuando quiera.
+  const passAnyEvent = passAny && anyEvent;
   const items = [
     ...Object.entries(qty).filter(([id, n]) => n > 0 && !(passAny && accesos.some((a) => String(a.id) === id))).map(([id, n]) => ({ ticketTypeId: Number(id), quantity: n })),
     ...(passAny && anyQty > 0 ? [{ ticketTypeId: accesos[0].id as number, quantity: anyQty }] : []),
@@ -186,8 +189,8 @@ export function GiftSheet({ open, onClose, team = [], initialIds = [], initialRe
     return parts.join(' y ') || 'esta persona';
   })();
   const summary = giftSummary({
-    to: toLabel, mode, anyAccessQty: passAny ? anyQty : 0, eventTitle: event?.title ?? null,
-    validity: validDays ? `por ${validDays} días` : 'hasta el evento',
+    to: toLabel, mode, anyAccessQty: passAny ? anyQty : 0, eventTitle: passAnyEvent ? null : event?.title ?? null, anyEvent: passAnyEvent,
+    validity: validDays ? `por ${validDays} días` : passAnyEvent ? 'sin vencimiento' : 'hasta el evento',
     items: items.filter((i) => !(passAny && i.ticketTypeId === accesos[0]?.id)).map((i) => {
       const t = allProducts.find((p) => p.id === i.ticketTypeId);
       return { name: t?.name ?? 'producto', quantity: i.quantity, kind: t?.category === 'acceso' ? 'acceso' as const : t?.category === 'extra' ? 'extra' as const : 'trago' as const };
@@ -208,7 +211,7 @@ export function GiftSheet({ open, onClose, team = [], initialIds = [], initialRe
     if (!event) return;
     gift.mutate({
       eventId: event.id, emails: emails.length ? emails : undefined, audience: audienceDef?.audience as any, items,
-      reason: reason.trim() || undefined, message: message.trim() || undefined, mode, anyAccess: passAny, validDays,
+      reason: reason.trim() || undefined, message: message.trim() || undefined, mode, anyAccess: passAny, anyEvent: passAnyEvent || undefined, validDays,
     });
   };
 
@@ -363,10 +366,16 @@ export function GiftSheet({ open, onClose, team = [], initialIds = [], initialRe
                 <button type="button" aria-pressed={!anyAccess} onClick={() => setAnyAccess(false)} className={chip(!anyAccess)}>Acceso fijo</button>
                 <button type="button" aria-pressed={anyAccess} onClick={() => setAnyAccess(true)} className={chip(anyAccess)}>A elección</button>
               </div>
+              {anyAccess && (
+                <button type="button" aria-pressed={anyEvent} onClick={() => setAnyEvent((v) => !v)} className={`flex w-full items-start gap-2 rounded-2xl border-2 px-3 py-2 text-left transition ${anyEvent ? 'border-primary bg-primary/10' : 'border-border bg-card/60'}`}>
+                  <span className="text-lg leading-none">{anyEvent ? '✅' : '⬜'}</span>
+                  <span><span className="block text-sm font-semibold">🌎 Válido para cualquier evento</span><span className="block text-xs text-muted-foreground">Queda en sus Cupones y lo usa en el evento que quiera, cuando quiera.</span></span>
+                </button>
+              )}
               <div className="flex flex-wrap gap-1.5">
-                {VALIDITY.map((v) => <button key={v.label} type="button" aria-pressed={validDays === v.days} onClick={() => setValidDays(v.days)} className={chip(validDays === v.days)}>{v.label}</button>)}
+                {VALIDITY.map((v) => <button key={v.label} type="button" aria-pressed={validDays === v.days} onClick={() => setValidDays(v.days)} className={chip(validDays === v.days)}>{v.days === null && passAnyEvent ? 'Sin vencimiento' : v.label}</button>)}
               </div>
-              <p className="text-xs text-muted-foreground">Personal, solo para este evento y se canjea en el checkout con todos sus pasos (incluido el código de Soltero).</p>
+              <p className="text-xs text-muted-foreground">{passAnyEvent ? 'Personal y se canjea en el checkout del evento que elija, con todos sus pasos (incluido el código de Soltero).' : 'Personal, solo para este evento y se canjea en el checkout con todos sus pasos (incluido el código de Soltero).'}</p>
             </section>
           )}
 

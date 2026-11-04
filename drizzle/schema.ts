@@ -3499,3 +3499,12 @@ export const igFollowUps = mysqlTable("igFollowUps", {
   stoppedAt: timestamp("stoppedAt"),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
+
+// Cupo de entradas que cada persona del equipo puede regalar desde su app (pase para cualquier evento, queda en los
+// Cupones de quien lo recibe). Parte en 0: solo regala quien tenga cupo, y el dueño lo edita en Admin → Noche → Staff.
+// Va en su propia tabla (se crea sola la primera vez, server/staffGiftQuota.ts): no toca `staffMembers`.
+export const staffGiftQuota = mysqlTable("staffGiftQuota", {
+  staffId: int("staffId").primaryKey(),
+  entradas: int("entradas").default(0).notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});

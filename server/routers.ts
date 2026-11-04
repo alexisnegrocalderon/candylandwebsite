@@ -48,6 +48,7 @@ import * as staffEntrySvc from "./staffEntry";
 import { firmarDosier, dosierPath, DOSIER_TTL_ADMIN, DOSIER_TTL_CAJA } from "./dosierLink";
 import { dosierFichas } from "./dosierData";
 import { firmarInventario, inventarioPath, INVENTARIO_TTL } from "./inventarioLink";
+import * as staffGiftQuotaSvc from "./staffGiftQuota";
 import { puedeVerDosier } from "../shared/staffPortal";
 import { generateCostumeIdeas, fallbackResult as fallbackCostumeResult } from "./costumeOracle";
 import { ORACLE_VIBES, ORACLE_COMPANY, ORACLE_LEVELS, ORACLE_SKIN, ORACLE_ITEMS, ORACLE_EXTRA_MAX } from "../shared/costumeOracle";
@@ -1024,7 +1025,9 @@ async function runGift(params: {
   mode?: 'directo' | 'pase';
   /** Pase «a elección»: la persona escoge su acceso al canjear (en vez del acceso fijo elegido). */
   anyAccess?: boolean;
-  /** Días de vigencia del pase; `null` = hasta que termine el evento. */
+  /** El pase vale para cualquier evento (solo «a elección»). Sin vencimiento propio si no se pone `validDays`. */
+  anyEvent?: boolean;
+  /** Días de vigencia del pase; `null` = hasta que termine el evento (o sin vencimiento si vale para cualquier evento). */
   validDays?: number | null;
   /** Mensaje personalizado para quien lo recibe (correo y tarjeta de Cupones). */
   message?: string | null;
@@ -1037,11 +1040,12 @@ async function runGift(params: {
   for (const it of params.items) if (!presaleAllows(event, byId.get(it.ticketTypeId))) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Este producto no está a la venta por la web para este evento.' });
   const message = cleanGiftMessage(params.message);
   const asPass = params.mode === 'pase';
+  if (params.anyEvent && !(asPass && params.anyAccess)) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Un pase para cualquier evento tiene que ser «Pase para canjear» con acceso «A elección».' });
   const passItems = asPass ? params.items.filter((it) => byId.get(it.ticketTypeId).category === 'acceso') : [];
   const toOrder = params.items.filter((it) => ['acceso', 'extra'].includes(byId.get(it.ticketTypeId).category) && !passItems.includes(it));
   const comps = params.items.filter((it) => !['acceso', 'extra'].includes(byId.get(it.ticketTypeId).category));
   const eventEnd = (event as any).eventEnd ? new Date((event as any).eventEnd) : new Date(new Date(event.eventDate).getTime() + 12 * 3_600_000);
-  const validUntil = params.validDays ? new Date(Date.now() + params.validDays * 86_400_000) : eventEnd;
+  const validUntil = params.validDays ? new Date(Date.now() + params.validDays * 86_400_000) : params.anyEvent ? null : eventEnd;
   const resumen = params.items.map((it) => `${it.quantity > 1 ? `${it.quantity} × ` : ''}${byId.get(it.ticketTypeId).name}`).join(', ');
   const results: { email: string; ok: boolean; error?: string }[] = [];
   for (const raw of params.emails) {
@@ -1057,7 +1061,7 @@ async function runGift(params: {
       for (const it of passItems) {
         for (let i = 0; i < it.quantity; i++) {
           await issueGiftPass({
-            email, name, eventId: event.id, accesoSlug: params.anyAccess ? ANY_ACCESS_SLUG : (byId.get(it.ticketTypeId).accesoSlug ?? ANY_ACCESS_SLUG),
+            email, name, eventId: params.anyEvent ? null : event.id, accesoSlug: params.anyAccess ? ANY_ACCESS_SLUG : (byId.get(it.ticketTypeId).accesoSlug ?? ANY_ACCESS_SLUG),
             validUntil, reason: params.reason ?? null, actor: params.actor, ip: params.ip ?? null, message,
           });
         }
@@ -1078,7 +1082,7 @@ async function runGift(params: {
   }
   await db.recordAdminAudit({
     action: 'orders.gift', targetType: 'event', targetId: event.id, eventId: event.id, ip: params.ip ?? null,
-    payload: { by: params.actor, reason: params.reason ?? null, resumen, items: params.items, results },
+    payload: { by: params.actor, reason: params.reason ?? null, resumen, items: params.items, anyEvent: !!params.anyEvent, results },
   });
   return { results, resumen };
 }
@@ -2273,6 +2277,8 @@ export const appRouter = router({
       reason: z.string().trim().max(200).optional(),
       mode: z.enum(['directo', 'pase']).optional(),
       anyAccess: z.boolean().optional(),
+      // Pase «a elección» que vale para cualquier evento: queda en Cupones y la persona lo usa cuando quiera.
+      anyEvent: z.boolean().optional(),
       validDays: z.number().int().min(1).max(365).nullable().optional(),
       message: z.string().max(GIFT_MESSAGE_MAX + 20).optional(),
     })).mutation(async ({ input, ctx }) => {
@@ -2284,7 +2290,7 @@ export const appRouter = router({
       }
       emails = Array.from(new Set(emails));
       if (emails.length === 0) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Elige al menos a una persona.' });
-      return runGift({ eventId: input.eventId, emails, items: input.items, reason: input.reason, mode: input.mode, anyAccess: input.anyAccess, validDays: input.validDays, message: input.message, actor: ctx.user.email ?? ctx.user.name ?? 'admin', ip: clientIp(ctx) });
+      return runGift({ eventId: input.eventId, emails, items: input.items, reason: input.reason, mode: input.mode, anyAccess: input.anyAccess, anyEvent: input.anyEvent, validDays: input.validDays, message: input.message, actor: ctx.user.email ?? ctx.user.name ?? 'admin', ip: clientIp(ctx) });
     }),
     // Los pases regalados de un evento y su estado (disponible / usado / vencido / anulado).
     listGifts: adminReadProcedure.input(z.object({ eventId: z.number() })).query(({ input }) => listGiftPasses(input.eventId)),
@@ -5386,6 +5392,32 @@ export const appRouter = router({
       if (!data) return null;
       return { eventId, data, pdfPath: dosierPath(firmarDosier(eventId, 24 * 3600 * 1000).token) };
     }),
+    // Cupo de entradas del staff: cuántas puede regalar esta persona desde su app (parte en 0; lo cambia el dueño en Staff).
+    // Sin cupo no se muestra nada: devuelve `null`.
+    staffGiftInfo: publicProcedure.query(async ({ ctx }) => {
+      const email = getMemberEmail(ctx.req);
+      if (!email) return null;
+      await staffPortal.ensureAdminStaffAccess(email);
+      const staff = await staffPortal.findStaffByEmail(email);
+      if (!staff) return null;
+      const entradas = await staffGiftQuotaSvc.getQuota(staff.id);
+      return entradas > 0 ? { entradas } : null;
+    }),
+    // Regalar UNA entrada del cupo: un pase a elección, válido para cualquier evento, que queda en los Cupones de quien lo recibe.
+    staffGiftSend: publicProcedure.input(z.object({
+      email: z.string().trim().email().max(200), name: z.string().trim().max(80).optional(), message: z.string().max(GIFT_MESSAGE_MAX + 20).optional(),
+    })).mutation(async ({ input, ctx }) => {
+      const email = getMemberEmail(ctx.req);
+      if (!email) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Entra a tu cuenta primero.' });
+      await staffPortal.ensureAdminStaffAccess(email);
+      const staff = await staffPortal.findStaffByEmail(email);
+      if (!staff) throw new TRPCError({ code: 'FORBIDDEN', message: 'Esto es solo para el equipo.' });
+      try {
+        return await staffGiftQuotaSvc.sendStaffEntrada({ staff: { id: staff.id, name: staff.name, email: staff.email ?? email }, to: { email: input.email, name: input.name }, message: input.message });
+      } catch (e) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: e instanceof Error ? e.message : 'No se pudo regalar la entrada.' });
+      }
+    }),
     // Los anfitriones de Playmatch (cargo «Anfitrión Playmatch», y el dueño para probarlo): cómo va la noche y a quién ayudar.
     playmatchHost: publicProcedure.query(async ({ ctx }) => {
       const email = getMemberEmail(ctx.req);
@@ -6036,6 +6068,13 @@ export const appRouter = router({
     }),
     manualsOverview: adminProcedure.query(async () => ((await manualSchemaStatus()).ready ? staffManualSvc.acceptanceOverview() : [])),
     manualAcceptanceLog: adminProcedure.input(z.object({ staffId: z.number().int().positive() })).query(async ({ input }) => ((await manualSchemaStatus()).ready ? staffManualSvc.acceptanceLog(input.staffId) : [])),
+    // Cupo de entradas que cada persona del equipo puede regalar desde su app (parte en 0).
+    staffGiftQuotas: adminProcedure.query(() => staffGiftQuotaSvc.getQuotas()),
+    setStaffGiftQuota: adminProcedure.input(z.object({ staffId: z.number().int().positive(), entradas: z.number().int().min(0).max(staffGiftQuotaSvc.STAFF_QUOTA_MAX) }))
+      .mutation(async ({ input, ctx }) => {
+        try { return { entradas: await staffGiftQuotaSvc.setQuota(input.staffId, input.entradas, { by: ctx.user.email ?? ctx.user.name ?? 'admin', ip: clientIp(ctx) }) }; }
+        catch (e) { throw new TRPCError({ code: 'BAD_REQUEST', message: e instanceof Error ? e.message : 'No se pudo guardar el cupo.' }); }
+      }),
     staffList: adminProcedure.query(async () => {
       // Sin las columnas nuevas todavía no hay nada que listar (el panel avisa y ofrece actualizarla).
       if (!(await staffSchemaStatus()).ready) return [];

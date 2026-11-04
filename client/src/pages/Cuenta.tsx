@@ -415,11 +415,18 @@ function GiftPaseCard({ g }: { g: GiftPase }) {
       <p className="text-caption2 font-semibold uppercase tracking-[0.18em] text-pink-300">🎁 Pase de entrada</p>
       <p className="font-heading text-title2 font-extrabold leading-tight">{g.anyAccess ? 'Un acceso a tu elección' : g.accesoName}</p>
       {g.eventTitle && <p className="text-subhead font-semibold text-pink-300">Para {g.eventTitle}</p>}
-      <p className="text-subhead text-white/60">{g.validUntil ? `Vale hasta el ${fmtDate(g.validUntil)}` : ''}</p>
+      {g.anyEvent && <p className="text-subhead font-semibold text-pink-300">Vale para cualquier evento</p>}
+      <p className="text-subhead text-white/60">{g.validUntil ? `Vale hasta el ${fmtDate(g.validUntil)}` : g.anyEvent ? 'Sin vencimiento: úsalo cuando quieras' : ''}</p>
       <GiftMessage text={g.message} />
       <a href={href} onClick={tapHaptic} className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-pink-500 to-sky-500 px-6 text-subhead font-bold text-white interactive">
-        Canjear mi pase <ArrowRight className="h-4 w-4" />
+        {g.anyEvent && g.eventSlug ? 'Usarlo en el próximo evento' : 'Canjear mi pase'} <ArrowRight className="h-4 w-4" />
       </a>
+      {g.anyEvent && (
+        <>
+          <a href="/eventos" onClick={tapHaptic} className="text-subhead font-semibold text-pink-300 underline underline-offset-4">Elegir otro evento</a>
+          <p className="select-all rounded-xl bg-white/10 px-3 py-1.5 font-mono text-footnote tracking-wider text-white/80" aria-label="Tu código de pase">{g.code}</p>
+        </>
+      )}
       <p className="text-caption1 text-white/60">{g.anyAccess ? 'Elige tu acceso y compra con el pase: va sin costo. ' : 'Compra con el pase: va sin costo. '}Es personal: úsalo con el correo de tu cuenta.</p>
     </div>
   );

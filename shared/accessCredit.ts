@@ -29,8 +29,8 @@ export const ANY_ACCESS_SLUG = '*';
  * de siempre tiene una nota de texto y `parseGiftNote` devuelve `null`. */
 export interface GiftMeta {
   gift: 1;
-  /** Evento para el que vale (solo ese). */
-  eventId: number;
+  /** Evento para el que vale (solo ese); `null` = vale para cualquier evento (la persona lo usa cuando quiera). */
+  eventId: number | null;
   eventTitle: string | null;
   /** ISO: vence en esta fecha; `null` = sin vencimiento propio. */
   validUntil: string | null;
@@ -56,8 +56,10 @@ export function parseGiftNote(note: string | null | undefined): GiftMeta | null 
   if (!note || note[0] !== '{') return null;
   try {
     const v = JSON.parse(note) as Partial<GiftMeta>;
-    if (v.gift !== 1 || !Number.isFinite(Number(v.eventId))) return null;
-    return { gift: 1, eventId: Number(v.eventId), eventTitle: v.eventTitle ?? null, validUntil: v.validUntil ?? null, reason: v.reason ?? null, by: v.by ?? null, message: v.message ?? null };
+    if (v.gift !== 1) return null;
+    // `eventId: null` (explícito) = un pase para cualquier evento; si falta del todo, no es un pase regalado.
+    if (v.eventId !== null && !Number.isFinite(Number(v.eventId))) return null;
+    return { gift: 1, eventId: v.eventId === null ? null : Number(v.eventId), eventTitle: v.eventTitle ?? null, validUntil: v.validUntil ?? null, reason: v.reason ?? null, by: v.by ?? null, message: v.message ?? null };
   } catch { return null; }
 }
 
@@ -80,7 +82,7 @@ export function giftPassError(credit: { note?: string | null }, eventId: number,
   const gift = parseGiftNote(credit.note);
   if (!gift) return null;
   if (gift.validUntil && new Date(gift.validUntil).getTime() < now.getTime()) return 'Este pase venció.';
-  if (gift.eventId !== eventId) return `Este pase es para ${gift.eventTitle ?? 'otro evento'}.`;
+  if (gift.eventId !== null && gift.eventId !== eventId) return `Este pase es para ${gift.eventTitle ?? 'otro evento'}.`;
   return null;
 }
 

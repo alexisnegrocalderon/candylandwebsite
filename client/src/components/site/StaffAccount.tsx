@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'wouter';
 import { toast } from 'sonner';
-import { ArrowRight, BadgeCheck, BookOpenCheck, Check, ChevronDown, Clock, Copy, KeyRound, Link2, MapPin, MessageCircle, Phone, Shirt, Wrench } from 'lucide-react';
+import { ArrowRight, BadgeCheck, BookOpenCheck, Check, ChevronDown, Clock, Copy, Gift, KeyRound, Link2, MapPin, MessageCircle, Phone, Shirt, Wrench } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { pinProblem } from '@shared/staffCargos';
 import type { inferRouterOutputs } from '@trpc/server';
@@ -180,6 +180,43 @@ function StaffManualCard() {
   );
 }
 
+/** «Regalar una entrada»: solo aparece si el dueño le dio un cupo (parte en 0). Cada entrada es un pase para cualquier evento
+ * que queda en los Cupones de quien lo recibe; no se puede regalar más de lo que queda. */
+function StaffGiftCard() {
+  const utils = trpc.useUtils();
+  const { data } = trpc.member.staffGiftInfo.useQuery(undefined, { retry: false, staleTime: 30_000 });
+  const [email, setEmail] = useState('');
+  const [name, setName] = useState('');
+  const [message, setMessage] = useState('');
+  const send = trpc.member.staffGiftSend.useMutation({
+    onSuccess: (r) => {
+      toast.success(`Entrada enviada a ${email.trim()}. ${r.quedan > 0 ? `Te quedan ${r.quedan}.` : 'Ya no te quedan.'}`);
+      setEmail(''); setName(''); setMessage('');
+      utils.member.staffGiftInfo.invalidate();
+    },
+    onError: (e) => { toast.error(e.message || 'No se pudo regalar'); utils.member.staffGiftInfo.invalidate(); },
+  });
+  if (!data) return null;
+  const valid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+  return (
+    <Block icon={<Gift className="h-4 w-4" />} title="Regala una entrada">
+      <p className="text-subhead text-white/80">Te quedan <strong className="text-white">{data.entradas}</strong> {data.entradas === 1 ? 'entrada' : 'entradas'} para regalar. Le llega un pase para cualquier evento: lo ve en <em>Cupones</em> de su cuenta y lo usa cuando quiera.</p>
+      <div className="mt-3 space-y-2">
+        <input type="email" inputMode="email" autoComplete="off" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Correo de quien la recibe" aria-label="Correo de quien recibe la entrada"
+          className="h-12 w-full rounded-2xl bg-white/[0.08] px-4 text-body text-white placeholder:text-white/40 outline-none focus:ring-2 focus:ring-violet-300" />
+        <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Su nombre (opcional)" aria-label="Nombre de quien recibe la entrada" maxLength={80}
+          className="h-12 w-full rounded-2xl bg-white/[0.08] px-4 text-body text-white placeholder:text-white/40 outline-none focus:ring-2 focus:ring-violet-300" />
+        <input type="text" value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Un mensaje (opcional)" aria-label="Mensaje para quien recibe la entrada" maxLength={200}
+          className="h-12 w-full rounded-2xl bg-white/[0.08] px-4 text-body text-white placeholder:text-white/40 outline-none focus:ring-2 focus:ring-violet-300" />
+        <button type="button" disabled={!valid || send.isPending} onClick={() => send.mutate({ email: email.trim(), name: name.trim() || undefined, message: message.trim() || undefined })}
+          className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-violet-400 to-fuchsia-400 text-headline font-bold text-black interactive disabled:opacity-50">
+          {send.isPending ? 'Enviando…' : '🎁 Regalar entrada'}
+        </button>
+      </div>
+    </Block>
+  );
+}
+
 /** El PIN con que entra a su pantalla de trabajo: lo elige la persona, nadie más lo conoce. */
 function StaffPinCard({ pin }: { pin: NonNullable<StaffPortal['pin']> }) {
   const utils = trpc.useUtils();
@@ -257,6 +294,8 @@ export function StaffAccount({ staff }: { staff: StaffPortal }) {
       <StaffArrival />
 
       <StaffManualCard />
+
+      <StaffGiftCard />
 
       {next && (
         <Block icon={<Clock className="h-4 w-4" />} title="Tu próximo turno">
