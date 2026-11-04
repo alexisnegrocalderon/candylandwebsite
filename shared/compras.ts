@@ -1,7 +1,7 @@
 /* Compra de insumos desde la foto de una boleta o factura: lógica pura (sin IA, sin base de datos) para que cada
  * cuenta sea comprobable. La IA solo LEE el papel (texto, cantidad, precio, tamaño); emparejar con los insumos y
  * calcular cuánto stock se suma lo hace este archivo, y la persona confirma cada fila antes de cargar nada. */
-import { normalizeName, type InsumoUnit } from './insumos';
+import { normalizeName, type GrupoInsumo, type InsumoUnit } from './insumos';
 
 /** Una línea tal como la leyó la IA de la boleta. */
 export interface BoletaLinea {
@@ -187,4 +187,38 @@ export function nombreSugerido(descripcion: string): string {
     .replace(/\s+/g, ' ').trim();
   const base = limpio || descripcion.trim();
   return base.toLowerCase().split(' ').map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w)).join(' ').slice(0, 100);
+}
+
+
+// --- Productos que la boleta trae y todavía no existen: se crean solos ---
+
+export type TipoNuevo = 'botella' | 'lata' | 'unidad';
+
+export interface NuevoInsumoSugerido {
+  name: string;
+  tipo: TipoNuevo;
+  /** ml de la botella (solo para `botella`). */
+  size: number;
+  grupo: GrupoInsumo;
+  /** false = la boleta no alcanza para saber cómo es (falta el tamaño): hay que preguntarle a la persona. */
+  clara: boolean;
+  motivo: string | null;
+}
+
+const DESECHABLES = /\b(vasos?|servilletas?|bombillas?|pajitas?|popotes?|guantes?|bolsas?|tenedores?|cucharas?|platos?|film|papel aluminio)\b/;
+const LIMPIEZA = /\b(cloro|detergente|desinfectante|esponjas?|toallas?|lavaloza|jabon|basura|trapero|limpia\w*|sanitizante|alcohol gel)\b/;
+
+/** Cómo crear un producto nuevo de la boleta sin preguntar nada cuando se puede: el nombre sale del texto, el envase
+ * del tamaño que dice (750cc → botella de 750 ml; lata o pack de latas → lata; un vasito de 330 → unidad) y el grupo de
+ * las palabras (vasos, guantes → desechable; cloro → limpieza). Si no dice el tamaño de un líquido, `clara` es false
+ * para que se le pregunte a la persona en vez de adivinar. */
+export function sugerirNuevoInsumo(l: Pick<BoletaLinea, 'descripcion' | 'tamano' | 'packUnidades'>): NuevoInsumoSugerido {
+  const texto = normalizeName(l.descripcion);
+  const name = nombreSugerido(l.descripcion);
+  if (LIMPIEZA.test(texto)) return { name, tipo: 'unidad', size: 1, grupo: 'limpieza', clara: true, motivo: null };
+  if (DESECHABLES.test(texto)) return { name, tipo: 'unidad', size: 1, grupo: 'desechable', clara: true, motivo: null };
+  if (/\blatas?\b/.test(texto) || (l.packUnidades > 1 && l.tamano > 0 && l.tamano <= 500)) return { name, tipo: 'lata', size: 1, grupo: 'bebida', clara: true, motivo: null };
+  if (l.tamano > 0 && l.tamano <= 600) return { name, tipo: 'unidad', size: 1, grupo: 'bebida', clara: true, motivo: null };
+  if (l.tamano > 0) return { name, tipo: 'botella', size: l.tamano, grupo: 'bebida', clara: true, motivo: null };
+  return { name, tipo: 'botella', size: 750, grupo: 'bebida', clara: false, motivo: 'La boleta no dice el tamaño: elige cuál es.' };
 }

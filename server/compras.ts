@@ -5,8 +5,9 @@ import { sql, eq } from "drizzle-orm";
 import { getDb, createExpense } from "./db";
 import { insumoAlias, insumoMovimientos, insumos } from "../drizzle/schema";
 import { invokeLLM, extractContent } from "./_core/llm";
-import { addInsumoAliases, listInsumos } from "./insumos";
+import { addInsumoAliases, listInsumos, saveInsumo, saveRegla } from "./insumos";
 import { cargaDeLinea, emparejarInsumo, limpiarCodigos, packDeTexto, tamanoDeTexto, type BoletaLinea } from "../shared/compras";
+import { normalizeName, type GrupoInsumo, type InsumoUnit } from "../shared/insumos";
 
 export interface BoletaLeida {
   isReceipt: boolean;
@@ -149,8 +150,22 @@ export async function proponerCompra(imageUrl: string) {
   };
 }
 
+/** Un producto de la boleta que todavía no existe: se crea al cargar la compra. */
+export interface NuevoInsumoCompra {
+  name: string;
+  unit: InsumoUnit;
+  containerSize: number;
+  containerLabel: string;
+  sizes: number[];
+  grupo: GrupoInsumo;
+  /** Costo por envase de compra (de la boleta). */
+  costo: number | null;
+}
+
 export interface CompraLineaAplicar {
-  insumoId: number;
+  /** null cuando el producto es nuevo: se crea con `nuevo` y se usa de inmediato. */
+  insumoId: number | null;
+  nuevo?: NuevoInsumoCompra | null;
   /** Cuánto se suma, en la unidad del insumo (ya revisado por la persona). */
   agregar: number;
   /** Costo por envase del tamaño de compra del insumo, si se quiere actualizar. */
@@ -158,6 +173,35 @@ export interface CompraLineaAplicar {
   /** Texto de la boleta, para recordarlo como nombre del insumo. */
   alias: string | null;
   detalle: string;
+}
+
+/** Crea los productos nuevos de la compra. Si ya existe un insumo con ese nombre (porque se reintentó la carga, o dos
+ * líneas son el mismo producto en dos tamaños) lo reutiliza: así nunca se duplica. Devuelve las líneas con su insumo. */
+async function resolverNuevos(lineas: CompraLineaAplicar[]): Promise<{ lineas: (CompraLineaAplicar & { insumoId: number })[]; creados: string[] }> {
+  const existentes = new Map((await listInsumos(true)).map((i) => [normalizeName(i.name), i.id]));
+  const creados: string[] = [];
+  const out: (CompraLineaAplicar & { insumoId: number })[] = [];
+  for (const l of lineas) {
+    if (l.insumoId != null) { out.push({ ...l, insumoId: l.insumoId }); continue; }
+    const n = l.nuevo;
+    if (!n) throw new Error("Una línea de la compra no tiene insumo ni datos para crearlo.");
+    const key = normalizeName(n.name);
+    let id = existentes.get(key);
+    if (id === undefined) {
+      const saved = await saveInsumo({
+        name: n.name, unit: n.unit, containerSize: n.containerSize, containerLabel: n.containerLabel, sizes: n.unit === "ml" ? n.sizes : [],
+        costPerContainer: n.costo, alertDrinks: n.grupo === "bebida" ? (n.unit === "ml" ? 15 : 10) : 0,
+      });
+      id = saved.id;
+      existentes.set(key, id);
+      creados.push(n.name);
+      // Los que no son bebida (vasos, guantes, cloro) quedan «solo mínimo» hasta que les pongas cuánto se gasta.
+      try { await saveRegla(id, { grupo: n.grupo, modo: n.grupo === "bebida" ? "receta" : "manual", cantidad: 0, minimo: 0 }); }
+      catch (err) { console.error("[compras] regla del insumo nuevo:", err); }
+    }
+    out.push({ ...l, insumoId: id });
+  }
+  return { lineas: out, creados };
 }
 
 /** Aplica una compra confirmada: un movimiento `compra` por insumo (idempotente por `opId`), costos, nombres
@@ -169,9 +213,12 @@ export async function aplicarCompra(params: {
 }) {
   const db = await getDb();
   if (!db) throw new Error("Base de datos no disponible");
+  // Primero los productos nuevos (si se reintenta la carga se reutilizan, no se duplican).
+  const resuelto = await resolverNuevos(params.lineas);
+  params = { ...params, lineas: resuelto.lineas };
   // Dos líneas del mismo insumo (dos tamaños) se suman en un solo movimiento.
   const porInsumo = new Map<number, { agregar: number; detalle: string[] }>();
-  for (const l of params.lineas) {
+  for (const l of resuelto.lineas) {
     if (!(l.agregar > 0)) continue;
     const cur = porInsumo.get(l.insumoId) ?? { agregar: 0, detalle: [] };
     porInsumo.set(l.insumoId, { agregar: Math.round((cur.agregar + l.agregar) * 100) / 100, detalle: [...cur.detalle, l.detalle] });
@@ -188,15 +235,15 @@ export async function aplicarCompra(params: {
       throw err;
     }
   }
-  if (yaAplicada) return { yaAplicada: true as const, insumos: porInsumo.size, gastoId: null as number | null };
+  if (yaAplicada) return { yaAplicada: true as const, insumos: porInsumo.size, gastoId: null as number | null, creados: resuelto.creados };
 
   if (params.actualizarCostos) {
-    for (const l of params.lineas) {
+    for (const l of resuelto.lineas) {
       if (l.costoParaInsumo && l.costoParaInsumo > 0) await db.update(insumos).set({ costPerContainer: String(Math.round(l.costoParaInsumo)) }).where(eq(insumos.id, l.insumoId));
     }
   }
   if (params.recordarNombres && (await ensureAliasTable())) {
-    await addInsumoAliases(params.lineas.filter((l) => l.alias).map((l) => ({ insumoId: l.insumoId, alias: limpiarCodigos(l.alias!) || l.alias! })));
+    await addInsumoAliases(resuelto.lineas.filter((l) => l.alias).map((l) => ({ insumoId: l.insumoId, alias: limpiarCodigos(l.alias!) || l.alias! })));
   }
   let gastoId: number | null = null;
   if (params.gasto.crear && params.gasto.total > 0) {
@@ -208,6 +255,6 @@ export async function aplicarCompra(params: {
     });
     gastoId = r.id;
   }
-  return { yaAplicada: false as const, insumos: porInsumo.size, gastoId };
+  return { yaAplicada: false as const, insumos: porInsumo.size, gastoId, creados: resuelto.creados };
 }
 
