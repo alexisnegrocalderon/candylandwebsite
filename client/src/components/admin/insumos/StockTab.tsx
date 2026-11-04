@@ -8,7 +8,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { WriteButton } from '@/components/admin/WriteButton';
-import { describirBotellas, formatCantidad, insumoSizes, stockCsv, stockTexto } from '@shared/insumos';
+import { GRUPOS_INSUMO, describirBotellas, formatCantidad, insumoSizes, stockCsv, stockTexto, type GrupoInsumo } from '@shared/insumos';
 import { ContarStock } from './ContarStock';
 import { SizeCounts } from './SizeCounts';
 import { UsoDialog } from './UsoDialog';
@@ -34,6 +34,7 @@ export function StockTab({ eventId, data, onEdit, onChanged, limited = false }: 
   // Vista por botella base: el insumo cuyos tragos se están editando.
   const [uso, setUso] = useState<BarraInsumo | null>(null);
   const [contar, setContar] = useState<BarraInsumo | null>(null);
+  const [grupo, setGrupo] = useState<GrupoInsumo | 'todos'>('todos');
   const setActive = trpc.insumos.setActive.useMutation({ onSuccess: onChanged, onError: (e) => toast.error(e.message) });
 
   const counts = {
@@ -42,15 +43,16 @@ export function StockTab({ eventId, data, onEdit, onChanged, limited = false }: 
     bajos: data.insumos.filter((i) => i.level === 'bajo').length,
     sinReceta: data.productos.filter((p) => p.receta.length === 0 && !p.sinInsumos && !p.oculto).length,
   };
-  const sorted = [...data.insumos].sort((a, b) => {
+  const gruposConInsumos = GRUPOS_INSUMO.filter((g) => data.insumos.some((i) => i.grupo === g.id));
+  const sorted = [...data.insumos].filter((i) => grupo === 'todos' || i.grupo === grupo).sort((a, b) => {
     const rank = { agotado: 0, bajo: 1, ok: 2, sin_uso: 3 } as const;
     return rank[a.level] - rank[b.level] || (a.drinks ?? 1e9) - (b.drinks ?? 1e9) || a.name.localeCompare(b.name);
   });
 
   // Qué reponer: lo agotado o bajo y lo que se usa en la carta pero nunca se compró, con los tragos que afecta.
   const reponer = sorted
-    .filter((i) => i.usedBy.length > 0 && (i.level === 'agotado' || i.level === 'bajo' || i.sinComprar))
-    .map((i) => ({ i, motivo: i.sinComprar ? 'sin comprar' : i.level === 'agotado' ? 'se acabó' : `alcanza para ~${i.drinks ?? 0} tragos` }));
+    .filter((i) => i.modo === 'receta' ? i.usedBy.length > 0 && (i.level === 'agotado' || i.level === 'bajo' || i.sinComprar) : (i.level === 'agotado' || i.level === 'bajo'))
+    .map((i) => ({ i, motivo: i.modo !== 'receta' ? (i.level === 'agotado' ? 'se acabó' : `quedan ${formatCantidad(i.stock, i)} (mínimo ${formatCantidad(i.minimo, i)})`) : i.sinComprar ? 'sin comprar' : i.level === 'agotado' ? 'se acabó' : `alcanza para ~${i.drinks ?? 0} tragos` }));
 
   const filas = data.insumos.map((i) => ({ ...i, drinks: i.drinks, level: i.level }));
   const copyText = async () => {
@@ -67,7 +69,7 @@ export function StockTab({ eventId, data, onEdit, onChanged, limited = false }: 
   if (data.insumos.length === 0) {
     return (
       <div className="rounded-2xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-        Todavía no hay insumos. Lo más rápido es «Cargar dosier» (arriba): deja los insumos, el stock y las recetas listos de una vez. También puedes crear uno con «+ Insumo».
+        Todavía no hay insumos. Lo más rápido es «Cargar inventario» (pega tu lista contada) o «Cargar dosier» (insumos, stock y recetas de una vez). También puedes crear uno con «+ Insumo».
       </div>
     );
   }
@@ -93,13 +95,23 @@ export function StockTab({ eventId, data, onEdit, onChanged, limited = false }: 
           <p className="text-sm font-semibold text-amber-500">Qué reponer ({reponer.length})</p>
           <ul className="mt-1.5 space-y-1 text-sm">
             {reponer.map(({ i, motivo }) => (
-              <li key={i.id}><span className="font-semibold">{i.name}</span> · {motivo}<span className="text-muted-foreground"> — afecta: {i.usedBy.slice(0, 4).join(', ')}{i.usedBy.length > 4 ? '…' : ''}</span></li>
+              <li key={i.id}><span className="font-semibold">{i.name}</span> · {motivo}{i.usedBy.length > 0 && <span className="text-muted-foreground"> — afecta: {i.usedBy.slice(0, 4).join(', ')}{i.usedBy.length > 4 ? '…' : ''}</span>}</li>
             ))}
           </ul>
         </div>
       )}
 
       <div className="flex items-center justify-end gap-2">
+        {gruposConInsumos.length > 1 && (
+          <div className="mr-auto flex gap-1.5 overflow-x-auto [scrollbar-width:none]" role="tablist" aria-label="Filtrar por grupo">
+            {[{ id: 'todos' as const, label: 'Todos', emoji: '' }, ...gruposConInsumos].map((g) => (
+              <button key={g.id} type="button" role="tab" aria-selected={grupo === g.id} onClick={() => setGrupo(g.id)}
+                className={`shrink-0 whitespace-nowrap rounded-full px-3 py-1 text-xs font-medium ${grupo === g.id ? 'bg-primary text-white' : 'bg-muted text-muted-foreground'}`}>
+                {g.emoji} {g.label}
+              </button>
+            ))}
+          </div>
+        )}
         <Button variant="outline" size="sm" onClick={copyText}><Copy className="mr-1 h-4 w-4" /> WhatsApp</Button>
         <Button variant="outline" size="sm" onClick={downloadCsv}><Download className="mr-1 h-4 w-4" /> Excel</Button>
       </div>
@@ -121,9 +133,16 @@ export function StockTab({ eventId, data, onEdit, onChanged, limited = false }: 
                     {i.drinks !== null && <span className="text-muted-foreground"> · alcanza para ~{i.drinks} tragos</span>}
                     {pct !== null && <span className="text-muted-foreground"> · {pct} % de la apertura</span>}
                   </p>
-                  <button type="button" onClick={() => setUso(i)} className="mt-0.5 block max-w-full truncate text-left text-xs text-muted-foreground underline-offset-2 hover:underline">
-                    {i.usedBy.length > 0 ? `Lo usan (${i.usedBy.length}): ${i.usedBy.join(', ')}` : 'Ningún trago lo usa todavía'} · editar
-                  </button>
+                  {i.modo === 'receta' ? (
+                    <button type="button" onClick={() => setUso(i)} className="mt-0.5 block max-w-full truncate text-left text-xs text-muted-foreground underline-offset-2 hover:underline">
+                      {i.usedBy.length > 0 ? `Lo usan (${i.usedBy.length}): ${i.usedBy.join(', ')}` : 'Ningún trago lo usa todavía'} · editar
+                    </button>
+                  ) : (
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {i.modo === 'por_persona' ? `Se gasta ${i.cantidad} ${i.unit} por persona` : i.modo === 'por_evento' ? `Se gasta ${i.cantidad} ${i.unit} por evento` : 'Sin cálculo'}
+                      {i.minimo > 0 ? ` · avisa bajo ${formatCantidad(i.minimo, i)}` : ''}
+                    </p>
+                  )}
                   {pct !== null && (
                     <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted" aria-hidden>
                       <div className={`h-full rounded-full ${i.level === 'agotado' ? 'bg-red-500' : i.level === 'bajo' ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${Math.min(100, Math.max(0, pct))}%` }} />
@@ -137,13 +156,14 @@ export function StockTab({ eventId, data, onEdit, onChanged, limited = false }: 
                     <Button variant="ghost" size="icon" aria-label={`Más acciones de ${i.name}`}><MoreHorizontal className="h-5 w-5" /></Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
-                    {!limited && <DropdownMenuItem onSelect={() => setUso(i)}>Tragos que lo usan</DropdownMenuItem>}
+                    {!limited && i.modo === 'receta' && <DropdownMenuItem onSelect={() => setUso(i)}>Tragos que lo usan</DropdownMenuItem>}
                     <DropdownMenuItem onSelect={() => setAction({ kind: 'merma', insumo: i })}>Registrar merma</DropdownMenuItem>
                     <DropdownMenuItem onSelect={() => setContar(i)}>Contar stock real</DropdownMenuItem>
                     {!limited && <>
                     <DropdownMenuItem onSelect={() => onEdit({
                       id: i.id, name: i.name, unit: i.unit, containerSize: i.containerSize, containerLabel: i.containerLabel, sizes: insumoSizes(i),
                       costPerContainer: i.costPerContainer ?? null, alertDrinks: i.alertDrinks,
+                      grupo: i.grupo, modo: i.modo, cantidad: i.cantidad, minimo: i.minimo,
                     })}>Editar</DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onSelect={() => { if (window.confirm(`¿Archivar ${i.name}? Deja de aparecer en el stock y en el conteo de la barra.`)) setActive.mutate({ id: i.id, active: false }); }}>

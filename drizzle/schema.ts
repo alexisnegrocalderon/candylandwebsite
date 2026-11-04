@@ -3427,6 +3427,19 @@ export const insumoMovimientos = mysqlTable("insumoMovimientos", {
   index("insumo_mov_event_idx").on(t.eventId, t.createdAt),
 ]);
 
+// Reglas de los insumos que no se calculan por receta (guantes, vasos, hielo, limpieza…).
+// Va en su propia tabla y no como columnas de `insumos`: la barra y la caja leen `insumos` en cada venta, y una
+// columna sin migrar las tumbaría. Sin fila = bebida por receta, como siempre.
+export const insumoReglas = mysqlTable("insumoReglas", {
+  insumoId: int("insumoId").primaryKey(),
+  grupo: varchar("grupo", { length: 20 }).default("bebida").notNull(),
+  modo: varchar("modo", { length: 20 }).default("receta").notNull(),
+  cantidad: decimal("cantidad", { precision: 12, scale: 2 }).default("0").notNull(),
+  minimo: decimal("minimo", { precision: 12, scale: 2 }).default("0").notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type InsumoReglaRow = typeof insumoReglas.$inferSelect;
+
 // Conteo físico de la barra al abrir y al cerrar turno (/caja).
 export const insumoConteos = mysqlTable("insumoConteos", {
   id: int("id").autoincrement().primaryKey(),

@@ -4,6 +4,7 @@ import {
   metadataConOpciones, opcionesDeMetadata,
   productoSinInsumos, metadataConSinInsumos,
   consumoDeVenta, diagnosticoProducto, idSustitucion, sugerirReemplazos, sustitucionesDe, conteoATotal, descuadre, descuadreAlerts, formatCantidad, insumoRitmoAlerts, insumoStockAlerts,
+  cantidadContada, inferirEnvase, nivelGeneral, parseInventario, proyeccionGenerales, reglaDe,
   listaComprasTexto, nivelInsumo, proyeccionCompra, stockActual, tragosDisponibles, tragosPorInsumo, type Insumo, type RecetaLinea,
 } from './insumos';
 
@@ -586,5 +587,106 @@ describe('reemplazo «por hoy» en la venta', () => {
     });
     expect(d[0].body).toContain('Afecta: Gin con Gin');
     expect(d[0].body).toContain('Tónica (alcanza para 25)');
+  });
+});
+
+
+describe('insumos generales (guantes, vasos, limpieza)', () => {
+  const base = { containerSize: 100, containerLabel: 'caja', costPerContainer: 5000, alertDrinks: 0, unit: 'un' as const };
+
+  it('sin regla guardada es una bebida por receta, como siempre', () => {
+    expect(reglaDe(null)).toEqual({ grupo: 'bebida', modo: 'receta', cantidad: 0, minimo: 0 });
+    expect(reglaDe({ grupo: 'cualquiera', modo: 'raro', cantidad: '-3' })).toEqual({ grupo: 'bebida', modo: 'receta', cantidad: 0, minimo: 0 });
+  });
+
+  it('nivelGeneral avisa contra el mínimo', () => {
+    expect(nivelGeneral(0, 10)).toBe('agotado');
+    expect(nivelGeneral(5, 10)).toBe('bajo');
+    expect(nivelGeneral(10, 10)).toBe('ok');
+    expect(nivelGeneral(3, 0)).toBe('ok');
+  });
+
+  it('por persona: cantidad × personas × margen, menos el stock, en envases', () => {
+    const insumos = [{ ...base, id: 1, name: 'Vasos', containerSize: 50, grupo: 'desechable' as const, modo: 'por_persona' as const, cantidad: 2, minimo: 0 }];
+    const r = proyeccionGenerales({ insumos, stock: new Map([[1, 100]]), personas: 300, factor: 1.1 });
+    expect(r.lineas).toHaveLength(1);
+    expect(r.lineas[0]).toMatchObject({ need: 660, stock: 100, missing: 560, containersToBuy: 12, cost: 60000 });
+  });
+
+  it('por evento no depende de las personas; manual usa el mínimo; receta y reglas vacías se saltan', () => {
+    const insumos = [
+      { ...base, id: 1, name: 'Guantes', grupo: 'desechable' as const, modo: 'por_evento' as const, cantidad: 200, minimo: 0 },
+      { ...base, id: 2, name: 'Cloro', grupo: 'limpieza' as const, modo: 'manual' as const, cantidad: 0, minimo: 3, containerSize: 1 },
+      { ...base, id: 3, name: 'Ron', grupo: 'bebida' as const, modo: 'receta' as const, cantidad: 0, minimo: 0 },
+      { ...base, id: 4, name: 'Sin regla', grupo: 'otro' as const, modo: 'por_persona' as const, cantidad: 0, minimo: 0 },
+      { ...base, id: 5, name: 'Sin mínimo', grupo: 'otro' as const, modo: 'manual' as const, cantidad: 0, minimo: 0 },
+    ];
+    const a = proyeccionGenerales({ insumos, stock: new Map([[1, 100], [2, 3]]), personas: 100 });
+    const b = proyeccionGenerales({ insumos, stock: new Map([[1, 100], [2, 3]]), personas: 900 });
+    expect(a.lineas.map((l) => l.name).sort()).toEqual(['Cloro', 'Guantes']);
+    expect(a).toEqual(b);
+    expect(a.lineas.find((l) => l.name === 'Guantes')).toMatchObject({ need: 200, missing: 100, containersToBuy: 1 });
+    expect(a.lineas.find((l) => l.name === 'Cloro')).toMatchObject({ missing: 0, containersToBuy: 0 });
+  });
+});
+
+describe('carga masiva del inventario', () => {
+  it('entiende separadores, cantidad al final, grupo y unidad', () => {
+    const { lineas, errores } = parseInventario([
+      'Ron Bacardi blanco; 5 botellas',
+      'Guantes nitrilo M ; 4 cajas ; Desechable',
+      'Hielo - 20',
+      'Vodka Absolut 750 3',
+      '# comentario',
+      '',
+      'Cloro;2;limpieza',
+      'sin cantidad',
+    ].join('\n'));
+    expect(lineas.map((l) => [l.name, l.qty, l.suffix, l.grupo])).toEqual([
+      ['Ron Bacardi blanco', 5, 'botellas', null],
+      ['Guantes nitrilo M', 4, 'cajas', 'desechable'],
+      ['Hielo', 20, null, null],
+      ['Vodka Absolut 750', 3, null, null],
+      ['Cloro', 2, null, 'limpieza'],
+    ]);
+    expect(errores).toEqual(['sin cantidad']);
+  });
+
+  it('acepta coma decimal y rechaza negativos', () => {
+    expect(parseInventario('Jugo; 1,5 L').lineas[0]).toMatchObject({ qty: 1.5, suffix: 'L' });
+    expect(parseInventario('Jugo; -2').errores).toHaveLength(1);
+  });
+
+  it('cantidadContada: envases por defecto, o la medida si la escribes', () => {
+    const botella = { unit: 'ml' as const, containerSize: 750 };
+    expect(cantidadContada({ qty: 5, suffix: 'botellas' }, botella)).toBe(3750);
+    expect(cantidadContada({ qty: 5, suffix: null }, botella)).toBe(3750);
+    expect(cantidadContada({ qty: 500, suffix: 'ml' }, botella)).toBe(500);
+    expect(cantidadContada({ qty: 2, suffix: 'L' }, botella)).toBe(2000);
+    expect(cantidadContada({ qty: 600, suffix: 'un' }, { unit: 'un', containerSize: 100 })).toBe(600);
+    expect(cantidadContada({ qty: 4, suffix: 'cajas' }, { unit: 'un', containerSize: 100 })).toBe(400);
+    expect(cantidadContada({ qty: 2, suffix: 'kg' }, { unit: 'g', containerSize: 1000 })).toBe(2000);
+  });
+});
+
+
+describe('inventario escrito como en WhatsApp', () => {
+  it('lee la cantidad al principio, con decimales y el grupo al final', () => {
+    const { lineas, errores } = parseInventario(['47 Redbull Yellow', '0.9 Jagermeister 700ml', '1 Bacardi Oro 1,75lt', '0.9 Guantes M Negro (caja de 100); desechable'].join('\n'));
+    expect(errores).toEqual([]);
+    expect(lineas.map((l) => [l.name, l.qty, l.grupo])).toEqual([
+      ['Redbull Yellow', 47, null], ['Jagermeister 700ml', 0.9, null], ['Bacardi Oro 1,75lt', 1, null], ['Guantes M Negro (caja de 100)', 0.9, 'desechable'],
+    ]);
+  });
+
+  it('saca el envase del nombre', () => {
+    expect(inferirEnvase('Bacardi Oro 1,75lt', 1)).toMatchObject({ unit: 'ml', containerSize: 1750, containerLabel: 'botella' });
+    expect(inferirEnvase('Benedictino 2.5Lt', 3.8)).toMatchObject({ unit: 'ml', containerSize: 2500 });
+    expect(inferirEnvase('Ramazotti 700ml', 2)).toMatchObject({ unit: 'ml', containerSize: 700 });
+    expect(inferirEnvase('lata 350ml coca cola', 12)).toMatchObject({ unit: 'un', containerSize: 1, containerLabel: 'lata' });
+    expect(inferirEnvase('Agua sin gas 500ml', 28)).toMatchObject({ unit: 'un', containerSize: 1 });
+    expect(inferirEnvase('Torobayo Miel 500ml', 7)).toMatchObject({ unit: 'un' });
+    expect(inferirEnvase('Redbull Yellow', 47)).toMatchObject({ unit: 'un', containerLabel: 'unidad' });
+    expect(inferirEnvase('Guantes M Negro (caja de 100)', 0.9)).toEqual({ name: 'Guantes M Negro', unit: 'un', containerSize: 100, containerLabel: 'caja' });
   });
 });

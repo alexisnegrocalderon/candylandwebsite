@@ -154,10 +154,15 @@ INSUMO_STEPS.push(
   },
 );
 
+/** drizzle/0145_insumo_reglas.sql: reglas de consumo de los insumos que no llevan receta (guantes, vasos…).
+ * Va aparte de INSUMO_STEPS a propósito: si falta, el stock y la caja siguen igual y solo esa función avisa. */
+const REGLAS_SQL = "CREATE TABLE `insumoReglas` (\n\t`insumoId` int NOT NULL,\n\t`grupo` varchar(20) NOT NULL DEFAULT 'bebida',\n\t`modo` varchar(20) NOT NULL DEFAULT 'receta',\n\t`cantidad` decimal(12,2) NOT NULL DEFAULT '0',\n\t`minimo` decimal(12,2) NOT NULL DEFAULT '0',\n\t`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,\n\tCONSTRAINT `insumoReglas_insumoId` PRIMARY KEY(`insumoId`)\n)";
+const REGLAS_STEPS: Step[] = [{ label: 'tabla insumoReglas', done: (h) => h.tables.has('insumoReglas'), statement: REGLAS_SQL }];
+
 /** Todo lo que el botón sabe aplicar, en orden. */
 export const SCHEMA_STEPS: Step[] = [...STAFF_STEPS, ...SOLTERO_STEPS];
 
-const INSUMO_TABLES_SQL = ['insumos', 'insumoRecetas', 'insumoMovimientos', 'insumoConteos', 'insumoConteoLineas'].map((t) => `'${t}'`).join(', ');
+const INSUMO_TABLES_SQL = ['insumos', 'insumoRecetas', 'insumoMovimientos', 'insumoConteos', 'insumoConteoLineas', 'insumoReglas'].map((t) => `'${t}'`).join(', ');
 
 async function readHave(): Promise<Have | null> {
   const db = await getDb();
@@ -249,5 +254,31 @@ export async function applyInsumoSchema(): Promise<{ applied: string[] }> {
     applied.push(step.label);
   }
   insumoSchemaReady = false;
+  return { applied };
+}
+
+let reglasSchemaReady = false;
+
+/** ¿Existe la tabla de reglas de los insumos generales (guantes, vasos…)? */
+export async function reglasSchemaStatus(): Promise<{ ready: boolean; missing: string[] }> {
+  if (reglasSchemaReady) return { ready: true, missing: [] };
+  const have = await readHave();
+  if (!have) return { ready: true, missing: [] };
+  const missing = REGLAS_STEPS.filter((s) => !s.done(have)).map((s) => s.label);
+  reglasSchemaReady = missing.length === 0;
+  return { ready: reglasSchemaReady, missing };
+}
+
+export async function applyReglasSchema(): Promise<{ applied: string[] }> {
+  const db = await getDb();
+  const have = await readHave();
+  if (!db || !have) throw new Error('No hay conexión con la base de datos.');
+  const applied: string[] = [];
+  for (const step of REGLAS_STEPS) {
+    if (step.done(have)) continue;
+    await db.execute(sql.raw(step.statement));
+    applied.push(step.label);
+  }
+  reglasSchemaReady = false;
   return { applied };
 }

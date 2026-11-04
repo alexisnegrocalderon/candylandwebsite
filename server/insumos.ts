@@ -10,14 +10,15 @@
  * (migración 0132 sin aplicar) la venta sigue como siempre, sin descontar. */
 import { and, desc, eq, gte, inArray, lt, ne, sql } from "drizzle-orm";
 import {
-  events, insumoConteoLineas, insumoConteos, insumoMovimientos, insumoRecetas, insumos, orderItems, orders, ticketTypes, tickets,
+  events, insumoConteoLineas, insumoConteos, insumoMovimientos, insumoRecetas, insumoReglas, insumos, orderItems, orders, ticketTypes, tickets,
 } from "../drizzle/schema";
 import { getDb } from "./db";
-import { insumoSchemaStatus } from "./schemaUpdates";
+import { insumoSchemaStatus, reglasSchemaStatus } from "./schemaUpdates";
 import { personasForTicket } from "../shared/mission300";
 import { DOSIER_INSUMOS, DOSIER_SUPUESTOS, planDosier } from "../shared/dosier";
 import {
   DEFAULT_GLASS, aplicarUso, conteoATotal, extrasDeMetadata, metadataConExtras, metadataConOpciones, opcionesDeMetadata, metadataConPreparacion, pasosDeMetadata, fotoDeMetadata, recetaConOpciones, type OpcionGrupo, metadataConSinInsumos, productoSinInsumos, TIPOS_PRODUCTO, type TipoProducto, consumoDeVenta, descuadre, detalleATotal, insumoSizes, recetaDe, nivelInsumo, normalizeName, proyeccionCompra, tragosDisponibles, tragosPorInsumo,
+  cantidadContada, inferirEnvase, nivelGeneral, parseInventario, proyeccionGenerales, reglaDe, type GrupoInsumo, type ReglaInsumo,
   OPEN_PORTIONS, type ConteoDetalle, type Insumo, type InsumoUnit, type MovimientoKind, type RecetaLinea,
   diagnosticoProducto, sugerirReemplazos,
 } from "../shared/insumos";
@@ -51,6 +52,43 @@ async function dbOrThrow() {
   const db = await getDb();
   if (!db) throw new Error("Base de datos no disponible");
   return db;
+}
+
+// --- Reglas de insumos generales (tabla aparte: si falta, todo sigue como antes) ---
+
+let reglasNotReadyUntil = 0;
+async function reglasReady(): Promise<boolean> {
+  if (Date.now() < reglasNotReadyUntil) return false;
+  try {
+    const ok = (await reglasSchemaStatus()).ready;
+    if (!ok) reglasNotReadyUntil = Date.now() + 30_000;
+    return ok;
+  } catch { return false; }
+}
+
+/** Regla de cada insumo que tiene una guardada; sin tabla o sin fila, todos son bebidas por receta. */
+export async function reglasMap(db?: any): Promise<Map<number, ReglaInsumo>> {
+  if (!(await reglasReady())) return new Map();
+  try {
+    const d = db ?? (await dbOrThrow());
+    const rows = await d.select().from(insumoReglas);
+    return new Map(rows.map((r: any) => [r.insumoId, reglaDe(r)]));
+  } catch (err) {
+    console.error("[insumos] reglas:", err);
+    return new Map();
+  }
+}
+
+export async function saveRegla(insumoId: number, regla: Partial<ReglaInsumo>) {
+  const r = reglaDe(regla);
+  if (!(await reglasReady())) {
+    // Sin la tabla solo se puede seguir siendo «bebida por receta» (lo de siempre).
+    if (r.grupo === "bebida" && r.modo === "receta") return;
+    throw new Error("Falta activar los insumos generales (botón «Activar» arriba en Stock de barra).");
+  }
+  const db = await dbOrThrow();
+  const values = { insumoId, grupo: r.grupo, modo: r.modo, cantidad: String(r.cantidad), minimo: String(r.minimo) };
+  await db.insert(insumoReglas).values(values).onDuplicateKeyUpdate({ set: { grupo: values.grupo, modo: values.modo, cantidad: values.cantidad, minimo: values.minimo } });
 }
 
 // --- Lecturas ---
@@ -100,11 +138,12 @@ async function referenciaApertura(db: any, eventId: number, stock: Map<number, n
 export async function estadoBarra(eventId: number) {
   if (!(await ready())) return { ready: false as const, insumos: [], productos: [] };
   const db = await dbOrThrow();
-  const [all, stock, recetas, products] = await Promise.all([
+  const [all, stock, recetas, products, reglas] = await Promise.all([
     listInsumos(),
     stockMap(db),
     recetasDelEvento(eventId, db),
     db.select().from(ticketTypes).where(and(eq(ticketTypes.eventId, eventId), inArray(ticketTypes.category, ["consumo", "merch"]))),
+    reglasMap(db),
   ]);
   const reference = await referenciaApertura(db, eventId, stock);
   const activos = new Set(all.map((i) => i.id));
@@ -119,9 +158,12 @@ export async function estadoBarra(eventId: number) {
     ready: true as const,
     insumos: all.map((i) => {
       const s = stock.get(i.id) ?? 0;
+      const regla = reglas.get(i.id) ?? reglaDe(null);
       const drinks = tragosPorInsumo(i.id, s, recetas);
+      // Los que no van por receta (guantes, vasos…) se avisan contra su mínimo, no contra tragos.
+      const level = regla.modo === "receta" ? nivelInsumo(drinks, i.alertDrinks) : nivelGeneral(s, regla.minimo);
       return {
-        ...i, stock: s, drinks, level: nivelInsumo(drinks, i.alertDrinks),
+        ...i, stock: s, drinks, level, grupo: regla.grupo, modo: regla.modo, cantidad: regla.cantidad, minimo: regla.minimo,
         // Nunca tuvo stock cargado (no es lo mismo que haberse acabado).
         sinComprar: !stock.has(i.id),
         reference: reference.get(i.id) ?? null, usedBy: usedBy.get(i.id) ?? [],
@@ -600,7 +642,9 @@ export async function proyeccion(params: { eventId: number; personas: number; fa
     factor: params.factor, tragosPorPersona: params.tragosPorPersona, overrides: params.overrides,
   });
   const actuales = await personasDelEvento(db, params.eventId);
-  return { ...result, fuentes, personasConEntrada: actuales.expected, sinReceta: estado.ready ? estado.productos.filter((p) => p.receta.length === 0 && !p.sinInsumos && !p.oculto).map((p) => p.name) : [] };
+  // Insumos que no van por receta (guantes, vasos, hielo…): por persona, por evento o con mínimo.
+  const generales = proyeccionGenerales({ insumos: allInsumos as any, stock, personas: params.personas, factor: params.factor });
+  return { ...result, generales, fuentes, personasConEntrada: actuales.expected, sinReceta: estado.ready ? estado.productos.filter((p) => p.receta.length === 0 && !p.sinInsumos && !p.oculto).map((p) => p.name) : [] };
 }
 
 // --- Carga del dosier (shared/dosier.ts) ---
@@ -669,4 +713,77 @@ export async function dosierApply(params: {
     }
   }
   return { insumosCreados: created, stockCargado: stockLoaded, recetasCargadas: recetas, recetasYaTenian: yaTenian };
+}
+
+
+// --- Carga masiva del inventario contado ---
+
+export interface PlanInventarioLinea {
+  raw: string;
+  name: string;
+  grupo: GrupoInsumo;
+  qty: number;
+  suffix: string | null;
+  /** El insumo que ya existe con ese nombre (null = se crea nuevo). */
+  match: { id: number; name: string; unit: InsumoUnit; containerSize: number; containerLabel: string; stock: number } | null;
+  /** Envase con que se crea cuando es nuevo (sale del nombre: 1,75lt, lata, caja de 100…). */
+  nuevo: { unit: InsumoUnit; containerSize: number; containerLabel: string } | null;
+  /** Stock que quedará, en la unidad del insumo. */
+  target: number;
+}
+
+/** Qué haría cargar la lista: cada línea se empareja por nombre con un insumo existente o se crea uno nuevo.
+ * Un mismo insumo en dos líneas (dos cajas abiertas) se suma. */
+export async function inventarioPlan(params: { texto: string; grupoDefecto: GrupoInsumo }) {
+  const { lineas, errores } = parseInventario(params.texto);
+  const [all, stock] = await Promise.all([listInsumos(true), stockMap()]);
+  const byName = new Map(all.map((i) => [normalizeName(i.name), i]));
+  const plan = new Map<string, PlanInventarioLinea>();
+  const sumadas: string[] = [];
+  for (const l of lineas) {
+    const env = inferirEnvase(l.name, l.qty);
+    const key = normalizeName(env.name);
+    const found = byName.get(key) ?? byName.get(normalizeName(l.name)) ?? null;
+    const envase = found ?? env;
+    const contado = cantidadContada(l, envase);
+    const prev = plan.get(key);
+    if (prev) {
+      prev.target = Math.round((prev.target + contado) * 100) / 100;
+      prev.qty = Math.round((prev.qty + l.qty) * 100) / 100;
+      if (!sumadas.includes(prev.name)) sumadas.push(prev.name);
+      continue;
+    }
+    plan.set(key, {
+      raw: l.raw, name: found?.name ?? env.name, grupo: l.grupo ?? params.grupoDefecto, qty: l.qty, suffix: l.suffix,
+      match: found ? { id: found.id, name: found.name, unit: found.unit, containerSize: found.containerSize, containerLabel: found.containerLabel, stock: stock.get(found.id) ?? 0 } : null,
+      nuevo: found ? null : { unit: env.unit, containerSize: env.containerSize, containerLabel: env.containerLabel },
+      target: Math.round(contado * 100) / 100,
+    });
+  }
+  return { lineas: Array.from(plan.values()), errores, sumadas, reglasListas: await reglasReady() };
+}
+
+/** Aplica la lista: crea los insumos que faltan y deja el stock de cada uno exactamente en lo contado. */
+export async function inventarioApply(params: { texto: string; grupoDefecto: GrupoInsumo; eventId?: number | null }) {
+  const plan = await inventarioPlan(params);
+  if (!plan.reglasListas && plan.lineas.some((l) => l.grupo !== "bebida")) {
+    throw new Error("Falta activar los insumos generales (botón «Activar» arriba en Stock de barra) para cargar desechables, limpieza u otros.");
+  }
+  let creados = 0;
+  let actualizados = 0;
+  for (const l of plan.lineas) {
+    let id = l.match?.id;
+    if (!id && l.nuevo) {
+      const saved = await saveInsumo({
+        name: l.name, unit: l.nuevo.unit, containerSize: l.nuevo.containerSize, containerLabel: l.nuevo.containerLabel,
+        sizes: l.nuevo.unit === "ml" ? [l.nuevo.containerSize] : [], costPerContainer: null, alertDrinks: l.grupo === "bebida" && l.nuevo.unit === "ml" ? 15 : 0,
+      });
+      id = saved.id;
+      // Una bebida nueva queda por receta; el resto, solo con mínimo (se completa después en «Editar»).
+      await saveRegla(id, { grupo: l.grupo, modo: l.grupo === "bebida" ? "receta" : "manual", cantidad: 0, minimo: 0 });
+      creados++;
+    } else actualizados++;
+    await setStockTo({ insumoId: id!, target: l.target, eventId: params.eventId ?? null, note: "Inventario contado" });
+  }
+  return { creados, actualizados, errores: plan.errores, sumadas: plan.sumadas };
 }
