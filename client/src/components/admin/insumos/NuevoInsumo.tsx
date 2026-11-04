@@ -4,7 +4,7 @@ import { trpc } from '@/lib/trpc';
 import { InsumoDialog, type InsumoFormValue } from './InsumoDialog';
 
 const BLANK: InsumoFormValue = {
-  name: '', unit: 'ml', containerSize: 750, containerLabel: 'botella', sizes: [750], costPerContainer: null, alertDrinks: 15, initialBySize: {}, initialLoose: 0,
+  name: '', unit: 'ml', containerSize: 750, containerLabel: 'botella', sizes: [750], costPerContainer: null, alertDrinks: 15, grupo: 'bebida', modo: 'receta', cantidad: 0, minimo: 0, initialBySize: {}, initialLoose: 0,
 };
 
 /** Crear un insumo nuevo desde donde estés (al armar un trago, en el stock…): licor, jugo, jarabe, botella o lata,

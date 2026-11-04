@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { DatabaseZap, Plus } from 'lucide-react';
+import { ClipboardList, DatabaseZap, Plus } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { useTonightEvent } from '@/hooks/useTonightEvent';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -17,6 +17,7 @@ import { DosierDialog } from './DosierDialog';
 import { CompraBoletaDialog } from './CompraBoletaDialog';
 import { DosierPdfDialog } from './DosierPdfDialog';
 import { DosierTab } from './DosierTab';
+import { CargarInventarioDialog } from './CargarInventarioDialog';
 
 type Tab = 'stock' | 'recetas' | 'compras' | 'dosier' | 'historial';
 const TABS: { id: Tab; label: string; help: string }[] = [
@@ -41,10 +42,14 @@ export function InsumosManager() {
   const [dosierOpen, setDosierOpen] = useState(false);
   const [compraOpen, setCompraOpen] = useState(false);
   const [pdfOpen, setPdfOpen] = useState(false);
+  const [inventarioOpen, setInventarioOpen] = useState(false);
 
   const utils = trpc.useUtils();
   const schema = trpc.insumos.schema.useQuery(undefined, { enabled: !isDemo && !isSupervisor, retry: false, staleTime: 60_000 });
   const ready = schema.data?.ready ?? true;
+  // Las reglas de guantes, vasos, limpieza… viven en su propia tabla: sin ella la barra anda igual.
+  const reglas = trpc.insumos.reglasSchema.useQuery(undefined, { enabled: !isDemo && !isSupervisor && ready, retry: false, staleTime: 60_000 });
+  const reglasReady = reglas.data?.ready ?? true;
   const estado = trpc.insumos.estado.useQuery({ eventId: activeId! }, { enabled: !!activeId && ready, refetchInterval: 30_000 });
   const refresh = () => { utils.insumos.estado.invalidate(); utils.insumos.movimientos.invalidate(); utils.insumos.proyeccion.invalidate(); };
   useEffect(() => { if (!ready) setDialog(null); }, [ready]);
@@ -67,6 +72,7 @@ export function InsumosManager() {
       </div>
 
       {!ready && <SchemaBanner missing={schema.data?.missing.length ?? 0} />}
+      {ready && !reglasReady && !isSupervisor && <ReglasBanner />}
 
       <div className="flex flex-wrap items-center gap-2">
         <Select value={activeId ? String(activeId) : ''} onValueChange={(v) => setEventId(Number(v))}>
@@ -81,10 +87,13 @@ export function InsumosManager() {
         {!isSupervisor && <WriteButton variant="outline" disabled={!ready || !activeId || !data} onClick={() => setCompraOpen(true)} className="shrink-0 interactive">
           📷 Cargar compra
         </WriteButton>}
+        {!isSupervisor && <WriteButton variant="outline" disabled={!ready || !activeId} onClick={() => setInventarioOpen(true)} className="shrink-0 interactive">
+          <ClipboardList className="mr-1 h-4 w-4" /> Cargar inventario
+        </WriteButton>}
         {!isSupervisor && <WriteButton variant="outline" disabled={!ready || !activeId} onClick={() => setDosierOpen(true)} className="shrink-0 interactive">
           Cargar dosier
         </WriteButton>}
-        {!isSupervisor && <WriteButton disabled={!ready} onClick={() => setDialog({ name: '', unit: 'ml', containerSize: 750, containerLabel: 'botella', sizes: [750], costPerContainer: null, alertDrinks: 15, initialBySize: {}, initialLoose: 0 })} className="shrink-0 interactive">
+        {!isSupervisor && <WriteButton disabled={!ready} onClick={() => setDialog({ name: '', unit: 'ml', containerSize: 750, containerLabel: 'botella', sizes: [750], costPerContainer: null, alertDrinks: 15, grupo: 'bebida', modo: 'receta', cantidad: 0, minimo: 0, initialBySize: {}, initialLoose: 0 })} className="shrink-0 interactive">
           <Plus className="mr-1 h-4 w-4" /> Insumo
         </WriteButton>}
       </div>
@@ -111,6 +120,7 @@ export function InsumosManager() {
 
       {activeId && <DosierPdfDialog eventId={activeId} eventTitle={(events ?? []).find((e: any) => e.id === activeId)?.title ?? ''} open={pdfOpen} onClose={() => setPdfOpen(false)} />}
       {activeId && data && <CompraBoletaDialog eventId={activeId} data={data} open={compraOpen} onClose={() => setCompraOpen(false)} onDone={() => { setCompraOpen(false); refresh(); }} />}
+      {activeId && <CargarInventarioDialog eventId={activeId} open={inventarioOpen} reglasReady={reglasReady} onClose={() => setInventarioOpen(false)} onDone={() => { setInventarioOpen(false); refresh(); }} />}
       {activeId && <DosierDialog eventId={activeId} open={dosierOpen} onClose={() => setDosierOpen(false)} onDone={() => { setDosierOpen(false); refresh(); }} />}
 
       <InsumoDialog
@@ -152,6 +162,38 @@ function SchemaBanner({ missing }: { missing: number }) {
       <AdminPasswordDialog
         open={open} title="Activar el stock de barra" actionLabel="Activar"
         description="Crea las tablas de insumos, recetas, movimientos y conteos de la barra. No borra ni cambia nada de lo que ya hay. Confirma con tu clave de admin."
+        onConfirm={(adminPassword) => apply.mutateAsync({ adminPassword })} onClose={() => setOpen(false)}
+      />
+    </>
+  );
+}
+
+/** Aviso con el botón que crea la tabla de reglas de los insumos generales (migración 0145). */
+function ReglasBanner() {
+  const utils = trpc.useUtils();
+  const [open, setOpen] = useState(false);
+  const apply = trpc.insumos.reglasSchemaApply.useMutation({
+    onSuccess: (r) => { utils.insumos.reglasSchema.invalidate(); utils.insumos.estado.invalidate(); toast.success(r.applied.length ? 'Listo: ya puedes cargar guantes, vasos y limpieza' : 'Ya estaba activado'); },
+    onError: (e) => toast.error(e.message || 'No se pudo activar'),
+  });
+  return (
+    <>
+      <div role="alert" className="flex flex-wrap items-center gap-3 rounded-2xl border border-amber-400/40 bg-amber-500/10 p-4">
+        <DatabaseZap className="h-6 w-6 shrink-0 text-amber-300" />
+        <div className="min-w-[14rem] flex-1">
+          <p className="font-semibold">Falta activar los insumos generales</p>
+          <p className="text-sm text-muted-foreground">
+            Para guardar guantes, vasos, hielo y limpieza con su regla de consumo. Solo agrega una tabla nueva: no toca tus datos y la barra sigue igual.
+          </p>
+        </div>
+        <button type="button" onClick={() => setOpen(true)} disabled={apply.isPending}
+          className="rounded-full bg-amber-400 px-5 py-2 text-sm font-bold text-black transition active:scale-95 disabled:opacity-60">
+          {apply.isPending ? 'Activando…' : 'Activar ahora'}
+        </button>
+      </div>
+      <AdminPasswordDialog
+        open={open} title="Activar los insumos generales" actionLabel="Activar"
+        description="Crea una tabla nueva con las reglas de consumo de los insumos que no llevan receta. No borra ni cambia nada de lo que ya hay. Confirma con tu clave de admin."
         onConfirm={(adminPassword) => apply.mutateAsync({ adminPassword })} onClose={() => setOpen(false)}
       />
     </>

@@ -24,7 +24,7 @@ import { MAX_TEST_GUESTS, MIN_TEST_GUESTS } from "../shared/playmatchTest";
 import { UNDO_EXPENSE_WINDOW_MS } from "../shared/expenses";
 import { canUseCaja, OPERATOR_ROLES, STAFF_SYSTEMS } from "../shared/cajaRoles";
 import { STAFF_CARGO_KEYS } from "../shared/staffCargos";
-import { applyInsumoSchema, applyManualSchema, applyStaffSchema, insumoSchemaStatus, manualSchemaStatus, staffSchemaStatus } from "./schemaUpdates";
+import { applyInsumoSchema, applyManualSchema, applyReglasSchema, applyStaffSchema, insumoSchemaStatus, manualSchemaStatus, reglasSchemaStatus, staffSchemaStatus } from "./schemaUpdates";
 import * as insumoSvc from "./insumos";
 import { describirBotellas } from "../shared/insumos";
 import { alertConteoDescuadre } from "./caja/alerts";
@@ -6838,6 +6838,30 @@ export const appRouter = router({
         throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: `No se pudo actualizar la base: ${e?.message ?? 'error desconocido'}` });
       }
     }),
+    // Insumos generales (guantes, vasos, limpieza…): su tabla de reglas se activa aparte, sin tocar la barra.
+    reglasSchema: panelStaffProcedure.query(() => reglasSchemaStatus()),
+    reglasSchemaApply: adminPasswordProcedure.mutation(async ({ ctx }) => {
+      try {
+        const r = await applyReglasSchema();
+        await db.recordAdminAudit({ action: 'system.insumoReglasSchemaApply', targetType: 'schema', payload: r, ip: clientIp(ctx) });
+        return { ...r, ...(await reglasSchemaStatus()) };
+      } catch (e: any) {
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: `No se pudo actualizar la base: ${e?.message ?? 'error desconocido'}` });
+      }
+    }),
+    // Pegar el inventario contado: primero se ve qué haría (inventarioPlan), después se aplica.
+    inventarioPlan: adminProcedure.input(z.object({ texto: z.string().max(40_000), grupoDefecto: z.enum(['bebida', 'desechable', 'limpieza', 'otro']) }))
+      .query(({ input }) => insumoSvc.inventarioPlan(input)),
+    inventarioApply: adminProcedure.input(z.object({ texto: z.string().max(40_000), grupoDefecto: z.enum(['bebida', 'desechable', 'limpieza', 'otro']), eventId: z.number().nullable().optional() }))
+      .mutation(async ({ input, ctx }) => {
+        try {
+          const r = await insumoSvc.inventarioApply(input);
+          await db.recordAdminAudit({ action: 'insumos.inventarioApply', targetType: 'insumos', payload: { creados: r.creados, actualizados: r.actualizados }, ip: clientIp(ctx) });
+          return r;
+        } catch (e: any) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: e?.message ?? 'No se pudo cargar el inventario' });
+        }
+      }),
     estado: panelStaffProcedure.input(z.object({ eventId: z.number() })).query(async ({ input, ctx }) => {
       const e = await insumoSvc.estadoBarra(input.eventId);
       // La supervisora ve el stock, no lo que cuesta cada insumo.
@@ -6870,9 +6894,18 @@ export const appRouter = router({
       costPerContainer: z.number().min(0).nullable().optional(), alertDrinks: z.number().int().min(0).max(10_000), sortOrder: z.number().int().optional(),
       // Al crear: con cuánto parte (en envases cerrados + suelto en la unidad del insumo).
       initialBySize: z.array(z.object({ size: z.number().int().min(1), count: z.number().min(0).max(100_000) })).max(20).optional(), initialLoose: z.number().min(0).optional(),
+      // Cómo se calcula cuánto comprar: bebida por receta (lo de siempre) o guantes, vasos, limpieza… por persona / evento / mínimo.
+      regla: z.object({
+        grupo: z.enum(['bebida', 'desechable', 'limpieza', 'otro']), modo: z.enum(['receta', 'por_persona', 'por_evento', 'manual']),
+        cantidad: z.number().min(0).max(10_000_000), minimo: z.number().min(0).max(10_000_000),
+      }).optional(),
     })).mutation(async ({ input }) => {
-      const { initialBySize, initialLoose, ...data } = input;
+      const { initialBySize, initialLoose, regla, ...data } = input;
       const saved = await insumoSvc.saveInsumo(data);
+      if (regla) {
+        try { await insumoSvc.saveRegla(saved.id, regla); }
+        catch (e: any) { throw new TRPCError({ code: 'BAD_REQUEST', message: e?.message ?? 'No se pudo guardar la regla del insumo' }); }
+      }
       const bottles = (initialBySize ?? []).filter((b) => b.count > 0);
       const initial = bottles.reduce((s, b) => s + b.size * b.count, 0) + (initialLoose ?? 0);
       if (!input.id && initial > 0) {

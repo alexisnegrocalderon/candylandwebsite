@@ -790,9 +790,9 @@ export function stockCsv(filas: FilaStock[]): string {
 }
 
 /** Lista de compras como texto para mandar por WhatsApp. */
-export function listaComprasTexto(p: Proyeccion, insumos: Insumo[], personas: number): string {
+export function listaComprasTexto(p: Proyeccion, insumos: Insumo[], personas: number, generales: { insumoId: number; name: string; containersToBuy: number }[] = []): string {
   const byId = new Map(insumos.map((i) => [i.id, i]));
-  const lines = p.insumos.filter((i) => i.containersToBuy > 0).map((i) => {
+  const lines = [...p.insumos, ...generales].filter((i) => i.containersToBuy > 0).map((i) => {
     const ins = byId.get(i.insumoId);
     const label = ins ? (i.containersToBuy === 1 ? ins.containerLabel : pluralize(ins.containerLabel)) : '';
     return `• ${i.name}: ${i.containersToBuy} ${label}`.trim();
@@ -903,4 +903,160 @@ export function descuadreAlerts(
     title: `Descuadre en el conteo de barra (${bad.length})`,
     body: `${parts.join(' · ')}${bad.length > 4 ? '…' : ''} — conteo de ${who}.`,
   }];
+}
+
+// --- Insumos generales (guantes, vasos, hielo, limpieza…): reglas de consumo sin receta ---
+
+export type GrupoInsumo = 'bebida' | 'desechable' | 'limpieza' | 'otro';
+export const GRUPOS_INSUMO: { id: GrupoInsumo; label: string; emoji: string }[] = [
+  { id: 'bebida', label: 'Bebidas', emoji: '🥃' },
+  { id: 'desechable', label: 'Desechables', emoji: '🥤' },
+  { id: 'limpieza', label: 'Limpieza', emoji: '🧴' },
+  { id: 'otro', label: 'Otros', emoji: '📦' },
+];
+
+/** Cómo se calcula cuánto hay que tener para un evento:
+ * - receta: lo gastan los tragos de la carta (las bebidas de siempre).
+ * - por_persona: `cantidad` por cada persona (1 vaso por persona).
+ * - por_evento: `cantidad` fija por evento (2 cajas de guantes).
+ * - manual: sin cálculo; solo avisa si baja del mínimo. */
+export type ModoConsumo = 'receta' | 'por_persona' | 'por_evento' | 'manual';
+export const MODOS_CONSUMO: { id: ModoConsumo; label: string; help: string }[] = [
+  { id: 'receta', label: 'Por receta', help: 'Lo gastan los tragos de la carta.' },
+  { id: 'por_persona', label: 'Por persona', help: 'Cuánto se gasta por cada persona que va.' },
+  { id: 'por_evento', label: 'Por evento', help: 'Una cantidad fija cada noche, vayan las personas que vayan.' },
+  { id: 'manual', label: 'Solo mínimo', help: 'Sin cálculo: te avisa cuando queda menos del mínimo.' },
+];
+
+export interface ReglaInsumo {
+  grupo: GrupoInsumo;
+  modo: ModoConsumo;
+  /** En la unidad del insumo: por persona o por evento, según el modo. */
+  cantidad: number;
+  /** Aviso de poco stock (en la unidad del insumo). 0 = no avisa. */
+  minimo: number;
+}
+
+export const REGLA_DEFECTO: ReglaInsumo = { grupo: 'bebida', modo: 'receta', cantidad: 0, minimo: 0 };
+
+const GRUPO_IDS = GRUPOS_INSUMO.map((g) => g.id) as string[];
+const MODO_IDS = MODOS_CONSUMO.map((m) => m.id) as string[];
+
+/** Regla completa a partir de lo que haya guardado (nada guardado = bebida por receta, como siempre). */
+export function reglaDe(r?: { grupo?: string | null; modo?: string | null; cantidad?: number | string | null; minimo?: number | string | null } | null): ReglaInsumo {
+  if (!r) return { ...REGLA_DEFECTO };
+  const grupo = GRUPO_IDS.includes(r.grupo ?? '') ? (r.grupo as GrupoInsumo) : REGLA_DEFECTO.grupo;
+  const modo = MODO_IDS.includes(r.modo ?? '') ? (r.modo as ModoConsumo) : REGLA_DEFECTO.modo;
+  return { grupo, modo, cantidad: Math.max(0, Number(r.cantidad ?? 0) || 0), minimo: Math.max(0, Number(r.minimo ?? 0) || 0) };
+}
+
+/** Semáforo de un insumo sin receta: agotado, bajo el mínimo u ok. */
+export function nivelGeneral(stock: number, minimo: number): 'agotado' | 'bajo' | 'ok' {
+  if (stock <= 0) return 'agotado';
+  if (minimo > 0 && stock < minimo) return 'bajo';
+  return 'ok';
+}
+
+export interface NecesidadGeneral {
+  insumoId: number;
+  name: string;
+  grupo: GrupoInsumo;
+  modo: ModoConsumo;
+  need: number;
+  stock: number;
+  missing: number;
+  containersToBuy: number;
+  cost: number | null;
+}
+
+/** Lo que falta comprar de los insumos que no se calculan por receta, para `personas` y un margen `factor`. */
+export function proyeccionGenerales(input: {
+  insumos: (Insumo & { grupo: GrupoInsumo; modo: ModoConsumo; cantidad: number; minimo: number })[];
+  stock: Map<number, number>;
+  personas: number;
+  factor?: number;
+}): { lineas: NecesidadGeneral[]; costoTotal: number } {
+  const factor = input.factor && input.factor > 0 ? input.factor : 1;
+  const lineas: NecesidadGeneral[] = [];
+  for (const i of input.insumos) {
+    if (i.modo === 'receta') continue;
+    if (i.modo === 'manual' && !(i.minimo > 0)) continue; // sin cálculo ni mínimo no hay qué comprar
+    if ((i.modo === 'por_persona' || i.modo === 'por_evento') && !(i.cantidad > 0)) continue;
+    const base = i.modo === 'por_persona' ? i.cantidad * input.personas * factor : i.modo === 'por_evento' ? i.cantidad * factor : i.minimo;
+    const need = Math.ceil(round(base) - 1e-9);
+    const stock = round(input.stock.get(i.id) ?? 0);
+    const missing = round(Math.max(0, need - stock));
+    const containersToBuy = i.containerSize > 0 ? Math.max(0, Math.ceil(missing / i.containerSize - 1e-9)) : 0;
+    const cost = i.costPerContainer != null ? containersToBuy * Number(i.costPerContainer) : null;
+    lineas.push({ insumoId: i.id, name: i.name, grupo: i.grupo, modo: i.modo, need, stock, missing, containersToBuy, cost });
+  }
+  lineas.sort((a, b) => b.containersToBuy - a.containersToBuy || a.name.localeCompare(b.name));
+  return { lineas, costoTotal: lineas.reduce((s, l) => s + (l.cost ?? 0), 0) };
+}
+
+// --- Carga masiva del inventario contado (pegar una lista) ---
+
+export interface LineaInventario {
+  raw: string;
+  name: string;
+  qty: number;
+  /** Lo que escribió tras la cantidad: «cajas», «botellas», «ml», «L»… (null = nada). */
+  suffix: string | null;
+  grupo: GrupoInsumo | null;
+}
+
+export function grupoDePalabra(word: string): GrupoInsumo | null {
+  const w = normalizeName(word);
+  if (/^(bebidas?|licor(es)?)$/.test(w)) return 'bebida';
+  if (/^desechables?$/.test(w)) return 'desechable';
+  if (/^limpieza$/.test(w)) return 'limpieza';
+  if (/^otros?$/.test(w)) return 'otro';
+  return null;
+}
+
+const QTY_SUFFIX = /^(\d+(?:[.,]\d+)?)\s*([A-Za-zÀ-ÿ.]+)?$/;
+const NAME_QTY_SUFFIX = /^(.+?)\s*[:\-–]?\s+(\d+(?:[.,]\d+)?)\s*([A-Za-zÀ-ÿ.]+)?$/;
+
+/** Lee una lista pegada, una línea por insumo: «Guantes nitrilo M; 3 cajas; desechable»,
+ * «Ron Bacardi 5 botellas» o «Hielo - 20». Separadores: `;`, tab, `|` o simplemente la cantidad al final. */
+export function parseInventario(text: string): { lineas: LineaInventario[]; errores: string[] } {
+  const lineas: LineaInventario[] = [];
+  const errores: string[] = [];
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#')) continue;
+    const parts = line.split(/\t|;|\|/).map((p) => p.trim()).filter(Boolean);
+    let name = ''; let qty = NaN; let suffix: string | null = null; let grupo: GrupoInsumo | null = null;
+    if (parts.length >= 2) {
+      const m = QTY_SUFFIX.exec(parts[1]);
+      if (m) {
+        name = parts[0]; qty = Number(m[1].replace(',', '.')); suffix = m[2] ?? null;
+        for (const extra of parts.slice(2)) {
+          const g = grupoDePalabra(extra);
+          if (g) grupo = g; else if (!suffix) suffix = extra;
+        }
+      }
+    } else {
+      const m = NAME_QTY_SUFFIX.exec(line);
+      if (m) { name = m[1].trim(); qty = Number(m[2].replace(',', '.')); suffix = m[3] ?? null; }
+    }
+    if (!name || !Number.isFinite(qty) || qty < 0) { errores.push(line); continue; }
+    lineas.push({ raw: line, name: name.slice(0, 100), qty, suffix: suffix ? suffix.replace(/\.$/, '') : null, grupo });
+  }
+  return { lineas, errores };
+}
+
+/** Cuánto es lo contado en la unidad del insumo: «3 cajas» = 3 envases; «500 ml» o «2 L» = lo escrito en su unidad. */
+export function cantidadContada(l: Pick<LineaInventario, 'qty' | 'suffix'>, insumo: Pick<Insumo, 'unit' | 'containerSize'>): number {
+  const s = l.suffix ? normalizeName(l.suffix) : '';
+  if (insumo.unit === 'ml') {
+    if (s === 'ml' || s === 'cc') return l.qty;
+    if (s === 'l' || s === 'lt' || s === 'lts' || s === 'litro' || s === 'litros') return l.qty * 1000;
+  }
+  if (insumo.unit === 'g') {
+    if (s === 'g' || s === 'gr' || s === 'grs' || s === 'gramos') return l.qty;
+    if (s === 'kg' || s === 'kgs' || s === 'kilo' || s === 'kilos') return l.qty * 1000;
+  }
+  if (insumo.unit === 'un' && (s === 'un' || s === 'u' || s === 'unidad' || s === 'unidades' || s === 'uds')) return l.qty;
+  return round(l.qty * Math.max(1, insumo.containerSize));
 }

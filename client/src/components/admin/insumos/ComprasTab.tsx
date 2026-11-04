@@ -5,7 +5,7 @@ import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { formatCantidad, listaComprasTexto } from '@shared/insumos';
+import { GRUPOS_INSUMO, formatCantidad, listaComprasTexto } from '@shared/insumos';
 import { money, type BarraData } from './types';
 
 const DEFAULT_PERSONAS = 300;
@@ -35,13 +35,13 @@ export function ComprasTab({ eventId, data }: { eventId: number; data: BarraData
 
   const copyText = async () => {
     if (!p) return;
-    try { await navigator.clipboard.writeText(listaComprasTexto(p, data.insumos, personas)); toast.success('Lista copiada: pégala en WhatsApp'); }
+    try { await navigator.clipboard.writeText(listaComprasTexto(p, data.insumos, personas, p.generales.lineas)); toast.success('Lista copiada: pégala en WhatsApp'); }
     catch { toast.error('No se pudo copiar'); }
   };
   const downloadCsv = () => {
     if (!p) return;
     const rows = [['Insumo', 'Necesario', 'Hay', 'Falta', 'Envases a comprar', 'Costo estimado']];
-    for (const r of p.insumos) {
+    for (const r of [...p.insumos, ...p.generales.lineas]) {
       const ins = insumoById.get(r.insumoId);
       rows.push([r.name, String(r.need), String(r.stock), String(r.missing), `${r.containersToBuy} ${ins?.containerLabel ?? ''}`.trim(), r.cost != null ? String(r.cost) : '']);
     }
@@ -53,6 +53,9 @@ export function ComprasTab({ eventId, data }: { eventId: number; data: BarraData
   };
 
   const toBuy = p?.insumos.filter((i) => i.containersToBuy > 0) ?? [];
+  const generales = p?.generales.lineas ?? [];
+  const generalesToBuy = generales.filter((g) => g.containersToBuy > 0);
+  const costoTotal = (p?.costoTotal ?? 0) + (p?.generales.costoTotal ?? 0);
 
   return (
     <div className="space-y-4">
@@ -135,7 +138,38 @@ export function ComprasTab({ eventId, data }: { eventId: number; data: BarraData
               );
             })}
           </ul>
-          {p.costoTotal > 0 && <p className="text-right text-sm">Costo estimado de la compra: <strong>{money(p.costoTotal)}</strong></p>}
+
+          {generales.length > 0 && (
+            <section className="space-y-2">
+              <h3 className="font-semibold">Guantes, desechables y limpieza {generalesToBuy.length > 0 ? `(${generalesToBuy.length} por comprar)` : ''}</h3>
+              <p className="text-xs text-muted-foreground">Calculado con la regla de cada insumo para {personas} personas (por persona, por evento o su mínimo).</p>
+              <ul className="space-y-2">
+                {generales.map((g) => {
+                  const ins = insumoById.get(g.insumoId);
+                  if (!ins) return null;
+                  const ok = g.containersToBuy === 0;
+                  const grupoInfo = GRUPOS_INSUMO.find((x) => x.id === g.grupo);
+                  return (
+                    <li key={g.insumoId} className={`rounded-2xl border p-3 ${ok ? 'border-border bg-card/40' : 'border-amber-500/40 bg-amber-500/5'}`}>
+                      <div className="flex items-start gap-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="font-semibold">{grupoInfo?.emoji} {g.name}</p>
+                          <p className="text-xs text-muted-foreground tabular-nums">Se necesita {formatCantidad(g.need, ins)} · hay {formatCantidad(g.stock, ins)}</p>
+                        </div>
+                        <div className="shrink-0 text-right">
+                          {ok
+                            ? <span className="text-sm font-semibold text-emerald-500">Alcanza ✓</span>
+                            : <span className="block text-lg font-bold tabular-nums">{g.containersToBuy} <span className="text-sm font-normal">{g.containersToBuy === 1 ? ins.containerLabel : `${ins.containerLabel}s`}</span></span>}
+                          {!ok && g.cost != null && <span className="block text-xs text-muted-foreground">{money(g.cost)}</span>}
+                        </div>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          )}
+          {costoTotal > 0 && <p className="text-right text-sm">Costo estimado de la compra: <strong>{money(costoTotal)}</strong></p>}
 
           <section className="rounded-2xl border border-border bg-card/40 p-3">
             <div className="flex items-center gap-2">

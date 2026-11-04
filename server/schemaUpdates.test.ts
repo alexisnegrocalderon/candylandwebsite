@@ -125,3 +125,30 @@ describe("recetas por vaso en una base que ya tenía 0132 y 0133", () => {
     expect(fake.ran[2]).toContain("CREATE UNIQUE INDEX `insumo_recetas_tt_insumo_glass_idx`");
   });
 });
+
+
+describe("actualización de esquema de las reglas de insumos generales", () => {
+  it("va aparte de los insumos y hace lo mismo que la migración 0145", async () => {
+    const fake = fakeDb([], []);
+    vi.mocked(db.getDb).mockResolvedValue(fake as any);
+    const { reglasSchemaStatus, applyReglasSchema } = await load();
+    expect((await reglasSchemaStatus()).ready).toBe(false);
+    await applyReglasSchema();
+    const file = readFileSync(new URL("../drizzle/0145_insumo_reglas.sql", import.meta.url), "utf8")
+      .split("--> statement-breakpoint").map((s) => s.trim().replace(/;$/, "").trim()).filter(Boolean);
+    expect(fake.ran.map((s) => s.trim())).toEqual(file);
+  });
+
+  it("falta la tabla de reglas pero el stock de barra sigue listo", async () => {
+    const tables = ["insumos", "insumoRecetas", "insumoMovimientos", "insumoConteos", "insumoConteoLineas"];
+    const indexes: [string, string][] = [
+      ["insumoRecetas", "insumo_recetas_tt_insumo_glass_idx"], ["insumoRecetas", "insumo_recetas_insumo_idx"],
+      ["insumoMovimientos", "insumo_mov_op_idx"], ["insumoMovimientos", "insumo_mov_insumo_idx"], ["insumoMovimientos", "insumo_mov_event_idx"],
+      ["insumoConteos", "insumo_conteos_event_idx"], ["insumoConteoLineas", "insumo_conteo_lineas_conteo_idx"],
+    ];
+    vi.mocked(db.getDb).mockResolvedValue(fakeDb([["insumos", "sizes"], ["insumoConteoLineas", "detail"], ["insumoRecetas", "glass"]], indexes, tables) as any);
+    const { insumoSchemaStatus, reglasSchemaStatus } = await load();
+    expect((await insumoSchemaStatus()).ready).toBe(true);
+    expect(await reglasSchemaStatus()).toEqual({ ready: false, missing: ["tabla insumoReglas"] });
+  });
+});

@@ -4,7 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { WriteButton } from '@/components/admin/WriteButton';
-import { COMMON_BOTTLE_SIZES, INSUMO_UNITS, OPEN_FRACTIONS, OPEN_PORTIONS, formatSize, insumoSizes, type InsumoUnit } from '@shared/insumos';
+import { COMMON_BOTTLE_SIZES, GRUPOS_INSUMO, INSUMO_UNITS, MODOS_CONSUMO, OPEN_FRACTIONS, OPEN_PORTIONS, formatSize, insumoSizes, type GrupoInsumo, type InsumoUnit, type ModoConsumo } from '@shared/insumos';
 import { SizeCounts } from './SizeCounts';
 
 export interface InsumoFormValue {
@@ -17,17 +17,26 @@ export interface InsumoFormValue {
   sizes: number[];
   costPerContainer: number | null;
   alertDrinks: number;
+  /** Qué tipo de insumo es y cómo se calcula cuánto comprar. Bebida por receta es lo de siempre. */
+  grupo: GrupoInsumo;
+  modo: ModoConsumo;
+  /** Por persona o por evento, según el modo (en la unidad del insumo). */
+  cantidad: number;
+  /** Avisa cuando queda menos de esto (en la unidad del insumo). */
+  minimo: number;
   /** Solo al crear: con cuánto parte, botellas por tamaño + suelto. */
   initialBySize: Record<number, number>;
   initialLoose: number;
 }
 
 /** ¿Qué tipo de insumo es? Deja listos el envase, los tamaños y el aviso de poco stock para no pedir datos técnicos. */
-const PRESETS: { id: string; emoji: string; label: string; hint: string; placeholder: string; value: Pick<InsumoFormValue, 'unit' | 'containerSize' | 'containerLabel' | 'sizes' | 'alertDrinks'> }[] = [
+const PRESETS: { id: string; emoji: string; label: string; hint: string; placeholder: string; value: Pick<InsumoFormValue, 'unit' | 'containerSize' | 'containerLabel' | 'sizes' | 'alertDrinks'> & Partial<Pick<InsumoFormValue, 'grupo' | 'modo'>> }[] = [
   { id: 'licor', emoji: '🥃', label: 'Licor', hint: 'pisco, ron, gin, whisky…', placeholder: 'Ej: Vodka Absolut', value: { unit: 'ml', containerSize: 750, containerLabel: 'botella', sizes: [750], alertDrinks: 15 } },
   { id: 'bebida', emoji: '🥤', label: 'Bebida o jugo', hint: 'jugo de limón, ginger, soda…', placeholder: 'Ej: Jugo de limón', value: { unit: 'ml', containerSize: 1000, containerLabel: 'botella', sizes: [1000], alertDrinks: 15 } },
   { id: 'jarabe', emoji: '🍓', label: 'Jarabe o pulpa', hint: 'siropes, goma, pulpas…', placeholder: 'Ej: Sirope de frutilla', value: { unit: 'ml', containerSize: 1000, containerLabel: 'botella', sizes: [1000], alertDrinks: 15 } },
   { id: 'unidad', emoji: '🥫', label: 'Botella o lata', hint: 'cerveza, energética…', placeholder: 'Ej: Cerveza Royal Guard', value: { unit: 'un', containerSize: 1, containerLabel: 'botella', sizes: [], alertDrinks: 10 } },
+  { id: 'desechable', emoji: '🥤', label: 'Desechable', hint: 'guantes, vasos, servilletas…', placeholder: 'Ej: Guantes de nitrilo', value: { unit: 'un', containerSize: 100, containerLabel: 'caja', sizes: [], alertDrinks: 0, grupo: 'desechable', modo: 'por_evento' } },
+  { id: 'limpieza', emoji: '🧴', label: 'Limpieza y otros', hint: 'cloro, bolsas, rollos…', placeholder: 'Ej: Bolsas de basura', value: { unit: 'un', containerSize: 1, containerLabel: 'unidad', sizes: [], alertDrinks: 0, grupo: 'limpieza', modo: 'manual' } },
 ];
 
 /** Crear o editar un insumo (ron, jugo, hielo…). Al crear, parte eligiendo qué es y cuántas botellas hay (cerradas por
@@ -49,7 +58,7 @@ export function InsumoDialog({ value, saving, onClose, onSave }: {
     setForm(value);
     setOtherSize(''); setOpenPortions(null); setOpenSize(null);
     // Un insumo nuevo parte como licor, salvo que ya venga con otra forma (ej. creado desde un producto en botella).
-    setPreset(value && !value.id ? (value.unit === 'un' ? 'unidad' : 'licor') : 'licor');
+    setPreset(value && !value.id ? (value.grupo === 'desechable' ? 'desechable' : value.grupo === 'limpieza' || value.grupo === 'otro' ? 'limpieza' : value.unit === 'un' ? 'unidad' : 'licor') : 'licor');
   }, [value]);
   if (!form) return <Dialog open={false} />;
 
@@ -68,9 +77,11 @@ export function InsumoDialog({ value, saving, onClose, onSave }: {
     const p = PRESETS.find((x) => x.id === id)!;
     setPreset(id);
     setOpenPortions(null);
-    set({ ...p.value, initialBySize: {}, initialLoose: 0 });
+    set({ grupo: 'bebida', modo: 'receta', cantidad: 0, minimo: 0, ...p.value, initialBySize: {}, initialLoose: 0 });
   };
   const sizeOfOpen = openSize ?? form.containerSize;
+  const esReceta = form.modo === 'receta';
+  const modoInfo = MODOS_CONSUMO.find((m) => m.id === form.modo)!;
 
   const submit = () => {
     // La botella abierta (1 a 9 de 10) se suma al stock inicial como líquido suelto.
@@ -83,7 +94,7 @@ export function InsumoDialog({ value, saving, onClose, onSave }: {
       <DialogContent className="max-h-[92vh] w-[96vw] max-w-[96vw] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{isNew ? 'Nuevo insumo' : 'Editar insumo'}</DialogTitle>
-          <DialogDescription>Una base que usan los tragos: un licor, un jugo, una bebida, una cerveza…</DialogDescription>
+          <DialogDescription>Una base de los tragos (licor, jugo, cerveza…) o algo que compras para el evento (guantes, vasos, limpieza…).</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
@@ -174,6 +185,47 @@ export function InsumoDialog({ value, saving, onClose, onSave }: {
             </div>
           )}
 
+          <div className="space-y-3 rounded-2xl border border-border bg-card/40 p-3">
+            <div>
+              <Label>Grupo</Label>
+              <div className="mt-1 flex flex-wrap gap-2" role="radiogroup" aria-label="Grupo del insumo">
+                {GRUPOS_INSUMO.map((g) => (
+                  <button key={g.id} type="button" role="radio" aria-checked={form.grupo === g.id} onClick={() => set({ grupo: g.id })}
+                    className={`rounded-full px-3.5 py-2 text-sm font-medium active:scale-95 ${form.grupo === g.id ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>
+                    {g.emoji} {g.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <Label>¿Cómo se calcula cuánto comprar?</Label>
+              <Select value={form.modo} onValueChange={(v) => set({ modo: v as ModoConsumo })}>
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent>{MODOS_CONSUMO.map((m) => <SelectItem key={m.id} value={m.id}>{m.label}</SelectItem>)}</SelectContent>
+              </Select>
+              <p className="mt-1 text-xs text-muted-foreground">{modoInfo.help}</p>
+            </div>
+            {(form.modo === 'por_persona' || form.modo === 'por_evento') && (
+              <div>
+                <Label htmlFor="ins-cantidad">{form.modo === 'por_persona' ? `Cuántas ${unit} por persona` : `Cuántas ${unit} por evento`}</Label>
+                <Input id="ins-cantidad" type="number" inputMode="decimal" min={0} step="any" value={form.cantidad || ''} placeholder="0" className="h-11"
+                  onChange={(e) => set({ cantidad: Math.max(0, Number(e.target.value) || 0) })} />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {form.modo === 'por_persona'
+                    ? `Ej: 1 vaso por persona → con 300 personas se necesitan ${Math.round((form.cantidad || 1) * 300)} ${unit}.`
+                    : `Ej: 200 ${unit} cada noche, vayan 100 o 400 personas.`}
+                </p>
+              </div>
+            )}
+            {!esReceta && (
+              <div>
+                <Label htmlFor="ins-minimo">{form.modo === 'manual' ? `Mínimo que debe haber (${unit})` : `Avisar si queda menos de (${unit})`}</Label>
+                <Input id="ins-minimo" type="number" inputMode="decimal" min={0} step="any" value={form.minimo || ''} placeholder="0 = no avisar" className="h-11"
+                  onChange={(e) => set({ minimo: Math.max(0, Number(e.target.value) || 0) })} />
+              </div>
+            )}
+          </div>
+
           <details className="rounded-2xl border border-border px-3 py-2 [&_summary]:cursor-pointer [&_summary]:select-none [&_summary]:text-sm [&_summary]:font-medium">
             <summary>Más opciones (costo, avisos, medida)</summary>
             <div className="mt-3 space-y-3">
@@ -200,11 +252,11 @@ export function InsumoDialog({ value, saving, onClose, onSave }: {
                   <Input id="ins-cost" type="number" inputMode="numeric" min={0} value={form.costPerContainer ?? ''} placeholder="$" onChange={(e) => set({ costPerContainer: e.target.value === '' ? null : Number(e.target.value) })} />
                 </div>
               </div>
-              <div>
+              {esReceta && <div>
                 <Label htmlFor="ins-alert">Avisar cuando alcance para menos de (tragos)</Label>
                 <Input id="ins-alert" type="number" inputMode="numeric" min={0} value={form.alertDrinks} onChange={(e) => set({ alertDrinks: Math.max(0, Number(e.target.value) || 0) })} />
                 <p className="mt-1 text-xs text-muted-foreground">0 = no avisar. También avisa al 25 % y al 10 % de lo que había al abrir la noche.</p>
-              </div>
+              </div>}
             </div>
           </details>
         </div>
