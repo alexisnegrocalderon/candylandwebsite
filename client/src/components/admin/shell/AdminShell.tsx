@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ChevronLeft, ChevronRight, ChevronDown, LogOut, MoreHorizontal, Plus, Search, Settings as SettingsIcon, Eye, type LucideIcon } from 'lucide-react';
+import { Suspense, lazy, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { ChevronLeft, ChevronRight, ChevronDown, LogOut, MoreHorizontal, Plus, Search, Settings as SettingsIcon, Eye, Sparkles, type LucideIcon } from 'lucide-react';
 import { AnimatePresence, motion, useDragControls } from 'framer-motion';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
@@ -11,6 +11,10 @@ import { ADMIN_HUBS, hubBadgeCount, type AdminHub, type AdminHubId, type ShellSe
 import { CommandPalette } from './CommandPalette';
 import { GiftHost } from '@/components/gifts/GiftHost';
 import { onGiftRequest } from '@/components/gifts/giftRequest';
+import { onAssistantRequest } from '@/components/assistant/assistantRequest';
+
+// El chat se descarga solo al abrirlo (trae los gráficos).
+const AssistantSheet = lazy(() => import('@/components/assistant/AssistantSheet').then((m) => ({ default: m.AssistantSheet })));
 import { TransferSaleDialog } from '@/components/admin/gifts/TransferSaleDialog';
 import { trpc } from '@/lib/trpc';
 import { hideSplash } from '@/lib/splash';
@@ -60,6 +64,8 @@ interface AdminShellProps {
   onLogout: () => void;
   /** Atajos de la hoja del «+» (celular): abren una sección, y opcionalmente algo dentro de ella. */
   quickActions?: AdminQuickAction[];
+  /** Muestra el botón flotante del Asistente IA (solo el dueño: la supervisora, los socios y el demo no). */
+  assistant?: boolean;
   children: ReactNode;
 }
 
@@ -75,7 +81,7 @@ export interface AdminQuickAction {
 /** Chrome del panel: sidebar de vidrio (desktop), pestañas del hub, barra
  * inferior + "Más" (celular) y buscador Ctrl+K. No sabe nada de lo que
  * renderiza cada sección -- solo de ids, hubs y burbujas. */
-export function AdminShell({ sections: allSections, activeSection, onOpenSection, badgeCounts, userName, roleLabel: roleLabelProp, isDemo, onLogout, quickActions, children }: AdminShellProps) {
+export function AdminShell({ sections: allSections, activeSection, onOpenSection, badgeCounts, userName, roleLabel: roleLabelProp, isDemo, onLogout, quickActions, assistant = false, children }: AdminShellProps) {
   const mainRef = useRef<HTMLElement>(null);
   useStackTables(mainRef);
   useDarkGlassDocument();
@@ -93,6 +99,9 @@ export function AdminShell({ sections: allSections, activeSection, onOpenSection
   const canOpenGift = !!giftAccess?.can || isSupervisor;
   // El atajo «Invitar» del «+» (y del menú de atajos) abre la misma hoja desde cualquier pantalla.
   useEffect(() => onGiftRequest(() => setGiftOpen(true)), []);
+  // El Asistente IA encima de cualquier pantalla (botón flotante y atajo «Pregúntale al asistente»).
+  const [assistantOpen, setAssistantOpen] = useState(false);
+  useEffect(() => onAssistantRequest(() => setAssistantOpen(true)), []);
 
   // El menú no muestra las pantallas ocultas (`hidden`), salvo la que está abierta; el buscador sí las encuentra.
   // Evento sin caja de la plataforma (solo entrada y estacionamiento por la web): sin sus pantallas de caja, carta y stock.
@@ -436,6 +445,17 @@ export function AdminShell({ sections: allSections, activeSection, onOpenSection
       )}
 
       {canOpenGift && <GiftHost open={giftOpen} onClose={() => setGiftOpen(false)} limited={isSupervisor} />}
+      {assistant && activeSection !== 'asistente' && (
+        <button type="button" onClick={() => setAssistantOpen(true)} aria-label="Pregúntale al Asistente IA" title="Pregúntale al Asistente IA"
+          className="fixed bottom-[calc(env(safe-area-inset-bottom)+6.75rem)] right-4 z-40 grid h-12 w-12 place-items-center rounded-full bg-gradient-to-br from-fuchsia-500 to-sky-500 text-white shadow-lg shadow-fuchsia-500/30 transition active:scale-95 md:bottom-6 md:right-6 md:h-14 md:w-14">
+          <Sparkles className="h-6 w-6" />
+        </button>
+      )}
+      {assistant && assistantOpen && (
+        <Suspense fallback={null}>
+          <AssistantSheet open={assistantOpen} onClose={() => setAssistantOpen(false)} context={{ section: current.label, eventId: shellEventId ?? null }} />
+        </Suspense>
+      )}
       {giftAccess?.can && <TransferSaleDialog open={transferOpen} onClose={() => setTransferOpen(false)} />}
 
       <CommandPalette

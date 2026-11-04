@@ -12,6 +12,7 @@ import { StaffManager, requestNewStaff } from '@/components/admin/staff/StaffMan
 import { requestGiftCoupon } from '@/components/admin/members/requestGiftCoupon';
 import { requestInventarioPdf } from '@/components/admin/insumos/requestInventarioPdf';
 import { requestGift } from '@/components/gifts/giftRequest';
+import { requestAssistant } from '@/components/assistant/assistantRequest';
 import { useHideSplashOnMount } from '@/lib/splash';
 import { useSeo } from '@/hooks/useSeo';
 import { useInstallableApp } from '@/hooks/useInstallableApp';
@@ -85,6 +86,7 @@ const SettingsManager = lazy(() => import('./sections/ajustes').then((m) => ({ d
 // El Estudio trae sus propias fuentes, html-to-image y jszip: se carga recién
 // cuando se abre, para no sumarle peso al resto del panel.
 const ContentStudio = lazy(() => import('@/components/admin/ContentStudio').then((m) => ({ default: m.ContentStudio })));
+const AssistantSection = lazy(() => import('@/components/assistant/AssistantSection').then((m) => ({ default: m.AssistantSection })));
 
 /** Quita el splash de apertura al montar (pantallas que no pasan por AdminShell). */
 function SplashGone() {
@@ -110,6 +112,7 @@ function SectionLoading() {
 
 /** Atajos de la hoja del «+» en el celular (solo los de secciones visibles). */
 const ADMIN_QUICK_ACTIONS: AdminQuickAction[] = [
+  { key: 'asistente', label: 'Pregúntale al asistente', icon: Sparkles, onSelect: requestAssistant },
   { key: 'invitar', label: 'Invitar entradas y tragos', icon: Gift, onSelect: requestGift },
   { key: 'staff', label: 'Agregar staff', icon: UserPlus, section: 'staff', onSelect: requestNewStaff },
   { key: 'inventario', label: 'Inventario PDF', icon: FileText, section: 'insumos', onSelect: requestInventarioPdf },
@@ -199,6 +202,8 @@ const ADMIN_SECTIONS = [
   { id: 'app-resumen', label: 'Resumen', hub: 'app', icon: LayoutDashboard, render: () => <AppOverview /> },
   { id: 'playmatch-test', label: 'Probar Playmatch', hub: 'app', icon: FlaskConical, render: () => <PlaymatchTestView /> },
   { id: 'cuenta-demo', label: 'Cuenta de prueba', hub: 'app', icon: UserCheck, render: () => <CuentaDemoView /> },
+  // Asistente IA: preguntarle cualquier cosa de la productora con los datos en vivo (server/assistant/).
+  { id: 'asistente', label: 'Asistente IA', hub: 'asistente', icon: Sparkles, render: () => <AssistantSection /> },
   // Finanzas de la empresa: el mes, el SII y la terminal para cargar gastos.
   { id: 'finanzas', label: 'Finanzas', hub: 'finanzas', icon: Banknote, render: () => <FinanzasView /> },
   { id: 'sii', label: 'SII', hub: 'finanzas', icon: Landmark, render: () => <SiiView /> },
@@ -319,7 +324,8 @@ export default function AdminDashboard() {
       roleLabel={isPartner ? 'Socio · Playroom × Dalmore' : isSupervisor ? 'Supervisora' : undefined}
       isDemo={isDemo}
       onLogout={() => logout()}
-      quickActions={isPartner || isDemo ? ADMIN_QUICK_ACTIONS.filter((q) => q.key !== 'invitar') : ADMIN_QUICK_ACTIONS}
+      quickActions={ADMIN_QUICK_ACTIONS.filter((q) => !((isPartner || isDemo) && q.key === 'invitar') && !((isPartner || isDemo || isSupervisor) && q.key === 'asistente'))}
+      assistant={!isPartner && !isSupervisor && !isDemo}
     >
       <AdminNavContext.Provider value={navContext}>
         {!isSupervisor && <SchemaUpdateBanner />}
