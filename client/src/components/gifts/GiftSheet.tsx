@@ -4,9 +4,10 @@ import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ArrowLeft, Check, ChevronLeft, Minus, Plus, Search, X } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
-import { useTonightEvent } from '@/hooks/useTonightEvent';
+import { isTestEvent, useTonightEvent } from '@/hooks/useTonightEvent';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet';
 import { useBackClosable } from '@/components/site/AmbassadorAccount';
 import { isAnyParkingTicketType } from '@shared/parking';
@@ -67,8 +68,20 @@ export function GiftSheet({ open, onClose, team = [], initialIds = [], initialRe
   const access = trpc.orders.canGift.useQuery(undefined, { enabled: open, retry: false });
   const allowed = !!access.data?.can;
   // Solo con la hoja abierta y la sesión del panel: en la App, las consultas del panel no se piden de más.
-  const { events, eventId } = useTonightEvent({ enabled: open && allowed });
+  const { events, eventId: defaultEventId } = useTonightEvent({ enabled: open && allowed });
+  // El evento al que se regala: el de esta noche, o el que elijas en la hoja (sin cambiar el evento del resto del panel).
+  const [pickedEventId, setPickedEventId] = useState<number | null>(null);
+  const eventId = pickedEventId ?? defaultEventId;
   const event = ((events ?? []) as any[]).find((e) => e.id === eventId) ?? null;
+  // Los que vienen (y los de los últimos 2 días) primero; después unos pocos pasados. Nunca los de prueba.
+  const eventOptions = useMemo(() => {
+    const now = Date.now();
+    const real = ((events ?? []) as any[]).filter((e) => !isTestEvent(e));
+    const next = real.filter((e) => new Date(e.eventDate).getTime() >= now - 2 * 86_400_000).sort((a, b) => new Date(a.eventDate).getTime() - new Date(b.eventDate).getTime());
+    const past = real.filter((e) => !next.includes(e)).sort((a, b) => new Date(b.eventDate).getTime() - new Date(a.eventDate).getTime()).slice(0, 3);
+    const all = [...next, ...past];
+    return event && !all.some((e) => e.id === event.id) ? [event, ...all] : all;
+  }, [events, event]);
   const { data: types } = trpc.events.getTicketTypes.useQuery({ slug: event?.slug ?? '' }, { enabled: open && allowed && !!event?.slug });
 
   const [step, setStep] = useState<Step>('quien');
@@ -90,7 +103,7 @@ export function GiftSheet({ open, onClose, team = [], initialIds = [], initialRe
   const reset = (keepRecipients: Recipient[] = [], keepIds: number[] = []) => {
     setStep(keepRecipients.length || keepIds.length ? 'que' : 'quien');
     setRecipients(keepRecipients); setStaffIds(keepIds); setAudienceId(null); setQ(''); setQty({}); setMessage(''); setReason('');
-    setPacks(loadPacks()); setMode('directo'); setAnyAccess(false); setAnyQty(1); setValidDays(null); setResult(null);
+    setPacks(loadPacks()); setMode('directo'); setAnyAccess(false); setAnyQty(1); setValidDays(null); setResult(null); setPickedEventId(null);
   };
   /** «Regalar a otra persona»: vuelve al paso 1 con lo mismo elegido para regalar (cambia solo a quién y el mensaje). */
   const anotherPerson = () => { setRecipients([]); setStaffIds([]); setAudienceId(null); setQ(''); setMessage(''); setResult(null); setStep('quien'); };
@@ -105,11 +118,16 @@ export function GiftSheet({ open, onClose, team = [], initialIds = [], initialRe
   // Paso 1: búsqueda en vivo desde 2 caracteres, con 250 ms de espera.
   const term = useDebounced(q.trim(), 250);
   const found = trpc.customers.quickSearch.useQuery({ q: term }, { enabled: open && allowed && term.length >= 2, placeholderData: (prev) => prev });
-  const options = (term.length >= 2 ? found.data ?? [] : []).filter((r) => !recipients.some((x) => x.email === r.email.toLowerCase()));
+  const people = team.filter((m) => m.active && m.email);
+  // El mismo buscador encuentra también al equipo (por nombre, correo o cargo): clientes y staff en una sola lista.
+  const needle = term.toLowerCase();
+  const staffMatches = term.length >= 2
+    ? people.filter((m) => !staffIds.includes(m.id) && [m.name, m.email ?? '', cargoDef(m.cargo)?.label ?? ''].some((v) => v.toLowerCase().includes(needle)))
+    : [];
+  const options = (term.length >= 2 ? found.data ?? [] : []).filter((r) => !recipients.some((x) => x.email === r.email.toLowerCase()) && !people.some((m) => m.email!.toLowerCase() === r.email.toLowerCase() && (staffIds.includes(m.id) || staffMatches.some((x) => x.id === m.id))));
   const audienceDef = AUDIENCES.find((a) => a.id === audienceId);
   const preview = trpc.member.previewCouponAudience.useQuery(audienceDef?.audience as any, { enabled: open && allowed && !!audienceDef });
 
-  const people = team.filter((m) => m.active && m.email);
   const staffEmails = people.filter((m) => staffIds.includes(m.id)).map((m) => m.email!.toLowerCase());
   const emails = Array.from(new Set([...recipients.map((r) => r.email), ...staffEmails]));
   const count = (audienceDef ? preview.data?.count ?? 0 : 0) + emails.length;
@@ -213,6 +231,17 @@ export function GiftSheet({ open, onClose, team = [], initialIds = [], initialRe
 
   const body = (
     <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">
+      {allowed && flowStep && eventOptions.length > 0 && (
+        <div className="mb-4">
+          <label className="mb-1 block text-xs font-semibold text-muted-foreground">Para qué evento</label>
+          <Select value={eventId ? String(eventId) : ''} onValueChange={(v) => { setPickedEventId(Number(v)); setQty({}); }}>
+            <SelectTrigger className="h-11" aria-label="Evento del regalo"><SelectValue placeholder="Elige un evento" /></SelectTrigger>
+            <SelectContent className="z-[110]">
+              {eventOptions.map((e) => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
       {access.isLoading ? (
         <p className="text-sm text-muted-foreground">Cargando…</p>
       ) : !allowed ? (
@@ -223,8 +252,14 @@ export function GiftSheet({ open, onClose, team = [], initialIds = [], initialRe
         </div>
       ) : step === 'quien' ? (
         <div className="space-y-4">
-          {recipients.length > 0 && (
+          {(recipients.length > 0 || staffIds.length > 0) && (
             <div className="flex flex-wrap gap-1.5">
+              {people.filter((m) => staffIds.includes(m.id)).map((m) => (
+                <span key={`s${m.id}`} className="inline-flex items-center gap-1 rounded-full bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground">
+                  {cargoDef(m.cargo)?.emoji ?? '👤'} {m.name}
+                  <button type="button" aria-label={`Quitar a ${m.name}`} onClick={() => setStaffIds((l) => l.filter((x) => x !== m.id))}><X className="h-3.5 w-3.5" /></button>
+                </span>
+              ))}
               {recipients.map((r) => (
                 <span key={r.email} className="inline-flex items-center gap-1 rounded-full bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground">
                   {r.name || r.email}
@@ -235,12 +270,24 @@ export function GiftSheet({ open, onClose, team = [], initialIds = [], initialRe
           )}
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input ref={searchRef} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Nombre, apellido, correo o teléfono" className="h-12 pl-9 text-base" inputMode="search" autoComplete="off"
+            <Input ref={searchRef} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Cliente o equipo: nombre, correo o teléfono" className="h-12 pl-9 text-base" inputMode="search" autoComplete="off"
               onKeyDown={(e) => { if (e.key === 'Enter' && looksLikeEmail(q)) { e.preventDefault(); addRecipient({ email: q.trim().toLowerCase(), name: '' }); } }} />
           </div>
           {q.trim().length === 1 && <p className="text-xs text-muted-foreground">Escribe una letra más para buscar.</p>}
           {term.length >= 2 && (
             <ul className="space-y-1.5" aria-live="polite">
+              {staffMatches.map((m) => (
+                <li key={`m${m.id}`}>
+                  <button type="button" onClick={() => { setStaffIds((l) => (l.includes(m.id) ? l : [...l, m.id])); setQ(''); searchRef.current?.focus(); }} className="flex w-full items-center gap-3 rounded-2xl bg-muted/50 px-3 py-2.5 text-left hover:bg-muted">
+                    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-primary/15 text-lg">{cargoDef(m.cargo)?.emoji ?? '👤'}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-semibold">{m.name}</span>
+                      <span className="block truncate text-xs text-muted-foreground">{m.email}</span>
+                    </span>
+                    <span className="shrink-0 rounded-full bg-primary/15 px-2 py-0.5 text-[11px] font-semibold text-primary">Equipo{cargoDef(m.cargo) ? ` · ${cargoDef(m.cargo)!.label.split(' / ')[0]}` : ''}</span>
+                  </button>
+                </li>
+              ))}
               {options.map((r) => (
                 <li key={r.id}>
                   <button type="button" onClick={() => addRecipient({ email: r.email.toLowerCase(), name: r.fullName ?? '' })} className="flex w-full items-center gap-3 rounded-2xl bg-muted/50 px-3 py-2.5 text-left hover:bg-muted">
@@ -256,8 +303,8 @@ export function GiftSheet({ open, onClose, team = [], initialIds = [], initialRe
               {looksLikeEmail(q) && !options.some((r) => r.email.toLowerCase() === q.trim().toLowerCase()) && (
                 <li><button type="button" onClick={() => addRecipient({ email: q.trim().toLowerCase(), name: '' })} className="w-full rounded-2xl border border-dashed border-border px-3 py-2.5 text-left text-sm hover:bg-muted">Agregar {q.trim().toLowerCase()}</button></li>
               )}
-              {!found.isFetching && options.length === 0 && !looksLikeEmail(q) && <li className="px-1 text-xs text-muted-foreground">Nadie con «{term}». Si no es cliente todavía, escribe su correo completo.</li>}
-              {found.isFetching && options.length === 0 && <li className="px-1 text-xs text-muted-foreground">Buscando…</li>}
+              {!found.isFetching && options.length === 0 && staffMatches.length === 0 && !looksLikeEmail(q) && <li className="px-1 text-xs text-muted-foreground">Nadie con «{term}». Si no es cliente todavía, escribe su correo completo.</li>}
+              {found.isFetching && options.length === 0 && staffMatches.length === 0 && <li className="px-1 text-xs text-muted-foreground">Buscando…</li>}
             </ul>
           )}
 

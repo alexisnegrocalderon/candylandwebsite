@@ -66,7 +66,8 @@ export interface AdminQuickAction {
   key: string;
   label: string;
   icon: LucideIcon;
-  section: string;
+  /** La sección que abre; sin ella el atajo solo ejecuta `onSelect` (abre una hoja encima de donde estés). */
+  section?: string;
   onSelect?: () => void;
 }
 
@@ -398,11 +399,11 @@ export function AdminShell({ sections: allSections, activeSection, onOpenSection
           badgeFor={(id) => hubBadgeCount(id, sections, badgeCounts)}
           moreBadge={moreBadge}
           moreHubs={allHubs.filter((h) => !mobileHubs.slice(0, 4).some((m) => m.id === h.id))}
-          quickActions={(quickActions ?? []).filter((q) => sections.some((s) => s.id === q.section))}
+          quickActions={(quickActions ?? []).filter((q) => !q.section || sections.some((s) => s.id === q.section))}
           open={moreOpen}
           onOpenChange={setMoreOpen}
           onOpenHub={openHub}
-          onQuickAction={(q) => { setMoreOpen(false); q.onSelect?.(); onOpenSection(q.section); }}
+          onQuickAction={(q) => { setMoreOpen(false); q.onSelect?.(); if (q.section) onOpenSection(q.section); }}
           userName={userName}
           roleLabel={roleLabel}
           onLogout={onLogout}
