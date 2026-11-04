@@ -14,6 +14,9 @@ import { buildAccountantCsv } from "./sii";
 import { verificarDosier } from "./dosierLink";
 import { dosierData } from "./dosierData";
 import { buildDosierPdf } from "./dosierPdf";
+import { verificarInventario } from "./inventarioLink";
+import { inventarioDeEvento } from "./inventarioData";
+import { buildInventarioPdf } from "./inventarioPdf";
 
 /** Exportada para que otras rutas Express crudas (fuera de tRPC) reusen el
  * mismo chequeo -- ver server/blobUpload.ts. */
@@ -78,6 +81,24 @@ export function registerAdminRoutes(app: Express) {
     } catch (e) {
       console.error("[dosierPdf]", e);
       res.status(500).type("text/plain; charset=utf-8").send("No se pudo generar el dosier");
+    }
+  });
+
+  // Inventario en PDF: mismo tipo de link firmado. El PDF se arma en el momento con lo que hay en la base, así que siempre sale actualizado.
+  app.get("/api/inventario/:token", async (req: Request, res: Response) => {
+    const t = verificarInventario(String(req.params.token ?? ""));
+    if (!t) { res.status(403).type("text/plain; charset=utf-8").send("Este link del inventario venció o no es válido. Pide uno nuevo."); return; }
+    try {
+      const inv = await inventarioDeEvento(t.eventId, t.personas);
+      if (!inv) { res.status(404).type("text/plain; charset=utf-8").send("Evento no encontrado"); return; }
+      const pdf = await buildInventarioPdf(inv);
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Cache-Control", "private, no-store");
+      res.setHeader("Content-Disposition", `inline; filename="inventario-${slug(inv.eventTitle)}.pdf"`);
+      res.send(pdf);
+    } catch (e) {
+      console.error("[inventarioPdf]", e);
+      res.status(500).type("text/plain; charset=utf-8").send("No se pudo generar el inventario");
     }
   });
 

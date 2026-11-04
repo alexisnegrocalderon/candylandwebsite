@@ -523,6 +523,24 @@ export async function consumoReciente(eventId: number, since: Date) {
   return all.filter((i) => (used.get(i.id) ?? 0) > 0).map((insumo) => ({ insumo, stock: stock.get(insumo.id) ?? 0, usedLastWindow: used.get(insumo.id)! }));
 }
 
+/** Lo gastado en un evento por insumo: ventas de la barra (con las anulaciones restadas) y mermas registradas. */
+export async function consumoDelEvento(eventId: number): Promise<{ insumoId: number; usado: number; merma: number }[]> {
+  if (!(await ready())) return [];
+  const db = await dbOrThrow();
+  const rows = await db.select({ insumoId: insumoMovimientos.insumoId, kind: insumoMovimientos.kind, total: sql<string>`SUM(${insumoMovimientos.delta})` })
+    .from(insumoMovimientos)
+    .where(and(eq(insumoMovimientos.eventId, eventId), inArray(insumoMovimientos.kind, ["venta", "anulacion", "merma"])))
+    .groupBy(insumoMovimientos.insumoId, insumoMovimientos.kind);
+  const by = new Map<number, { usado: number; merma: number }>();
+  for (const r of rows as any[]) {
+    const cur = by.get(r.insumoId) ?? { usado: 0, merma: 0 };
+    if (r.kind === "merma") cur.merma += -n(r.total);
+    else cur.usado += -n(r.total);
+    by.set(r.insumoId, cur);
+  }
+  return Array.from(by.entries()).map(([insumoId, v]) => ({ insumoId, usado: Math.round(Math.max(0, v.usado) * 100) / 100, merma: Math.round(Math.max(0, v.merma) * 100) / 100 }));
+}
+
 /** Último conteo del evento (para no pedirle a la segunda caja que vuelva a contar). */
 export async function ultimoConteo(eventId: number, kind: "apertura" | "cierre") {
   if (!(await ready())) return null;
@@ -591,7 +609,7 @@ export async function crearConteo(params: {
 // --- Proyección de compra ---
 
 /** Personas de un evento: las que entraron (si ya pasó) o las que tienen entrada. */
-async function personasDelEvento(db: any, eventId: number): Promise<{ inside: number; expected: number }> {
+export async function personasDelEvento(db: any, eventId: number): Promise<{ inside: number; expected: number }> {
   const rows = await db.select({ accesoSlug: ticketTypes.accesoSlug, status: tickets.status, groupSize: tickets.groupSize })
     .from(tickets).innerJoin(ticketTypes, eq(ticketTypes.id, tickets.ticketTypeId))
     .where(and(eq(tickets.eventId, eventId), eq(ticketTypes.category, "acceso")));

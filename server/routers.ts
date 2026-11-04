@@ -47,6 +47,7 @@ import * as comprasSvc from "./compras";
 import * as staffEntrySvc from "./staffEntry";
 import { firmarDosier, dosierPath, DOSIER_TTL_ADMIN, DOSIER_TTL_CAJA } from "./dosierLink";
 import { dosierFichas } from "./dosierData";
+import { firmarInventario, inventarioPath, INVENTARIO_TTL } from "./inventarioLink";
 import { puedeVerDosier } from "../shared/staffPortal";
 import { generateCostumeIdeas, fallbackResult as fallbackCostumeResult } from "./costumeOracle";
 import { ORACLE_VIBES, ORACLE_COMPANY, ORACLE_LEVELS, ORACLE_SKIN, ORACLE_ITEMS, ORACLE_EXTRA_MAX } from "../shared/costumeOracle";
@@ -6926,6 +6927,11 @@ export const appRouter = router({
     dosierLink: adminProcedure.input(z.object({ eventId: z.number() })).mutation(({ input }) => {
       const { token, expiresAt } = firmarDosier(input.eventId, DOSIER_TTL_ADMIN);
       return { path: dosierPath(token), expiresAt };
+    }),
+    // Inventario en PDF: un link firmado que arma el PDF con lo que haya al abrirlo (siempre actualizado). personas = 0: las que tienen entrada.
+    inventarioLink: adminProcedure.input(z.object({ eventId: z.number(), personas: z.number().int().min(0).max(100_000) })).mutation(({ input }) => {
+      const { token, expiresAt } = firmarInventario({ eventId: input.eventId, personas: input.personas }, INVENTARIO_TTL);
+      return { path: inventarioPath(token), expiresAt };
     }),
     comprasLeer: adminProcedure.input(z.object({ imageUrl: z.string().url() })).mutation(async ({ input }) => {
       try {

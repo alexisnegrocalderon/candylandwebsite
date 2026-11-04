@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { ClipboardList, DatabaseZap, Plus } from 'lucide-react';
+import { ClipboardList, DatabaseZap, FileText, Plus } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { useTonightEvent } from '@/hooks/useTonightEvent';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -18,6 +18,8 @@ import { CompraBoletaDialog } from './CompraBoletaDialog';
 import { DosierPdfDialog } from './DosierPdfDialog';
 import { DosierTab } from './DosierTab';
 import { CargarInventarioDialog } from './CargarInventarioDialog';
+import { InventarioPdfDialog } from './InventarioPdfDialog';
+import { takeInventarioPdfRequest } from './requestInventarioPdf';
 
 type Tab = 'stock' | 'recetas' | 'compras' | 'dosier' | 'historial';
 const TABS: { id: Tab; label: string; help: string }[] = [
@@ -43,6 +45,8 @@ export function InsumosManager() {
   const [compraOpen, setCompraOpen] = useState(false);
   const [pdfOpen, setPdfOpen] = useState(false);
   const [inventarioOpen, setInventarioOpen] = useState(false);
+  // El atajo «Inventario PDF» del «+» abre esta sección con el diálogo ya abierto.
+  const [invPdfOpen, setInvPdfOpen] = useState(() => takeInventarioPdfRequest() && !isSupervisor);
 
   const utils = trpc.useUtils();
   const schema = trpc.insumos.schema.useQuery(undefined, { enabled: !isDemo && !isSupervisor, retry: false, staleTime: 60_000 });
@@ -81,6 +85,9 @@ export function InsumosManager() {
             {(events ?? []).map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}
           </SelectContent>
         </Select>
+        {!isSupervisor && <Button variant="outline" disabled={!ready || !activeId} onClick={() => setInvPdfOpen(true)} className="shrink-0 interactive">
+          <FileText className="mr-1 h-4 w-4" /> Inventario PDF
+        </Button>}
         {!isSupervisor && <Button variant="outline" disabled={!ready || !activeId} onClick={() => setPdfOpen(true)} className="shrink-0 interactive">
           📘 Dosier PDF
         </Button>}
@@ -120,6 +127,7 @@ export function InsumosManager() {
 
       {activeId && <DosierPdfDialog eventId={activeId} eventTitle={(events ?? []).find((e: any) => e.id === activeId)?.title ?? ''} open={pdfOpen} onClose={() => setPdfOpen(false)} />}
       {activeId && data && <CompraBoletaDialog eventId={activeId} data={data} open={compraOpen} onClose={() => setCompraOpen(false)} onDone={() => { setCompraOpen(false); refresh(); }} />}
+      <InventarioPdfDialog events={(events ?? []).map((e: any) => ({ id: e.id, title: e.title }))} defaultEventId={activeId ?? null} open={invPdfOpen && ready} onClose={() => setInvPdfOpen(false)} />
       {activeId && <CargarInventarioDialog eventId={activeId} open={inventarioOpen} reglasReady={reglasReady} onClose={() => setInventarioOpen(false)} onDone={() => { setInventarioOpen(false); refresh(); }} />}
       {activeId && <DosierDialog eventId={activeId} open={dosierOpen} onClose={() => setDosierOpen(false)} onDone={() => { setDosierOpen(false); refresh(); }} />}
 
