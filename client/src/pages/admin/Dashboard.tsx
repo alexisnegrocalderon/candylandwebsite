@@ -11,6 +11,8 @@ import { SupervisorAccessManager } from '@/components/admin/SupervisorAccessMana
 import { StaffManager, requestNewStaff } from '@/components/admin/staff/StaffManager';
 import { requestGiftCoupon } from '@/components/admin/members/requestGiftCoupon';
 import { requestInventarioPdf } from '@/components/admin/insumos/requestInventarioPdf';
+import { GiftHost } from '@/components/gifts/GiftHost';
+import { requestGift } from '@/components/gifts/giftRequest';
 import { useHideSplashOnMount } from '@/lib/splash';
 import { useSeo } from '@/hooks/useSeo';
 import { useInstallableApp } from '@/hooks/useInstallableApp';
@@ -109,6 +111,7 @@ function SectionLoading() {
 
 /** Atajos de la hoja del «+» en el celular (solo los de secciones visibles). */
 const ADMIN_QUICK_ACTIONS: AdminQuickAction[] = [
+  { key: 'invitar', label: 'Invitar entradas y tragos', icon: Gift, onSelect: requestGift },
   { key: 'staff', label: 'Agregar staff', icon: UserPlus, section: 'staff', onSelect: requestNewStaff },
   { key: 'inventario', label: 'Inventario PDF', icon: FileText, section: 'insumos', onSelect: requestInventarioPdf },
   { key: 'gasto', label: 'Cargar gasto', icon: Receipt, section: 'cargar-gasto' },
@@ -314,8 +317,9 @@ export default function AdminDashboard() {
       roleLabel={isPartner ? 'Socio · Playroom × Dalmore' : isSupervisor ? 'Supervisora' : undefined}
       isDemo={isDemo}
       onLogout={() => logout()}
-      quickActions={ADMIN_QUICK_ACTIONS}
+      quickActions={isSupervisor || isPartner ? ADMIN_QUICK_ACTIONS.filter((q) => q.key !== 'invitar') : ADMIN_QUICK_ACTIONS}
     >
+      {!isSupervisor && !isPartner && <GiftHost />}
       <AdminNavContext.Provider value={navContext}>
         {!isSupervisor && <SchemaUpdateBanner />}
         <motion.div

@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { CalendarPlus, Gift, KeyRound, Link2, Mail, Pencil, Trash2, UserPlus, Users } from 'lucide-react';
+import { CalendarPlus, Gift, KeyRound, Link2, Mail, Pencil, Ticket, Trash2, UserPlus, Users } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { useIsDemo, DEMO_TOOLTIP } from '@/lib/demoMode';
 import { Input } from '@/components/ui/input';
@@ -189,11 +189,34 @@ function AssignShift({ m, onDone }: { m: any; onDone: () => void }) {
 let openNewOnMount = false;
 export function requestNewStaff() { openNewOnMount = true; }
 
+/** Cuántas entradas puede regalar esta persona desde su app. Parte en 0 (no puede regalar); el dueño la cambia aquí.
+ * Cada entrada que regala es un pase para cualquier evento que queda en los Cupones de quien lo recibe. */
+function GiftQuotaField({ name, staffId, value, disabled }: { name: string; staffId: number; value: number; disabled: boolean }) {
+  const utils = trpc.useUtils();
+  const [text, setText] = useState(String(value));
+  useEffect(() => { setText(String(value)); }, [value]);
+  const next = Math.max(0, Math.min(500, Math.floor(Number(text) || 0)));
+  const save = trpc.finance.setStaffGiftQuota.useMutation({
+    onSuccess: (r) => { utils.finance.staffGiftQuotas.invalidate(); toast.success(r.entradas === 0 ? `${name} ya no puede regalar entradas` : `${name} puede regalar ${r.entradas} ${r.entradas === 1 ? 'entrada' : 'entradas'}`); },
+    onError: (e) => toast.error(e.message),
+  });
+  return (
+    <label className="flex items-center gap-1.5 rounded-full bg-black/5 py-1 pl-2.5 pr-1 text-xs" title="Entradas que puede regalar desde su app (pase para cualquier evento). En 0 no puede regalar.">
+      <Ticket className="h-3.5 w-3.5" aria-hidden /> Entradas para regalar
+      <Input type="number" inputMode="numeric" min={0} max={500} value={text} placeholder="0" disabled={disabled} aria-label={`Entradas para regalar de ${name}`}
+        onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && next !== value) save.mutate({ staffId, entradas: next }); }}
+        className="h-7 w-14 px-2 text-center text-xs" />
+      {next !== value && <button type="button" disabled={disabled || save.isPending} onClick={() => save.mutate({ staffId, entradas: next })} className="rounded-full bg-black px-2.5 py-1 text-[11px] font-semibold text-white disabled:opacity-50">{save.isPending ? '…' : 'Guardar'}</button>}
+    </label>
+  );
+}
+
 export function StaffManager() {
   const isDemo = useIsDemo();
   const utils = trpc.useUtils();
   const { ready: schemaReady } = useStaffSchema();
   const { data: team, isLoading } = trpc.finance.staffList.useQuery();
+  const { data: quotas } = trpc.finance.staffGiftQuotas.useQuery(undefined, { retry: false });
   const [editing, setEditing] = useState<number | 'new' | null>(() => {
     if (!openNewOnMount) return null;
     openNewOnMount = false;
@@ -293,6 +316,7 @@ export function StaffManager() {
                   <Gift className="h-3.5 w-3.5" /> Regalar
                 </button>
               )}
+              {m.email && m.active && <GiftQuotaField name={m.name} staffId={m.id} value={(quotas ?? {})[m.id] ?? 0} disabled={isDemo} />}
               {m.sales?.link && m.active && (
                 <button type="button" className={`${pill} ${pillOff} flex items-center gap-1`} title={`Su código es ${m.sales.code}. Las compras con este link quedan a su nombre.`}
                   onClick={() => { void navigator.clipboard.writeText(m.sales!.link!).then(() => toast.success(`Link de ${m.name} copiado`)).catch(() => toast.error('No se pudo copiar')); }}>

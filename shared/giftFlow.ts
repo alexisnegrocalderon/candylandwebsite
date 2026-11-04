@@ -54,6 +54,8 @@ export interface GiftSummaryInput {
   /** Pases «a elección» (cuántos). */
   anyAccessQty?: number;
   eventTitle?: string | null;
+  /** El pase vale para cualquier evento (no se nombra uno). */
+  anyEvent?: boolean;
   /** «hasta el evento», «por 7 días». */
   validity?: string | null;
 }
@@ -78,7 +80,7 @@ export function giftSummary(s: GiftSummaryInput): string {
   if (hasPass) how.push(`el pase queda en sus Cupones para canjearlo${s.validity ? ` y vale ${s.validity}` : ''}`);
   if (hasDirect) how.push('la entrada le llega por correo con su QR');
   if (hasDrink) how.push('el trago queda en sus Cupones con un QR para la barra');
-  const first = `Le regalas a ${s.to} ${listar(parts)}${s.eventTitle ? ` para ${s.eventTitle}` : ''}.`;
+  const first = `Le regalas a ${s.to} ${listar(parts)}${s.anyEvent ? ', válido para cualquier evento' : s.eventTitle ? ` para ${s.eventTitle}` : ''}.`;
   const cap = (t: string) => t.replace(/^./, (c) => c.toUpperCase());
   return how.length ? `${first} ${how.map((h) => `${cap(h)}.`).join(' ')}` : first;
 }

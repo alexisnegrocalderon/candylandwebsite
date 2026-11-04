@@ -1030,6 +1030,13 @@
       "when": 1794205000000,
       "tag": "0145_insumo_reglas",
       "breakpoints": true
+    },
+    {
+      "idx": 147,
+      "version": "5",
+      "when": 1794206000000,
+      "tag": "0146_staff_gift_quota",
+      "breakpoints": true
     }
   ]
 }

@@ -96,3 +96,33 @@ describe('mensaje del pase regalado', () => {
     expect(parseGiftNote(giftNote({ eventId: 1, eventTitle: null, validUntil: null, reason: null, by: null, message: '¡Feliz cumple!' }))?.message).toBe('¡Feliz cumple!');
   });
 });
+
+
+describe('pase regalado para cualquier evento', () => {
+  const note = giftNote({ eventId: null, eventTitle: null, validUntil: null, reason: 'Cupo de Camila', by: null, message: null });
+
+  it('se guarda y se lee con eventId null', () => {
+    expect(parseGiftNote(note)).toMatchObject({ gift: 1, eventId: null, validUntil: null });
+  });
+
+  it('sirve en cualquier evento y no vence si no tiene fecha', () => {
+    expect(giftPassError({ note }, 1)).toBeNull();
+    expect(giftPassError({ note }, 999)).toBeNull();
+  });
+
+  it('un pase de un solo evento sigue sirviendo solo en ese', () => {
+    const uno = giftNote({ eventId: 7, eventTitle: 'Aniversario', validUntil: null, reason: null, by: null });
+    expect(giftPassError({ note: uno }, 7)).toBeNull();
+    expect(giftPassError({ note: uno }, 8)).toMatch(/Aniversario/);
+  });
+
+  it('una nota sin evento (ni null) no es un pase regalado', () => {
+    expect(parseGiftNote(JSON.stringify({ gift: 1 }))).toBeNull();
+    expect(parseGiftNote('Dejado para otra fecha (orden 12)')).toBeNull();
+  });
+
+  it('un pase para cualquier evento con vencimiento sí vence', () => {
+    const vence = giftNote({ eventId: null, eventTitle: null, validUntil: '2026-01-01T00:00:00.000Z', reason: null, by: null });
+    expect(giftPassError({ note: vence }, 1, new Date('2026-06-01'))).toMatch(/venció/);
+  });
+});

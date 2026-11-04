@@ -47,3 +47,11 @@ describe('giftSummary', () => {
     expect(giftSummary({ to: 'Ana', mode: 'directo', items: [] })).toBe('Todavía no elegiste qué regalarle a Ana.');
   });
 });
+
+
+describe('resumen de un pase para cualquier evento', () => {
+  it('no nombra un evento y avisa que vale para cualquiera', () => {
+    const t = giftSummary({ to: 'Camila', mode: 'pase', anyAccessQty: 1, items: [], eventTitle: null, anyEvent: true, validity: 'sin vencimiento' });
+    expect(t).toBe('Le regalas a Camila 1 pase de acceso a elección, válido para cualquier evento. El pase queda en sus Cupones para canjearlo y vale sin vencimiento.');
+  });
+});

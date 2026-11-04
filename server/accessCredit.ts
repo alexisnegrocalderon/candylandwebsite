@@ -2,7 +2,7 @@
  * para un evento futuro (shared/accessCredit.ts explica el modelo). Acá vive la
  * parte con base de datos del lado del admin: emitir, listar y recordar. El
  * canje en el checkout está en server/db.ts (createOrder). */
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, or, sql } from 'drizzle-orm';
 import { accessCredits, customers, events, orderItems, orders, ticketTypes, tickets, type AccessCredit } from '../drizzle/schema';
 import { addCustomerTag, getDb, recordAdminAudit } from './db';
 import { buildAccessCreditEmail, buildGiftPassEmail, sendEmail } from './email';
@@ -10,6 +10,7 @@ import { pushToEmail } from './customerPush';
 import { EMAIL_BASE_URL } from './emailLayout';
 import { ANY_ACCESS_SLUG, creditAvailability, generateCreditCode, giftNote, parseGiftNote, type CreditAvailability } from '../shared/accessCredit';
 import { ensureCustomerIdForEmail } from './db';
+import { isDemoSlug } from '../shared/demoAccount';
 
 export const CREDIT_CUSTOMER_TAG = 'Crédito de acceso';
 
@@ -189,22 +190,25 @@ export async function remindAccessCredit(creditId: number): Promise<{ sent: bool
 
 /* ── Pases de entrada regalados ─────────────────────────────────────────── */
 
-/** Regala un pase de entrada: UN acceso fijo (`accesoSlug`) o «a elección» (`'*'`), solo para un evento y con vencimiento
- * opcional. Es un crédito de acceso (mismo canje del checkout, con todos sus pasos) con los datos del regalo en `note`.
+/** Regala un pase de entrada: UN acceso fijo (`accesoSlug`) o «a elección» (`'*'`), para un evento o, con `eventId: null`, para
+ * cualquier evento (la persona lo usa cuando quiera; solo «a elección»), con vencimiento opcional. Es un crédito de acceso
+ * (mismo canje del checkout, con todos sus pasos) con los datos del regalo en `note`.
  * Aparece en la zona Cupones de la persona y le llega un aviso al celular y por correo. */
 export async function issueGiftPass(params: {
-  email: string; name?: string | null; eventId: number; accesoSlug: string; accesoName?: string; validUntil: Date | null; reason?: string | null; actor: string; ip?: string | null;
+  email: string; name?: string | null; eventId: number | null; accesoSlug: string; accesoName?: string; validUntil: Date | null; reason?: string | null; actor: string; ip?: string | null;
   /** Mensaje personalizado para quien lo recibe (correo y tarjeta de Cupones). */
   message?: string | null;
 }): Promise<{ code: string; creditId: number; emailSent: boolean }> {
   const db = await getDb();
   if (!db) throw new Error('Base de datos no disponible');
-  const [event] = await db.select().from(events).where(eq(events.id, params.eventId)).limit(1);
-  if (!event) throw new Error('Evento no encontrado');
+  const anyEvent = params.eventId === null;
+  if (anyEvent && params.accesoSlug !== ANY_ACCESS_SLUG) throw new Error('Un pase para cualquier evento tiene que ser «a elección»: cada evento tiene sus propios accesos.');
+  const [event] = anyEvent ? [null] : await db.select().from(events).where(eq(events.id, params.eventId!)).limit(1);
+  if (!anyEvent && !event) throw new Error('Evento no encontrado');
   const email = params.email.trim().toLowerCase();
 
   let accesoName = 'Acceso a tu elección';
-  if (params.accesoSlug !== ANY_ACCESS_SLUG) {
+  if (event && params.accesoSlug !== ANY_ACCESS_SLUG) {
     const [tt] = await db.select({ name: ticketTypes.name }).from(ticketTypes)
       .where(and(eq(ticketTypes.eventId, event.id), eq(ticketTypes.category, 'acceso'), eq(ticketTypes.accesoSlug, params.accesoSlug))).limit(1);
     if (!tt) throw new Error('Ese acceso no existe en este evento.');
@@ -218,25 +222,27 @@ export async function issueGiftPass(params: {
     buyerEmail: email,
     buyerName: params.name ?? null,
     originOrderId: 0,
-    originEventId: event.id,
-    note: giftNote({ eventId: event.id, eventTitle: event.title, validUntil: params.validUntil ? params.validUntil.toISOString() : null, reason: params.reason ?? null, by: params.actor, message: params.message ?? null }),
+    // Sin evento propio: 0, igual que los premios de la tarjeta de sellos (el evento real vive en la nota del regalo).
+    originEventId: event?.id ?? 0,
+    note: giftNote({ eventId: event?.id ?? null, eventTitle: event?.title ?? null, validUntil: params.validUntil ? params.validUntil.toISOString() : null, reason: params.reason ?? null, by: params.actor, message: params.message ?? null }),
   });
   const [row] = await db.select({ id: accessCredits.id }).from(accessCredits).where(eq(accessCredits.code, code)).limit(1);
   void customerId;
   await recordAdminAudit({
-    action: 'accessCredit.gift', targetType: 'event', targetId: event.id, eventId: event.id, ip: params.ip ?? null,
-    payload: { by: params.actor, email, code, accesoSlug: params.accesoSlug, validUntil: params.validUntil, reason: params.reason ?? null },
+    action: 'accessCredit.gift', targetType: event ? 'event' : 'accessCredit', targetId: event?.id ?? row?.id ?? 0, eventId: event?.id ?? null, ip: params.ip ?? null,
+    payload: { by: params.actor, email, code, accesoSlug: params.accesoSlug, anyEvent, validUntil: params.validUntil, reason: params.reason ?? null },
   });
 
-  const url = `${EMAIL_BASE_URL}/checkout/${event.slug}?code=${encodeURIComponent(code)}`;
-  void pushToEmail(email, { title: '🎁 ¡Te regalaron un pase!', body: `${accesoName} para ${event.title}. Míralo en tu cuenta, en Cupones.`, url: '/cuenta' }).catch(() => {});
+  const eventLabel = event?.title ?? 'el evento que elijas';
+  const url = event ? `${EMAIL_BASE_URL}/checkout/${event.slug}?code=${encodeURIComponent(code)}` : `${EMAIL_BASE_URL}/cuenta`;
+  void pushToEmail(email, { title: '🎁 ¡Te regalaron un pase!', body: `${accesoName}${event ? ` para ${event.title}` : ', válido para cualquier evento'}. Míralo en tu cuenta, en Cupones.`, url: '/cuenta' }).catch(() => {});
   let emailSent = false;
   try {
     const result = await sendEmail({
       to: email,
-      subject: `🎁 Te regalaron un pase para ${event.title}`,
+      subject: event ? `🎁 Te regalaron un pase para ${event.title}` : '🎁 Te regalaron un pase para el evento que quieras',
       html: buildGiftPassEmail({
-        buyerName: params.name?.trim() || email.split('@')[0], eventTitle: event.title, accesoName, code, url,
+        buyerName: params.name?.trim() || email.split('@')[0], eventTitle: eventLabel, accesoName, code, url,
         validUntilText: params.validUntil ? params.validUntil.toLocaleDateString('es-CL', { timeZone: 'America/Santiago', day: 'numeric', month: 'long' }) : null,
         // El motivo es interno (historial); a la persona le llega solo el mensaje que se escribió para ella.
         message: params.message ?? null,
@@ -263,14 +269,14 @@ export async function cancelGiftPass(creditId: number, actor: { by: string; ip?:
   await recordAdminAudit({ action: 'accessCredit.giftCancel', targetType: 'accessCredit', targetId: creditId, eventId: credit.originEventId, ip: actor.ip ?? null, payload: { by: actor.by, code: credit.code } });
 }
 
-export interface GiftPassRow extends AccessCreditRow { eventId: number; eventTitle: string | null; validUntil: string | null; reason: string | null; by: string | null }
+export interface GiftPassRow extends AccessCreditRow { eventId: number | null; eventTitle: string | null; validUntil: string | null; reason: string | null; by: string | null }
 
-/** Los pases regalados de un evento (más nuevos primero), con su estado. */
+/** Los pases regalados de un evento (más nuevos primero), con su estado. Incluye los que valen para cualquier evento. */
 export async function listGiftPasses(eventId: number): Promise<GiftPassRow[]> {
   try {
     const db = await getDb();
     if (!db) return [];
-    const rows = await db.select().from(accessCredits).where(and(eq(accessCredits.originEventId, eventId), eq(accessCredits.originOrderId, 0))).orderBy(desc(accessCredits.createdAt)).limit(300);
+    const rows = await db.select().from(accessCredits).where(and(or(eq(accessCredits.originEventId, eventId), eq(accessCredits.originEventId, 0)), eq(accessCredits.originOrderId, 0))).orderBy(desc(accessCredits.createdAt)).limit(300);
     const gifts = rows.filter((r) => parseGiftNote(r.note));
     const base = await withAvailability(gifts);
     return base.map((b) => {
@@ -282,7 +288,14 @@ export async function listGiftPasses(eventId: number): Promise<GiftPassRow[]> {
   }
 }
 
-export interface MyGiftPass { id: number; code: string; accesoName: string; anyAccess: boolean; eventId: number; eventTitle: string | null; eventSlug: string | null; validUntil: string | null; message: string | null }
+export interface MyGiftPass { id: number; code: string; accesoName: string; anyAccess: boolean; /** null = vale para cualquier evento. */ eventId: number | null; eventTitle: string | null; eventSlug: string | null; anyEvent: boolean; validUntil: string | null; message: string | null }
+
+/** El próximo evento a la venta (para ofrecerle un pase «para cualquier evento» con un toque); `null` si no hay. */
+async function nextPublicEvent(db: NonNullable<Awaited<ReturnType<typeof getDb>>>): Promise<{ slug: string; title: string } | null> {
+  const rows = await db.select({ slug: events.slug, title: events.title }).from(events)
+    .where(and(eq(events.status, 'published'), gte(events.eventDate, new Date(Date.now() - 6 * 3_600_000)))).orderBy(events.eventDate).limit(8);
+  return rows.find((e) => !isDemoSlug(e.slug) && e.slug !== 'pruebas-caja') ?? null;
+}
 
 /** Los pases regalados que esta persona todavía puede canjear (para su zona Cupones). */
 export async function listMyGiftPasses(email: string): Promise<MyGiftPass[]> {
@@ -295,13 +308,20 @@ export async function listMyGiftPasses(email: string): Promise<MyGiftPass[]> {
     const gifts = rows.filter((r) => parseGiftNote(r.note));
     if (gifts.length === 0) return [];
     const withState = await withAvailability(gifts);
-    const eventIds = Array.from(new Set(gifts.map((g) => parseGiftNote(g.note)!.eventId)));
-    const eventRows = await db.select({ id: events.id, slug: events.slug, title: events.title }).from(events).where(inArray(events.id, eventIds));
+    const eventIds = Array.from(new Set(gifts.map((g) => parseGiftNote(g.note)!.eventId).filter((id): id is number => id !== null)));
+    const eventRows = eventIds.length ? await db.select({ id: events.id, slug: events.slug, title: events.title }).from(events).where(inArray(events.id, eventIds)) : [];
     const eventById = new Map(eventRows.map((e) => [e.id, e]));
+    const next = gifts.some((g) => parseGiftNote(g.note)!.eventId === null) ? await nextPublicEvent(db).catch(() => null) : null;
     return withState.filter((w) => w.availability === 'available').map((w) => {
       const meta = parseGiftNote(gifts.find((g) => g.id === w.id)?.note)!;
-      const ev = eventById.get(meta.eventId);
-      return { id: w.id, code: w.code, accesoName: w.accesoName, anyAccess: gifts.find((g) => g.id === w.id)?.accesoSlug === ANY_ACCESS_SLUG, eventId: meta.eventId, eventTitle: ev?.title ?? meta.eventTitle, eventSlug: ev?.slug ?? null, validUntil: meta.validUntil, message: meta.message ?? null };
+      const ev = meta.eventId !== null ? eventById.get(meta.eventId) : undefined;
+      return {
+        id: w.id, code: w.code, accesoName: w.accesoName, anyAccess: gifts.find((g) => g.id === w.id)?.accesoSlug === ANY_ACCESS_SLUG,
+        eventId: meta.eventId, eventTitle: meta.eventId === null ? null : ev?.title ?? meta.eventTitle,
+        // Un pase para cualquier evento se ofrece con el próximo evento a la venta; la persona puede elegir otro desde /eventos.
+        eventSlug: meta.eventId === null ? next?.slug ?? null : ev?.slug ?? null, anyEvent: meta.eventId === null,
+        validUntil: meta.validUntil, message: meta.message ?? null,
+      };
     });
   } catch {
     return [];
