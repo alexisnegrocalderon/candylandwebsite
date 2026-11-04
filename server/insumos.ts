@@ -18,7 +18,7 @@ import { personasForTicket } from "../shared/mission300";
 import { DOSIER_INSUMOS, DOSIER_SUPUESTOS, planDosier } from "../shared/dosier";
 import {
   DEFAULT_GLASS, aplicarUso, conteoATotal, extrasDeMetadata, metadataConExtras, metadataConOpciones, opcionesDeMetadata, metadataConPreparacion, pasosDeMetadata, fotoDeMetadata, recetaConOpciones, type OpcionGrupo, metadataConSinInsumos, productoSinInsumos, TIPOS_PRODUCTO, type TipoProducto, consumoDeVenta, descuadre, detalleATotal, insumoSizes, recetaDe, nivelInsumo, normalizeName, proyeccionCompra, tragosDisponibles, tragosPorInsumo,
-  cantidadContada, inferirEnvase, nivelGeneral, parseInventario, proyeccionGenerales, reglaDe, type GrupoInsumo, type ReglaInsumo,
+  cantidadContada, contadoParaInsumo, inferirEnvase, sugerirInsumos, nivelGeneral, parseInventario, proyeccionGenerales, reglaDe, type GrupoInsumo, type ReglaInsumo,
   OPEN_PORTIONS, type ConteoDetalle, type Insumo, type InsumoUnit, type MovimientoKind, type RecetaLinea,
   diagnosticoProducto, sugerirReemplazos,
 } from "../shared/insumos";
@@ -718,72 +718,121 @@ export async function dosierApply(params: {
 
 // --- Carga masiva del inventario contado ---
 
+export type AsignacionInventario = number | "nuevo" | "omitir";
+
 export interface PlanInventarioLinea {
+  /** Identifica la línea (su nombre sin tamaño de caja): con él el panel cambia a qué insumo se asigna. */
+  key: string;
   raw: string;
   name: string;
   grupo: GrupoInsumo;
   qty: number;
   suffix: string | null;
-  /** El insumo que ya existe con ese nombre (null = se crea nuevo). */
+  asignado: AsignacionInventario;
+  /** La asignación la propuso el panel por parecido de nombre (no es un nombre idéntico ni la elegiste tú). */
+  sugerido: boolean;
+  candidatos: { id: number; name: string; score: number }[];
+  /** El insumo que ya existe al que se asignó (null = se crea nuevo u omitida). */
   match: { id: number; name: string; unit: InsumoUnit; containerSize: number; containerLabel: string; stock: number } | null;
   /** Envase con que se crea cuando es nuevo (sale del nombre: 1,75lt, lata, caja de 100…). */
   nuevo: { unit: InsumoUnit; containerSize: number; containerLabel: string } | null;
-  /** Stock que quedará, en la unidad del insumo. */
+  /** Lo contado en esta línea, en la unidad del insumo. */
   target: number;
+  /** Stock que quedará en ese insumo (si dos líneas van al mismo insumo, la suma de ambas). */
+  final: number;
+  /** Final menos lo que había: lo que corrige el conteo. */
+  diff: number | null;
+  /** Segunda o tercera línea del mismo insumo: se suma a la primera. */
+  sumaALaAnterior: boolean;
 }
 
-/** Qué haría cargar la lista: cada línea se empareja por nombre con un insumo existente o se crea uno nuevo.
- * Un mismo insumo en dos líneas (dos cajas abiertas) se suma. */
-export async function inventarioPlan(params: { texto: string; grupoDefecto: GrupoInsumo }) {
+/** Qué haría cargar la lista, sin escribir nada: cada línea se asigna a un insumo existente (nombre idéntico o parecido,
+ * o el que elijas), se crea nuevo o se omite. El stock queda EXACTAMENTE en lo contado (no se suma a lo que había);
+ * dos líneas del mismo insumo sí se suman entre sí (dos cajas abiertas). */
+export async function inventarioPlan(params: { texto: string; grupoDefecto: GrupoInsumo; asignaciones?: Record<string, AsignacionInventario>; ceroSiFalta?: boolean }) {
   const { lineas, errores } = parseInventario(params.texto);
-  const [all, stock] = await Promise.all([listInsumos(true), stockMap()]);
-  const byName = new Map(all.map((i) => [normalizeName(i.name), i]));
-  const plan = new Map<string, PlanInventarioLinea>();
+  const [activos, todos, stock] = await Promise.all([listInsumos(), listInsumos(true), stockMap()]);
+  const porNombre = new Map(todos.map((i) => [normalizeName(i.name), i]));
+  const porId = new Map(todos.map((i) => [i.id, i]));
+  const filas = new Map<string, PlanInventarioLinea>();
   const sumadas: string[] = [];
   for (const l of lineas) {
     const env = inferirEnvase(l.name, l.qty);
     const key = normalizeName(env.name);
-    const found = byName.get(key) ?? byName.get(normalizeName(l.name)) ?? null;
-    const envase = found ?? env;
-    const contado = cantidadContada(l, envase);
-    const prev = plan.get(key);
+    const candidatos = sugerirInsumos(env.name, activos, 5).map((c) => ({ id: c.id, name: c.name, score: c.score }));
+    const exacto = porNombre.get(key) ?? porNombre.get(normalizeName(l.name));
+    const pedido = params.asignaciones?.[key];
+    let asignado: AsignacionInventario;
+    let sugerido = false;
+    if (pedido !== undefined && (typeof pedido !== "number" || porId.has(pedido))) asignado = pedido;
+    else if (exacto) asignado = exacto.id;
+    else if (candidatos[0] && candidatos[0].score >= 0.5 && (!candidatos[1] || candidatos[0].score > candidatos[1].score)) { asignado = candidatos[0].id; sugerido = true; }
+    else asignado = "nuevo";
+    const found = typeof asignado === "number" ? porId.get(asignado) ?? null : null;
+    const contado = found ? contadoParaInsumo(l, found) : asignado === "omitir" ? 0 : cantidadContada(l, env);
+    const prev = filas.get(key);
     if (prev) {
       prev.target = Math.round((prev.target + contado) * 100) / 100;
       prev.qty = Math.round((prev.qty + l.qty) * 100) / 100;
       if (!sumadas.includes(prev.name)) sumadas.push(prev.name);
       continue;
     }
-    plan.set(key, {
-      raw: l.raw, name: found?.name ?? env.name, grupo: l.grupo ?? params.grupoDefecto, qty: l.qty, suffix: l.suffix,
+    filas.set(key, {
+      key, raw: l.raw, name: env.name, grupo: l.grupo ?? params.grupoDefecto, qty: l.qty, suffix: l.suffix, asignado, sugerido, candidatos,
       match: found ? { id: found.id, name: found.name, unit: found.unit, containerSize: found.containerSize, containerLabel: found.containerLabel, stock: stock.get(found.id) ?? 0 } : null,
-      nuevo: found ? null : { unit: env.unit, containerSize: env.containerSize, containerLabel: env.containerLabel },
-      target: Math.round(contado * 100) / 100,
+      nuevo: asignado === "nuevo" ? { unit: env.unit, containerSize: env.containerSize, containerLabel: env.containerLabel } : null,
+      target: Math.round(contado * 100) / 100, final: 0, diff: null, sumaALaAnterior: false,
     });
   }
-  return { lineas: Array.from(plan.values()), errores, sumadas, reglasListas: await reglasReady() };
+  // Dos líneas que van al mismo insumo existente se suman: la primera lleva el total.
+  const lista = Array.from(filas.values());
+  const primera = new Map<number, PlanInventarioLinea>();
+  for (const f of lista) {
+    if (!f.match) { f.final = f.target; continue; }
+    const first = primera.get(f.match.id);
+    if (!first) { primera.set(f.match.id, f); f.final = f.target; }
+    else { first.final = Math.round((first.final + f.target) * 100) / 100; f.sumaALaAnterior = true; if (!sumadas.includes(first.match!.name)) sumadas.push(first.match!.name); }
+  }
+  for (const f of lista) if (f.match && !f.sumaALaAnterior) f.diff = Math.round((f.final - f.match.stock) * 100) / 100;
+  // Insumos activos que no aparecen en la lista: quedan igual, o en 0 si lo pides.
+  const usados = new Set(lista.filter((f) => f.match).map((f) => f.match!.id));
+  const sinTocar = activos.filter((i) => !usados.has(i.id)).map((i) => ({ id: i.id, name: i.name, unit: i.unit, containerSize: i.containerSize, containerLabel: i.containerLabel, stock: stock.get(i.id) ?? 0 }));
+  return { lineas: lista, errores, sumadas, sinTocar, ceroSiFalta: !!params.ceroSiFalta, reglasListas: await reglasReady() };
 }
 
 /** Aplica la lista: crea los insumos que faltan y deja el stock de cada uno exactamente en lo contado. */
-export async function inventarioApply(params: { texto: string; grupoDefecto: GrupoInsumo; eventId?: number | null }) {
+export async function inventarioApply(params: { texto: string; grupoDefecto: GrupoInsumo; asignaciones?: Record<string, AsignacionInventario>; ceroSiFalta?: boolean; eventId?: number | null }) {
   const plan = await inventarioPlan(params);
-  if (!plan.reglasListas && plan.lineas.some((l) => l.grupo !== "bebida")) {
+  const cargar = plan.lineas.filter((l) => l.asignado !== "omitir");
+  if (!plan.reglasListas && cargar.some((l) => l.grupo !== "bebida")) {
     throw new Error("Falta activar los insumos generales (botón «Activar» arriba en Stock de barra) para cargar desechables, limpieza u otros.");
   }
   let creados = 0;
   let actualizados = 0;
-  for (const l of plan.lineas) {
-    let id = l.match?.id;
-    if (!id && l.nuevo) {
-      const saved = await saveInsumo({
-        name: l.name, unit: l.nuevo.unit, containerSize: l.nuevo.containerSize, containerLabel: l.nuevo.containerLabel,
-        sizes: l.nuevo.unit === "ml" ? [l.nuevo.containerSize] : [], costPerContainer: null, alertDrinks: l.grupo === "bebida" && l.nuevo.unit === "ml" ? 15 : 0,
-      });
-      id = saved.id;
-      // Una bebida nueva queda por receta; el resto, solo con mínimo (se completa después en «Editar»).
-      await saveRegla(id, { grupo: l.grupo, modo: l.grupo === "bebida" ? "receta" : "manual", cantidad: 0, minimo: 0 });
-      creados++;
-    } else actualizados++;
-    await setStockTo({ insumoId: id!, target: l.target, eventId: params.eventId ?? null, note: "Inventario contado" });
+  let enCero = 0;
+  const totales = new Map<number, number>();
+  for (const l of cargar) {
+    if (l.match) { totales.set(l.match.id, Math.round(((totales.get(l.match.id) ?? 0) + l.target) * 100) / 100); continue; }
+    if (!l.nuevo) continue;
+    const saved = await saveInsumo({
+      name: l.name, unit: l.nuevo.unit, containerSize: l.nuevo.containerSize, containerLabel: l.nuevo.containerLabel,
+      sizes: l.nuevo.unit === "ml" ? [l.nuevo.containerSize] : [], costPerContainer: null, alertDrinks: l.grupo === "bebida" && l.nuevo.unit === "ml" ? 15 : 0,
+    });
+    // Una bebida nueva queda por receta; el resto, solo con mínimo (se completa después en «Editar»).
+    await saveRegla(saved.id, { grupo: l.grupo, modo: l.grupo === "bebida" ? "receta" : "manual", cantidad: 0, minimo: 0 });
+    await setStockTo({ insumoId: saved.id, target: l.target, eventId: params.eventId ?? null, note: "Inventario contado" });
+    creados++;
   }
-  return { creados, actualizados, errores: plan.errores, sumadas: plan.sumadas };
+  for (const [insumoId, target] of Array.from(totales.entries())) {
+    await setStockTo({ insumoId, target, eventId: params.eventId ?? null, note: "Inventario contado" });
+    actualizados++;
+  }
+  if (params.ceroSiFalta) {
+    for (const i of plan.sinTocar) {
+      if (i.stock === 0) continue;
+      await setStockTo({ insumoId: i.id, target: 0, eventId: params.eventId ?? null, note: "Inventario contado: no estaba en la lista" });
+      enCero++;
+    }
+  }
+  return { creados, actualizados, enCero, errores: plan.errores, sumadas: plan.sumadas };
 }

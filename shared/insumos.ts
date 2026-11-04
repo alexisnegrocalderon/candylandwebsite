@@ -1095,3 +1095,50 @@ export function cantidadContada(l: Pick<LineaInventario, 'qty' | 'suffix'>, insu
   if (insumo.unit === 'un' && (s === 'un' || s === 'u' || s === 'unidad' || s === 'unidades' || s === 'uds')) return l.qty;
   return round(l.qty * Math.max(1, insumo.containerSize));
 }
+
+
+// --- Emparejar lo contado con los insumos que ya existen ---
+
+const PALABRAS_SOBRANTES = new Set(['lata', 'latas', 'botella', 'botellas', 'litro', 'litros', 'del', 'los', 'las', 'una', 'caja', 'pack']);
+const palabrasClave = (s: string): Set<string> => new Set(
+  normalizeName(s).split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !/^\d/.test(w) && !PALABRAS_SOBRANTES.has(w)),
+);
+
+/** Insumos que se parecen a lo que escribiste (por las palabras del nombre, sin tamaños ni «lata»), del más parecido al menos. */
+export function sugerirInsumos<T extends { id: number; name: string }>(nombre: string, insumos: T[], max = 5): (T & { score: number })[] {
+  const a = palabrasClave(nombre);
+  if (a.size === 0) return [];
+  return insumos
+    .map((i) => {
+      const b = palabrasClave(i.name);
+      const aw = Array.from(a);
+      const comunes = aw.filter((w) => b.has(w)).length;
+      const union = new Set(aw.concat(Array.from(b))).size;
+      return { ...i, score: union > 0 ? Math.round((comunes / union) * 100) / 100 : 0 };
+    })
+    .filter((x) => x.score >= 0.2)
+    .sort((x, y) => y.score - x.score || x.name.localeCompare(y.name))
+    .slice(0, max);
+}
+
+/** Tamaño en ml que trae un nombre («Bacardi Oro 1,75lt» → 1750, «350ml» → 350), o null. */
+export function tamanoDeNombre(name: string): number | null {
+  const m = /(\d+(?:[.,]\d+)?)\s*(ml|cc|lts?|l|litros?)\b/i.exec(name);
+  if (!m) return null;
+  const n = Number(m[1].replace(',', '.'));
+  const ml = Math.round(/^(ml|cc)$/i.test(m[2]) ? n : n * 1000);
+  return ml > 0 ? ml : null;
+}
+
+/** Cuánto es lo contado en la unidad del insumo al que se asignó la línea. Si escribiste el tamaño en el nombre
+ * («1.4 Bacardi Oro 980ml», «caja de 100», «lata 350ml») manda ese tamaño y no el envase que el insumo tenga guardado. */
+export function contadoParaInsumo(l: Pick<LineaInventario, 'name' | 'qty' | 'suffix'>, insumo: Pick<Insumo, 'unit' | 'containerSize'>): number {
+  if (!l.suffix) {
+    const env = inferirEnvase(l.name, l.qty);
+    if (env.unit === 'un' && env.containerSize > 1) return round(l.qty * env.containerSize); // «caja de 100»
+    const ml = tamanoDeNombre(l.name);
+    if (insumo.unit === 'ml' && ml) return round(l.qty * ml);
+    if (insumo.unit === 'un' && (ml || /\blatas?\b/i.test(l.name))) return round(l.qty); // latas y botellitas se cuentan por unidad
+  }
+  return cantidadContada(l, insumo);
+}
