@@ -11,7 +11,6 @@ import { SupervisorAccessManager } from '@/components/admin/SupervisorAccessMana
 import { StaffManager, requestNewStaff } from '@/components/admin/staff/StaffManager';
 import { requestGiftCoupon } from '@/components/admin/members/requestGiftCoupon';
 import { requestInventarioPdf } from '@/components/admin/insumos/requestInventarioPdf';
-import { GiftHost } from '@/components/gifts/GiftHost';
 import { requestGift } from '@/components/gifts/giftRequest';
 import { useHideSplashOnMount } from '@/lib/splash';
 import { useSeo } from '@/hooks/useSeo';
@@ -115,7 +114,6 @@ const ADMIN_QUICK_ACTIONS: AdminQuickAction[] = [
   { key: 'staff', label: 'Agregar staff', icon: UserPlus, section: 'staff', onSelect: requestNewStaff },
   { key: 'inventario', label: 'Inventario PDF', icon: FileText, section: 'insumos', onSelect: requestInventarioPdf },
   { key: 'gasto', label: 'Cargar gasto', icon: Receipt, section: 'cargar-gasto' },
-  { key: 'acceso', label: 'Acceso manual', icon: Gift, section: 'manual-access' },
   { key: 'evento', label: 'Crear evento', icon: Calendar, section: 'events' },
   { key: 'cupon', label: 'Regalar cupón', icon: Gift, section: 'members', onSelect: requestGiftCoupon },
   { key: 'push', label: 'Enviar push', icon: BellRing, section: 'push-clientes' },
@@ -142,7 +140,9 @@ const ADMIN_SECTIONS = [
   { id: 'copro-config', label: 'Configuración', hub: 'coproduccion', icon: SettingsIcon, render: () => <CoproConfig /> },
   // 2 · Vender: las ventas del evento, cortesías y lo que trae ventas (concursos, embajadores, referidos).
   { id: 'orders-web', label: 'Ventas Web', hub: 'vender', icon: Ticket, render: () => <OrdersView channel="web" /> },
-  { id: 'manual-access', label: 'Accesos Manuales', hub: 'vender', icon: Gift, render: () => <ManualAccessSection /> },
+  // Escondida del menú: «Regalar» (invitar y regalar), «Transferencia» (vender cobrado por transferencia) y la invitación instantánea
+  // de la hoja Regalar cubren lo que hacía. No se borra: el buscador (Ctrl K) todavía la encuentra.
+  { id: 'manual-access', label: 'Accesos Manuales', hub: 'vender', icon: Gift, hidden: true, render: () => <ManualAccessSection /> },
   { id: 'parking', label: 'Estacionamiento', hub: 'vender', icon: Car, render: () => <ParkingReportView /> },
   { id: 'sales-origin', label: 'Ventas por Origen', hub: 'vender', icon: Compass, render: () => <SalesByOriginView /> },
   { id: 'contests', label: 'Concursos', hub: 'vender', icon: PartyPopper, render: () => <ContestsView /> },
@@ -317,9 +317,8 @@ export default function AdminDashboard() {
       roleLabel={isPartner ? 'Socio · Playroom × Dalmore' : isSupervisor ? 'Supervisora' : undefined}
       isDemo={isDemo}
       onLogout={() => logout()}
-      quickActions={isSupervisor || isPartner ? ADMIN_QUICK_ACTIONS.filter((q) => q.key !== 'invitar') : ADMIN_QUICK_ACTIONS}
+      quickActions={isPartner || isDemo ? ADMIN_QUICK_ACTIONS.filter((q) => q.key !== 'invitar') : ADMIN_QUICK_ACTIONS}
     >
-      {!isSupervisor && !isPartner && <GiftHost />}
       <AdminNavContext.Provider value={navContext}>
         {!isSupervisor && <SchemaUpdateBanner />}
         <motion.div

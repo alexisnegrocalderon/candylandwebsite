@@ -1037,6 +1037,13 @@
       "when": 1794206000000,
       "tag": "0146_staff_gift_quota",
       "breakpoints": true
+    },
+    {
+      "idx": 148,
+      "version": "5",
+      "when": 1794207000000,
+      "tag": "0147_gift_packs",
+      "breakpoints": true
     }
   ]
 }

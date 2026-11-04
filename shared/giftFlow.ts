@@ -84,3 +84,24 @@ export function giftSummary(s: GiftSummaryInput): string {
   const cap = (t: string) => t.replace(/^./, (c) => c.toUpperCase());
   return how.length ? `${first} ${how.map((h) => `${cap(h)}.`).join(' ')}` : first;
 }
+
+
+/** Para qué vale un regalo: un evento, o cualquier evento (sin vencimiento o con fecha límite). */
+export type Vigencia = 'evento' | 'libre' | 'limite';
+export const VIGENCIAS: { id: Vigencia; emoji: string; label: string; help: string }[] = [
+  { id: 'evento', emoji: '🎟️', label: 'Para un evento', help: 'Entradas, extras o tragos de un evento que eliges.' },
+  { id: 'libre', emoji: '♾️', label: 'Cualquier evento', help: 'Un cupón sin vencimiento: lo usa cuando quiera.' },
+  { id: 'limite', emoji: '⏳', label: 'Cualquier evento, con fecha límite', help: 'Un cupón que vale en cualquier evento hasta cierta fecha.' },
+];
+/** Días de vigencia que se ofrecen para un cupón con fecha límite. */
+export const LIMITE_DIAS = [7, 15, 30, 60, 90] as const;
+
+/** Un paquete guardado: qué se regala y cómo vale (sin personas ni evento). */
+export interface GiftPackData {
+  vigencia: Vigencia;
+  mode: 'directo' | 'pase';
+  anyAccess: boolean;
+  anyQty?: number;
+  validDays: number | null;
+  items: { name: string; qty: number }[];
+}

@@ -3508,3 +3508,13 @@ export const staffGiftQuota = mysqlTable("staffGiftQuota", {
   entradas: int("entradas").default(0).notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
+
+// Paquetes de regalo guardados en la cuenta del dueño (Barra, Puerta, Invitado VIP…): combos que se reutilizan con un toque
+// en la hoja «Regalar», desde cualquier celular o tablet. `data` guarda cómo vale y qué trae (shared/giftFlow.ts, GiftPackData).
+// Se crea solo la primera vez (server/giftPacks.ts).
+export const giftPacks = mysqlTable("giftPacks", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 60 }).notNull(),
+  data: json("data").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => [uniqueIndex("gift_packs_name_idx").on(t.name)]);

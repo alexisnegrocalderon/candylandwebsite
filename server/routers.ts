@@ -49,6 +49,7 @@ import { firmarDosier, dosierPath, DOSIER_TTL_ADMIN, DOSIER_TTL_CAJA } from "./d
 import { dosierFichas } from "./dosierData";
 import { firmarInventario, inventarioPath, INVENTARIO_TTL } from "./inventarioLink";
 import * as staffGiftQuotaSvc from "./staffGiftQuota";
+import * as giftPacksSvc from "./giftPacks";
 import { puedeVerDosier } from "../shared/staffPortal";
 import { generateCostumeIdeas, fallbackResult as fallbackCostumeResult } from "./costumeOracle";
 import { ORACLE_VIBES, ORACLE_COMPANY, ORACLE_LEVELS, ORACLE_SKIN, ORACLE_ITEMS, ORACLE_EXTRA_MAX } from "../shared/costumeOracle";
@@ -2291,6 +2292,39 @@ export const appRouter = router({
       emails = Array.from(new Set(emails));
       if (emails.length === 0) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Elige al menos a una persona.' });
       return runGift({ eventId: input.eventId, emails, items: input.items, reason: input.reason, mode: input.mode, anyAccess: input.anyAccess, anyEvent: input.anyEvent, validDays: input.validDays, message: input.message, actor: ctx.user.email ?? ctx.user.name ?? 'admin', ip: clientIp(ctx) });
+    }),
+    // Paquetes de regalo guardados en la cuenta (Barra, Puerta, Invitado VIP…): se ven desde cualquier celular o tablet.
+    giftPacks: adminReadProcedure.query(() => giftPacksSvc.listPacks()),
+    saveGiftPack: giftProcedure.input(z.object({
+      name: z.string().trim().min(1).max(60),
+      data: z.object({
+        vigencia: z.enum(['evento', 'libre', 'limite']), mode: z.enum(['directo', 'pase']), anyAccess: z.boolean(),
+        anyQty: z.number().int().min(1).max(20).optional(), validDays: z.number().int().min(1).max(365).nullable(),
+        items: z.array(z.object({ name: z.string().trim().min(1).max(120), qty: z.number().int().min(1).max(20) })).max(24),
+      }),
+    })).mutation(async ({ input }) => {
+      try { await giftPacksSvc.savePack(input.name, input.data); } catch (err) {
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: err instanceof Error ? err.message : 'No se pudo guardar el paquete.' });
+      }
+      return { ok: true as const };
+    }),
+    deleteGiftPack: giftProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => { await giftPacksSvc.deletePack(input.id); return { ok: true as const }; }),
+    // La supervisora puede invitar (como en Accesos Manuales): solo entradas y extras gratis, directo con su QR, a correos que
+    // ella escribe. Sin tragos, pases, grupos ni buscador de clientes: esas son del dueño.
+    giftInvitation: panelStaffProcedure.input(z.object({
+      eventId: z.number(),
+      emails: z.array(z.string().email()).min(1).max(10),
+      items: z.array(z.object({ ticketTypeId: z.number(), quantity: z.number().int().min(1).max(10) })).min(1).max(6),
+      message: z.string().max(GIFT_MESSAGE_MAX + 20).optional(),
+    })).mutation(async ({ input, ctx }) => {
+      const types = await db.getTicketTypesByEventId(input.eventId);
+      const byId = new Map<number, any>((types as any[]).map((t) => [t.id, t]));
+      for (const it of input.items) {
+        const t = byId.get(it.ticketTypeId);
+        if (!t || !['acceso', 'extra'].includes(t.category)) throw new TRPCError({ code: 'FORBIDDEN', message: 'Solo puedes invitar entradas y extras.' });
+      }
+      const emails = Array.from(new Set(input.emails.map((e) => e.trim().toLowerCase())));
+      return runGift({ eventId: input.eventId, emails, items: input.items, reason: 'Invitación desde el panel', mode: 'directo', message: input.message, actor: ctx.user.email ?? ctx.user.name ?? 'supervisora', ip: clientIp(ctx) });
     }),
     // Los pases regalados de un evento y su estado (disponible / usado / vencido / anulado).
     listGifts: adminReadProcedure.input(z.object({ eventId: z.number() })).query(({ input }) => listGiftPasses(input.eventId)),
