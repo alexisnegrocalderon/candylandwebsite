@@ -66,9 +66,9 @@ export interface CoproductionLanding {
 export const DEFAULT_LANDING: CoproductionLanding = {
   title: 'Playroom × Dalmore',
   headline: 'Las dos productoras liberales más grandes, una sola noche.',
-  subheadline: 'Un salón gigante en el Hipódromo de Santiago, dos pistas de energía y la experiencia Playroom con la comunidad de Dalmore.',
+  subheadline: 'Un salón gigante en NEW SPOT, Santiago: dos pistas de energía y la experiencia Playroom con la comunidad de Dalmore.',
   dateText: 'Viernes 4 de diciembre',
-  venueText: 'Hipódromo Chile, Santiago',
+  venueText: 'NEW SPOT, Santiago',
   capacityText: 'Aforo para 800 personas',
   capacity: 800,
   heroImageUrl: '',
@@ -95,6 +95,7 @@ export const DEFAULT_LANDING: CoproductionLanding = {
     'El equipo puede retirar a quien no respete las reglas, sin devolución.',
   ],
   faq: [
+    { q: '¿Dónde es?', a: 'En NEW SPOT, un lugar exclusivo para PLAYMORE en Santiago. La dirección exacta te llega por correo junto con tu entrada.' },
     { q: '¿Dónde compro las entradas?', a: 'Solo en esta página. No vendemos por transferencia ni por Instagram.' },
     { q: '¿Cuándo me llega la dirección exacta?', a: 'Te llega por correo junto con tu entrada, después de comprar.' },
     { q: '¿Puedo ir sola o solo?', a: 'Sí. Mucha gente llega así y conoce gente adentro.' },
