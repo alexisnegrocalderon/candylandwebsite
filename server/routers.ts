@@ -430,6 +430,13 @@ async function checkAdminPassword(ctx: any, password: string | undefined, keyPre
   return true;
 }
 
+// Carga del inventario contado: el texto pegado y, por línea, a qué insumo va (id), «nuevo» u «omitir».
+const inventarioInput = z.object({
+  texto: z.string().max(40_000), grupoDefecto: z.enum(['bebida', 'desechable', 'limpieza', 'otro']),
+  asignaciones: z.record(z.string().max(120), z.union([z.number().int(), z.literal('nuevo'), z.literal('omitir')])).optional(),
+  ceroSiFalta: z.boolean().optional(),
+});
+
 const adminPasswordProcedure = adminProcedure
   .input(adminPasswordInput)
   .use(async (opts) => {
@@ -6851,13 +6858,13 @@ export const appRouter = router({
       }
     }),
     // Pegar el inventario contado: primero se ve qué haría (inventarioPlan), después se aplica.
-    inventarioPlan: adminProcedure.input(z.object({ texto: z.string().max(40_000), grupoDefecto: z.enum(['bebida', 'desechable', 'limpieza', 'otro']) }))
+    inventarioPlan: adminProcedure.input(inventarioInput)
       .query(({ input }) => insumoSvc.inventarioPlan(input)),
-    inventarioApply: adminProcedure.input(z.object({ texto: z.string().max(40_000), grupoDefecto: z.enum(['bebida', 'desechable', 'limpieza', 'otro']), eventId: z.number().nullable().optional() }))
+    inventarioApply: adminProcedure.input(inventarioInput.extend({ eventId: z.number().nullable().optional() }))
       .mutation(async ({ input, ctx }) => {
         try {
           const r = await insumoSvc.inventarioApply(input);
-          await db.recordAdminAudit({ action: 'insumos.inventarioApply', targetType: 'insumos', payload: { creados: r.creados, actualizados: r.actualizados }, ip: clientIp(ctx) });
+          await db.recordAdminAudit({ action: 'insumos.inventarioApply', targetType: 'insumos', payload: { creados: r.creados, actualizados: r.actualizados, enCero: r.enCero }, ip: clientIp(ctx) });
           return r;
         } catch (e: any) {
           throw new TRPCError({ code: 'BAD_REQUEST', message: e?.message ?? 'No se pudo cargar el inventario' });
@@ -6946,8 +6953,13 @@ export const appRouter = router({
     comprasAplicar: adminProcedure.input(z.object({
       opId: z.string().min(8).max(40), eventId: z.number(),
       lineas: z.array(z.object({
-        insumoId: z.number(), agregar: z.number().positive().max(10_000_000), costoParaInsumo: z.number().min(0).max(100_000_000).nullable(),
+        // insumoId null = producto nuevo de la boleta: se crea con `nuevo` al cargar la compra.
+        insumoId: z.number().nullable(), agregar: z.number().positive().max(10_000_000), costoParaInsumo: z.number().min(0).max(100_000_000).nullable(),
         alias: z.string().max(160).nullable(), detalle: z.string().max(120),
+        nuevo: z.object({
+          name: z.string().trim().min(1).max(100), unit: z.enum(['ml', 'g', 'un']), containerSize: z.number().min(1).max(1_000_000), containerLabel: z.string().max(30),
+          sizes: z.array(z.number().int().min(1).max(1_000_000)).max(10), grupo: z.enum(['bebida', 'desechable', 'limpieza', 'otro']), costo: z.number().min(0).max(100_000_000).nullable(),
+        }).nullable().optional(),
       })).min(1).max(150),
       actualizarCostos: z.boolean(), recordarNombres: z.boolean(),
       gasto: z.object({

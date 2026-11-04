@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cargaDeLinea, cuadreBoleta, emparejarInsumo, nombreSugerido, packDeTexto, palabrasClave, tamanoDeTexto, type InsumoParaEmparejar } from './compras';
+import { cargaDeLinea, cuadreBoleta, emparejarInsumo, nombreSugerido, packDeTexto, palabrasClave, sugerirNuevoInsumo, tamanoDeTexto, type InsumoParaEmparejar } from './compras';
 
 const ins = (id: number, name: string, unit: 'ml' | 'un' = 'ml', containerSize = 750, aliases: string[] = []): InsumoParaEmparejar => ({ id, name, unit, containerSize, aliases });
 const lista = [
@@ -103,5 +103,36 @@ describe('limpiarCodigos', () => {
     const insumos = [{ id: 1, name: 'Ron blanco', unit: 'ml' as const, containerSize: 750 }, { id: 2, name: 'Vodka', unit: 'ml' as const, containerSize: 750 }];
     const r = emparejarInsumo('7801234567890 RON BLANCO 750CC COD 99887', insumos);
     expect(r.insumoId).toBe(1);
+  });
+});
+
+
+describe('productos nuevos de la boleta', () => {
+  const l = (descripcion: string, tamano = 0, packUnidades = 1) => ({ descripcion, tamano, packUnidades });
+
+  it('una botella de licor con tamaño se crea sola', () => {
+    expect(sugerirNuevoInsumo(l('TEQUILA KATRINA 1000CC', 1000))).toEqual({ name: 'Tequila Katrina', tipo: 'botella', size: 1000, grupo: 'bebida', clara: true, motivo: null });
+    expect(sugerirNuevoInsumo(l('Ron Havana 750cc', 750))).toMatchObject({ tipo: 'botella', size: 750, clara: true });
+  });
+
+  it('latas y packs de latas se cuentan por unidad', () => {
+    expect(sugerirNuevoInsumo(l('Coca Cola lata 350cc', 350))).toMatchObject({ tipo: 'lata', grupo: 'bebida', clara: true });
+    expect(sugerirNuevoInsumo(l('Sprite 350cc pack 6', 350, 6))).toMatchObject({ tipo: 'lata' });
+  });
+
+  it('una botellita de 330 o 500 se vende por unidad', () => {
+    expect(sugerirNuevoInsumo(l('Agua sin gas 500cc', 500))).toMatchObject({ tipo: 'unidad', size: 1, clara: true });
+  });
+
+  it('vasos y guantes son desechables; el cloro es limpieza', () => {
+    expect(sugerirNuevoInsumo(l('VASOS PLASTICO 12 OZ'))).toMatchObject({ tipo: 'unidad', grupo: 'desechable', clara: true });
+    expect(sugerirNuevoInsumo(l('Guantes nitrilo M caja 100'))).toMatchObject({ grupo: 'desechable' });
+    expect(sugerirNuevoInsumo(l('Cloro 5 L', 5000))).toMatchObject({ grupo: 'limpieza', tipo: 'unidad' });
+  });
+
+  it('sin tamaño en un líquido no adivina: pregunta', () => {
+    const r = sugerirNuevoInsumo(l('PISCO CONTROL'));
+    expect(r).toMatchObject({ clara: false, tipo: 'botella', size: 750 });
+    expect(r.motivo).toMatch(/tamaño/);
   });
 });

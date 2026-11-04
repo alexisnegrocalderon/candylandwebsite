@@ -128,7 +128,7 @@ export function InsumosManager() {
       {activeId && <DosierPdfDialog eventId={activeId} eventTitle={(events ?? []).find((e: any) => e.id === activeId)?.title ?? ''} open={pdfOpen} onClose={() => setPdfOpen(false)} />}
       {activeId && data && <CompraBoletaDialog eventId={activeId} data={data} open={compraOpen} onClose={() => setCompraOpen(false)} onDone={() => { setCompraOpen(false); refresh(); }} />}
       <InventarioPdfDialog events={(events ?? []).map((e: any) => ({ id: e.id, title: e.title }))} defaultEventId={activeId ?? null} open={invPdfOpen && ready} onClose={() => setInvPdfOpen(false)} />
-      {activeId && <CargarInventarioDialog eventId={activeId} open={inventarioOpen} reglasReady={reglasReady} onClose={() => setInventarioOpen(false)} onDone={() => { setInventarioOpen(false); refresh(); }} />}
+      {activeId && <CargarInventarioDialog eventId={activeId} open={inventarioOpen} reglasReady={reglasReady} insumos={data?.insumos ?? []} onClose={() => setInventarioOpen(false)} onDone={() => { setInventarioOpen(false); refresh(); }} />}
       {activeId && <DosierDialog eventId={activeId} open={dosierOpen} onClose={() => setDosierOpen(false)} onDone={() => { setDosierOpen(false); refresh(); }} />}
 
       <InsumoDialog
