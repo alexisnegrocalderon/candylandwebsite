@@ -4,7 +4,7 @@ import {
   metadataConOpciones, opcionesDeMetadata,
   productoSinInsumos, metadataConSinInsumos,
   consumoDeVenta, diagnosticoProducto, idSustitucion, sugerirReemplazos, sustitucionesDe, conteoATotal, descuadre, descuadreAlerts, formatCantidad, insumoRitmoAlerts, insumoStockAlerts,
-  cantidadContada, inferirEnvase, nivelGeneral, parseInventario, proyeccionGenerales, reglaDe,
+  cantidadContada, contadoParaInsumo, inferirEnvase, sugerirInsumos, nivelGeneral, parseInventario, proyeccionGenerales, reglaDe,
   listaComprasTexto, nivelInsumo, proyeccionCompra, stockActual, tragosDisponibles, tragosPorInsumo, type Insumo, type RecetaLinea,
 } from './insumos';
 
@@ -688,5 +688,38 @@ describe('inventario escrito como en WhatsApp', () => {
     expect(inferirEnvase('Torobayo Miel 500ml', 7)).toMatchObject({ unit: 'un' });
     expect(inferirEnvase('Redbull Yellow', 47)).toMatchObject({ unit: 'un', containerLabel: 'unidad' });
     expect(inferirEnvase('Guantes M Negro (caja de 100)', 0.9)).toEqual({ name: 'Guantes M Negro', unit: 'un', containerSize: 100, containerLabel: 'caja' });
+  });
+});
+
+
+describe('emparejar el conteo con los insumos que ya existen', () => {
+  const existentes = [
+    { id: 1, name: 'Ron Bacardi Oro' }, { id: 2, name: 'Peroni' }, { id: 3, name: 'Peroni 0%' },
+    { id: 4, name: 'Coca-Cola' }, { id: 5, name: 'Energética Score' }, { id: 6, name: 'Gin Beefeater' },
+  ];
+
+  it('propone los insumos por las palabras del nombre, sin tamaños ni «lata»', () => {
+    expect(sugerirInsumos('Bacardi Oro 1,75lt', existentes)[0]).toMatchObject({ id: 1, score: 0.67 });
+    expect(sugerirInsumos('Beefeater 750ml', existentes)[0]).toMatchObject({ id: 6 });
+    expect(sugerirInsumos('lata 350ml coca cola', existentes)[0]).toMatchObject({ id: 4 });
+    expect(sugerirInsumos('Redbull Yellow', existentes)).toEqual([]);
+  });
+
+  it('con dos candidatos igual de buenos no hay uno claro', () => {
+    const [a, b] = sugerirInsumos('Cerveza Peroni', existentes);
+    expect([a.id, b.id].sort()).toEqual([2, 3]);
+  });
+
+  it('contadoParaInsumo respeta el tamaño escrito en el nombre', () => {
+    const ml750 = { unit: 'ml' as const, containerSize: 750 };
+    // Una botella de 980 ml contada contra un insumo de botellas de 750: manda lo que escribiste.
+    expect(contadoParaInsumo({ name: 'Bacardi Oro 980ml', qty: 1.4, suffix: null }, ml750)).toBe(1372);
+    // Sin tamaño en el nombre: el envase del insumo.
+    expect(contadoParaInsumo({ name: 'Redbull Yellow', qty: 47, suffix: null }, { unit: 'ml', containerSize: 250 })).toBe(11750);
+    expect(contadoParaInsumo({ name: 'lata 350ml coca cola', qty: 12, suffix: null }, { unit: 'un', containerSize: 1 })).toBe(12);
+    expect(contadoParaInsumo({ name: 'lata 350ml coca cola', qty: 12, suffix: null }, { unit: 'ml', containerSize: 3000 })).toBe(4200);
+    expect(contadoParaInsumo({ name: 'Guantes M Negro (caja de 100)', qty: 0.9, suffix: null }, { unit: 'un', containerSize: 1 })).toBe(90);
+    // Lo que escribes con unidad no se toca.
+    expect(contadoParaInsumo({ name: 'Jugo', qty: 2, suffix: 'L' }, ml750)).toBe(2000);
   });
 });

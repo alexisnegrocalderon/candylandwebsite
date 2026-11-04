@@ -429,6 +429,13 @@ async function checkAdminPassword(ctx: any, password: string | undefined, keyPre
   return true;
 }
 
+// Carga del inventario contado: el texto pegado y, por línea, a qué insumo va (id), «nuevo» u «omitir».
+const inventarioInput = z.object({
+  texto: z.string().max(40_000), grupoDefecto: z.enum(['bebida', 'desechable', 'limpieza', 'otro']),
+  asignaciones: z.record(z.string().max(120), z.union([z.number().int(), z.literal('nuevo'), z.literal('omitir')])).optional(),
+  ceroSiFalta: z.boolean().optional(),
+});
+
 const adminPasswordProcedure = adminProcedure
   .input(adminPasswordInput)
   .use(async (opts) => {
@@ -6850,13 +6857,13 @@ export const appRouter = router({
       }
     }),
     // Pegar el inventario contado: primero se ve qué haría (inventarioPlan), después se aplica.
-    inventarioPlan: adminProcedure.input(z.object({ texto: z.string().max(40_000), grupoDefecto: z.enum(['bebida', 'desechable', 'limpieza', 'otro']) }))
+    inventarioPlan: adminProcedure.input(inventarioInput)
       .query(({ input }) => insumoSvc.inventarioPlan(input)),
-    inventarioApply: adminProcedure.input(z.object({ texto: z.string().max(40_000), grupoDefecto: z.enum(['bebida', 'desechable', 'limpieza', 'otro']), eventId: z.number().nullable().optional() }))
+    inventarioApply: adminProcedure.input(inventarioInput.extend({ eventId: z.number().nullable().optional() }))
       .mutation(async ({ input, ctx }) => {
         try {
           const r = await insumoSvc.inventarioApply(input);
-          await db.recordAdminAudit({ action: 'insumos.inventarioApply', targetType: 'insumos', payload: { creados: r.creados, actualizados: r.actualizados }, ip: clientIp(ctx) });
+          await db.recordAdminAudit({ action: 'insumos.inventarioApply', targetType: 'insumos', payload: { creados: r.creados, actualizados: r.actualizados, enCero: r.enCero }, ip: clientIp(ctx) });
           return r;
         } catch (e: any) {
           throw new TRPCError({ code: 'BAD_REQUEST', message: e?.message ?? 'No se pudo cargar el inventario' });

@@ -3,14 +3,30 @@ import { useComposition } from "@/hooks/useComposition";
 import { cn } from "@/lib/utils";
 import * as React from "react";
 
+/** En un campo numérico el 0 es «sin valor»: se muestra vacío (con su placeholder) para no tener que borrarlo
+ * antes de escribir. Mientras escribes se respeta lo tecleado (así se puede escribir 0,5) y al salir vuelve a vaciarse si es 0. */
+const isZeroValue = (v: unknown) => v === 0 || v === "0";
+
 function Input({
   className,
   type,
   onKeyDown,
   onCompositionStart,
   onCompositionEnd,
+  onChange,
+  onBlur,
+  value,
   ...props
 }: React.ComponentProps<"input">) {
+  const isNumber = type === "number" && value !== undefined;
+  // Lo que la persona está tecleando ahora mismo (null = nada: se muestra el valor que llega).
+  const [typed, setTyped] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    // Si el valor cambió desde afuera (botones + / −, otro cálculo), lo tecleado deja de valer.
+    if (typed !== null && typed !== "" && Number(typed) !== Number(value)) setTyped(null);
+  }, [value]); // eslint-disable-line react-hooks/exhaustive-deps
+  const shown = !isNumber ? value : typed !== null ? typed : isZeroValue(value) ? "" : value;
+
   // Get dialog composition context if available (will be no-op if not inside Dialog)
   const dialogComposition = useDialogComposition();
 
@@ -63,6 +79,15 @@ function Input({
       onCompositionEnd={handleCompositionEnd}
       onKeyDown={handleKeyDown}
       {...props}
+      {...(value !== undefined ? { value: shown } : {})}
+      onChange={(e) => {
+        if (isNumber) setTyped(e.target.value);
+        onChange?.(e);
+      }}
+      onBlur={(e) => {
+        if (isNumber) setTyped(null);
+        onBlur?.(e);
+      }}
     />
   );
 }

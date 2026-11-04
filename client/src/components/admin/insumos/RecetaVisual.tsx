@@ -215,7 +215,7 @@ export function RecetaVisual({ producto, data, wide = false, onCancel, onSaved, 
                 const ins = insumoById.get(l.insumoId);
                 if (!ins) return null;
                 const isMl = ins.unit === 'ml';
-                const step = l.jigger ? 0.25 : isMl ? 10 : 1;
+                const step = l.jigger ? 0.25 : isMl ? 10 : 0.5;
                 const c = CATEGORIAS_INSUMO.find((x) => x.id === categoriaInsumo(ins.name, ins.unit));
                 return (
                   <li key={l.insumoId} className="rounded-2xl border border-border bg-card/60 p-3">
