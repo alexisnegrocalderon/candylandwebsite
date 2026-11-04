@@ -6947,8 +6947,13 @@ export const appRouter = router({
     comprasAplicar: adminProcedure.input(z.object({
       opId: z.string().min(8).max(40), eventId: z.number(),
       lineas: z.array(z.object({
-        insumoId: z.number(), agregar: z.number().positive().max(10_000_000), costoParaInsumo: z.number().min(0).max(100_000_000).nullable(),
+        // insumoId null = producto nuevo de la boleta: se crea con `nuevo` al cargar la compra.
+        insumoId: z.number().nullable(), agregar: z.number().positive().max(10_000_000), costoParaInsumo: z.number().min(0).max(100_000_000).nullable(),
         alias: z.string().max(160).nullable(), detalle: z.string().max(120),
+        nuevo: z.object({
+          name: z.string().trim().min(1).max(100), unit: z.enum(['ml', 'g', 'un']), containerSize: z.number().min(1).max(1_000_000), containerLabel: z.string().max(30),
+          sizes: z.array(z.number().int().min(1).max(1_000_000)).max(10), grupo: z.enum(['bebida', 'desechable', 'limpieza', 'otro']), costo: z.number().min(0).max(100_000_000).nullable(),
+        }).nullable().optional(),
       })).min(1).max(150),
       actualizarCostos: z.boolean(), recordarNombres: z.boolean(),
       gasto: z.object({
