@@ -1016,17 +1016,25 @@ export function grupoDePalabra(word: string): GrupoInsumo | null {
 
 const QTY_SUFFIX = /^(\d+(?:[.,]\d+)?)\s*([A-Za-zÀ-ÿ.]+)?$/;
 const NAME_QTY_SUFFIX = /^(.+?)\s*[:\-–]?\s+(\d+(?:[.,]\d+)?)\s*([A-Za-zÀ-ÿ.]+)?$/;
+/** «47 Redbull Yellow», «0.9 Jagermeister 700ml»: la cantidad primero (como se escribe en WhatsApp). */
+const LEADING_QTY = /^(\d+(?:[.,]\d+)?)\s+(.+)$/;
 
-/** Lee una lista pegada, una línea por insumo: «Guantes nitrilo M; 3 cajas; desechable»,
- * «Ron Bacardi 5 botellas» o «Hielo - 20». Separadores: `;`, tab, `|` o simplemente la cantidad al final. */
+/** Lee una lista pegada, una línea por insumo: «47 Redbull Yellow», «Guantes nitrilo M; 3 cajas; desechable»,
+ * «Ron Bacardi 5 botellas» o «Hielo - 20». Una línea que empieza con un número tiene la cantidad primero;
+ * si no, la cantidad va al final o tras un `;`, tab o `|`. Un decimal es parte de un envase (0.9 = una botella al 90 %). */
 export function parseInventario(text: string): { lineas: LineaInventario[]; errores: string[] } {
   const lineas: LineaInventario[] = [];
   const errores: string[] = [];
   for (const rawLine of text.split(/\r?\n/)) {
     const line = rawLine.trim();
     if (!line || line.startsWith('#')) continue;
-    const parts = line.split(/\t|;|\|/).map((p) => p.trim()).filter(Boolean);
+    let parts = line.split(/\t|;|\|/).map((p) => p.trim()).filter(Boolean);
     let name = ''; let qty = NaN; let suffix: string | null = null; let grupo: GrupoInsumo | null = null;
+    // «0.9 Guantes M Negro; desechable»: cantidad primero y el grupo al final.
+    if (parts.length >= 2 && LEADING_QTY.test(parts[0]) && !QTY_SUFFIX.test(parts[1])) {
+      const g = grupoDePalabra(parts[parts.length - 1]);
+      if (g) { grupo = g; parts = [parts[0]]; }
+    }
     if (parts.length >= 2) {
       const m = QTY_SUFFIX.exec(parts[1]);
       if (m) {
@@ -1037,13 +1045,40 @@ export function parseInventario(text: string): { lineas: LineaInventario[]; erro
         }
       }
     } else {
-      const m = NAME_QTY_SUFFIX.exec(line);
-      if (m) { name = m[1].trim(); qty = Number(m[2].replace(',', '.')); suffix = m[3] ?? null; }
+      const one = parts[0] ?? line;
+      const lead = LEADING_QTY.exec(one);
+      if (lead) { qty = Number(lead[1].replace(',', '.')); name = lead[2].trim(); }
+      else {
+        const m = NAME_QTY_SUFFIX.exec(one);
+        if (m) { name = m[1].trim(); qty = Number(m[2].replace(',', '.')); suffix = m[3] ?? null; }
+      }
     }
     if (!name || !Number.isFinite(qty) || qty < 0) { errores.push(line); continue; }
     lineas.push({ raw: line, name: name.slice(0, 100), qty, suffix: suffix ? suffix.replace(/\.$/, '') : null, grupo });
   }
   return { lineas, errores };
+}
+
+/** Envase de un insumo nuevo a partir de cómo se llama: «Bacardi Oro 1,75lt» → botella de 1750 ml,
+ * «lata 350ml coca cola» → lata (se cuenta por unidad), «Guantes M (caja de 100)» → caja de 100 un.
+ * Un tamaño de hasta 600 ml con cantidad entera (agua de 500, cerveza de 330) se cuenta por unidad. */
+export function inferirEnvase(rawName: string, qty: number): { name: string; unit: InsumoUnit; containerSize: number; containerLabel: string } {
+  let name = rawName.trim();
+  const caja = /\(?\s*(caja|pack|bolsa|paquete|rollo)s?\s*(?:de\s*)?(\d+)\s*(?:un(?:idades)?\.?)?\s*\)?/i.exec(name)
+    ?? /\(?\s*(\d+)\s*(?:un(?:idades)?\.?)?\s*(?:por\s*)?(caja|pack|bolsa|paquete|rollo)s?\s*\)?/i.exec(name);
+  if (caja) {
+    const [label, size] = /^\d/.test(caja[1]) ? [caja[2], Number(caja[1])] : [caja[1], Number(caja[2])];
+    name = name.replace(caja[0], '').replace(/\s{2,}/g, ' ').trim();
+    if (size >= 1) return { name: name || rawName.trim(), unit: 'un', containerSize: Math.round(size), containerLabel: label.toLowerCase() };
+  }
+  if (/\blatas?\b/i.test(name)) return { name, unit: 'un', containerSize: 1, containerLabel: 'lata' };
+  const m = /(\d+(?:[.,]\d+)?)\s*(ml|cc|lts?|l|litros?)\b/i.exec(name);
+  if (m) {
+    const n = Number(m[1].replace(',', '.'));
+    const ml = Math.round(/^(ml|cc)$/i.test(m[2]) ? n : n * 1000);
+    if (ml > 0 && !(ml <= 600 && Number.isInteger(qty))) return { name, unit: 'ml', containerSize: ml, containerLabel: 'botella' };
+  }
+  return { name, unit: 'un', containerSize: 1, containerLabel: 'unidad' };
 }
 
 /** Cuánto es lo contado en la unidad del insumo: «3 cajas» = 3 envases; «500 ml» o «2 L» = lo escrito en su unidad. */

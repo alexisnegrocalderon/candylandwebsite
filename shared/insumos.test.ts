@@ -4,7 +4,7 @@ import {
   metadataConOpciones, opcionesDeMetadata,
   productoSinInsumos, metadataConSinInsumos,
   consumoDeVenta, diagnosticoProducto, idSustitucion, sugerirReemplazos, sustitucionesDe, conteoATotal, descuadre, descuadreAlerts, formatCantidad, insumoRitmoAlerts, insumoStockAlerts,
-  cantidadContada, nivelGeneral, parseInventario, proyeccionGenerales, reglaDe,
+  cantidadContada, inferirEnvase, nivelGeneral, parseInventario, proyeccionGenerales, reglaDe,
   listaComprasTexto, nivelInsumo, proyeccionCompra, stockActual, tragosDisponibles, tragosPorInsumo, type Insumo, type RecetaLinea,
 } from './insumos';
 
@@ -666,5 +666,27 @@ describe('carga masiva del inventario', () => {
     expect(cantidadContada({ qty: 600, suffix: 'un' }, { unit: 'un', containerSize: 100 })).toBe(600);
     expect(cantidadContada({ qty: 4, suffix: 'cajas' }, { unit: 'un', containerSize: 100 })).toBe(400);
     expect(cantidadContada({ qty: 2, suffix: 'kg' }, { unit: 'g', containerSize: 1000 })).toBe(2000);
+  });
+});
+
+
+describe('inventario escrito como en WhatsApp', () => {
+  it('lee la cantidad al principio, con decimales y el grupo al final', () => {
+    const { lineas, errores } = parseInventario(['47 Redbull Yellow', '0.9 Jagermeister 700ml', '1 Bacardi Oro 1,75lt', '0.9 Guantes M Negro (caja de 100); desechable'].join('\n'));
+    expect(errores).toEqual([]);
+    expect(lineas.map((l) => [l.name, l.qty, l.grupo])).toEqual([
+      ['Redbull Yellow', 47, null], ['Jagermeister 700ml', 0.9, null], ['Bacardi Oro 1,75lt', 1, null], ['Guantes M Negro (caja de 100)', 0.9, 'desechable'],
+    ]);
+  });
+
+  it('saca el envase del nombre', () => {
+    expect(inferirEnvase('Bacardi Oro 1,75lt', 1)).toMatchObject({ unit: 'ml', containerSize: 1750, containerLabel: 'botella' });
+    expect(inferirEnvase('Benedictino 2.5Lt', 3.8)).toMatchObject({ unit: 'ml', containerSize: 2500 });
+    expect(inferirEnvase('Ramazotti 700ml', 2)).toMatchObject({ unit: 'ml', containerSize: 700 });
+    expect(inferirEnvase('lata 350ml coca cola', 12)).toMatchObject({ unit: 'un', containerSize: 1, containerLabel: 'lata' });
+    expect(inferirEnvase('Agua sin gas 500ml', 28)).toMatchObject({ unit: 'un', containerSize: 1 });
+    expect(inferirEnvase('Torobayo Miel 500ml', 7)).toMatchObject({ unit: 'un' });
+    expect(inferirEnvase('Redbull Yellow', 47)).toMatchObject({ unit: 'un', containerLabel: 'unidad' });
+    expect(inferirEnvase('Guantes M Negro (caja de 100)', 0.9)).toEqual({ name: 'Guantes M Negro', unit: 'un', containerSize: 100, containerLabel: 'caja' });
   });
 });

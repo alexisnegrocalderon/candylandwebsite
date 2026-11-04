@@ -18,7 +18,7 @@ import { personasForTicket } from "../shared/mission300";
 import { DOSIER_INSUMOS, DOSIER_SUPUESTOS, planDosier } from "../shared/dosier";
 import {
   DEFAULT_GLASS, aplicarUso, conteoATotal, extrasDeMetadata, metadataConExtras, metadataConOpciones, opcionesDeMetadata, metadataConPreparacion, pasosDeMetadata, fotoDeMetadata, recetaConOpciones, type OpcionGrupo, metadataConSinInsumos, productoSinInsumos, TIPOS_PRODUCTO, type TipoProducto, consumoDeVenta, descuadre, detalleATotal, insumoSizes, recetaDe, nivelInsumo, normalizeName, proyeccionCompra, tragosDisponibles, tragosPorInsumo,
-  cantidadContada, nivelGeneral, parseInventario, proyeccionGenerales, reglaDe, type GrupoInsumo, type ReglaInsumo,
+  cantidadContada, inferirEnvase, nivelGeneral, parseInventario, proyeccionGenerales, reglaDe, type GrupoInsumo, type ReglaInsumo,
   OPEN_PORTIONS, type ConteoDetalle, type Insumo, type InsumoUnit, type MovimientoKind, type RecetaLinea,
   diagnosticoProducto, sugerirReemplazos,
 } from "../shared/insumos";
@@ -726,31 +726,41 @@ export interface PlanInventarioLinea {
   suffix: string | null;
   /** El insumo que ya existe con ese nombre (null = se crea nuevo). */
   match: { id: number; name: string; unit: InsumoUnit; containerSize: number; containerLabel: string; stock: number } | null;
+  /** Envase con que se crea cuando es nuevo (sale del nombre: 1,75lt, lata, caja de 100…). */
+  nuevo: { unit: InsumoUnit; containerSize: number; containerLabel: string } | null;
   /** Stock que quedará, en la unidad del insumo. */
   target: number;
 }
 
-/** Qué haría cargar la lista: cada línea se empareja por nombre con un insumo existente o se crea uno nuevo. */
+/** Qué haría cargar la lista: cada línea se empareja por nombre con un insumo existente o se crea uno nuevo.
+ * Un mismo insumo en dos líneas (dos cajas abiertas) se suma. */
 export async function inventarioPlan(params: { texto: string; grupoDefecto: GrupoInsumo }) {
   const { lineas, errores } = parseInventario(params.texto);
   const [all, stock] = await Promise.all([listInsumos(true), stockMap()]);
   const byName = new Map(all.map((i) => [normalizeName(i.name), i]));
-  const seen = new Set<string>();
-  const plan: PlanInventarioLinea[] = [];
-  const repetidas: string[] = [];
+  const plan = new Map<string, PlanInventarioLinea>();
+  const sumadas: string[] = [];
   for (const l of lineas) {
-    const key = normalizeName(l.name);
-    if (seen.has(key)) { repetidas.push(l.name); continue; }
-    seen.add(key);
-    const found = byName.get(key) ?? null;
-    plan.push({
-      raw: l.raw, name: found?.name ?? l.name, grupo: l.grupo ?? params.grupoDefecto, qty: l.qty, suffix: l.suffix,
+    const env = inferirEnvase(l.name, l.qty);
+    const key = normalizeName(env.name);
+    const found = byName.get(key) ?? byName.get(normalizeName(l.name)) ?? null;
+    const envase = found ?? env;
+    const contado = cantidadContada(l, envase);
+    const prev = plan.get(key);
+    if (prev) {
+      prev.target = Math.round((prev.target + contado) * 100) / 100;
+      prev.qty = Math.round((prev.qty + l.qty) * 100) / 100;
+      if (!sumadas.includes(prev.name)) sumadas.push(prev.name);
+      continue;
+    }
+    plan.set(key, {
+      raw: l.raw, name: found?.name ?? env.name, grupo: l.grupo ?? params.grupoDefecto, qty: l.qty, suffix: l.suffix,
       match: found ? { id: found.id, name: found.name, unit: found.unit, containerSize: found.containerSize, containerLabel: found.containerLabel, stock: stock.get(found.id) ?? 0 } : null,
-      // Un insumo nuevo parte en unidades: lo contado es lo que hay.
-      target: found ? cantidadContada(l, found) : l.qty,
+      nuevo: found ? null : { unit: env.unit, containerSize: env.containerSize, containerLabel: env.containerLabel },
+      target: Math.round(contado * 100) / 100,
     });
   }
-  return { lineas: plan, errores, repetidas, reglasListas: await reglasReady() };
+  return { lineas: Array.from(plan.values()), errores, sumadas, reglasListas: await reglasReady() };
 }
 
 /** Aplica la lista: crea los insumos que faltan y deja el stock de cada uno exactamente en lo contado. */
@@ -763,14 +773,17 @@ export async function inventarioApply(params: { texto: string; grupoDefecto: Gru
   let actualizados = 0;
   for (const l of plan.lineas) {
     let id = l.match?.id;
-    if (!id) {
-      const saved = await saveInsumo({ name: l.name, unit: "un", containerSize: 1, containerLabel: l.suffix?.toLowerCase().slice(0, 30) || "unidad", sizes: [], costPerContainer: null, alertDrinks: 0 });
+    if (!id && l.nuevo) {
+      const saved = await saveInsumo({
+        name: l.name, unit: l.nuevo.unit, containerSize: l.nuevo.containerSize, containerLabel: l.nuevo.containerLabel,
+        sizes: l.nuevo.unit === "ml" ? [l.nuevo.containerSize] : [], costPerContainer: null, alertDrinks: l.grupo === "bebida" && l.nuevo.unit === "ml" ? 15 : 0,
+      });
       id = saved.id;
       // Una bebida nueva queda por receta; el resto, solo con mínimo (se completa después en «Editar»).
       await saveRegla(id, { grupo: l.grupo, modo: l.grupo === "bebida" ? "receta" : "manual", cantidad: 0, minimo: 0 });
       creados++;
     } else actualizados++;
-    await setStockTo({ insumoId: id, target: l.target, eventId: params.eventId ?? null, note: "Inventario contado" });
+    await setStockTo({ insumoId: id!, target: l.target, eventId: params.eventId ?? null, note: "Inventario contado" });
   }
-  return { creados, actualizados, errores: plan.errores, repetidas: plan.repetidas };
+  return { creados, actualizados, errores: plan.errores, sumadas: plan.sumadas };
 }

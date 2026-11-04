@@ -6,11 +6,11 @@ import { Label } from '@/components/ui/label';
 import { WriteButton } from '@/components/admin/WriteButton';
 import { GRUPOS_INSUMO, formatCantidad, type GrupoInsumo } from '@shared/insumos';
 
-const EJEMPLO = `Ron Bacardi blanco; 5 botellas
-Vodka Absolut; 3
-Guantes nitrilo M; 4 cajas; desechable
-Vasos 12 oz; 600 un; desechable
-Cloro; 2; limpieza`;
+const EJEMPLO = `47 Redbull Yellow
+12 lata 350ml coca cola
+0.9 Jagermeister 700ml
+1.3 Bacardi Blanco 1.75lt
+0.9 Guantes M Negro (caja de 100); desechable`;
 
 /** Pega tu inventario contado (una línea por insumo) y lo carga de una vez: los que ya existen quedan con
  * lo que contaste y los que no existen se crean. Antes de aplicar muestra exactamente qué va a pasar. */
@@ -50,7 +50,7 @@ export function CargarInventarioDialog({ eventId, open, reglasReady, onClose, on
         <DialogHeader>
           <DialogTitle>Cargar inventario contado</DialogTitle>
           <DialogDescription>
-            Una línea por insumo: <strong>nombre; cantidad</strong> (y si quieres, la unidad y el grupo). La cantidad son envases (botellas, cajas…); si escribes ml, L, g, kg o un, se toma esa medida.
+            Una línea por insumo, como lo escribes en WhatsApp: <strong>cantidad y nombre</strong> (47 Redbull Yellow). La cantidad son envases y un decimal es parte de uno (0.9 = una botella al 90 %). El tamaño sale del nombre (750ml, 1,75lt, lata, caja de 100).
             El stock queda exactamente en lo que contaste.
           </DialogDescription>
         </DialogHeader>
@@ -80,7 +80,7 @@ export function CargarInventarioDialog({ eventId, open, reglasReady, onClose, on
               <p className="text-sm font-semibold">{p.lineas.length} insumos · {p.lineas.length - nuevos} existentes · {nuevos} nuevos</p>
               {needsReglas && <p className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-500">Hay insumos que no son bebida: activa primero los insumos generales.</p>}
               {p.errores.length > 0 && <p className="rounded-xl border border-red-500/40 bg-red-500/10 p-2 text-xs text-red-500">No entendí estas líneas (ponles una cantidad): {p.errores.join(' · ')}</p>}
-              {p.repetidas.length > 0 && <p className="text-xs text-amber-500">Repetidos (se usa la primera línea): {p.repetidas.join(', ')}</p>}
+              {p.sumadas.length > 0 && <p className="text-xs text-amber-500">Estaban en más de una línea y se sumaron: {p.sumadas.join(', ')}</p>}
               <ul className="max-h-72 space-y-1 overflow-y-auto text-sm">
                 {p.lineas.map((l) => {
                   const g = GRUPOS_INSUMO.find((x) => x.id === l.grupo);
@@ -92,7 +92,7 @@ export function CargarInventarioDialog({ eventId, open, reglasReady, onClose, on
                           {formatCantidad(l.match.stock, l.match)} → <strong className="text-foreground">{formatCantidad(l.target, l.match)}</strong>
                         </span>
                       ) : (
-                        <span className="shrink-0 text-xs tabular-nums"><span className="mr-1 rounded-full bg-emerald-500/15 px-1.5 py-0.5 font-semibold text-emerald-500">nuevo</span>{l.target} {l.suffix ?? 'un'}</span>
+                        <span className="shrink-0 text-xs tabular-nums"><span className="mr-1 rounded-full bg-emerald-500/15 px-1.5 py-0.5 font-semibold text-emerald-500">nuevo</span><strong>{l.nuevo ? formatCantidad(l.target, { ...l.nuevo }) : l.target}</strong></span>
                       )}
                     </li>
                   );
