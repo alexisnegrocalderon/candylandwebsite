@@ -596,9 +596,10 @@ export function formatCantidad(amount: number, insumo: Pick<Insumo, 'unit' | 'co
   return rest > 0 ? `${full} ${label} + ${rest.toLocaleString('es-CL')} ${unit}` : `${full} ${label}`;
 }
 
-function pluralize(word: string): string {
+export function pluralize(word: string): string {
   if (!word) return word;
-  if (/[aeiouáéó]$/i.test(word)) return `${word}s`;
+  // «pack» → «packs» (las palabras que terminan en -ck no llevan -es).
+  if (/[aeiouáéó]$/i.test(word) || /ck$/i.test(word)) return `${word}s`;
   return `${word}es`;
 }
 

@@ -10,10 +10,11 @@ import { SupervisorHome } from '@/components/admin/SupervisorHome';
 import { SupervisorAccessManager } from '@/components/admin/SupervisorAccessManager';
 import { StaffManager, requestNewStaff } from '@/components/admin/staff/StaffManager';
 import { requestGiftCoupon } from '@/components/admin/members/requestGiftCoupon';
+import { requestInventarioPdf } from '@/components/admin/insumos/requestInventarioPdf';
 import { useHideSplashOnMount } from '@/lib/splash';
 import { useSeo } from '@/hooks/useSeo';
 import { useInstallableApp } from '@/hooks/useInstallableApp';
-import { Home, Flame, Calendar, DollarSign, Ticket, Users, Plus, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, Contact, Mail, History, Gift, MessageCircle, Crown, Martini, Instagram, UserPlus, Ban, Receipt, Compass, Sparkles, Car, Send, ShieldAlert, Zap, Cake, Calculator, Star, FlaskConical, Palette, UserCheck, Banknote, Landmark, Headphones, ListChecks, PartyPopper, BellRing, Wine, Smartphone, Bot, TrendingUp, Link2 } from 'lucide-react';
+import { Home, Flame, Calendar, DollarSign, Ticket, Users, Plus, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, Contact, Mail, History, Gift, MessageCircle, Crown, Martini, Instagram, UserPlus, Ban, Receipt, Compass, Sparkles, Car, Send, ShieldAlert, Zap, Cake, Calculator, Star, FlaskConical, Palette, UserCheck, Banknote, Landmark, Headphones, ListChecks, PartyPopper, BellRing, Wine, Smartphone, Bot, TrendingUp, Link2, FileText } from 'lucide-react';
 import { AdminLoginForm } from '@/components/admin/AdminLoginForm';
 import { OPEN_SECTION_EVENT } from '@/components/admin/studio/handoff';
 import { parseAdminDeepLink } from '@shared/adminDeepLink';
@@ -109,6 +110,7 @@ function SectionLoading() {
 /** Atajos de la hoja del «+» en el celular (solo los de secciones visibles). */
 const ADMIN_QUICK_ACTIONS: AdminQuickAction[] = [
   { key: 'staff', label: 'Agregar staff', icon: UserPlus, section: 'staff', onSelect: requestNewStaff },
+  { key: 'inventario', label: 'Inventario PDF', icon: FileText, section: 'insumos', onSelect: requestInventarioPdf },
   { key: 'gasto', label: 'Cargar gasto', icon: Receipt, section: 'cargar-gasto' },
   { key: 'acceso', label: 'Acceso manual', icon: Gift, section: 'manual-access' },
   { key: 'evento', label: 'Crear evento', icon: Calendar, section: 'events' },
