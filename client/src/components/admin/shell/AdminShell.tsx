@@ -9,7 +9,8 @@ import { EventSwitcher } from './EventSwitcher';
 import { useTonightEvent } from '@/hooks/useTonightEvent';
 import { ADMIN_HUBS, hubBadgeCount, type AdminHub, type AdminHubId, type ShellSection } from './nav';
 import { CommandPalette } from './CommandPalette';
-import { GiftDialog } from '@/components/admin/staff/GiftDialog';
+import { GiftHost } from '@/components/gifts/GiftHost';
+import { onGiftRequest } from '@/components/gifts/giftRequest';
 import { TransferSaleDialog } from '@/components/admin/gifts/TransferSaleDialog';
 import { trpc } from '@/lib/trpc';
 import { hideSplash } from '@/lib/splash';
@@ -88,6 +89,10 @@ export function AdminShell({ sections: allSections, activeSection, onOpenSection
   const [transferOpen, setTransferOpen] = useState(false);
   const isSupervisor = useIsSupervisor();
   const { data: giftAccess } = trpc.orders.canGift.useQuery(undefined, { enabled: !isDemo && !isSupervisor, retry: false, staleTime: 5 * 60_000 });
+  // El dueño regala; la supervisora solo invita entradas y extras (hoja «limitada»).
+  const canOpenGift = !!giftAccess?.can || isSupervisor;
+  // El atajo «Invitar» del «+» (y del menú de atajos) abre la misma hoja desde cualquier pantalla.
+  useEffect(() => onGiftRequest(() => setGiftOpen(true)), []);
 
   // El menú no muestra las pantallas ocultas (`hidden`), salvo la que está abierta; el buscador sí las encuentra.
   // Evento sin caja de la plataforma (solo entrada y estacionamiento por la web): sin sus pantallas de caja, carta y stock.
@@ -105,6 +110,9 @@ export function AdminShell({ sections: allSections, activeSection, onOpenSection
     [sections],
   );
   const hubMeta = allHubs.find((h) => h.id === activeHub) ?? allHubs[0];
+  // Los atajos de la hoja del «+»: los que abren una sección que este usuario ve, y los que abren una hoja encima de donde estés.
+  const visibleQuickActions = (quickActions ?? []).filter((q) => !q.section || sections.some((s) => s.id === q.section));
+  const runQuickAction = (q: AdminQuickAction) => { q.onSelect?.(); if (q.section) onOpenSection(q.section); };
 
   // Última pestaña usada en cada hub: volver al hub vuelve a esa pestaña.
   const lastTab = useRef<Partial<Record<AdminHubId, string>>>({});
@@ -275,10 +283,27 @@ export function AdminShell({ sections: allSections, activeSection, onOpenSection
                 <span aria-hidden>💸</span><span className="hidden sm:inline">Transferencia</span>
               </button>
             )}
-            {giftAccess?.can && (
-              <button type="button" onClick={() => setGiftOpen(true)} className="admin-search-btn flex h-10 shrink-0 items-center gap-2 rounded-xl px-3 text-sm font-medium" aria-label="Regalar una entrada o un trago">
-                <span aria-hidden>🎁</span><span className="hidden sm:inline">Regalar</span>
+            {canOpenGift && (
+              <button type="button" onClick={() => setGiftOpen(true)} className="admin-search-btn flex h-10 shrink-0 items-center gap-2 rounded-xl px-3 text-sm font-medium" aria-label={isSupervisor ? 'Invitar una entrada' : 'Regalar una entrada o un trago'}>
+                <span aria-hidden>🎁</span><span className="hidden sm:inline">{isSupervisor ? 'Invitar' : 'Regalar'}</span>
               </button>
+            )}
+            {/* Tablet y computador: los mismos accesos directos del «+» del celular. */}
+            {visibleQuickActions.length > 0 && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button type="button" className="admin-search-btn hidden h-10 shrink-0 items-center gap-2 rounded-xl px-3 text-sm font-medium md:flex" aria-label="Accesos directos">
+                    <Plus className="h-4 w-4" /><span className="hidden lg:inline">Atajos</span>
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-64">
+                  {visibleQuickActions.map((q) => (
+                    <DropdownMenuItem key={q.key} onClick={() => runQuickAction(q)}>
+                      <q.icon className="h-4 w-4" /> {q.label}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
             )}
             <button
               type="button"
@@ -399,18 +424,18 @@ export function AdminShell({ sections: allSections, activeSection, onOpenSection
           badgeFor={(id) => hubBadgeCount(id, sections, badgeCounts)}
           moreBadge={moreBadge}
           moreHubs={allHubs.filter((h) => !mobileHubs.slice(0, 4).some((m) => m.id === h.id))}
-          quickActions={(quickActions ?? []).filter((q) => !q.section || sections.some((s) => s.id === q.section))}
+          quickActions={visibleQuickActions}
           open={moreOpen}
           onOpenChange={setMoreOpen}
           onOpenHub={openHub}
-          onQuickAction={(q) => { setMoreOpen(false); q.onSelect?.(); if (q.section) onOpenSection(q.section); }}
+          onQuickAction={(q) => { setMoreOpen(false); runQuickAction(q); }}
           userName={userName}
           roleLabel={roleLabel}
           onLogout={onLogout}
         />
       )}
 
-      {giftAccess?.can && <GiftDialog open={giftOpen} onClose={() => setGiftOpen(false)} />}
+      {canOpenGift && <GiftHost open={giftOpen} onClose={() => setGiftOpen(false)} limited={isSupervisor} />}
       {giftAccess?.can && <TransferSaleDialog open={transferOpen} onClose={() => setTransferOpen(false)} />}
 
       <CommandPalette
