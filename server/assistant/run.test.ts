@@ -28,7 +28,7 @@ vi.mock("./tools", () => ({
 }));
 
 const usage = { input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
-const msg = (content: any[], stop_reason: string) => ({ id: "m", model: "claude-opus-5-5", role: "assistant", content, stop_reason, usage });
+const msg = (content: any[], stop_reason: string) => ({ id: "m", model: "claude-sonnet-5-5", role: "assistant", content, stop_reason, usage });
 const toolUse = (id: string, name: string, input: any = {}) => ({ type: "tool_use", id, name, input });
 
 function fakeClient(responses: any[]) {
@@ -54,7 +54,7 @@ describe("asistente: el ciclo con herramientas", () => {
     expect(r.message.ui).toMatchObject({ text: "Tienes 3 eventos.", sources: ["listar_eventos"] });
     expect(r.message.ui.error).toBeUndefined();
     // La llamada usa el modelo, el respaldo automático y el caché del sistema.
-    expect(calls[0]).toMatchObject({ model: "claude-opus-5-5", betas: ["server-side-fallback-2026-07-01"], fallbacks: "default", output_config: { effort: "medium" } });
+    expect(calls[0]).toMatchObject({ model: "claude-sonnet-5-5", betas: ["server-side-fallback-2026-07-01"], fallbacks: "default", output_config: { effort: "medium" } });
     expect(calls[0].system[0].cache_control).toEqual({ type: "ephemeral" });
     // El contexto (fecha, evento y pantalla) va en el mensaje del usuario, no en el sistema.
     expect(calls[0].messages[0].content).toMatch(/Aniversario.*id 4/);

@@ -15,7 +15,8 @@ import { ASSISTANT_MAX_EXCHANGES, threadTitle, type AssistantMessageView, type A
 export { listThreads, getThread, deleteThread, getProposal, setProposalState, claimProposal } from "./store";
 import { runTool, toolDefinitions, type ToolContext } from "./tools";
 
-export const ASSISTANT_MODEL = "claude-opus-5-5";
+// Sonnet 5.5: la mitad del costo de Opus 5.5 y de sobra para consultar datos y explicarlos (decisión del dueño por costo).
+export const ASSISTANT_MODEL = "claude-sonnet-5-5";
 const FALLBACK_BETA = "server-side-fallback-2026-07-01";
 const MAX_TOOL_ROUNDS = 8;
 
