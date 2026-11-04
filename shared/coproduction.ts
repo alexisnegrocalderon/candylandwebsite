@@ -73,7 +73,7 @@ export const DEFAULT_LANDING: CoproductionLanding = {
   dateText: 'Viernes 4 de diciembre',
   venueText: 'NEW SPOT, Santiago',
   capacityText: 'Aforo para 800 personas',
-  fusionText: 'Primera fusión · edición única',
+  fusionText: 'Dos universos · una fusión',
   capacity: 800,
   heroImageUrl: '',
   heroVideoUrl: '',
