@@ -155,7 +155,7 @@ export function PlaymoreHero({ landing, partnerName, buyHref, preview, early = f
             <BuyButton href={buyHref} onClick={onBuy}>COMPRAR ENTRADAS</BuyButton>
           ) : preview || early ? (
             <a href="#accesos" onClick={(e) => { if (onBuy) { e.preventDefault(); onBuy(); } }}
-              className="inline-flex h-14 max-w-full items-center justify-center gap-2.5 rounded-full border border-[#d6b25e]/60 bg-black/40 px-6 text-center text-[11px] font-bold leading-tight tracking-[0.18em] text-[var(--pm-sand)] backdrop-blur transition hover:bg-white/5 sm:gap-3 sm:px-8 sm:text-xs sm:tracking-[0.2em]">
+              className="inline-flex h-14 max-w-full items-center justify-center gap-2.5 rounded-full px-6 text-center text-[11px] font-bold leading-tight tracking-[0.18em] text-[#141210] shadow-[0_18px_50px_-12px_rgba(247,231,168,0.55)] transition active:scale-[0.98] sm:gap-3 sm:px-8 sm:text-xs sm:tracking-[0.2em]" style={{ background: 'var(--pm-gold)' }}>
               <span>VER LOS TICKETS<span className="hidden sm:inline"> · {early ? 'COMPRA MUY PRONTO' : 'PAGO AL ACTIVAR'}</span></span>
               <ArrowRight className="h-4 w-4 shrink-0" />
             </a>
