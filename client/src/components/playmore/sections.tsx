@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'wouter';
 import { motion, useScroll, useTransform } from 'framer-motion';
-import { ArrowRight, CalendarDays, ChevronDown, Instagram, MapPin, Users } from 'lucide-react';
+import { ArrowRight, CalendarDays, ChevronDown, Instagram, MapPin, Sparkles } from 'lucide-react';
 import type { CoproductionLanding } from '@shared/coproduction';
 import { CANDYLAND } from '@/config/candyland';
 import { ParticleTitle } from './ParticleTitle';
@@ -136,7 +136,7 @@ export function PlaymoreHero({ landing, partnerName, buyHref, preview, early = f
           className="mt-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs font-medium tracking-[0.2em] text-[var(--pm-sand)]/80 sm:text-sm">
           <span className="flex items-center gap-2"><CalendarDays className="h-4 w-4 text-[var(--pm-orchid)]" />{landing.dateText.toUpperCase()} · {landing.timeText}</span>
           <span className="flex items-center gap-2"><MapPin className="h-4 w-4 text-[var(--pm-orchid)]" />{landing.venueText.toUpperCase()}</span>
-          <span className="flex items-center gap-2"><Users className="h-4 w-4 text-[var(--pm-orchid)]" />{landing.capacityText.toUpperCase()}</span>
+          <span className="flex items-center gap-2"><Sparkles className="h-4 w-4 text-[var(--pm-orchid)]" />{landing.fusionText.toUpperCase()}</span>
         </motion.div>
 
         {/* Cuenta regresiva */}

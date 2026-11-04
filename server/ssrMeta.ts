@@ -7,7 +7,7 @@ import { dropSupersededTickets } from "../shared/liveTickets";
 import { getPartnerCampaignBySlug } from "./partnerCampaigns";
 import { getCoproductionBySlug } from "./coproduction";
 import { getPublicContest } from "./contests";
-import { normalizeLanding } from "../shared/coproduction";
+import { normalizeLanding, applyEventToLanding } from "../shared/coproduction";
 import { COLAB_HOSTS, colabSlugForHost } from "../shared/colabHosts";
 import { PARTNER_DEFAULT_HEADLINE } from "../shared/partnerCampaign";
 import { EVENT_BRAND } from "../shared/eventBrand";
@@ -200,11 +200,12 @@ export function registerSsrMetaRoutes(app: Express) {
     if (!template) return;
     try {
       const cp = await getCoproductionBySlug(slug).catch(() => null);
-      const landing = normalizeLanding(cp?.landing);
+      const ev = cp?.eventId ? await db.getEventById(cp.eventId).catch(() => null) : null;
+      const landing = applyEventToLanding(normalizeLanding(cp?.landing), ev);
       const live = cp?.isLive === 1;
       const title = `${landing.title} · ${live ? landing.dateText : "Próximamente"}`;
       const description = live
-        ? `${landing.headline} ${landing.venueText}. ${landing.capacityText}.`
+        ? `${landing.headline} ${landing.venueText}. ${landing.fusionText}.`
         : `${landing.title}: muy pronto. ${landing.venueText}.`;
       // Sin imagen propia en la landing, se comparte el afiche de PLAYMORE (no el flyer del sitio).
       const image = landing.heroImageUrl.startsWith("https://") ? landing.heroImageUrl : `${SITE_URL}/playmore/og-playmore.jpg`;

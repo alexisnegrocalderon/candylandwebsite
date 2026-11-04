@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_LANDING, generatePartnerPassword, normalizeLanding, parsePartnerOpenId, partnerOpenId, splitProfit } from './coproduction';
+import { DEFAULT_LANDING, DEFAULT_VENUE_TEXT, applyEventToLanding, generatePartnerPassword, normalizeLanding, parsePartnerOpenId, partnerOpenId, splitProfit } from './coproduction';
 
 describe('splitProfit', () => {
   it('50/50 de la utilidad, y las partes siempre suman el total', () => {
@@ -68,5 +68,22 @@ describe('logo del socio', () => {
     expect(normalizeLanding({ partnerLogoUrl: `${base}.JPG?v=2` }).partnerLogoUrl).toBe('');
     expect(normalizeLanding({ partnerLogoUrl: `${base}.png` }).partnerLogoUrl).toBe(`${base}.png`);
     expect(normalizeLanding({ partnerLogoUrl: `${base}.webp` }).partnerLogoUrl).toBe(`${base}.webp`);
+  });
+});
+
+describe('applyEventToLanding', () => {
+  it('toma fecha, hora, cuenta regresiva y lugar del evento', () => {
+    const base = normalizeLanding({});
+    // Sábado 5 de diciembre 2026, 22:00 en Chile (UTC-3).
+    const out = applyEventToLanding(base, { eventDate: new Date('2026-12-06T01:00:00Z'), venue: ' Casa Secreta ' });
+    expect(out.dateText).toBe('Sábado 5 de diciembre');
+    expect(out.timeText).toBe('22:00');
+    expect(out.countdownIso).toBe('2026-12-06T01:00:00.000Z');
+    expect(out.venueText).toBe('Casa Secreta');
+  });
+  it('sin venue muestra "Nuevo spot especial!" y sin evento deja la landing igual', () => {
+    const base = normalizeLanding({});
+    expect(applyEventToLanding(base, { eventDate: new Date('2026-12-05T01:00:00Z'), venue: '  ' }).venueText).toBe(DEFAULT_VENUE_TEXT);
+    expect(applyEventToLanding(base, null)).toBe(base);
   });
 });

@@ -12,7 +12,7 @@ import {
 } from '../drizzle/schema';
 import { getDb, getEventPnl, getOrderStats, getSalesByDay, getTicketTypesByEventId, createExpense, createManualOrder } from './db';
 import { hashPin, verifyPin } from './caja/auth';
-import { normalizeLanding, splitProfit, generatePartnerPassword, type ColabBrand, type CoproductionLanding } from '../shared/coproduction';
+import { normalizeLanding, applyEventToLanding, splitProfit, generatePartnerPassword, type ColabBrand, type CoproductionLanding } from '../shared/coproduction';
 import { personasForTicket } from '../shared/mission300';
 
 const isMissingTable = (err: unknown) => /doesn't exist|no such table|unknown table/i.test(String((err as any)?.message ?? (err as any)?.cause?.message ?? err));
@@ -357,8 +357,8 @@ export async function getEventColabBrand(eventId: number, opts: { allowNotLive?:
   return safe(async () => {
     const [cp] = await db.select().from(coproductions).where(eq(coproductions.eventId, eventId)).limit(1);
     if (!cp || (cp.isLive !== 1 && !opts.allowNotLive)) return null;
-    const landing = normalizeLanding(cp.landing);
-    const [ev] = await db.select({ slug: events.slug }).from(events).where(eq(events.id, eventId)).limit(1);
+    const [ev] = await db.select({ slug: events.slug, eventDate: events.eventDate, venue: events.venue }).from(events).where(eq(events.id, eventId)).limit(1);
+    const landing = applyEventToLanding(normalizeLanding(cp.landing), ev);
     return {
       eventSlug: ev?.slug ?? '',
       slug: cp.slug, partnerName: cp.partnerName, partnerLogoUrl: landing.partnerLogoUrl, eventName: landing.eventName,

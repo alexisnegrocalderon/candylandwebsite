@@ -1,3 +1,4 @@
+import { formatChileDate, formatChileTime } from './chileDate';
 /* Co-producción con otra productora (ej. Playroom × Dalmore): contenido de la
  * landing, reparto de la utilidad y reglas compartidas entre el servidor y
  * el panel. Ver drizzle/schema.ts `coproductions`. */
@@ -35,6 +36,8 @@ export interface CoproductionLanding {
   dateText: string;
   venueText: string;
   capacityText: string;
+  /** Característica de la fusión (chip del hero, en lugar del aforo). */
+  fusionText: string;
   /** Aforo en personas (la barra de avance del panel). */
   capacity: number;
   heroImageUrl: string;
@@ -70,6 +73,7 @@ export const DEFAULT_LANDING: CoproductionLanding = {
   dateText: 'Viernes 4 de diciembre',
   venueText: 'NEW SPOT, Santiago',
   capacityText: 'Aforo para 800 personas',
+  fusionText: 'Primera fusión · edición única',
   capacity: 800,
   heroImageUrl: '',
   heroVideoUrl: '',
@@ -138,6 +142,7 @@ export function normalizeLanding(raw: unknown): CoproductionLanding {
     dateText: str(p.dateText, 80, d.dateText),
     venueText: str(p.venueText, 120, d.venueText),
     capacityText: str(p.capacityText, 80, d.capacityText),
+    fusionText: str(p.fusionText, 80, d.fusionText) || d.fusionText,
     capacity: Number.isInteger(Number(p.capacity)) && Number(p.capacity) > 0 ? Math.min(Number(p.capacity), 100000) : d.capacity,
     heroImageUrl: isSafeImageUrl(heroImageUrl) ? heroImageUrl : '',
     heroVideoUrl: /^https:\/\/\S+$/.test(str(p.heroVideoUrl, 500, '')) ? str(p.heroVideoUrl, 500, '') : '',
@@ -220,4 +225,23 @@ export function partnerOpenId(slug: string, sessionVersion: number): string {
 export function parsePartnerOpenId(openId: string): { slug: string; sessionVersion: number } | null {
   const m = /^partner:([a-z0-9-]{1,50}):(\d{1,9})$/.exec(openId);
   return m ? { slug: m[1], sessionVersion: Number(m[2]) } : null;
+}
+
+/** Lugar que se muestra cuando el evento no tiene "venue" escrito. */
+export const DEFAULT_VENUE_TEXT = 'Nuevo spot especial!';
+
+/** La fecha, la hora, la cuenta regresiva y el lugar de la landing salen del evento (los que se editan en el
+ * admin): así no hay que escribirlos dos veces ni se desalinean. Sin evento enlazado queda lo guardado. */
+export function applyEventToLanding(landing: CoproductionLanding, event: { eventDate?: Date | string | null; venue?: string | null } | null | undefined): CoproductionLanding {
+  if (!event) return landing;
+  const out = { ...landing };
+  const at = event.eventDate ? new Date(event.eventDate) : null;
+  if (at && !Number.isNaN(at.getTime())) {
+    const date = formatChileDate(at, { withWeekday: true }).replace(',', '');
+    out.dateText = date.charAt(0).toUpperCase() + date.slice(1);
+    out.timeText = formatChileTime(at);
+    out.countdownIso = at.toISOString();
+  }
+  out.venueText = (event.venue ?? '').trim() || DEFAULT_VENUE_TEXT;
+  return out;
 }

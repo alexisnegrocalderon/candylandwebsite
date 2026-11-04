@@ -210,7 +210,7 @@ import { AUTOMATION_BUTTON_KINDS, AUTOMATION_BUTTON_TITLE_MAX, isAllowedCustomBu
 import { normalizeIgHandle } from "../shared/igCustomerLink";
 import { approveComment, restoreSpamComment, suggestOwnComment } from './instagramComments';
 import * as coproductionSvc from './coproduction';
-import { partnerOpenId, normalizeLanding, COLAB_MIN_AGE } from '../shared/coproduction';
+import { partnerOpenId, normalizeLanding, applyEventToLanding, COLAB_MIN_AGE } from '../shared/coproduction';
 import { supervisorOpenId } from '../shared/panelSupervisor';
 import * as supSvc from './panelSupervisor';
 import type { Coproduction } from '../drizzle/schema';
@@ -4615,13 +4615,14 @@ export const appRouter = router({
       const isLive = cp.isLive === 1;
       const previewOk = !isLive && !!input.preview && safeCompare(input.preview, cp.previewToken);
       const full = isLive || previewOk || ctx.user?.role === 'admin';
-      const landing = normalizeLanding(cp.landing);
+      const event = cp.eventId ? await db.getEventById(cp.eventId) : null;
+      // Fecha, hora, cuenta regresiva y lugar salen del evento (admin → Eventos).
+      const landing = applyEventToLanding(normalizeLanding(cp.landing), event);
       // "Mostrar tickets antes de lanzar" (Configuración): la página completa con sus accesos, sin compra.
       const early = !full && landing.showTicketsEarly;
       if (!full && !early) {
         return { isLive: false, preview: false, early: false, partnerName: cp.partnerName, landing: { ...landing, galleryUrls: [], faq: [] }, event: null, ticketTypes: [], diag: null };
       }
-      const event = cp.eventId ? await db.getEventById(cp.eventId) : null;
       const types = event ? await db.getTicketTypesByEventId(event.id) : [];
       // Solo lo que se vende por la web: accesos y extras (estacionamiento). La carta de la fiesta
       // (tragos, comida, merch, guardarropía) es de la caja y no se muestra ni se expone acá.

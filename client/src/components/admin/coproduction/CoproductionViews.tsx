@@ -637,17 +637,10 @@ export function CoproConfig() {
         <div className="grid gap-3 sm:grid-cols-2">
           <div><Label>Nombre de la noche (ticket y portada)</Label><Input className="mt-1" value={d.landing.eventName} onChange={(e) => editLanding({ eventName: e.target.value })} /></div>
           <div><Label>Título de la pestaña del navegador</Label><Input className="mt-1" value={d.landing.title} onChange={(e) => editLanding({ title: e.target.value })} /></div>
-          <div><Label>Hora (ticket)</Label><Input className="mt-1" value={d.landing.timeText} onChange={(e) => editLanding({ timeText: e.target.value })} /></div>
-          <div>
-            <Label>Cuenta regresiva hasta</Label>
-            <Input className="mt-1" type="datetime-local"
-              value={toLocalInput(d.landing.countdownIso)}
-              onChange={(e) => e.target.value && editLanding({ countdownIso: `${e.target.value}:00-03:00` })} />
-            <p className="mt-1 text-xs text-muted-foreground">Hora de Chile. También define la fecha que sale en el ticket.</p>
-          </div>
-          <div><Label>Fecha (texto)</Label><Input className="mt-1" value={d.landing.dateText} onChange={(e) => editLanding({ dateText: e.target.value })} /></div>
-          <div><Label>Lugar</Label><Input className="mt-1" value={d.landing.venueText} onChange={(e) => editLanding({ venueText: e.target.value })} /></div>
-          <div><Label>Aforo (texto)</Label><Input className="mt-1" value={d.landing.capacityText} onChange={(e) => editLanding({ capacityText: e.target.value })} /></div>
+          <p className="sm:col-span-2 rounded-xl border border-border/60 bg-muted/30 p-3 text-sm text-muted-foreground">
+            📅 La <strong>fecha, la hora, la cuenta regresiva y el lugar</strong> se toman solos del evento (Eventos → fecha y casilla “venue”). Si el venue está vacío se muestra “Nuevo spot especial!”.
+          </p>
+          <div><Label>Característica de la fusión (reemplaza el aforo)</Label><Input className="mt-1" value={d.landing.fusionText} onChange={(e) => editLanding({ fusionText: e.target.value })} /></div>
           <div className="sm:col-span-2"><Label>Frase principal</Label><Input className="mt-1" value={d.landing.headline} onChange={(e) => editLanding({ headline: e.target.value })} /></div>
           <div className="sm:col-span-2"><Label>Bajada</Label><Textarea className="mt-1" rows={2} value={d.landing.subheadline} onChange={(e) => editLanding({ subheadline: e.target.value })} /></div>
           <div>
