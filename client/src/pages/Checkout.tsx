@@ -5,7 +5,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { motion } from 'framer-motion';
 import { useRoute, useSearch, useLocation, Link } from 'wouter';
-import { ArrowLeft, ArrowRight, Tag, Loader2, Check, ShieldCheck, Minus, Plus, MessageCircle, Lock, Instagram, ChevronLeft, X, Sparkles, Ticket } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Tag, Loader2, Check, ShieldCheck, Minus, Plus, MessageCircle, Lock, Instagram, ChevronLeft, ChevronDown, X, Sparkles, Ticket } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { PaymentBrick } from '@/components/PaymentBrick';
 import { Button } from '@/components/ui/button';
@@ -1555,14 +1555,14 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
                         {validateCommunityCode.isPending ? 'Validando…' : 'Validar código'}
                       </Button>
                       {colabBrand ? (
-                        !noCode ? (
-                          <button type="button" onClick={() => setNoCode(true)} className="w-full text-center text-sm font-semibold text-primary underline-offset-2 hover:underline">
-                            No tengo código
+                        <>
+                          <button type="button" onClick={() => setNoCode((v) => !v)} aria-expanded={noCode} className="flex w-full items-center justify-center gap-1.5 text-sm font-semibold text-primary">
+                            No tengo código de comunidad <ChevronDown className={`h-4 w-4 transition-transform ${noCode ? 'rotate-180' : ''}`} />
                           </button>
-                        ) : (
+                          {noCode && (
                           <div className="space-y-3 rounded-2xl border border-[#d6b25e]/35 bg-white/[0.03] p-4">
                             <div>
-                              <Label htmlFor="ig-comunidad" className="mb-1.5 block text-sm font-semibold">Tu Instagram (obligatorio)</Label>
+                              <Label htmlFor="ig-comunidad" className="mb-1.5 block text-sm font-semibold">Tu Instagram</Label>
                               <Input id="ig-comunidad" value={igHandle} onChange={(e) => { setIgHandle(e.target.value); setIgTouched(false); }} placeholder="@tuusuario" autoComplete="off" autoCapitalize="none" autoCorrect="off" className="h-12 text-base" />
                               {igTouched && instagramProblem(igHandle)
                                 ? <p className="mt-1.5 text-sm text-destructive" role="alert">{instagramProblem(igHandle)}</p>
@@ -1581,7 +1581,8 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
                               <MessageCircle className="w-4 h-4" /> Pedir mi código de comunidad
                             </a>
                           </div>
-                        )
+                          )}
+                        </>
                       ) : (
                         <a href={whatsappComunidadLink(accesoSlug === 'soltero' ? 'Soltero' : 'Dúo (Dos Hombres)', eventLabel)} target="_blank" rel="noopener noreferrer" className="btn-jelly w-full inline-flex items-center justify-center gap-2 px-6 py-3.5 bg-primary text-primary-foreground rounded-full text-sm font-bold uppercase tracking-wide interactive">
                           <MessageCircle className="w-4 h-4" /> Conseguir mi código por WhatsApp

@@ -419,6 +419,9 @@ export function whatsappComunidadLink(contexto: string, eventName: string = EVEN
   const num = CANDYLAND.whatsappSoltero.replace(/[^0-9]/g, '');
   // Con los datos de la compra ya escritos, quien valida puede revisar el perfil sin pedirlos de nuevo.
   const extra = datos ? [datos.nombre && `Nombre: ${datos.nombre}`, datos.instagram && `Instagram: ${datos.instagram}`, datos.documento && `Documento: ${datos.documento}`].filter(Boolean).join(' · ') : '';
-  const msg = encodeURIComponent(`Hola! Quiero validarme como miembro de la comunidad para comprar el acceso ${contexto} de ${eventName} 🍭${extra ? `\n${extra}` : ''}`);
+  // Con datos (pedido desde la compra de una colab): «quiero mi código para ir a…» y, abajo, quién es.
+  const msg = encodeURIComponent(datos
+    ? `Hola! Quiero mi código de comunidad para ir a ${eventName} 🍭\nAcceso: ${contexto}${extra ? `\n${extra}` : ''}`
+    : `Hola! Quiero validarme como miembro de la comunidad para comprar el acceso ${contexto} de ${eventName} 🍭`);
   return `https://wa.me/${num}?text=${msg}`;
 }
