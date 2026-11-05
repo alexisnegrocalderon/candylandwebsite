@@ -26,10 +26,13 @@ import { TwoWorlds } from '@/components/playmore/WorldsFusion';
 /** Co-producción de esta página: la del subdominio, o la de Dalmore. */
 const SLUG = colabSlugForHost(typeof window !== 'undefined' ? window.location.hostname : null) ?? 'dalmore';
 
-export default function PlayroomDalmore() {
+/** `inApp`: la misma página dentro de la app de Playroom (portada de la app mientras dura PLAYMORE). `previewToken`: la clave de vista
+ * previa que la app recuerda (`?playmore=`); en la web viene de `?preview=`. */
+export default function PlayroomDalmore({ inApp = false, previewToken }: { inApp?: boolean; previewToken?: string } = {}) {
   const preview = useMemo(() => {
+    if (previewToken) return previewToken;
     try { return new URLSearchParams(window.location.search).get('preview') ?? undefined; } catch { return undefined; }
-  }, []);
+  }, [previewToken]);
   // Link de grupo de alguien que ya compró (?invita=Camila&acceso=duo): se muestra
   // quién invitó y los accesos abren con ese grupo elegido.
   const invite = useMemo(() => {
@@ -88,7 +91,7 @@ export default function PlayroomDalmore() {
   useSeo({
     title: landing ? `${landing.eventName} · Playroom × Dalmore · ${full ? landing.dateText : 'Próximamente'}` : 'Playroom × Dalmore',
     description: landing?.headline ?? 'Playroom × Dalmore',
-    path: colabSlugForHost(window.location.hostname) ? '/' : '/playroomdalmore',
+    path: inApp || colabSlugForHost(window.location.hostname) ? '/' : '/playroomdalmore',
     image: landing?.heroImageUrl || undefined,
     noindex: !data?.isLive,
   });
@@ -121,7 +124,7 @@ export default function PlayroomDalmore() {
       {(
         <motion.main initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }}>
           {data.preview && (
-            <div className="sticky top-0 z-50 bg-amber-400 px-4 py-2 text-center text-xs font-bold tracking-[0.15em] text-black">
+            <div className={`sticky top-0 z-50 bg-amber-400 px-4 pb-2 text-center text-xs font-bold tracking-[0.15em] text-black ${inApp ? 'pt-[max(8px,env(safe-area-inset-top))]' : 'pt-2'}`}>
               VISTA PREVIA PRIVADA · EL PÚBLICO TODAVÍA VE "PRÓXIMAMENTE"
             </div>
           )}

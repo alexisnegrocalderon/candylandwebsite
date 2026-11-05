@@ -58,7 +58,7 @@ export default function AppHome() {
   if (playmore.data?.event) {
     return (
       <Suspense fallback={<div className="min-h-dvh bg-[#0c0908]" />}>
-        <PlaymoreAppHome landing={playmore.data.landing} partnerName={playmore.data.partnerName} eventSlug={playmore.data.event.slug} previewToken={playmore.preview} isPreview={playmore.isPreview} />
+        <PlaymoreAppHome previewToken={playmore.preview} isPreview={playmore.isPreview} />
       </Suspense>
     );
   }
