@@ -49,7 +49,7 @@ const VIEWS = ['conversaciones', 'comentarios'] as const;
 type InboxView = (typeof VIEWS)[number];
 const AGENT_TABS = ['conocimiento', 'ajustes', 'ventas', 'automatizaciones', 'links'] as const;
 type AgentTab = (typeof AGENT_TABS)[number];
-/** Cada pestaña del agente es una sección del panel (hub «Agente IA»): `agente-<pestaña>`. */
+/** Cada pestaña del agente es una sección del panel (Marketing → «Agente de mensajes»): `agente-<pestaña>`. */
 export const agentSectionId = (tab: AgentTab | 'whatsapp') => `agente-${tab}`;
 
 function readStoredView(): InboxView {
@@ -1189,7 +1189,7 @@ const AGENT_TITLES: Record<AgentTab | typeof WA_TAB, string> = {
   automatizaciones: 'Automatizaciones', links: 'Kit de links', whatsapp: 'Agente de WhatsApp',
 };
 
-/** Una pestaña del agente como pantalla completa (la registra el panel en el hub «Agente IA»). */
+/** Una pestaña del agente como pantalla completa (Marketing → «Agente de mensajes»), con el selector de sus pestañas arriba. */
 export function AgentSection({ tab }: { tab: AgentTab | typeof WA_TAB }) {
   const { openSection } = useContext(AdminNavContext);
   const agent = useAgentConfigDraft(() => openSection(agentSectionId('conocimiento')));
@@ -1201,6 +1201,14 @@ export function AgentSection({ tab }: { tab: AgentTab | typeof WA_TAB }) {
       <div>
         <h2 className="flex items-center gap-2 font-heading text-2xl"><Bot className="h-6 w-6" /> {AGENT_TITLES[tab]}</h2>
         <p className="mt-1 text-sm text-muted-foreground">Lo que sabe, cómo habla, cómo vende y sus automatizaciones. Instagram y WhatsApp comparten el mismo conocimiento.</p>
+        <div className="-mx-1 mt-3 flex gap-1.5 overflow-x-auto px-1 pb-1 [scrollbar-width:none]" role="tablist" aria-label="Partes del agente de mensajes">
+          {([...AGENT_TABS, WA_TAB] as const).map((t) => (
+            <button key={t} type="button" role="tab" aria-selected={tab === t} onClick={() => openSection(agentSectionId(t))}
+              className={`shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-medium transition-colors ${tab === t ? 'bg-primary text-white' : 'bg-muted text-muted-foreground hover:bg-muted/70'}`}>
+              {AGENT_TITLES[t]}
+            </button>
+          ))}
+        </div>
       </div>
       <AgentHeader agent={agent} />
       <AgentSummary />

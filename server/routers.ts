@@ -50,6 +50,8 @@ import { dosierFichas } from "./dosierData";
 import { firmarInventario, inventarioPath, INVENTARIO_TTL } from "./inventarioLink";
 import * as staffGiftQuotaSvc from "./staffGiftQuota";
 import * as giftPacksSvc from "./giftPacks";
+import * as assistantSvc from "./assistant/run";
+import { ASSISTANT_QUESTION_MAX } from "../shared/assistant";
 import { puedeVerDosier } from "../shared/staffPortal";
 import { generateCostumeIdeas, fallbackResult as fallbackCostumeResult } from "./costumeOracle";
 import { ORACLE_VIBES, ORACLE_COMPANY, ORACLE_LEVELS, ORACLE_SKIN, ORACLE_ITEMS, ORACLE_EXTRA_MAX } from "../shared/costumeOracle";
@@ -233,7 +235,7 @@ import * as staffPortal from "./staffPortal";
 import { ensureStaffSalesLink } from "./staffSales";
 import { pageCustomers, findCustomersForCaja, quickSearchCustomers } from "./customerFilters";
 import { COUPON_BATCH_MAX } from "../shared/couponGift";
-import { canGift } from "../shared/gifts";
+import { canGift, GIFT_DENIED_MESSAGE } from "../shared/gifts";
 import { cleanGiftMessage, giftMessageData, GIFT_MESSAGE_MAX } from "../shared/giftFlow";
 import { VETO_NOTE_MAX } from "../shared/veto";
 import { PARTIAL_ITEM_MAX } from "../shared/locker";
@@ -1089,6 +1091,68 @@ async function runGift(params: {
 }
 
 export const appRouter = router({
+  // Asistente IA del panel (server/assistant/): preguntas sobre los datos de la productora con consultas en vivo de solo
+  // lectura, y acciones que el asistente solo PROPONE y el dueño confirma aquí. Solo el administrador (son finanzas).
+  assistant: router({
+    ask: adminProcedure.input(z.object({
+      threadId: z.number().int().positive().nullable().optional(),
+      question: z.string().trim().min(1).max(ASSISTANT_QUESTION_MAX),
+      context: z.object({ section: z.string().max(80).nullable().optional(), eventId: z.number().int().positive().nullable().optional() }).optional(),
+    })).mutation(async ({ input }) => {
+      const eventId = input.context?.eventId ?? null;
+      const event = eventId ? await db.getEventById(eventId).catch(() => null) : null;
+      try {
+        return await assistantSvc.ask({ threadId: input.threadId ?? null, question: input.question, context: { section: input.context?.section ?? null, eventId: event?.id ?? null, eventTitle: event?.title ?? null } });
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo preguntar al asistente.' });
+      }
+    }),
+    threads: adminProcedure.query(() => assistantSvc.listThreads()),
+    thread: adminProcedure.input(z.object({ id: z.number().int().positive() })).query(async ({ input }) => {
+      const t = await assistantSvc.getThread(input.id);
+      if (!t) throw new TRPCError({ code: 'NOT_FOUND', message: 'Esa conversación ya no existe.' });
+      return t;
+    }),
+    deleteThread: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => { await assistantSvc.deleteThread(input.id); return { ok: true as const }; }),
+    // Confirmar (o cancelar) una acción que el asistente propuso. Se ejecuta UNA vez, con las mismas reglas que la pantalla de siempre.
+    runAction: adminProcedure.input(z.object({ messageId: z.number().int().positive(), proposalId: z.string().min(1).max(40), cancel: z.boolean().optional() })).mutation(async ({ input, ctx }) => {
+      const found = await assistantSvc.getProposal(input.messageId, input.proposalId);
+      if (!found) throw new TRPCError({ code: 'NOT_FOUND', message: 'No encontré esa acción.' });
+      if (found.proposal.estado !== 'pendiente') throw new TRPCError({ code: 'BAD_REQUEST', message: 'Esta acción ya se resolvió.' });
+      if (input.cancel) { await assistantSvc.setProposalState(input.messageId, input.proposalId, 'cancelada'); return { estado: 'cancelada' as const, resultado: 'Cancelada' }; }
+      const a = found.proposal.accion;
+      if ((a.tipo === 'regalar') && !canGift(ctx.user)) throw new TRPCError({ code: 'FORBIDDEN', message: GIFT_DENIED_MESSAGE });
+      const proposal = await assistantSvc.claimProposal(input.messageId, input.proposalId);
+      if (!proposal) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Esta acción ya se resolvió.' });
+      const actor = ctx.user.email ?? ctx.user.name ?? 'admin';
+      try {
+        let resultado: string;
+        if (a.tipo === 'regalar') {
+          const r = await runGift({
+            eventId: a.evento_id, emails: a.correos.map((e) => e.trim().toLowerCase()), items: a.items.map((i) => ({ ticketTypeId: i.ticket_type_id, quantity: i.cantidad })),
+            mode: a.modo, anyAccess: a.modo === 'pase' && a.cualquier_evento ? true : undefined, anyEvent: a.modo === 'pase' && a.cualquier_evento ? true : undefined,
+            message: a.mensaje ?? undefined, reason: 'Desde el Asistente IA', actor, ip: clientIp(ctx),
+          });
+          const ok = r.results.filter((x) => x.ok).length;
+          const bad = r.results.filter((x) => !x.ok);
+          resultado = `${r.resumen}: le llegó a ${ok} ${ok === 1 ? 'persona' : 'personas'}${bad.length ? `; falló para ${bad.map((b) => b.email).join(', ')}` : ''}.`;
+        } else if (a.tipo === 'cupon') {
+          const g = await members.grantManualCoupon(a.correo, { type: a.descuento, value: a.valor, days: a.dias, title: a.titulo ?? undefined, eventId: a.evento_id, notify: true });
+          resultado = `Cupón ${g.code} regalado a ${a.correo}${g.notified ? ' (le llegó el aviso)' : ''}.`;
+        } else {
+          const sent = await customerPush.pushToEmail(a.correo, { title: a.titulo, body: a.texto, url: '/cuenta' });
+          resultado = sent > 0 ? `Notificación enviada a ${a.correo}.` : `${a.correo} no tiene la app con avisos activados: no le llegó.`;
+        }
+        await assistantSvc.setProposalState(input.messageId, input.proposalId, 'hecha', resultado);
+        await db.recordAdminAudit({ action: 'assistant.action', targetType: 'assistantMessage', targetId: input.messageId, ip: clientIp(ctx), payload: { by: actor, accion: a, resultado } });
+        return { estado: 'hecha' as const, resultado };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'No se pudo hacer.';
+        await assistantSvc.setProposalState(input.messageId, input.proposalId, 'fallida', msg);
+        throw new TRPCError({ code: 'BAD_REQUEST', message: msg });
+      }
+    }),
+  }),
   // Cuenta de prueba de la App (admin → Noche → «Cuenta de prueba»): server/demoAccount.ts.
   demoAccount: router({
     status: adminReadProcedure.query(async () => demoAccount.getDemoStatus()),

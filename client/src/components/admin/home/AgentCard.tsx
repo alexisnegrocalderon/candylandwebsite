@@ -13,7 +13,7 @@ export function AgentCard({ waiting, onOpen }: { waiting: number; onOpen: (secti
     <section className="admin-clay flex flex-wrap items-center gap-x-4 gap-y-3 p-4 md:p-5">
       <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary/15 text-primary"><Bot className="h-5 w-5" /></span>
       <div className="min-w-0 flex-1">
-        <p className="font-heading text-lg leading-tight">Agente IA</p>
+        <p className="font-heading text-lg leading-tight">Agente de mensajes</p>
         <p className="flex flex-wrap gap-x-3 text-sm text-muted-foreground">
           {channels.map((c) => (
             <span key={c.label} className="inline-flex items-center gap-1.5">

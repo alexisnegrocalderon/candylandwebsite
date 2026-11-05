@@ -12,6 +12,7 @@ import { StaffManager, requestNewStaff } from '@/components/admin/staff/StaffMan
 import { requestGiftCoupon } from '@/components/admin/members/requestGiftCoupon';
 import { requestInventarioPdf } from '@/components/admin/insumos/requestInventarioPdf';
 import { requestGift } from '@/components/gifts/giftRequest';
+import { requestAssistant } from '@/components/assistant/assistantRequest';
 import { useHideSplashOnMount } from '@/lib/splash';
 import { useSeo } from '@/hooks/useSeo';
 import { useInstallableApp } from '@/hooks/useInstallableApp';
@@ -85,6 +86,7 @@ const SettingsManager = lazy(() => import('./sections/ajustes').then((m) => ({ d
 // El Estudio trae sus propias fuentes, html-to-image y jszip: se carga recién
 // cuando se abre, para no sumarle peso al resto del panel.
 const ContentStudio = lazy(() => import('@/components/admin/ContentStudio').then((m) => ({ default: m.ContentStudio })));
+const AssistantSection = lazy(() => import('@/components/assistant/AssistantSection').then((m) => ({ default: m.AssistantSection })));
 
 /** Quita el splash de apertura al montar (pantallas que no pasan por AdminShell). */
 function SplashGone() {
@@ -110,6 +112,7 @@ function SectionLoading() {
 
 /** Atajos de la hoja del «+» en el celular (solo los de secciones visibles). */
 const ADMIN_QUICK_ACTIONS: AdminQuickAction[] = [
+  { key: 'asistente', label: 'Pregúntale al asistente', icon: Sparkles, onSelect: requestAssistant },
   { key: 'invitar', label: 'Invitar entradas y tragos', icon: Gift, onSelect: requestGift },
   { key: 'staff', label: 'Agregar staff', icon: UserPlus, section: 'staff', onSelect: requestNewStaff },
   { key: 'inventario', label: 'Inventario PDF', icon: FileText, section: 'insumos', onSelect: requestInventarioPdf },
@@ -117,7 +120,7 @@ const ADMIN_QUICK_ACTIONS: AdminQuickAction[] = [
   { key: 'evento', label: 'Crear evento', icon: Calendar, section: 'events' },
   { key: 'cupon', label: 'Regalar cupón', icon: Gift, section: 'members', onSelect: requestGiftCoupon },
   { key: 'push', label: 'Enviar push', icon: BellRing, section: 'push-clientes' },
-  { key: 'agente', label: 'Agente IA', icon: Bot, section: 'agente-conocimiento' },
+  { key: 'agente', label: 'Agente de mensajes', icon: Bot, section: 'agente-conocimiento' },
   { key: 'esperando', label: 'Conversaciones esperando', icon: MessageCircle, section: 'instagram' },
 ];
 
@@ -150,20 +153,29 @@ const ADMIN_SECTIONS = [
   { id: 'referrals', label: 'Referidos', hub: 'vender', icon: Trophy, render: () => <ReferralsView /> },
   { id: 'partner-electronica', label: 'Comunidad Electrónica', hub: 'vender', hidden: true, icon: Headphones, render: () => <PartnerCampaignView /> },
   { id: 'sales-strategy', label: 'Director comercial', hub: 'vender', hidden: true, icon: Sparkles, render: () => <SalesStrategyView /> },
-  // Comunicar: mailing, avisos a la app, contenido y las bandejas de Instagram/WhatsApp.
-  { id: 'mailing', label: 'Mailing', hub: 'comunicar', icon: Mail, render: () => <MailingSection /> },
-  { id: 'mailing-history', label: 'Historial de Mailing', hub: 'comunicar', icon: History, render: () => <MailingHistoryView /> },
-  { id: 'email-templates', label: 'Plantillas de correo', hub: 'comunicar', icon: Send, render: () => <EmailTemplatesManager /> },
-  { id: 'push-clientes', label: 'Notificaciones', hub: 'comunicar', icon: BellRing, render: () => <CustomerPushView /> },
-  { id: 'content-plan', label: 'Plan de contenido', hub: 'comunicar', icon: Calendar, render: () => <ContentPlanView /> },
-  { id: 'studio', label: 'Estudio', hub: 'comunicar', icon: Palette, render: () => (
+  // Marketing: lo que llega a la gente (mailing, avisos a la app, Instagram, WhatsApp y el agente que contesta los mensajes).
+  { id: 'mailing', label: 'Mailing', hub: 'marketing', icon: Mail, render: () => <MailingSection /> },
+  { id: 'push-clientes', label: 'Notificaciones', hub: 'marketing', icon: BellRing, render: () => <CustomerPushView /> },
+  { id: 'instagram', label: 'Instagram', hub: 'marketing', icon: Instagram, render: () => <InstagramInbox /> },
+  { id: 'whatsapp', label: 'WhatsApp', hub: 'marketing', icon: MessageCircle, render: () => <WhatsAppInbox /> },
+  // El agente de mensajes es UNA pestaña del menú; sus partes (ajustes, ventas, automatizaciones, links, WhatsApp) siguen siendo
+  // secciones con su id de siempre (avisos y enlaces viejos), escondidas del menú y con su propio selector adentro.
+  { id: 'agente-conocimiento', label: 'Agente de mensajes', hub: 'marketing', icon: Bot, render: () => <AgentSection tab="conocimiento" /> },
+  { id: 'agente-ajustes', label: 'Agente · Ajustes', hub: 'marketing', hidden: true, icon: SettingsIcon, render: () => <AgentSection tab="ajustes" /> },
+  { id: 'agente-ventas', label: 'Agente · Ventas', hub: 'marketing', hidden: true, icon: TrendingUp, render: () => <AgentSection tab="ventas" /> },
+  { id: 'agente-automatizaciones', label: 'Agente · Automatizaciones', hub: 'marketing', hidden: true, icon: Zap, render: () => <AgentSection tab="automatizaciones" /> },
+  { id: 'agente-links', label: 'Agente · Links', hub: 'marketing', hidden: true, icon: Link2, render: () => <AgentSection tab="links" /> },
+  { id: 'agente-whatsapp', label: 'Agente · WhatsApp', hub: 'marketing', hidden: true, icon: MessageCircle, render: () => <AgentSection tab="whatsapp" /> },
+  { id: 'mailing-history', label: 'Historial de Mailing', hub: 'marketing', icon: History, render: () => <MailingHistoryView /> },
+  { id: 'email-templates', label: 'Plantillas de correo', hub: 'marketing', icon: Send, render: () => <EmailTemplatesManager /> },
+  // Contenido: lo que se publica.
+  { id: 'content-plan', label: 'Plan de contenido', hub: 'contenido', icon: Calendar, render: () => <ContentPlanView /> },
+  { id: 'studio', label: 'Estudio', hub: 'contenido', icon: Palette, render: () => (
     <Suspense fallback={<div className="py-12 flex justify-center"><div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" /></div>}>
       <ContentStudio />
     </Suspense>
   ) },
-  { id: 'profile-audit', label: 'Revisar mi perfil', hub: 'comunicar', icon: UserCheck, render: () => <ProfileAuditView /> },
-  { id: 'instagram', label: 'Instagram', hub: 'comunicar', icon: Instagram, render: () => <InstagramInbox /> },
-  { id: 'whatsapp', label: 'WhatsApp', hub: 'comunicar', icon: MessageCircle, render: () => <WhatsAppInbox /> },
+  { id: 'profile-audit', label: 'Revisar mi perfil', hub: 'contenido', icon: UserCheck, render: () => <ProfileAuditView /> },
   // 3 · En vivo: la noche en control (resumen, caja, Playmatch, denuncias, promos).
   { id: 'overview', label: 'Resumen de la noche', hub: 'envivo', icon: LayoutDashboard, render: () => <EventOverview /> },
   { id: 'sup-home', label: 'Esta noche', hub: 'envivo', icon: LayoutDashboard, render: () => <SupervisorHome /> },
@@ -190,13 +202,8 @@ const ADMIN_SECTIONS = [
   { id: 'app-resumen', label: 'Resumen', hub: 'app', icon: LayoutDashboard, render: () => <AppOverview /> },
   { id: 'playmatch-test', label: 'Probar Playmatch', hub: 'app', icon: FlaskConical, render: () => <PlaymatchTestView /> },
   { id: 'cuenta-demo', label: 'Cuenta de prueba', hub: 'app', icon: UserCheck, render: () => <CuentaDemoView /> },
-  // Agente IA: cada pestaña del agente es una sección (comparten el borrador de «Conocimiento» y «Ajustes»).
-  { id: 'agente-conocimiento', label: 'Conocimiento y tono', hub: 'agente', icon: Bot, render: () => <AgentSection tab="conocimiento" /> },
-  { id: 'agente-ajustes', label: 'Ajustes', hub: 'agente', icon: SettingsIcon, render: () => <AgentSection tab="ajustes" /> },
-  { id: 'agente-ventas', label: 'Ventas y aprendizaje', hub: 'agente', icon: TrendingUp, render: () => <AgentSection tab="ventas" /> },
-  { id: 'agente-automatizaciones', label: 'Automatizaciones', hub: 'agente', icon: Zap, render: () => <AgentSection tab="automatizaciones" /> },
-  { id: 'agente-links', label: 'Kit de links', hub: 'agente', icon: Link2, render: () => <AgentSection tab="links" /> },
-  { id: 'agente-whatsapp', label: 'WhatsApp', hub: 'agente', icon: MessageCircle, render: () => <AgentSection tab="whatsapp" /> },
+  // Asistente IA: preguntarle cualquier cosa de la productora con los datos en vivo (server/assistant/).
+  { id: 'asistente', label: 'Asistente IA', hub: 'asistente', icon: Sparkles, render: () => <AssistantSection /> },
   // Finanzas de la empresa: el mes, el SII y la terminal para cargar gastos.
   { id: 'finanzas', label: 'Finanzas', hub: 'finanzas', icon: Banknote, render: () => <FinanzasView /> },
   { id: 'sii', label: 'SII', hub: 'finanzas', icon: Landmark, render: () => <SiiView /> },
@@ -253,7 +260,7 @@ export default function AdminDashboard() {
     const go = (search: string) => {
       const link = parseAdminDeepLink(search);
       if (!link) return;
-      // Los avisos viejos apuntan a «instagram» con la pestaña del agente: ahora son secciones de «Agente IA».
+      // Los avisos viejos apuntan a «instagram» con la pestaña del agente: ahora son secciones del agente de mensajes (Marketing).
       if (link.section === 'instagram' && link.tab && ['conocimiento', 'ajustes', 'ventas', 'automatizaciones', 'links'].includes(link.tab)) {
         openSection(`agente-${link.tab}` as typeof ADMIN_SECTIONS[number]['id']);
         return;
@@ -317,7 +324,8 @@ export default function AdminDashboard() {
       roleLabel={isPartner ? 'Socio · Playroom × Dalmore' : isSupervisor ? 'Supervisora' : undefined}
       isDemo={isDemo}
       onLogout={() => logout()}
-      quickActions={isPartner || isDemo ? ADMIN_QUICK_ACTIONS.filter((q) => q.key !== 'invitar') : ADMIN_QUICK_ACTIONS}
+      quickActions={ADMIN_QUICK_ACTIONS.filter((q) => !((isPartner || isDemo) && q.key === 'invitar') && !((isPartner || isDemo || isSupervisor) && q.key === 'asistente'))}
+      assistant={!isPartner && !isSupervisor && !isDemo}
     >
       <AdminNavContext.Provider value={navContext}>
         {!isSupervisor && <SchemaUpdateBanner />}

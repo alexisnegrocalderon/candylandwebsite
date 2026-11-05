@@ -3518,3 +3518,21 @@ export const giftPacks = mysqlTable("giftPacks", {
   data: json("data").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (t) => [uniqueIndex("gift_packs_name_idx").on(t.name)]);
+
+// Asistente IA del panel (server/assistant/): conversaciones del dueño con el asistente que consulta los datos en vivo.
+// `api` guarda los mensajes EXACTOS que se mandaron y recibieron de la API (para repetir la conversación sin cambiarla);
+// `ui` lo que la pantalla muestra (texto, gráficos, acciones por confirmar). Se crean solas la primera vez.
+export const assistantThreads = mysqlTable("assistantThreads", {
+  id: int("id").autoincrement().primaryKey(),
+  title: varchar("title", { length: 160 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export const assistantMessages = mysqlTable("assistantMessages", {
+  id: int("id").autoincrement().primaryKey(),
+  threadId: int("threadId").notNull(),
+  role: varchar("role", { length: 12 }).notNull(),
+  api: json("api").notNull(),
+  ui: json("ui").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => [index("assistant_messages_thread_idx").on(t.threadId, t.id)]);

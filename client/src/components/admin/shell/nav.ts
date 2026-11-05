@@ -1,5 +1,5 @@
 import {
-  Home, Radio, Ticket, Users, Megaphone, ClipboardList, CircleCheckBig, Banknote, Handshake, Smartphone, Bot,
+  Home, Radio, Ticket, Users, Megaphone, ClipboardList, CircleCheckBig, Banknote, Handshake, Smartphone, Sparkles, Palette,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -9,8 +9,8 @@ import {
  * OPEN_SECTION_EVENT, burbujas y localStorage los siguen usando tal cual). */
 
 export type AdminHubId =
-  | 'inicio' | 'preparar' | 'coproduccion' | 'vender' | 'comunicar' | 'envivo' | 'cierre'
-  | 'clientes' | 'app' | 'agente' | 'finanzas' | 'ajustes';
+  | 'inicio' | 'preparar' | 'coproduccion' | 'vender' | 'contenido' | 'marketing' | 'envivo' | 'cierre'
+  | 'clientes' | 'app' | 'asistente' | 'finanzas' | 'ajustes';
 
 export interface AdminHub {
   id: AdminHubId;
@@ -29,14 +29,17 @@ export const ADMIN_HUBS: AdminHub[] = [
   { id: 'coproduccion', label: 'Playroom × Dalmore', icon: Handshake },
   { id: 'preparar', label: '1 · Preparar', icon: ClipboardList, perEvent: true },
   { id: 'vender', label: '2 · Vender', icon: Ticket, mobile: true, perEvent: true },
-  { id: 'comunicar', label: 'Comunicar', icon: Megaphone },
+  // Contenido: lo que se publica (plan, estudio de diseño, revisión del perfil).
+  { id: 'contenido', label: 'Contenido', icon: Palette },
+  // Marketing: lo que llega a la gente (mailing, avisos a la app, Instagram, WhatsApp y el agente que contesta los mensajes).
+  { id: 'marketing', label: 'Marketing', icon: Megaphone },
   { id: 'envivo', label: '3 · En vivo', icon: Radio, mobile: true, perEvent: true },
   { id: 'cierre', label: '4 · Cierre', icon: CircleCheckBig, perEvent: true },
   { id: 'clientes', label: 'Clientes', icon: Users, mobile: true },
   // La app Playroom y Playmatch: el resumen de la app y las herramientas para probarla.
   { id: 'app', label: 'App y Playmatch', icon: Smartphone },
-  // El agente que contesta Instagram y WhatsApp: su conocimiento, ajustes, ventas, automatizaciones y links.
-  { id: 'agente', label: 'Agente IA', icon: Bot },
+  // El asistente al que se le pregunta cualquier cosa de la productora (ventas, clientes, stock, finanzas…) con datos en vivo.
+  { id: 'asistente', label: 'Asistente IA', icon: Sparkles },
   // Finanzas de la empresa, el SII y la terminal para cargar gastos (también en /gastos).
   { id: 'finanzas', label: 'Finanzas', icon: Banknote },
 ];
@@ -90,7 +93,8 @@ export const SECTION_KEYWORDS: Record<string, string> = {
   'app-clientes': 'app instalada quien tiene la app clientes correos telefonos instalar qr',
   'blocked-customers': 'bloqueo lista negra vetados',
   instagram: 'dm mensajes chat ig comentarios bandeja',
-  'agente-conocimiento': 'agente ia inteligencia artificial bot tono voz marca conocimiento responder instagram whatsapp',
+  asistente: 'asistente ia inteligencia artificial preguntar pregunta datos reporte informe ventas clientes stock finanzas cuanto chat claude',
+  'agente-conocimiento': 'agente de mensajes agente ia bot tono voz marca conocimiento responder instagram whatsapp dm',
   'agente-ajustes': 'agente ia bot ajustes derivar equipo horario respuestas ejemplos estilo',
   'agente-ventas': 'agente ia bot ventas aprendizaje coach fans derivaciones',
   'agente-automatizaciones': 'agente ia automatizacion palabra clave comentario regalo respuesta automatica',
