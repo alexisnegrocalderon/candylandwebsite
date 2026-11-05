@@ -213,6 +213,7 @@ import { cancelGiftPass, issueAccessCreditsForOrder, issueGiftPass, listAccessCr
 import { AUTOMATION_BUTTON_KINDS, AUTOMATION_BUTTON_TITLE_MAX, isAllowedCustomButtonUrl } from "../shared/automationButton";
 import { normalizeIgHandle } from "../shared/igCustomerLink";
 import { approveComment, restoreSpamComment, suggestOwnComment } from './instagramComments';
+import { sendCampaignToComment } from './instagram';
 import * as coproductionSvc from './coproduction';
 import { partnerOpenId, normalizeLanding, applyEventToLanding, COLAB_MIN_AGE } from '../shared/coproduction';
 import { supervisorOpenId } from '../shared/panelSupervisor';
@@ -4539,6 +4540,15 @@ export const appRouter = router({
       });
     }),
     pendingCount: adminProcedure.query(async () => db.countPendingIgComments()),
+    /* Manda a mano una campaña a un comentario que no la activó (palabra mal escrita). */
+    sendCampaign: adminProcedure.input(z.object({ id: z.number().int(), automationId: z.number().int() })).mutation(async ({ input }) => {
+      try {
+        await sendCampaignToComment(input.id, input.automationId);
+        return { success: true };
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo enviar.' });
+      }
+    }),
     /* Aprobar = publicar la respuesta (editada o no) y mandar el DM si hay. */
     approve: adminProcedure.input(z.object({ id: z.number().int(), reply: z.string().min(1).max(600), dm: z.string().max(1000).nullable().optional() })).mutation(async ({ input }) => {
       try {

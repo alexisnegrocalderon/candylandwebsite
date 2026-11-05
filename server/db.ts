@@ -8931,6 +8931,12 @@ export async function findMatchingIgKeywordAutomation(
   return match ?? null;
 }
 
+export async function getIgKeywordAutomationById(id: number): Promise<IgKeywordAutomation | null> {
+  const db = await getDb();
+  if (!db) return null;
+  return (await selectIgAutomations(db, eq(igKeywordAutomations.id, id)))[0] ?? null;
+}
+
 /** true si esta persona ya recibió el regalo de esta automatización antes
  * -- para no mandarlo dos veces aunque comente/responda la palabra de nuevo. */
 export async function hasRedeemedIgKeywordAutomation(automationId: number, igUserId: string): Promise<boolean> {

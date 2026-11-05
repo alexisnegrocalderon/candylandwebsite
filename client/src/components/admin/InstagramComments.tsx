@@ -7,6 +7,7 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { EmptyState } from '@/components/admin/EmptyState';
 import { formatChileDateTime } from '@shared/chileDate';
@@ -52,6 +53,12 @@ export function InstagramComments({ focusId = null }: { focusId?: number | null 
   });
   const approve = trpc.instagramComments.approve.useMutation({
     onSuccess: (r) => { toast.success(r.dmSent ? 'Publicado y mensaje enviado' : 'Publicado'); refresh(); },
+    onError: (e) => { onError(e); refresh(); },
+  });
+  const { data: automations } = trpc.instagramAutomations.list.useQuery();
+  const [campaignPick, setCampaignPick] = useState<Record<number, string>>({});
+  const sendCampaign = trpc.instagramComments.sendCampaign.useMutation({
+    onSuccess: () => { toast.success('Campaña enviada por mensaje privado'); refresh(); },
     onError: (e) => { onError(e); refresh(); },
   });
   const discard = trpc.instagramComments.discard.useMutation({ onSuccess: refresh, onError });
@@ -163,6 +170,23 @@ export function InstagramComments({ focusId = null }: { focusId?: number | null 
                     </div>
                   </>
                 ) : c.finalReply ? <p className="text-sm rounded bg-muted p-2">Respondiste: {c.finalReply}</p> : null}
+                {c.category !== 'own' && !isSpam && (automations?.length ?? 0) > 0 && (
+                  <div className="space-y-1.5 border-t border-border/60 pt-3">
+                    <p className="text-xs font-medium text-muted-foreground">¿Escribió mal la palabra? Mándale la campaña por mensaje privado (una sola vez por comentario, hasta 7 días después).</p>
+                    <div className="flex gap-2">
+                      <Select value={campaignPick[c.id] ?? ''} onValueChange={(v) => setCampaignPick({ ...campaignPick, [c.id]: v })}>
+                        <SelectTrigger className="flex-1"><SelectValue placeholder="Elige la campaña" /></SelectTrigger>
+                        <SelectContent>
+                          {(automations ?? []).map((a: any) => <SelectItem key={a.id} value={String(a.id)}>{a.keyword}{a.active ? '' : ' (pausada)'}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                      <Button variant="outline" className="min-h-11" disabled={!campaignPick[c.id] || sendCampaign.isPending}
+                        onClick={() => { if (confirm(`¿Enviar la campaña «${(automations ?? []).find((a: any) => String(a.id) === campaignPick[c.id])?.keyword}» a ${c.username ? `@${c.username}` : 'esta persona'}?`)) sendCampaign.mutate({ id: c.id, automationId: Number(campaignPick[c.id]) }); }}>
+                        Enviar campaña
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
           );

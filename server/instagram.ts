@@ -22,6 +22,9 @@ import {
   recordIgReferral,
   latestIgReferrals,
   getIgFanCounts,
+  getIgComment,
+  decideIgComment,
+  getIgKeywordAutomationById,
 } from './db';
 import { runInstagramAgent } from './instagramAgent';
 import { handleIncomingComment } from './instagramComments';
@@ -824,4 +827,37 @@ export async function sendManualInstagramReply(input: {
   const { mid } = await sendInstagramMessage({ recipientId: input.igUserId, text: input.text });
   await appendIgMessage({ threadId: input.threadId, mid, direction: 'out', source: 'admin', text: input.text });
   await setIgThreadBotPaused(input.threadId, true, 'El dueño tomó la conversación a mano');
+}
+
+/** Comentarios de más de 7 días ya no admiten respuesta privada (regla de Meta). */
+export const PRIVATE_REPLY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Manda a mano la campaña elegida como respuesta privada a un comentario que no la activó (por ejemplo, la palabra
+ * escrita mal). Hace lo mismo que el comentario con la palabra correcta: mensaje, botón y código, y registra el canje.
+ * Meta admite UNA respuesta privada por comentario y solo hasta 7 días después. */
+export async function sendCampaignToComment(commentRowId: number, automationId: number, now = Date.now()): Promise<void> {
+  const row = await getIgComment(commentRowId);
+  if (!row) throw new Error('Ese comentario ya no existe.');
+  if (row.category === 'own') throw new Error('Ese es un comentario de tu propia cuenta.');
+  if (now - new Date(row.createdAt).getTime() > PRIVATE_REPLY_WINDOW_MS) throw new Error('Pasaron más de 7 días: Instagram ya no permite responder en privado a ese comentario.');
+  const automation = await getIgKeywordAutomationById(automationId);
+  if (!automation) throw new Error('Esa campaña ya no existe.');
+  if (await hasRedeemedIgKeywordAutomation(automation.id, row.igUserId)) throw new Error('Esa persona ya recibió esta campaña.');
+
+  const extras = await resolveAutomationExtras(automation);
+  try {
+    await sendAutomationReply(
+      automation,
+      extras,
+      (replyText) => sendPrivateReply(row.commentId, replyText),
+      (caption, button) => sendButtonMessage({ comment_id: row.commentId }, caption, button),
+      { single: true },
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message.slice(0, 250) : 'error desconocido';
+    console.error(`[Instagram] Envío manual de la campaña ${automation.id} al comentario ${row.commentId} falló:`, err);
+    throw new Error(`Instagram no dejó enviarlo: ${message}. Suele pasar si ese comentario ya recibió una respuesta privada.`);
+  }
+  await recordIgKeywordRedemption({ automationId: automation.id, igUserId: row.igUserId, source: 'comment' });
+  await decideIgComment(row.id, { status: 'sent', finalReply: `Campaña «${automation.keyword}» enviada por mensaje privado`, error: null });
 }
