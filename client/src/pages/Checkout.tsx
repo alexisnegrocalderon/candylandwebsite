@@ -122,7 +122,7 @@ const ACCESO_OPTIONS: AccesoOption[] = [
   { key: 'soltera', slug: 'soltera', size: 1, image: '/candyland/checkout/quien-ella.webp', label: 'Vengo sola', sub: 'Soltera', emoji: '🍭', people: ['f'], appSub: 'Mujer sola' },
   { key: 'pareja', slug: 'duo', size: 2, composicion: 'mixta', image: '/candyland/checkout/pareja-mixta.webp', label: 'Pareja', sub: 'Mujer y hombre', emoji: '💑', people: ['f', 'm'], appSub: 'Mujer y hombre' },
   { key: 'dos-mujeres', slug: 'duo_mujeres', size: 2, composicion: 'dos_mujeres', image: '/candyland/checkout/pareja-dos-mujeres.webp', label: 'Dos mujeres', sub: '2x1', emoji: '👭', people: ['f', 'f'], appSub: 'Entran dos, pagan una' },
-  { key: 'trio', slug: 'trio', size: 3, image: '/candyland/checkout/vibe-triada.webp', label: 'Somos tres', sub: 'Grupo mixto', emoji: '🎭', people: ['f', 'x', 'm'], appSub: 'Tres personas, grupo mixto' },
+  { key: 'trio', slug: 'trio', size: 3, image: '/candyland/checkout/vibe-triada.webp', label: 'Somos 3 (mixto)', sub: 'Grupo mixto', emoji: '🎭', people: ['f', 'x', 'm'], appSub: 'Tres personas, grupo mixto' },
   { key: 'grupo', slug: 'grupo', size: 4, image: '/candyland/checkout/vibe-grupo.webp', label: 'Somos cuatro', sub: 'Grupo mixto', emoji: '🌈', people: ['f', 'm', 'f', 'm'], appSub: 'Cuatro personas, mixto' },
   { key: 'soltero', slug: 'soltero', size: 1, image: '/candyland/checkout/quien-el.webp', label: 'Vengo solo', sub: 'Con código', emoji: '🔑', people: ['m'], appSub: 'Hombre solo' },
   { key: 'dos-hombres', slug: 'duo', size: 2, composicion: 'dos_hombres', image: '/candyland/checkout/pareja-dos-hombres.webp', label: 'Dos hombres', sub: 'Con código', emoji: '👬', people: ['m', 'm'], appSub: 'Pareja de hombres' },

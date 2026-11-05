@@ -28,7 +28,7 @@ export const WHO_OPTIONS: readonly WhoOption[] = [
   { key: 'pareja', label: 'Pareja', slug: 'duo', composicion: 'mixta', people: 2, figures: 'fm', needsCode: false, note: null },
   { key: 'dos-mujeres', label: 'Dos mujeres', slug: 'duo_mujeres', composicion: 'dos_mujeres', people: 2, figures: 'ff', needsCode: false, note: null },
   { key: 'dos-hombres', label: 'Dos hombres', slug: 'duo', composicion: 'dos_hombres', people: 2, figures: 'mm', needsCode: true, note: 'PARA PAREJAS, NO PARA AMIGOS' },
-  { key: 'trio', label: 'Somos tres', slug: 'trio', composicion: null, people: 3, figures: 'fmf', needsCode: false, note: null },
+  { key: 'trio', label: 'Somos 3 (mixto)', slug: 'trio', composicion: null, people: 3, figures: 'fmf', needsCode: false, note: null },
 ];
 
 type TypeLike = { accesoSlug?: string | null; category?: string | null; status?: string | null };
