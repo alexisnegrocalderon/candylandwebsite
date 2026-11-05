@@ -71,8 +71,10 @@ export function PlaymorePass({ ev, t, holder, landing }: { ev: MeEvent; t: MeTic
 }
 
 /** La PlayCard de miembro (saldo y Playcoins) con la cara de PLAYMORE, para quien todavía no tiene entrada: invita a comprar. */
-export function PlaymoreMemberCard({ holder, prepaidBalance, playcoins, landing, buyHref, isPreview }: {
+export function PlaymoreMemberCard({ holder, prepaidBalance, playcoins, landing, buyHref, isPreview, showMoney = true }: {
   holder: string; prepaidBalance: number; playcoins: number; landing: CoproductionLanding; buyHref: string; isPreview: boolean;
+  /** Con el sistema PlayCard apagado para la colab no se muestran saldo ni Playcoins: solo el titular. */
+  showMoney?: boolean;
 }) {
   return (
     <article className="relative overflow-hidden rounded-[26px] border border-[#d6b25e]/45 p-5 uppercase shadow-[0_18px_50px_-18px_rgba(150,21,157,0.6)]" style={{ background: SURFACE }}>
@@ -84,11 +86,12 @@ export function PlaymoreMemberCard({ holder, prepaidBalance, playcoins, landing,
       </div>
       <p className="mt-3 text-[40px] font-extrabold leading-none tracking-[-0.01em]" style={{ background: FUSE, WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent' }}>{landing.eventName}</p>
       <p className="mt-2 text-[11px] font-semibold tracking-[0.2em] text-[#e9d9b0]/85">{landing.dateText} · {landing.timeText} · {landing.venueText}</p>
-      <div className="mt-4 grid grid-cols-[1fr_auto_auto] items-end gap-x-5 border-t border-dashed border-[#d6b25e]/40 pt-3.5">
+      <div className={`mt-4 grid items-end gap-x-5 border-t border-dashed border-[#d6b25e]/40 pt-3.5 ${showMoney ? 'grid-cols-[1fr_auto_auto]' : 'grid-cols-1'}`}>
         <Field label="TITULAR" value={holder} />
-        <Field label="SALDO" value={clp(prepaidBalance)} />
-        <Field label="PLAYCOINS" value={String(playcoins)} />
+        {showMoney && <Field label="SALDO" value={clp(prepaidBalance)} />}
+        {showMoney && <Field label="PLAYCOINS" value={String(playcoins)} />}
       </div>
+      {!showMoney && <p className="mt-2 text-[10px] font-semibold tracking-[0.16em] text-[#e9d9b0]/65">TU ENTRADA CON QR QUEDA AQUÍ APENAS COMPRES. ES NOMINATIVA Y SE VALIDA CON TU DOCUMENTO EN LA PUERTA.</p>}
       <Link href={buyHref} className="mt-4 inline-flex h-11 items-center gap-2 rounded-full px-5 text-[12px] font-bold tracking-[0.16em] text-[#141210] shadow-[0_14px_40px_-12px_rgba(247,231,168,0.55)]" style={{ background: GOLD }}>
         COMPRAR ENTRADA <ArrowRight className="h-4 w-4" aria-hidden="true" />
       </Link>

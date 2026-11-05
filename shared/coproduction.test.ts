@@ -87,3 +87,11 @@ describe('applyEventToLanding', () => {
     expect(applyEventToLanding(base, null)).toBe(base);
   });
 });
+
+describe('usesPlaycard', () => {
+  it('una colaboración nace sin el sistema PlayCard (solo QR de ingreso)', () => {
+    expect(normalizeLanding({}).usesPlaycard).toBe(false);
+    expect(normalizeLanding({ usesPlaycard: 'si' }).usesPlaycard).toBe(false);
+    expect(normalizeLanding({ usesPlaycard: true }).usesPlaycard).toBe(true);
+  });
+});

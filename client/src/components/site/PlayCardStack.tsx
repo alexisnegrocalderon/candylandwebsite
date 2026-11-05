@@ -10,6 +10,7 @@ import { horizontalSwipe } from '@shared/cardSwipe';
 import { canEnterParty } from '@shared/party';
 import type { CoproductionLanding } from '@shared/coproduction';
 import { PlaymoreMemberCard, PlaymorePass } from '@/components/playmore/PlaymoreCards';
+import { hidesPlaycardMoney } from '@/lib/playmorePreview';
 
 /* La pestaña PlayCard de «Mi cuenta», como pases de Apple Wallet: la entrada del próximo evento adelante y,
  * asomando detrás, el encabezado de la SIGUIENTE entrada (si hay más de una). Deslizar de lado sobre la
@@ -64,12 +65,15 @@ export function PlayCardStack({ ev, holder, prepaidBalance, playcoins, movements
 
   // La entrada de PLAYMORE se ve como PLAYMORE; las demás, como siempre.
   const isPm = !!playmore && ev?.eventSlug === playmore.slug;
+  // Colab sin sistema PlayCard: solo el QR de ingreso. Nada de saldo, Playcoins, pagar, recargar ni extras de «Mi noche».
+  const noMoney = hidesPlaycardMoney(playmore ? { slug: playmore.slug, usesPlaycard: playmore.landing.usesPlaycard } : null, ev?.eventSlug);
+  const nightEv = noMoney ? null : ev;
   const passOf = (x: MeTicket) => isPm ? <PlaymorePass ev={ev!} t={x} holder={holder} landing={playmore!.landing} /> : <TicketPass ev={ev!} t={x} holder={holder} />;
   const pass = hasPass ? passOf(t!) : null;
   const peek = next ? passOf(next) : null;
   // Sin entrada para mostrar: la PlayCard de miembro (con la cara de PLAYMORE mientras se vende).
   const memberCard = playmore ? (
-    <PlaymoreMemberCard holder={holder} prepaidBalance={prepaidBalance} playcoins={playcoins} landing={playmore.landing} buyHref={playmore.buyHref} isPreview={playmore.isPreview} />
+    <PlaymoreMemberCard holder={holder} prepaidBalance={prepaidBalance} playcoins={playcoins} landing={playmore.landing} buyHref={playmore.buyHref} isPreview={playmore.isPreview} showMoney={!noMoney} />
   ) : (
     <TiltCard>
       <WalletCard
@@ -105,7 +109,7 @@ export function PlayCardStack({ ev, holder, prepaidBalance, playcoins, movements
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain">
       <div className="my-auto flex flex-col gap-3 [&>*]:shrink-0 [@media(max-height:700px)]:gap-2">
-        <LiveStrip ev={ev} onOpen={() => setNightOpen(true)} />
+        <LiveStrip ev={nightEv} onOpen={() => setNightOpen(true)} />
         {/* `data-pager="multi"`: sobre la tarjeta, deslizar de lado pasa de entrada y no cambia de pestaña. Con una sola
             entrada no hay a dónde pasar: ahí deslizar sigue cambiando de pestaña, como siempre. */}
         <div className="relative" style={{ paddingTop: next ? STACK_PEEK : 0 }} data-pager={ownsSwipe ? 'multi' : undefined} onTouchStart={ownsSwipe ? onTouchStart : undefined} onTouchEnd={ownsSwipe ? onTouchEnd : undefined}>
@@ -149,14 +153,14 @@ export function PlayCardStack({ ev, holder, prepaidBalance, playcoins, movements
             <QrCode className="h-5 w-5" /> Mostrar QR
           </button>
         )}
-        {(onPayCaja || onTopup) && (
+        {!noMoney && (onPayCaja || onTopup) && (
           <div className={`grid shrink-0 gap-2 [@media(max-height:700px)]:hidden ${onPayCaja && onTopup ? 'grid-cols-2' : 'grid-cols-1'}`}>
             {onPayCaja && <button type="button" onClick={() => { tapHaptic(); onPayCaja(); }} className="lg-pill flex h-11 items-center justify-center gap-2 rounded-full text-subhead font-semibold text-white interactive"><Wallet className="h-4 w-4 text-pink-300" /> Pagar</button>}
             {onTopup && <button type="button" onClick={() => { tapHaptic(); onTopup(); }} className="lg-pill flex h-11 items-center justify-center gap-2 rounded-full text-subhead font-semibold text-white interactive"><Plus className="h-4 w-4 text-pink-300" /> Recargar</button>}
           </div>
         )}
-        <NightRow ev={ev} onOpen={() => setNightOpen(true)} />
-        <NightSheet open={nightOpen} onClose={() => setNightOpen(false)} ev={ev} onShowQr={(x: MeTicket) => { setNightOpen(false); setQrCode(x.ticketCode); }} />
+        <NightRow ev={nightEv} onOpen={() => setNightOpen(true)} />
+        <NightSheet open={nightOpen} onClose={() => setNightOpen(false)} ev={nightEv} onShowQr={(x: MeTicket) => { setNightOpen(false); setQrCode(x.ticketCode); }} />
         {createPortal(<AnimatePresence>{ev && qrTicket && <QrViewer ev={ev} t={qrTicket} holder={holder} onClose={() => setQrCode(null)} onSelect={(x) => setQrCode(x.ticketCode)} />}</AnimatePresence>, document.body)}
       </div>
     </div>

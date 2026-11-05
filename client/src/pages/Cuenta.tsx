@@ -41,6 +41,7 @@ import { avisosNotice } from '@/lib/pushPromptView';
 import { PlaymoreAppBanner, useLivePlaymoreSlug, usePlaymore } from '@/components/playmore/AppBanner';
 import type { PlaymoreCardTheme } from '@/components/site/PlayCardStack';
 import { PlaymoreBuyButton } from '@/components/playmore/PlaymoreCards';
+import { hidesPlaycardMoney } from '@/lib/playmorePreview';
 import { DALMORE_MARK } from '@/components/playmore/sections';
 import { useIsMobile } from '@/hooks/useMobile';
 import { MemberLogin, type LoginDone } from '@/components/site/MemberLogin';
@@ -754,6 +755,8 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
     slug: pm.data.event.slug, landing: { ...pm.data.landing, partnerLogoUrl: pm.data.landing.partnerLogoUrl || DALMORE_MARK },
     buyHref: `/checkout/${pm.data.event.slug}${pm.isPreview && pm.preview ? `?preview=${pm.preview}` : ''}`, isPreview: pm.isPreview,
   } : null;
+  // Colab sin sistema PlayCard: la cuenta no ofrece pagar en caja ni recargar saldo mientras la entrada que se ve es la suya.
+  const pmNoMoney = hidesPlaycardMoney(pmTheme ? { slug: pmTheme.slug, usesPlaycard: pmTheme.landing.usesPlaycard } : null, upcoming[0]?.eventSlug);
   const activeCoupons = me.coupons.filter((c) => c.status === 'disponible').length + giftsOf(me).pases.length + giftsOf(me).consumos.filter((g) => !g.used).length;
   const { href: buyHref, last: lastBuy } = useBuyHref(me.nextEvent?.slug);
   // La noche de la fiesta, ya escaneada: un punto en la pestaña Playmatch.
@@ -826,7 +829,7 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
               <WelcomeBanner welcome={welcome} />
               {staff && <StaffBanner staff={staff} onOpen={() => { tapHaptic(); setSheet('staff'); }} />}
               <PlayCardStack ev={upcoming[0] ?? null} holder={me.fullName || me.email} prepaidBalance={me.prepaidBalance} playcoins={me.playcoins} movements={me.movements}
-                onTopup={pay.accountTopup ? () => setTopupOpen(true) : undefined} onPayCaja={pay.cajaPay ? () => setPayOpen(true) : undefined} onPlaymatch={() => go('playmatch')} playmore={pmTheme} />
+                onTopup={pay.accountTopup && !pmNoMoney ? () => setTopupOpen(true) : undefined} onPayCaja={pay.cajaPay && !pmNoMoney ? () => setPayOpen(true) : undefined} onPlaymatch={() => go('playmatch')} playmore={pmTheme} />
               {/* Con entrada de otro evento y sin la de PLAYMORE: su tarjeta de compra va debajo. Sin ninguna entrada la propia PlayCard ya invita a comprar. */}
               {pmTheme && !pmOwned && upcoming.length > 0 && upcoming[0].eventSlug !== pmSlug && <PlaymoreAppBanner ownedSlugs={upcoming.map((e) => e.eventSlug)} />}
               <BuyNextCard me={me} />
@@ -851,7 +854,7 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
             )}
             {prize === 'puntos' && (<>
               <PlaycoinsCard me={me} />
-              {pay.accountTopup && <button type="button" onClick={() => setTopupOpen(true)} className="inline-flex h-12 w-full shrink-0 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-pink-500 via-fuchsia-500 to-sky-500 text-subhead font-bold text-white"><Plus className="h-4 w-4" /> Recargar saldo (hoy {`$${me.prepaidBalance.toLocaleString('es-CL')}`})</button>}
+              {pay.accountTopup && !pmNoMoney && <button type="button" onClick={() => setTopupOpen(true)} className="inline-flex h-12 w-full shrink-0 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-pink-500 via-fuchsia-500 to-sky-500 text-subhead font-bold text-white"><Plus className="h-4 w-4" /> Recargar saldo (hoy {`$${me.prepaidBalance.toLocaleString('es-CL')}`})</button>}
               <MovementsPreview me={me} onAll={() => setSheet('movimientos')} />
             </>)}
             {prize === 'cupones' && <CouponsPager me={me} />}
@@ -1057,9 +1060,9 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
                     ...(animador ? [{ key: 'animador', label: 'Animador', icon: Mic, onClick: () => { setMore(false); setSheet('animador'); } }] : []),
                     ...(dosier ? [{ key: 'dosier', label: 'Dosier', icon: BookOpen, onClick: () => { setMore(false); setSheet('dosier'); } }] : []),
                     { key: 'entradas', label: 'Mis entradas', icon: TicketIcon, onClick: () => { setMore(false); setSheet('entradas'); } },
-                    { key: 'movimientos', label: 'Movimientos', icon: History, onClick: () => { setMore(false); setSheet('movimientos'); } },
-                    ...(pay.cajaPay ? [{ key: 'caja', label: 'Pagar en caja', icon: Wallet, onClick: () => { setMore(false); setPayOpen(true); } }] : []),
-                    ...(pay.accountTopup ? [{ key: 'recarga', label: 'Recargar saldo', icon: Plus, onClick: () => { setMore(false); setTopupOpen(true); } }] : []),
+                    ...(!pmNoMoney ? [{ key: 'movimientos', label: 'Movimientos', icon: History, onClick: () => { setMore(false); setSheet('movimientos'); } }] : []),
+                    ...(pay.cajaPay && !pmNoMoney ? [{ key: 'caja', label: 'Pagar en caja', icon: Wallet, onClick: () => { setMore(false); setPayOpen(true); } }] : []),
+                    ...(pay.accountTopup && !pmNoMoney ? [{ key: 'recarga', label: 'Recargar saldo', icon: Plus, onClick: () => { setMore(false); setTopupOpen(true); } }] : []),
                     { key: 'beneficios', label: 'Beneficios', icon: Sparkles, onClick: () => { setMore(false); setSheet('beneficios'); } },
                     { key: 'eventos', label: 'Eventos', icon: Calendar, href: '/eventos' },
                     { key: 'ayuda', label: 'Ayuda', icon: CircleHelp, onClick: () => { setMore(false); setInfo('faq'); } },
@@ -1248,6 +1251,8 @@ function DesktopAccount({ me, welcome, onLogout, shell, offlineAt }: { me: Me; w
     slug: pm.data.event.slug, landing: { ...pm.data.landing, partnerLogoUrl: pm.data.landing.partnerLogoUrl || DALMORE_MARK },
     buyHref: `/checkout/${pm.data.event.slug}${pm.isPreview && pm.preview ? `?preview=${pm.preview}` : ''}`, isPreview: pm.isPreview,
   } : null;
+  // Colab sin sistema PlayCard: la cuenta no ofrece pagar en caja ni recargar saldo mientras la entrada que se ve es la suya.
+  const pmNoMoney = hidesPlaycardMoney(pmTheme ? { slug: pmTheme.slug, usesPlaycard: pmTheme.landing.usesPlaycard } : null, upcoming[0]?.eventSlug);
   const pay = useMemberPayConfig();
   const [topupOpen, setTopupOpen] = useState(false);
   const [payOpen, setPayOpen] = useState(false);
@@ -1271,7 +1276,7 @@ function DesktopAccount({ me, welcome, onLogout, shell, offlineAt }: { me: Me; w
           <OfflinePill savedAt={offlineAt} />
           <WelcomeBanner welcome={welcome} />
           <TicketWallet ev={upcoming[0] ?? null} holder={me.fullName || me.email} prepaidBalance={me.prepaidBalance} playcoins={me.playcoins} movements={me.movements}
-            onTopup={pay.accountTopup ? () => setTopupOpen(true) : undefined} onPayCaja={pay.cajaPay ? () => setPayOpen(true) : undefined} />
+            onTopup={pay.accountTopup && !pmNoMoney ? () => setTopupOpen(true) : undefined} onPayCaja={pay.cajaPay && !pmNoMoney ? () => setPayOpen(true) : undefined} />
           <section className="space-y-3">
             <h2 className="font-heading text-title3 font-bold text-white">Playmatch 🍬</h2>
             <PlaymatchTab events={upcoming} buyHref={buyHref} />

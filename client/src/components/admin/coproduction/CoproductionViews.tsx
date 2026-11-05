@@ -689,6 +689,13 @@ export function CoproConfig() {
             </div>
           </div>
           <div className="flex items-start gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4 sm:col-span-2">
+            <Switch checked={d.landing.usesPlaycard} onCheckedChange={(v) => editLanding({ usesPlaycard: v })} />
+            <div>
+              <p className="text-sm font-semibold">Usar el sistema PlayCard de Playroom en este evento</p>
+              <p className="mt-1 text-xs text-muted-foreground">Apagado (lo normal en una colaboración): la PlayCard de la app solo muestra el QR de ingreso y los datos del titular para validar su identidad en la puerta. No aparecen saldo, Playcoins, pagar en caja, recargar ni los extras de “Mi noche”. Prendido: la PlayCard funciona como en los eventos de Playroom. Solo afecta a este evento de colaboración. Recuerda guardar.</p>
+            </div>
+          </div>
+          <div className="flex items-start gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4 sm:col-span-2">
             <Switch checked={d.landing.showTicketsEarly} onCheckedChange={(v) => editLanding({ showTicketsEarly: v })} />
             <div>
               <p className="text-sm font-semibold">Mostrar la página completa con los tickets (sin habilitar la compra)</p>

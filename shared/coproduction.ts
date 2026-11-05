@@ -66,6 +66,9 @@ export interface CoproductionLanding {
   showTicketsEarly: boolean;
   /** Al activar el evento sale solo el mailing de lanzamiento a toda la base (una sola vez). */
   launchMailing: boolean;
+  /** ¿Este evento usa el sistema PlayCard de Playroom (saldo, Playcoins, pagar en caja, recargar y los extras de «Mi noche»)?
+   * Apagado (lo normal en una colab): la PlayCard de la app solo muestra el QR de ingreso y los datos del titular. */
+  usesPlaycard: boolean;
   /** Al activar también sale la notificación push a la app (junto con el mailing). */
   launchPush: boolean;
   /** Link del primer reel/video en Instagram (colab con Dalmore). Va como botón en el mailing de lanzamiento. */
@@ -115,6 +118,7 @@ export const DEFAULT_LANDING: CoproductionLanding = {
   // Encendido por defecto mientras la dirección no es pública; se apaga desde Configuración.
   showTicketsEarly: true,
   launchMailing: true,
+  usesPlaycard: false,
   launchPush: true,
   reelUrl: '',
   launchedAt: '',
@@ -179,6 +183,7 @@ export function normalizeLanding(raw: unknown): CoproductionLanding {
       : d.faq,
     showTicketsEarly: typeof p.showTicketsEarly === 'boolean' ? p.showTicketsEarly : d.showTicketsEarly,
     launchMailing: typeof p.launchMailing === 'boolean' ? p.launchMailing : d.launchMailing,
+    usesPlaycard: typeof p.usesPlaycard === 'boolean' ? p.usesPlaycard : d.usesPlaycard,
     launchPush: typeof p.launchPush === 'boolean' ? p.launchPush : d.launchPush,
     reelUrl: /^https:\/\/(www\.)?instagram\.com\/\S+$/i.test(str(p.reelUrl, 300, '').trim()) ? str(p.reelUrl, 300, '').trim() : '',
     launchedAt: typeof p.launchedAt === 'string' && !Number.isNaN(Date.parse(p.launchedAt)) ? p.launchedAt.slice(0, 40) : '',

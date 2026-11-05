@@ -36,3 +36,25 @@ describe('shouldShowPlaymore', () => {
     expect(shouldShowPlaymore(undefined)).toBe(false);
   });
 });
+
+import { hidesPlaycardMoney } from './playmorePreview';
+
+describe('hidesPlaycardMoney', () => {
+  const colab = { slug: 'playmore', usesPlaycard: false };
+  it('colab sin sistema PlayCard: esconde el dinero con su entrada o sin ninguna', () => {
+    expect(hidesPlaycardMoney(colab, 'playmore')).toBe(true);
+    expect(hidesPlaycardMoney(colab, null)).toBe(true);
+    expect(hidesPlaycardMoney(colab, undefined)).toBe(true);
+  });
+  it('con el sistema PlayCard prendido no esconde nada', () => {
+    expect(hidesPlaycardMoney({ slug: 'playmore', usesPlaycard: true }, 'playmore')).toBe(false);
+    expect(hidesPlaycardMoney({ slug: 'playmore', usesPlaycard: true }, null)).toBe(false);
+  });
+  it('con la entrada de otro evento la PlayCard sigue como siempre', () => {
+    expect(hidesPlaycardMoney(colab, 'halloween')).toBe(false);
+  });
+  it('sin colaboración activa no cambia nada', () => {
+    expect(hidesPlaycardMoney(null, 'playmore')).toBe(false);
+    expect(hidesPlaycardMoney(undefined, null)).toBe(false);
+  });
+});
