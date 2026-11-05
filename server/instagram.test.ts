@@ -486,9 +486,8 @@ describe('buildInstagramContext', () => {
 
     const context = await buildInstagramContext(new Date('2026-09-13T12:00:00Z'));
     expect(context).toContain('Dúo [pareja]: $45.000');
-    // Soltero pide código de comunidad: no tiene botón directo.
-    expect(context).toContain('Soltero: $20.000');
-    expect(context).not.toContain('Soltero [');
+    // Soltero también tiene botón directo (en PLAYMORE el checkout le pide el código de comunidad).
+    expect(context).toContain('Soltero [soltero]: $20.000');
   });
 
   // La regla del sitio (ver attachStockPoolInfo en server/db.ts) es que el

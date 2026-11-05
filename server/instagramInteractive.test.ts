@@ -80,7 +80,7 @@ describe('resolveInstagramBuyLink con el acceso elegido', () => {
     const result = await resolveInstagramBuyLink(new Date(), 'agente', undefined, { key: 'pareja', quantity: 2 });
     expect(result?.url).toBe('https://mansionplayroom.cl/checkout/aniversario?rapida=1&op=pareja&items=duo%3A2&utm_source=instagram&utm_medium=dm&utm_campaign=agente');
     expect(result?.buttonTitle).toBe('Comprar Dúo 🔥');
-    expect(result?.accessLabel).toBe('Dúo');
+    expect(result?.accessLabel).toBe('Pareja');
   });
 
   it('cae a la página del evento si el acceso está agotado', async () => {

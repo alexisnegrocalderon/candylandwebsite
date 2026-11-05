@@ -7,11 +7,12 @@
  * `dos-hombres` quedan fuera a propósito: piden código de comunidad. */
 
 export const AGENT_ACCESS = [
-  { key: 'soltera', slug: 'soltera', label: 'Soltera', button: 'Comprar Soltera 🔥' },
-  { key: 'pareja', slug: 'duo', label: 'Dúo', button: 'Comprar Dúo 🔥' },
-  { key: 'dos-mujeres', slug: 'duo_mujeres', label: 'Dos mujeres (2x1)', button: 'Comprar 2x1 🔥' },
-  { key: 'trio', slug: 'trio', label: 'Trío', button: 'Comprar Trío 🔥' },
-  { key: 'grupo', slug: 'grupo', label: 'Grupo', button: 'Comprar Grupo 🔥' },
+  { key: 'soltera', slug: 'soltera', label: 'Voy sola', button: 'Comprar Soltera 🔥' },
+  { key: 'soltero', slug: 'soltero', label: 'Voy solo', button: 'Comprar Solo 🔥' },
+  { key: 'pareja', slug: 'duo', label: 'Pareja', button: 'Comprar Dúo 🔥' },
+  { key: 'dos-mujeres', slug: 'duo_mujeres', label: 'Dos mujeres', button: 'Comprar 2 mujeres 🔥' },
+  { key: 'dos-hombres', slug: 'duo', label: 'Dos hombres', button: 'Comprar 2 hombres 🔥' },
+  { key: 'trio', slug: 'trio', label: 'Somos 3 (mixto)', button: 'Comprar Trío 🔥' },
 ] as const;
 
 export type AgentAccessKey = (typeof AGENT_ACCESS)[number]['key'];
@@ -32,6 +33,15 @@ export function cleanQuantity(raw: unknown): number {
   return Number.isFinite(n) ? Math.min(6, Math.max(1, n)) : 1;
 }
 
+/** Ruta del checkout de una colaboración (PLAYMORE) con el acceso ya elegido: el mismo `?items=` y `?quien=` que usa su
+ * landing. «Dos hombres» y «Voy solo» llegan al paso del código de comunidad; Pareja y Dos hombres comparten el acceso
+ * `duo` y se distinguen por `quien`. */
+export function buildColabCheckoutPath(eventSlug: string, key: AgentAccessKey, quantity = 1): string {
+  const access = accessByKey(key);
+  const qty = cleanQuantity(quantity);
+  return `/checkout/${encodeURIComponent(eventSlug)}?items=${access?.slug ?? key}:${qty}&quien=${key}`;
+}
+
 /** Ruta del checkout con el acceso ya elegido (sin dominio ni UTM). */
 export function buildCheckoutPath(eventSlug: string, key: AgentAccessKey, quantity = 1): string {
   const access = accessByKey(key);
@@ -47,7 +57,7 @@ function norm(text: string): string {
 const INFER: { key: AgentAccessKey; re: RegExp }[] = [
   { key: 'dos-mujeres', re: /\b(dos mujeres|2 mujeres|dos amigas|2x1)\b/ },
   { key: 'trio', re: /\b(trio|tres personas|3 personas|somos tres|somos 3|los tres)\b/ },
-  { key: 'grupo', re: /\b(grupo|cuatro personas|4 personas|somos cuatro|somos 4)\b/ },
+  { key: 'dos-hombres', re: /\b(dos hombres|2 hombres|dos chicos|2 chicos)\b/ },
   { key: 'pareja', re: /\b(pareja|duo|mi novi[oa]|mi espos[oa]|mi marido|los dos|somos dos|somos 2|dos personas|2 personas)\b/ },
   { key: 'soltera', re: /\b(soltera|vengo sola|voy sola|ir sola|iria sola|sola)\b/ },
 ];
@@ -59,6 +69,6 @@ export function inferAccessKey(...texts: Array<string | null | undefined>): Agen
   const t = norm(texts.filter(Boolean).join(' . '));
   let hits = INFER.filter((i) => i.re.test(t)).map((i) => i.key);
   // «Somos dos mujeres» también calza con «somos dos»: gana el más específico.
-  if (hits.includes('dos-mujeres')) hits = hits.filter((k) => k !== 'pareja');
+  if (hits.includes('dos-mujeres') || hits.includes('dos-hombres')) hits = hits.filter((k) => k !== 'pareja');
   return hits.length === 1 ? hits[0] : '';
 }

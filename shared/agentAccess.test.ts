@@ -1,17 +1,23 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { accessKeyForSlug, AGENT_ACCESS, buildCheckoutPath, cleanQuantity, inferAccessKey } from './agentAccess';
+import { accessKeyForSlug, AGENT_ACCESS, buildCheckoutPath, buildColabCheckoutPath, cleanQuantity, inferAccessKey } from './agentAccess';
 
 describe('agentAccess', () => {
   it('traduce el slug de la entrada a la llave del checkout', () => {
     expect(accessKeyForSlug('duo')).toBe('pareja');
     expect(accessKeyForSlug('duo_mujeres')).toBe('dos-mujeres');
-    expect(accessKeyForSlug('soltero')).toBe('');
+    expect(accessKeyForSlug('soltero')).toBe('soltero');
+    expect(accessKeyForSlug('grupo')).toBe('');
     expect(accessKeyForSlug(null)).toBe('');
   });
   it('arma la ruta express del checkout', () => {
     expect(buildCheckoutPath('aniversario', 'pareja')).toBe('/checkout/aniversario?rapida=1&op=pareja');
     expect(buildCheckoutPath('aniversario', 'pareja', 2)).toBe('/checkout/aniversario?rapida=1&op=pareja&items=duo:2');
+  });
+  it('arma la ruta del checkout de la colab con items y quien', () => {
+    expect(buildColabCheckoutPath('playmore', 'dos-hombres')).toBe('/checkout/playmore?items=duo:1&quien=dos-hombres');
+    expect(buildColabCheckoutPath('playmore', 'trio', 2)).toBe('/checkout/playmore?items=trio:2&quien=trio');
+    expect(buildColabCheckoutPath('playmore', 'soltera')).toBe('/checkout/playmore?items=soltera:1&quien=soltera');
   });
   it('limpia la cantidad', () => {
     expect(cleanQuantity(0)).toBe(1);
@@ -23,7 +29,8 @@ describe('agentAccess', () => {
     expect(inferAccessKey('somos pareja, cuánto sale?')).toBe('pareja');
     expect(inferAccessKey('Voy sola, me da nervios')).toBe('soltera');
     expect(inferAccessKey('somos dos mujeres')).toBe('dos-mujeres');
-    expect(inferAccessKey('vamos en grupo de 4 personas')).toBe('grupo');
+    expect(inferAccessKey('somos dos hombres')).toBe('dos-hombres');
+    expect(inferAccessKey('vamos en grupo de 4 personas')).toBe('');
     expect(inferAccessKey('hola cuánto vale?')).toBe('');
     expect(inferAccessKey('pareja o voy sola, no sé')).toBe('');
   });

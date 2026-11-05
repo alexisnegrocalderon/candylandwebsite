@@ -1,7 +1,8 @@
 import * as db from './db';
 import { availabilityLabel, getUpcomingPublicEvents } from './instagramAgent';
+import { getPlaymoreFocus } from './playmoreFocus';
 import { withAgentUtm } from './agentLinks';
-import { accessByKey, accessKeyForSlug, buildCheckoutPath, cleanQuantity, type AgentAccessKey } from '../shared/agentAccess';
+import { accessByKey, accessKeyForSlug, buildCheckoutPath, buildColabCheckoutPath, cleanQuantity, type AgentAccessKey } from '../shared/agentAccess';
 import { dropSupersededTickets } from '../shared/liveTickets';
 
 /* Resolución del link de compra para el botón "Comprar entrada" de
@@ -35,7 +36,7 @@ async function liveAccessTicket(eventId: number, key: AgentAccessKey) {
   const access = accessByKey(key);
   if (!access) return null;
   const tickets = dropSupersededTickets(await db.getTicketTypesByEventId(eventId));
-  const ticket = tickets.find((t) => t.category === 'acceso' && t.status !== 'hidden' && accessKeyForSlug(t.accesoSlug) === key);
+  const ticket = tickets.find((t) => t.category === 'acceso' && t.status !== 'hidden' && t.accesoSlug === access.slug);
   if (!ticket) return null;
   const remaining = ticket.poolRemaining ?? (ticket.totalStock - ticket.soldCount);
   if (ticket.status === 'soldout' || availabilityLabel(remaining, false) === 'AGOTADA') return null;
@@ -53,7 +54,11 @@ export async function resolveAccessCheckout(
   const live = await liveAccessTicket(event.id, key);
   if (!live) return null;
   const qty = cleanQuantity(quantity);
-  return { path: buildCheckoutPath(event.slug, key, qty), label: live.access.label, button: live.access.button, quantity: qty };
+  // PLAYMORE: checkout de la colab con el acceso y la composición ya elegidos (?items=…&quien=…).
+  const focus = await getPlaymoreFocus();
+  const colab = focus != null && focus.event.id === event.id;
+  const path = colab ? buildColabCheckoutPath(event.slug, key, qty) : buildCheckoutPath(event.slug, key, qty);
+  return { path, label: live.access.label, button: live.access.button, quantity: qty };
 }
 
 export async function resolveInstagramBuyLink(
@@ -69,10 +74,12 @@ export async function resolveInstagramBuyLink(
   // se puede vender por acá (agotado, con código, oculto), cae a la página del
   // evento como siempre.
   const direct = access?.key ? await resolveAccessCheckout(event, access.key, access.quantity ?? 1) : null;
+  const focus = await getPlaymoreFocus(now);
+  const isColab = focus != null && focus.event.id === event.id;
   // Con UTM: la venta que entra por este botón queda atribuida al agente
   // en "Ventas por Origen" y en la tarjeta "Ventas del agente".
   return {
-    url: withAgentUtm(`${APP_URL}${direct ? direct.path : `/eventos/${event.slug}`}`, 'instagram', campaign, content),
+    url: withAgentUtm(`${APP_URL}${direct ? direct.path : isColab ? `/checkout/${event.slug}` : `/eventos/${event.slug}`}`, 'instagram', isColab ? `${campaign}-playmore` : campaign, content),
     eventTitle: event.title,
     imageUrl: resolveEventCardImage(event),
     buttonTitle: direct?.button ?? 'Comprar entrada 🔥',

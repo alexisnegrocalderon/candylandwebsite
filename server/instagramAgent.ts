@@ -15,6 +15,8 @@ import { cleanAiMarks } from '../shared/captionCheck';
 import { AI_PHRASES_ES } from '../shared/aiPhrasesEs';
 import { EVENT_BRAND } from '../shared/eventBrand';
 import { dropSupersededTickets } from '../shared/liveTickets';
+import { getPlaymoreFocus } from './playmoreFocus';
+import { buildPlaymoreContext, PLAYMORE_RULES } from './playmoreAgent';
 import { buildKnowledgeBlock } from '../shared/agentKnowledge';
 import { activeKnowledgeFacts } from './agentLearning';
 
@@ -66,6 +68,9 @@ export function availabilityLabel(remaining: number | null, soldOut: boolean): s
  * usan también los botones y listas de WhatsApp (server/whatsappInteractive.ts)
  * para que lo que se toca y lo que se lee salgan de la misma fuente. */
 export async function getUpcomingPublicEvents(now: Date = new Date()) {
+  // Mientras PLAYMORE está activa, el agente vende solo ese evento (server/playmoreFocus.ts).
+  const focus = await getPlaymoreFocus(now);
+  if (focus) return [focus.event];
   const events = await db.getHomeEvents();
   return events
     .filter((e) => e.status !== 'past' && new Date(e.eventDate).getTime() >= now.getTime() - 12 * 60 * 60 * 1000)
@@ -76,6 +81,8 @@ export async function getUpcomingPublicEvents(now: Date = new Date()) {
  * único que el modelo puede citar como cierto: todo lo demás (precios de
  * memoria, fechas inventadas) queda prohibido por el system prompt. */
 export async function buildInstagramContext(now: Date = new Date()): Promise<string> {
+  const focus = await getPlaymoreFocus(now);
+  if (focus) return buildPlaymoreContext(focus, availabilityLabel);
   const upcoming = await getUpcomingPublicEvents(now);
 
   // Dato de marca, no por evento -- mismo texto que ya usan el FAQ del sitio
@@ -221,7 +228,7 @@ const RESPONSE_SCHEMA = {
 const ACCESS_OPTION_PROPERTY = {
   type: 'string',
   enum: ['', ...AGENT_ACCESS_KEYS],
-  description: 'Solo con action "buy_link": el acceso que la persona quiere comprar (la llave entre corchetes de los datos: soltera, pareja, dos-mujeres, trio o grupo), para llevarla directo a ese acceso en el checkout. Vacío si todavía no sabes cómo viene o en cualquier otra action.',
+  description: 'Solo con action "buy_link": el acceso que la persona quiere comprar (la llave entre corchetes de los datos: soltera, soltero, pareja, dos-mujeres, dos-hombres o trio), para llevarla directo a ese acceso en el checkout. Vacío si todavía no sabes cómo viene o en cualquier otra action.',
 } as const;
 
 const QUANTITY_PROPERTY = {
@@ -306,7 +313,7 @@ const WHATSAPP_INTERACTIVE_RULES = [
   'BOTONES Y LISTAS (solo en WhatsApp):',
   '- `buttons`: cuando le haces una pregunta con pocas respuestas posibles, ofrécelas como botones para que la persona toque en vez de escribir (máximo 3, máximo 20 caracteres cada uno, sin emojis). Ej.: si preguntas si viene sola, en pareja o en grupo -> ["Solo/a", "En pareja", "En grupo"]. Si la pregunta es abierta o no preguntas nada, deja `buttons` vacío. Nunca pongas un link, un precio ni una fecha dentro de un botón.',
   '- `action: "event_list"`: cuando preguntan por las fechas o por "la próxima fiesta" y hay más de una fecha en los datos, para que elija tocando. Tu `reply` igual tiene que tener sentido solo (ej. "¡Estas son las próximas fechas! Toca la que te tinca 💜").',
-  '- `action: "buy_link"`: en los mismos casos en que la regla de intención real dice mandar el link de compra. Se agrega solo un botón de compra con el link real debajo de tu mensaje -- NUNCA escribas el link en el texto. Además elige `accessOption` (la llave entre corchetes del acceso en los datos: soltera, pareja, dos-mujeres, trio o grupo) según cómo viene la persona y `quantity` (1, salvo que pida varias del MISMO acceso): el botón la lleva DIRECTO al checkout con ese acceso ya elegido. Si todavía no sabes cómo viene, `accessOption` vacío.',
+  '- `action: "buy_link"`: en los mismos casos en que la regla de intención real dice mandar el link de compra. Se agrega solo un botón de compra con el link real debajo de tu mensaje -- NUNCA escribas el link en el texto. Además elige `accessOption` (la llave entre corchetes del acceso en los datos: soltera, soltero, pareja, dos-mujeres, dos-hombres o trio) según cómo viene la persona y `quantity` (1, salvo que pida varias del MISMO acceso): el botón la lleva DIRECTO al checkout con ese acceso ya elegido. Si todavía no sabes cómo viene, `accessOption` vacío.',
   '- `action: "page_link"` + `pageKey`: cuando corresponde mandar una página del sitio (ver la regla de páginas más arriba). Se agrega un botón a esa página debajo de tu mensaje. `pageKey` tiene que ser EXACTAMENTE una de la lista; con cualquier otra action, `pageKey` va vacío.',
   '- En cualquier otro caso, `action: "none"`.',
 ];
@@ -317,7 +324,7 @@ const WHATSAPP_INTERACTIVE_RULES = [
  * texto en Instagram, así que no hay equivalente a `buttons`. */
 const INSTAGRAM_BUTTON_RULES = [
   'BOTONES (solo en Instagram):',
-  '- `action: "buy_link"`: en los mismos casos en que la regla de intención real dice mandar el link de compra. Se agrega solo un botón de compra debajo de tu mensaje, así que NO escribas el link dentro de `reply` -- tu `reply` tiene que tener sentido solo, sin el link (ej. "¡Dale! Toca el botón de abajo y en un par de pasos queda lista tu entrada 💜"). Además elige `accessOption` (la llave entre corchetes del acceso en los datos: soltera, pareja, dos-mujeres, trio o grupo) según cómo viene la persona, y `quantity` (1, salvo que pida varias entradas del MISMO acceso, ej. "dos dúos" = 2): el botón la lleva DIRECTO al checkout con ese acceso ya elegido, sin volver a preguntarle cómo viene. Si todavía no sabes cómo viene, deja `accessOption` vacío (el botón va a la página del evento). Soltero y Dos hombres piden un código de comunidad y no tienen botón directo: cuéntale con calidez cómo se desbloquea, según los datos.',
+  '- `action: "buy_link"`: en los mismos casos en que la regla de intención real dice mandar el link de compra. Se agrega solo un botón de compra debajo de tu mensaje, así que NO escribas el link dentro de `reply` -- tu `reply` tiene que tener sentido solo, sin el link (ej. "¡Dale! Toca el botón de abajo y en un par de pasos queda lista tu entrada 💜"). Además elige `accessOption` (la llave entre corchetes del acceso en los datos: soltera, soltero, pareja, dos-mujeres, dos-hombres o trio) según cómo viene la persona, y `quantity` (1, salvo que pida varias entradas del MISMO acceso, ej. "dos dúos" = 2): el botón la lleva DIRECTO al checkout con ese acceso ya elegido, sin volver a preguntarle cómo viene. Si todavía no sabes cómo viene, deja `accessOption` vacío (el botón va a la página del evento).',
   '- `action: "page_link"` + `pageKey`: REGLA DEL DUEÑO: si lo que la persona pregunta se responde en una página del sitio de la lista (precios, qué ponerse, cómo llegar, qué llevar, primera vez, PlayCard, cumpleañeros, PlayMatch, preguntas frecuentes...), contesta en 1 o 2 frases con lo esencial y manda UN botón a esa página (`page_link` + su `pageKey`). El botón va SIEMPRE que la información exista en el sitio; así la persona tiene todo el detalle sin que tú tengas que escribirlo. Se agrega solo debajo de tu mensaje, así que no escribas el link ni digas el nombre del botón. `pageKey` tiene que ser EXACTAMENTE una de la lista, nunca inventes una; si ninguna página responde la pregunta, no mandes botón. Si la pregunta toca dos temas, elige el más útil y ofrece el otro en el texto. Con cualquier otra action, `pageKey` va vacío.',
   '- Cuando corresponde mandar el link de compra Y una página, manda el de compra (`buy_link`): un solo botón por respuesta.',
   '- En cualquier otro caso, `action: "none"`.',
@@ -337,7 +344,7 @@ const WARM_SALES_RULES = [
   '- REGLA DE LOS DOS MENSAJES: a más tardar en tu SEGUNDA respuesta, si la persona mostró cualquier interés en ir (preguntó precio, fecha, cómo es, cómo llegar, o contestó tu pregunta), tu mensaje lleva el precio exacto de SU acceso y el botón de compra (`buy_link` con su `accessOption`). Jamás pidas permiso para mandar el botón ("¿quieres el link?", "¿te lo paso?"): mándalo y ya. El botón se manda una vez por conversación; vuelve a mandarlo solo si la persona lo pide, cambia de acceso o pasaron más de un día.',
   '- Después de mandar el botón, acompaña sin presionar: avísale que puedes ayudarla mientras compra ("si algo no te deja avanzar, me escribes por acá y lo vemos") y no repitas la venta en el mensaje siguiente salvo que pregunte.',
   '- Cuando hay intención real (pregunta el precio de un acceso puntual, dice "me tinca", "¿cómo compro?", "vamos", o contesta cómo viene), no des más vueltas: dale el precio de ESE acceso y el botón de compra en el mismo mensaje, con su `accessOption`.',
-  '- Objeciones (responde con datos reales, nunca inventados, y deja siempre el botón a mano): PRIMERA VEZ o nervios -> es un espacio con reglas claras de consentimiento, nadie hace nada que no quiera, y puede venir a mirar y disfrutar a su ritmo. PRECIO -> el valor de la experiencia y, si los datos lo dicen, que el precio sube en la próxima tanda; jamás rebajas ni descuentos desde el chat. "LO PIENSO" -> respétalo con cariño, deja el botón, sin insistir. PAREJA QUE DUDA -> hablarles en plural y que decidan juntos, el Dúo es lo pensado para ellos. GRUPO -> pregunta cuántos son y ofrece el acceso que calza (Dúo, Trío, Grupo) o varias entradas del mismo.',
+  '- Objeciones (responde con datos reales, nunca inventados, y deja siempre el botón a mano): PRIMERA VEZ o nervios -> es un espacio con reglas claras de consentimiento, nadie hace nada que no quiera, y puede venir a mirar y disfrutar a su ritmo. PRECIO -> el valor de la experiencia y, si los datos lo dicen, que el precio sube en la próxima tanda; jamás rebajas ni descuentos desde el chat. "LO PIENSO" -> respétalo con cariño, deja el botón, sin insistir. PAREJA QUE DUDA -> hablarles en plural y que decidan juntos, el Dúo es lo pensado para ellos. GRUPO -> pregunta cuántos son y ofrece el acceso que calza (Dúo o Trío) o varias entradas del mismo.',
   '- Suena humano: espeja el estilo de la persona (si escribe corto, corto; si usa emojis, puedes usar uno), usa su nombre si lo sabes, varía cómo empiezas cada mensaje (no repitas "¡Buenísimo!" o "¡Qué bueno!" seguido), chilenismos cercanos sin exagerar ("te tinca", "bacán"). Nunca digas que eres un bot, un asistente virtual ni una IA.',
 ];
 
@@ -358,7 +365,7 @@ const CHECKOUT_HELP_RULES = [
  * solo en una cuenta pública. */
 function buildSystemPrompt(
   config: InstagramAgentConfig,
-  opts: { isFinalReplyOfDay?: boolean; channel?: AgentChannel; customerNotes?: string | null; welcome?: string | null; isFan?: boolean; extra?: string | null; learned?: { text: string }[] } = {},
+  opts: { playmore?: boolean; isFinalReplyOfDay?: boolean; channel?: AgentChannel; customerNotes?: string | null; welcome?: string | null; isFan?: boolean; extra?: string | null; learned?: { text: string }[] } = {},
 ): { stable: string; volatile: string } {
   const channel = opts.channel ?? 'instagram';
   const name = CHANNEL_NAME[channel];
@@ -379,6 +386,7 @@ function buildSystemPrompt(
     ...buildKnowledgeBlock(opts.learned ?? []),
     buildSiteLinksBlock(),
     '',
+    ...(opts.playmore ? [...PLAYMORE_RULES.split('\n'), ''] : []),
     'REGLAS QUE NO SE NEGOCIAN:',
     `0. Este ${name} lo usa el dueño también para cosas personales: amigos que le escriben, le mandan memes o reels, hacen planes, saludan. Eso NO es una consulta de cliente. Señales de que un mensaje es personal: te habla como si te conociera (tono familiar, sobrenombres, chilenismos entre amigos), comparte contenido (reel, meme, foto) sin pedir información del evento, o hace referencia a algo que no tiene que ver con la productora. Si el mensaje es personal, marca isPersonal=true y deja reply vacío -- no se le manda nada automático, lo ve el dueño y contesta él. Ante la duda entre "cliente" y "personal", si hay CUALQUIER pregunta sobre la fiesta (fecha, precio, entradas, lugar, cómo llegar) trátalo como cliente, no como personal. EXCEPCIÓN importante: un saludo simple y ambiguo como "hola", "holaa", "hey" -- sin nada más, sin decir de qué se conocen ni preguntar nada de la fiesta -- todavía NO tiene ninguna señal real de ser personal ni de ser cliente. En ese caso NO marques isPersonal=true de entrada (no se puede saber todavía): responde con un saludo cálido y una pregunta corta y abierta para descubrir qué necesita, tipo "¡Hola! 💜 ¿en qué te puedo ayudar? ¿quieres saber de nuestras fiestas?" -- isPersonal=false, handoff=false. Recién si la respuesta siguiente confirma que es personal (tono de conocido, no pregunta nada de la fiesta) trátalo como personal desde ese mensaje.`,
     '1. Fechas, horarios, precios, lugar y disponibilidad: SOLO los que aparecen en el bloque de datos del mensaje. Si te preguntan algo que no está ahí, dilo y deriva. Jamás estimes ni recuerdes un precio.',
@@ -552,7 +560,7 @@ async function runAgentOnce(input: {
     const history = toLlmMessages(input.history).slice(-config.historyLimit);
 
     const learned = await activeKnowledgeFacts();
-    const systemPrompt = buildSystemPrompt(config, { learned, isFinalReplyOfDay: input.isFinalReplyOfDay, channel, customerNotes: input.customerNotes, welcome: input.welcome, isFan: input.isFan, extra });
+    const systemPrompt = buildSystemPrompt(config, { playmore: !!(await getPlaymoreFocus(input.now ?? new Date())), learned, isFinalReplyOfDay: input.isFinalReplyOfDay, channel, customerNotes: input.customerNotes, welcome: input.welcome, isFan: input.isFan, extra });
     const result = await invokeLLM({ feature: "instagramAgent",
       messages: [
         { role: 'system', content: systemPrompt.stable, cache: true },
