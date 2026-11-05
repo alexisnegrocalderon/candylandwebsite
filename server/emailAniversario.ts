@@ -28,8 +28,8 @@ const PALETTES: Record<AnniversaryTheme, Palette> = {
   },
   // PLAYMORE (Playroom × Dalmore): negro, dorado y magenta, como la landing.
   playmore: {
-    bg: '#0C0908', card: '#15100F', border: '#3A2E14', ink: '#F3E9D2', muted: '#B9A98A',
-    accent: '#D6B25E', accentText: '#F7E7A8', ctaBg: '#D6B25E', ctaText: '#141210', band: '#E477EA', bandText: '#16060F', chipBg: '#1E1410',
+    bg: '#0C0908', card: '#170D1A', border: '#4A2A4E', ink: '#F3E9D2', muted: '#C4B3A6',
+    accent: '#D6B25E', accentText: '#F7E7A8', ctaBg: '#D6B25E', ctaText: '#141210', band: '#E477EA', bandText: '#16060F', chipBg: '#25102B',
   },
 };
 
@@ -100,7 +100,7 @@ export function buildAnniversaryBlastEmail(data: AnniversaryEmailData): string {
       <div style="background-color:${p.band};padding:11px 20px;text-align:center;">
         <p style="color:${p.bandText};font-size:11px;font-weight:800;letter-spacing:3px;margin:0;">PLAYROOM × DALMORE</p>
       </div>
-      <div style="background-color:${p.card};padding:30px 24px 30px;text-align:center;border-radius:0 0 32px 32px;border-bottom:1px solid ${p.border};">
+      <div style="background-color:#1B0B1E;background-image:url(${PM_SITE}/playmore/email-hero-bg.jpg);background-size:cover;background-position:center top;padding:30px 24px 30px;text-align:center;border-radius:0 0 32px 32px;border-bottom:1px solid ${p.border};">
         <table role="presentation" align="center" cellpadding="0" cellspacing="0" style="margin:0 auto 24px;"><tr>
           <td style="padding:0 14px;vertical-align:middle;"><img src="${PM_SITE}/playmore/playroom-logo.png" alt="Mansion Playroom" width="128" style="display:block;width:128px;height:auto;" /></td>
           <td style="color:${p.accentText};font-size:20px;vertical-align:middle;">×</td>
