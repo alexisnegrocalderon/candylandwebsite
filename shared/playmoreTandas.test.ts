@@ -19,9 +19,8 @@ describe('porcentajes exactos de PLAYMORE', () => {
 
 describe('fases con precio exacto', () => {
   const phases = buildPlaymorePhases(PLAYMORE_TANDA_ROWS);
-  it('son 4: 1ª tanda, 2ª tanda y dos generales', () => {
-    expect(phases).toHaveLength(4);
-    expect(phases[3].prices).toEqual(phases[2].prices);
+  it('son 3: 1ª tanda, 2ª tanda y general', () => {
+    expect(phases).toHaveLength(3);
     expect(phases[0].prices).toMatchObject({ duo: 40000, soltera: 10000, duo_mujeres: 15000, trio: 50000 });
     expect(phases[1].prices).toMatchObject({ duo: 50000, soltera: 12500, duo_mujeres: 20000, trio: 60000 });
     expect(phases[2].prices).toMatchObject({ duo: 70000, soltera: 15000, duo_mujeres: 25000, trio: 80000 });

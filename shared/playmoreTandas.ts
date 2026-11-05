@@ -37,8 +37,7 @@ export function buildPlaymorePhases(rows: PlaymoreTandaRow[], until: (string | n
   return [
     { percent: pct.t1, untilDate: until[0] ?? null, prices: prices('t1') },
     { percent: pct.t2, untilDate: until[1] ?? null, prices: prices('t2') },
-    // 3ª y 4ª tanda: precio general (la 4ª es la última, hasta el cierre de la venta).
+    // 3ª tanda: precio general, hasta el cierre de la venta.
     { percent: 0, untilDate: until[2] ?? null, prices: prices('general') },
-    { percent: 0, untilDate: until[3] ?? null, prices: prices('general') },
   ];
 }

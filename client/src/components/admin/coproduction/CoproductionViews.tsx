@@ -535,8 +535,8 @@ function PlaymoreTandas({ slug }: { slug: string }) {
   const [rows, setRows] = useState<PlaymoreTandaRow[]>(PLAYMORE_TANDA_ROWS);
   const [solteroPrice, setSolteroPrice] = useState(PLAYMORE_SOLTERO.price);
   const [solteroStock, setSolteroStock] = useState(PLAYMORE_SOLTERO.stock);
-  // Fin de cada tanda (hora de Chile): 1ª hasta el dom 8-nov, 2ª hasta el 22-nov, 3ª hasta el 2-dic y la 4ª (general) hasta el sáb 5-dic 06:00.
-  const [until, setUntil] = useState<string[]>(['2026-11-08T23:59', '2026-11-22T23:59', '2026-12-02T23:59', '2026-12-05T06:00']);
+  // Fin de cada tanda (hora de Chile): 1ª hasta el dom 8-nov, 2ª hasta el 22-nov y la 3ª (general) hasta el sáb 5-dic 06:00.
+  const [until, setUntil] = useState<string[]>(['2026-11-08T23:59', '2026-11-22T23:59', '2026-12-05T06:00']);
   const apply = trpc.coproduction.applyTandas.useMutation({
     onSuccess: (r) => {
       toast.success(`Tandas aplicadas${r.missing.length ? ` (sin entrada para: ${r.missing.join(', ')})` : ''}`);
@@ -575,7 +575,7 @@ function PlaymoreTandas({ slug }: { slug: string }) {
         </table>
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
-        {['1ª tanda (precios de lanzamiento)', '2ª tanda', '3ª tanda (general)', '4ª tanda (general, hasta el cierre)'].map((l, i) => (
+        {['1ª tanda (precios de lanzamiento)', '2ª tanda', '3ª tanda (general, hasta el cierre)'].map((l, i) => (
           <div key={l}><Label>{l} termina</Label><Input className="mt-1" type="datetime-local" value={until[i] ?? ''} onChange={(e) => setUntil(until.map((u, j) => (j === i ? e.target.value : u)))} /></div>
         ))}
       </div>
