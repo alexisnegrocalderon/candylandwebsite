@@ -45,6 +45,9 @@ export interface AnniversaryEmailData {
   paragraphs: string[];
   ctaText?: string;
   ctaUrl: string;
+  /** Segundo botón con borde (ej. el reel de Instagram). */
+  secondaryCtaText?: string;
+  secondaryCtaUrl?: string;
   /** Dato urgente en grande, ej. «Cierra hoy» / «23:59 hrs». */
   highlightLabel?: string;
   highlightValue?: string;
@@ -90,9 +93,7 @@ export function buildAnniversaryBlastEmail(data: AnniversaryEmailData): string {
     preheader: data.preheader,
     pageBg: p.bg,
     footer: true,
-    beforeContainer: isPm
-      ? `<img src="${PM_SITE}/playmore/flyer-playmore.jpg" alt="PLAYMORE · Playroom × Dalmore" style="display:block;width:100%;height:auto;" />`
-      : ev?.imageUrl && showBanner
+    beforeContainer: !isPm && ev?.imageUrl && showBanner
       ? `<img src="${ev.imageUrl}" alt="${ev.title}" style="display:block;width:100%;height:auto;" />`
       : undefined,
     hero: isPm ? `
@@ -100,7 +101,13 @@ export function buildAnniversaryBlastEmail(data: AnniversaryEmailData): string {
         <p style="color:${p.bandText};font-size:11px;font-weight:800;letter-spacing:3px;margin:0;">PLAYROOM × DALMORE</p>
       </div>
       <div style="background-color:${p.card};padding:30px 24px 30px;text-align:center;border-radius:0 0 32px 32px;border-bottom:1px solid ${p.border};">
-        <!-- El flyer de arriba ya trae los logos y PLAYMORE: aquí solo el saludo y el titular. -->
+        <table role="presentation" align="center" cellpadding="0" cellspacing="0" style="margin:0 auto 24px;"><tr>
+          <td style="padding:0 14px;vertical-align:middle;"><img src="${PM_SITE}/playmore/playroom-logo.png" alt="Mansion Playroom" width="128" style="display:block;width:128px;height:auto;" /></td>
+          <td style="color:${p.accentText};font-size:20px;vertical-align:middle;">×</td>
+          <td style="padding:0 14px;vertical-align:middle;"><img src="${PM_SITE}/playmore/dalmore-logo.png" alt="Dalmore" width="138" style="display:block;width:138px;height:auto;" /></td>
+        </tr></table>
+        <p style="color:${p.accent};font-size:46px;font-weight:800;letter-spacing:1px;line-height:50px;margin:0 0 8px;font-family:'Montserrat','Helvetica Neue',Arial,sans-serif;">PLAYMORE</p>
+        <p style="color:${p.muted};font-size:11px;font-weight:700;letter-spacing:3px;text-transform:uppercase;margin:0 0 22px;">Una noche. Dos mundos. Ninguna igual.</p>
         <p style="color:${p.muted};font-size:14px;margin:0 0 6px;">${greeting}</p>
         <h1 style="color:${p.ink};font-size:27px;font-weight:800;line-height:1.2;margin:0;">${data.headline}</h1>
       </div>` : `
@@ -125,9 +132,12 @@ export function buildAnniversaryBlastEmail(data: AnniversaryEmailData): string {
 
       ${data.priceList && data.priceList.length > 0 ? priceCard(p, data.priceList, data.remaining, isPm) : ''}
 
-      <div style="text-align:center;padding:6px 0 26px;">
+      <div style="text-align:center;padding:6px 0 ${data.secondaryCtaUrl ? '14px' : '26px'};">
         <a href="${data.ctaUrl}" style="display:inline-block;background-color:${p.ctaBg};color:${p.ctaText};text-decoration:none;padding:17px 40px;border-radius:999px;font-weight:800;font-size:16px;letter-spacing:0.3px;">${data.ctaText || 'Comprar mi entrada'}</a>
       </div>
+      ${data.secondaryCtaUrl ? `<div style="text-align:center;padding:0 0 26px;">
+        <a href="${data.secondaryCtaUrl}" style="display:inline-block;color:${p.accentText};text-decoration:none;padding:14px 32px;border-radius:999px;border:1.5px solid ${p.accent};font-weight:800;font-size:14px;letter-spacing:0.3px;">${data.secondaryCtaText || 'Míralo en Instagram'}</a>
+      </div>` : ''}
 
       ${ev && showDetails ? `
       <div style="background-color:${p.card};border:1px solid ${p.border};border-radius:20px;padding:20px;margin-bottom:20px;">

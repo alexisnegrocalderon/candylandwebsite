@@ -51,6 +51,9 @@ export const MailingContentSchema = z.object({
   headline: z.string().min(4).max(80),
   paragraphs: z.array(z.string().min(4).max(500)).min(1).max(4),
   ctaText: z.string().max(40).optional(),
+  // Segundo botón (ej. el reel de Instagram del lanzamiento).
+  secondaryCtaText: z.string().max(40).optional(),
+  secondaryCtaUrl: z.string().url().max(300).optional(),
   highlightLabel: z.string().max(60).optional(),
   highlightValue: z.string().max(60).optional(),
   // Prueba A/B de asunto: la mitad de la lista (por id de cliente, par/impar) recibe `subject` y la otra mitad `subjectB`.
@@ -451,6 +454,8 @@ export async function processMailingCronBatch(): Promise<MailingCronResult> {
           paragraphs: content.paragraphs,
           ctaText: content.ctaText,
           ctaUrl: recipient.ctaUrl,
+          secondaryCtaText: content.secondaryCtaText,
+          secondaryCtaUrl: content.secondaryCtaUrl,
           highlightLabel: content.highlightLabel,
           highlightValue: content.highlightValue,
           eventInfo: eventSections ? eventInfo : null,

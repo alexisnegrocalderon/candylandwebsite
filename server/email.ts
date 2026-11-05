@@ -2041,6 +2041,9 @@ export function buildMailingBlastEmail(data: {
   ctaUrl: string;
   highlightLabel?: string;
   highlightValue?: string;
+  /** Segundo botón del look de campaña (ej. «Ver el reel en Instagram»). */
+  secondaryCtaText?: string;
+  secondaryCtaUrl?: string;
   eventInfo?: MailingEventInfo | null;
   /** Permite prender/apagar cada bloque de la tarjeta de evento por separado
    * (pedido explícito del usuario) -- todos activos por defecto para no
@@ -2059,7 +2062,8 @@ export function buildMailingBlastEmail(data: {
   if (data.theme) {
     return buildAnniversaryBlastEmail({
       theme: data.theme, buyerName: data.buyerName, preheader: data.preheader, headline: data.headline, paragraphs: data.paragraphs,
-      ctaText: data.ctaText, ctaUrl: data.ctaUrl, highlightLabel: data.highlightLabel, highlightValue: data.highlightValue,
+      ctaText: data.ctaText, ctaUrl: data.ctaUrl, secondaryCtaText: data.secondaryCtaText, secondaryCtaUrl: data.secondaryCtaUrl,
+      highlightLabel: data.highlightLabel, highlightValue: data.highlightValue,
       priceList: data.priceList, remaining: data.remaining, eventInfo: data.eventInfo, eventSections: data.eventSections,
     });
   }

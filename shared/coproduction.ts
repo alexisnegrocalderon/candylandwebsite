@@ -66,6 +66,10 @@ export interface CoproductionLanding {
   showTicketsEarly: boolean;
   /** Al activar el evento sale solo el mailing de lanzamiento a toda la base (una sola vez). */
   launchMailing: boolean;
+  /** Al activar también sale la notificación push a la app (junto con el mailing). */
+  launchPush: boolean;
+  /** Link del primer reel/video en Instagram (colab con Dalmore). Va como botón en el mailing de lanzamiento. */
+  reelUrl: string;
   /** Cuándo se activó por primera vez (ISO). Marca que el mailing de lanzamiento ya se programó. */
   launchedAt: string;
 }
@@ -111,6 +115,8 @@ export const DEFAULT_LANDING: CoproductionLanding = {
   // Encendido por defecto mientras la dirección no es pública; se apaga desde Configuración.
   showTicketsEarly: true,
   launchMailing: true,
+  launchPush: true,
+  reelUrl: '',
   launchedAt: '',
   timeline: [
     { time: '23:00', title: 'Se abren las puertas', text: 'Llegas, muestras tu QR y te recibe el equipo. El primer trago marca el comienzo.' },
@@ -173,6 +179,8 @@ export function normalizeLanding(raw: unknown): CoproductionLanding {
       : d.faq,
     showTicketsEarly: typeof p.showTicketsEarly === 'boolean' ? p.showTicketsEarly : d.showTicketsEarly,
     launchMailing: typeof p.launchMailing === 'boolean' ? p.launchMailing : d.launchMailing,
+    launchPush: typeof p.launchPush === 'boolean' ? p.launchPush : d.launchPush,
+    reelUrl: /^https:\/\/(www\.)?instagram\.com\/\S+$/i.test(str(p.reelUrl, 300, '').trim()) ? str(p.reelUrl, 300, '').trim() : '',
     launchedAt: typeof p.launchedAt === 'string' && !Number.isNaN(Date.parse(p.launchedAt)) ? p.launchedAt.slice(0, 40) : '',
     timeline: Array.isArray(p.timeline)
       ? p.timeline

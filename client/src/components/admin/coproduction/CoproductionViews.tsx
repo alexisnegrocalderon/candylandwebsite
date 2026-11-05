@@ -573,19 +573,34 @@ export function CoproConfig() {
           </div>
         </div>
         <Switch checked={setup.isLive} disabled={setLive.isPending} onCheckedChange={(live) => {
-          const mailing = d.landing.launchMailing && !setup.landing?.launchedAt;
-          if (live && !confirm(`¿Activar el evento? La página y la venta quedan abiertas al público y aparece destacado en tu home.${mailing ? ' Además sale el mailing de lanzamiento a toda la base.' : ''}`)) return;
+          const sending = !setup.landing?.launchedAt && (d.landing.launchMailing || d.landing.launchPush);
+          const noReel = d.landing.launchMailing && !d.landing.reelUrl;
+          if (live && !confirm(`¿Activar el evento? La página y la venta quedan abiertas al público y aparece destacado en tu home.${sending ? `\n\nAdemás sale el lanzamiento: ${[d.landing.launchMailing && 'mailing a toda la base', d.landing.launchPush && 'notificación a la app'].filter(Boolean).join(' y ')}.` : ''}${sending && noReel ? '\n\n⚠️ Todavía no cargaste el link del reel de Instagram: el correo saldrá sin ese botón.' : ''}`)) return;
           setLive.mutate({ slug, live });
         }} />
-        <div className="flex w-full items-start gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-          <Switch checked={d.landing.launchMailing} disabled={!!setup.landing?.launchedAt} onCheckedChange={(v) => editLanding({ launchMailing: v })} />
+        <div className="w-full space-y-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+          <p className="text-sm font-semibold">Lanzamiento al activar <span className="font-normal text-muted-foreground">· sale una sola vez, la primera vez que activas</span></p>
+          {setup.landing?.launchedAt && (
+            <p className="rounded-xl bg-emerald-500/10 px-3 py-2 text-xs text-emerald-200">Ya salió el {new Date(setup.landing.launchedAt).toLocaleString('es-CL', { timeZone: 'America/Santiago', dateStyle: 'medium', timeStyle: 'short' })}. El avance del mailing se ve en Mensajes → Mailing y el de la notificación en Notificaciones push.</p>
+          )}
+          <div className="flex items-start gap-3">
+            <Switch checked={d.landing.launchMailing} disabled={!!setup.landing?.launchedAt} onCheckedChange={(v) => editLanding({ launchMailing: v })} />
+            <div>
+              <p className="text-sm font-semibold">Mailing a toda la base</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">Correo PLAYMORE (negro y dorado) a clientes y leads que todavía no tienen entrada. Ese día el tope de envío sube para que llegue a todos en unas horas.</p>
+            </div>
+          </div>
+          <div className="flex items-start gap-3">
+            <Switch checked={d.landing.launchPush} disabled={!!setup.landing?.launchedAt} onCheckedChange={(v) => editLanding({ launchPush: v })} />
+            <div>
+              <p className="text-sm font-semibold">Notificación a la app</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">Sale junto con el mailing a quienes tienen la app y avisos activados. Respeta los topes y horarios de silencio de Notificaciones push.</p>
+            </div>
+          </div>
           <div>
-            <p className="text-sm font-semibold">Mailing de lanzamiento al activar</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {setup.landing?.launchedAt
-                ? `Ya se programó el ${new Date(setup.landing.launchedAt).toLocaleString('es-CL', { timeZone: 'America/Santiago', dateStyle: 'medium', timeStyle: 'short' })}. Sale una sola vez; el avance se ve en Mensajes → Mailing.`
-                : 'Al activar el evento sale solo el correo PLAYMORE (negro y oro, con el flyer) a toda la base que todavía no tiene entrada: clientes y leads. Ese día el tope de envío sube para que llegue a todos en unas horas. Si lo apagas, recuerda guardar.'}
-            </p>
+            <Label>Link del primer reel de Instagram (colab con Dalmore)</Label>
+            <Input className="mt-1" placeholder="https://www.instagram.com/reel/…" value={d.landing.reelUrl} disabled={!!setup.landing?.launchedAt} onChange={(e) => editLanding({ reelUrl: e.target.value.trim() })} />
+            <p className="mt-1 text-xs text-muted-foreground">Súbelo a Instagram antes de activar y pega aquí el link: el correo lo lleva como botón “Míralo en Instagram”. Si lo dejas vacío, el correo sale sin ese botón. Recuerda guardar.</p>
           </div>
         </div>
       </section>

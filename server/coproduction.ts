@@ -148,49 +148,78 @@ export async function setCoproductionLive(id: number, live: boolean): Promise<vo
 
 export const LAUNCH_CAMPAIGN_NAME = 'PLAYMORE · Lanzamiento de la venta';
 
-/** Mailing de lanzamiento: una sola vez, a toda la base (clientes y leads) que todavía no tiene entrada del evento.
- * Queda programado para "ahora": el cron de mailing (cada 5 min) lo arma y lo manda en lotes. */
+/** Lanzamiento de la venta: una sola vez, al activar por primera vez. Sale el mailing a toda la base (clientes y leads)
+ * que todavía no tiene entrada, y la notificación a la app, los dos juntos. Quedan programados para "ahora": el cron de
+ * mailing (cada 5 min) arma y manda los correos en lotes; la notificación sale de inmediato. Cada parte se prende o se
+ * apaga en Configuración y el fallo de una no frena a la otra. */
 async function scheduleLaunchMailing(cp: Coproduction): Promise<void> {
   const landing = normalizeLanding(cp.landing);
-  if (!landing.launchMailing || landing.launchedAt || !cp.eventId) return;
+  if (landing.launchedAt || !cp.eventId || (!landing.launchMailing && !landing.launchPush)) return;
   const db = await getDb();
   if (!db) return;
-  const [ev] = await db.select({ eventDate: events.eventDate, venue: events.venue }).from(events).where(eq(events.id, cp.eventId)).limit(1);
+  const [ev] = await db.select({ eventDate: events.eventDate, venue: events.venue, slug: events.slug, title: events.title }).from(events).where(eq(events.id, cp.eventId)).limit(1);
   const shown = applyEventToLanding(landing, ev);
   const launchedAt = new Date().toISOString();
   // Se marca antes de programar: un segundo clic en "Activar" ya no manda otra campaña.
   await db.update(coproductions).set({ landing: { ...landing, launchedAt } }).where(eq(coproductions.id, cp.id));
-  try {
-    const host = Object.entries(COLAB_HOSTS).find(([, s]) => s === cp.slug)?.[0] ?? 'dalmore.mansionplayroom.cl';
-    const { scheduleMailingCampaign } = await import('./mailing');
-    await scheduleMailingCampaign({
-      name: LAUNCH_CAMPAIGN_NAME,
-      audienceDescription: `Toda la base (clientes y leads) sin entrada de ${landing.eventName}`,
-      audienceFilters: { notPurchasedEventId: cp.eventId, includeLeads: true },
-      content: {
-        subject: `${landing.eventName}: se abrió la venta de entradas`,
-        subjectB: `Ya puedes comprar tu entrada para ${landing.eventName} · Playroom × Dalmore`,
-        preheader: 'Las fiestas liberales más grandes de la RM y la V Región, juntas por primera vez.',
-        headline: `Se abrió la venta de ${landing.eventName}`,
-        paragraphs: [
-          'Las fiestas liberales más grandes de la Región Metropolitana y la V Región se juntan por primera vez. Playroom pone el juego, Dalmore la exclusividad: una noche nueva, libre y con respeto.',
-          'Un nuevo spot especial en Providencia, dos pistas y dos comunidades en un mismo lugar. Las entradas son nominativas y la primera tanda es la de mejor precio.',
-          'La dirección exacta te llega por correo junto con tu entrada. Evento solo para mayores de 21.',
-        ],
-        ctaText: 'Comprar mi entrada',
-        highlightLabel: `${shown.dateText} · ${shown.timeText} hrs`,
-        highlightValue: 'Venta abierta',
-        theme: 'playmore',
-      },
-      ctaUrl: `https://${host}/?utm_source=mailing&utm_medium=email&utm_campaign=playmore-lanzamiento`,
-      eventId: cp.eventId,
-      scheduledAt: new Date(),
-    });
-  } catch (err) {
-    // Sin campaña no queda marcado: el próximo "Activar" lo vuelve a intentar.
-    await db.update(coproductions).set({ landing: { ...landing, launchedAt: '' } }).where(eq(coproductions.id, cp.id));
-    throw err;
+  const host = Object.entries(COLAB_HOSTS).find(([, s]) => s === cp.slug)?.[0] ?? 'dalmore.mansionplayroom.cl';
+  let failures = 0;
+
+  if (landing.launchMailing) {
+    try {
+      const { scheduleMailingCampaign } = await import('./mailing');
+      await scheduleMailingCampaign({
+        name: LAUNCH_CAMPAIGN_NAME,
+        audienceDescription: `Toda la base (clientes y leads) sin entrada de ${landing.eventName}`,
+        audienceFilters: { notPurchasedEventId: cp.eventId, includeLeads: true },
+        content: {
+          subject: `${landing.eventName}: se abrió la venta de entradas`,
+          subjectB: `Ya puedes comprar tu entrada para ${landing.eventName} · Playroom × Dalmore`,
+          preheader: 'Las fiestas liberales más grandes de la RM y la V Región, juntas por primera vez.',
+          headline: `Se abrió la venta de ${landing.eventName}`,
+          paragraphs: [
+            'Las fiestas liberales más grandes de la Región Metropolitana y la V Región se juntan por primera vez. Playroom pone el juego, Dalmore la exclusividad: una noche nueva, libre y con respeto.',
+            'Un nuevo spot especial en Providencia, dos pistas y dos comunidades en un mismo lugar. Las entradas son nominativas y la primera tanda es la de mejor precio.',
+            'La dirección exacta te llega por correo junto con tu entrada. Evento solo para mayores de 21.',
+          ],
+          ctaText: 'Comprar mi entrada',
+          // El primer reel (colab con Dalmore en Instagram): solo si ya se cargó el link en Configuración.
+          ...(landing.reelUrl ? { secondaryCtaText: 'Míralo en Instagram', secondaryCtaUrl: landing.reelUrl } : {}),
+          highlightLabel: `${shown.dateText} · ${shown.timeText} hrs`,
+          highlightValue: 'Venta abierta',
+          theme: 'playmore',
+        },
+        ctaUrl: `https://${host}/?utm_source=mailing&utm_medium=email&utm_campaign=playmore-lanzamiento`,
+        eventId: cp.eventId,
+        scheduledAt: new Date(),
+      });
+    } catch (err) {
+      failures++;
+      console.error('[Coproducción] No se pudo programar el mailing de lanzamiento:', err);
+    }
   }
+
+  if (landing.launchPush) {
+    try {
+      const { createPushCampaign, sendPushCampaign } = await import('./customerPush');
+      const id = await createPushCampaign({
+        title: `${landing.eventName}: se abrió la venta`,
+        body: 'Las fiestas liberales más grandes de la RM y la V Región, juntas por primera vez. Compra tu entrada.',
+        url: `/checkout/${ev?.slug ?? ''}`,
+        imageUrl: 'https://mansionplayroom.cl/playmore/og-playmore-v4.jpg',
+        segment: { type: 'combo', include: [], exclude: [] },
+        kind: 'lanzamiento-colab', eventId: cp.eventId, status: 'scheduled', scheduledAt: new Date(), createdBy: 'lanzamiento PLAYMORE',
+      });
+      await sendPushCampaign(id);
+    } catch (err) {
+      failures++;
+      console.error('[Coproducción] No se pudo enviar la notificación de lanzamiento:', err);
+    }
+  }
+
+  // Si todo falló, no queda marcado: el próximo "Activar" lo vuelve a intentar.
+  const wanted = Number(landing.launchMailing) + Number(landing.launchPush);
+  if (failures >= wanted) await db.update(coproductions).set({ landing: { ...landing, launchedAt: '' } }).where(eq(coproductions.id, cp.id));
 }
 
 /** Las 24 h siguientes a un lanzamiento el mailing puede salir completo (ver processMailingCronBatch). */
