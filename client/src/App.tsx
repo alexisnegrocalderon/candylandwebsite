@@ -36,6 +36,7 @@ import { dropOrphanLayers, goBack, holdScroll, navDirection, routeScrollTarget }
 import { hasWelcomeParam } from "@shared/welcome";
 import { DARK_CHROME_BG, isDarkRoute } from "@/lib/darkChrome";
 import { colabSlugForHost, isColabHost } from "@shared/colabHosts";
+import { lockZoom } from "@/lib/lockZoom";
 // La portada "/" pasa por HalloweenHome: renderiza la Home oficial tal cual,
 // y solo le agrega la paleta Halloween si el switch del admin está prendido
 // (o siempre en /halloween, la vista previa).
@@ -338,6 +339,9 @@ function App() {
     return () => window.clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // La app es una pantalla fija: sin zoom por pellizco ni por doble toque (solo en modo app; el computador no cambia).
+  useEffect(() => { if (isAppMode()) lockZoom(); }, []);
 
   useEffect(() => {
     if (isSiteApp()) { hideSplash(); reportAppOpen(); }
