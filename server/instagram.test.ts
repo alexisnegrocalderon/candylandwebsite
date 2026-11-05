@@ -552,7 +552,7 @@ describe('buildInstagramContext', () => {
     ] as any);
 
     const context = await buildInstagramContext(new Date('2026-09-13T12:00:00Z'));
-    expect(context).toContain('sube a $13.000 en la próxima tanda');
+    expect(context).toContain('sube a $12.500 en la próxima tanda');
     expect(context).toContain('30 de septiembre');
     expect(context).not.toMatch(/quedan\s+\d/);
   });

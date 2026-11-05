@@ -21,13 +21,14 @@ export const DEFAULT_TANDA_SCHEDULE: TandaPhase[] = [
 ];
 
 /** Precio de la fase, a partir del precio general y el % de descuento de esa
- * fase. Redondea al millar más cercano -- todos los precios de este negocio
- * ya vienen en miles ($12.000, $20.000, $30.000...), un redondeo más fino
- * generaría precios como $17.850 que no calzan con esa convención. */
+ * fase. Sin redondeo al millar (decisión del dueño): el precio es el % exacto,
+ * así $25.000 al 50 % queda en $12.500 y al 30 % en $17.500. Solo se redondea
+ * al peso entero, que es lo que guarda la columna `price` (escala 0); el
+ * `toFixed` evita que el flotante deje $17.499,99999 donde va $17.500. */
 export function computePhasePrice(originalPrice: number, discountPercent: number): number {
   if (!Number.isFinite(originalPrice) || originalPrice <= 0) return 0;
   const raw = originalPrice * (1 - discountPercent / 100);
-  return Math.round(raw / 1000) * 1000;
+  return Math.round(Number(raw.toFixed(6)));
 }
 
 /** Acepta tanto el arreglo de números viejo (`[60,50,40,30,0]`, la forma que

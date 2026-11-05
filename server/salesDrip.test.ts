@@ -61,7 +61,7 @@ describe("buildSalesDripContent", () => {
 
   it("anuncia el próximo precio con datos reales y los cupos", () => {
     const text = buildSalesDripContent(event(30) as any, offer, NOW).paragraphs.join(' ');
-    expect(text).toContain('después sube a $13.000');
+    expect(text).toContain('después sube a $12.500');
     expect(text).toContain('Quedan 40 cupos');
   });
 
