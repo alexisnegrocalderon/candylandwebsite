@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { firstPurchaseProblem, needsSolteroApproval, parseDuoComposicion, solteroGateProblem, solteroRequestProblem, colabMenInstagramProblem } from './soltero';
+import { firstPurchaseProblem, needsSolteroApproval, parseDuoComposicion, solteroGateProblem, solteroRequestProblem } from './soltero';
 
 const soltero = { accesoSlug: 'soltero', category: 'acceso' };
 const duo = { accesoSlug: 'duo', category: 'acceso' };
@@ -71,24 +71,3 @@ describe('datos obligatorios', () => {
     expect(solteroRequestProblem({ ...ok, rut: 'AB12345' })).toMatch(/RUT/);
   });
 });
-
-describe('colabMenInstagramProblem', () => {
-  const solo = [{ accesoSlug: 'soltero', category: 'acceso' }];
-  const duo = [{ accesoSlug: 'duo', category: 'acceso' }];
-  const soltera = [{ accesoSlug: 'soltera', category: 'acceso' }];
-  it('hombre solo y dúo de hombres: Instagram obligatorio', () => {
-    expect(colabMenInstagramProblem({ lines: solo, instagram: '' })).toMatch(/Instagram/);
-    expect(colabMenInstagramProblem({ lines: duo, duoComposicion: 'dos_hombres', instagram: null })).toMatch(/Instagram/);
-    expect(colabMenInstagramProblem({ lines: solo, instagram: '@pedro.soto' })).toBeNull();
-  });
-  it('el resto de los accesos no lo piden', () => {
-    expect(colabMenInstagramProblem({ lines: soltera, instagram: '' })).toBeNull();
-    expect(colabMenInstagramProblem({ lines: duo, duoComposicion: 'mixta', instagram: '' })).toBeNull();
-    expect(colabMenInstagramProblem({ lines: duo, instagram: '' })).toBeNull();
-  });
-  it('un soltero aprobado no lo repite, pero el dúo de hombres sí', () => {
-    expect(colabMenInstagramProblem({ lines: solo, instagram: '', approved: true })).toBeNull();
-    expect(colabMenInstagramProblem({ lines: duo, duoComposicion: 'dos_hombres', instagram: '', approved: true })).toMatch(/Instagram/);
-  });
-});
-

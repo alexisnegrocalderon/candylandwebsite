@@ -10,7 +10,7 @@ import { computeCodeDiscount } from "../shared/discountCode";
 import { cardPaymentProblem } from "../shared/addon";
 import { classifyHandoffNoise } from "../shared/agentKnowledge";
 import { BLOCK_BY_LABEL, blockedKeysFor, hasHardKey, matchBlocked, type BlockedRow, type BlockMatchBy, type Identity } from "../shared/blockedMatch";
-import { colabMenInstagramProblem, firstPurchaseProblem, parseDuoComposicion, solteroGateProblem } from "../shared/soltero";
+import { firstPurchaseProblem, parseDuoComposicion, solteroGateProblem } from "../shared/soltero";
 import { findExistingMatch, mergeFields, type ImportFields } from "../shared/blockedImport";
 import { ambassadorBuyerDiscount, bestBuyerDiscount, effectiveBuyerDiscountPercent, type GeneralBuyerDiscount } from "../shared/ambassadorDiscount";
 import { normalizeIgHandle, saysAlreadyBought, type BuyerCandidate } from "../shared/igCustomerLink";
@@ -1713,15 +1713,6 @@ export async function createOrder(input: {
       buyerEmail: input.buyerEmail, approvedEmail: input.solteroApprovedEmail, partner: !!partnerCampaign,
     });
     if (gate) throw new Error(gate);
-  }
-
-  // Colaboración (PLAYMORE): hombres solos y dúo de hombres dejan su Instagram (uno solo) para poder verificar que cumplen el perfil.
-  if (await isCoproductionEventId(event.id)) {
-    const igProblem = colabMenInstagramProblem({
-      lines: accessLines, duoComposicion: parseDuoComposicion(input.attendeeData),
-      instagram: parseAttendeeInstagram(input.attendeeData), approved: !!input.solteroApprovedEmail,
-    });
-    if (igProblem) throw new Error(igProblem);
   }
 
   // Primera compra (sin compras anteriores con este correo o RUT): RUT válido (o pasaporte), Instagram y

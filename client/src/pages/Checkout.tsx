@@ -598,6 +598,10 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
   const [refAmbassador, setRefAmbassador] = useState<{ name: string; code: string; buyerDiscountPercent: number } | null>(null);
   const [codeError, setCodeError] = useState('');
   const [communityCodeInput, setCommunityCodeInput] = useState('');
+  // Colab: quien NO tiene código lo pide por WhatsApp dejando su Instagram (solo ahí se pide; con código no hace falta).
+  const [noCode, setNoCode] = useState(false);
+  const [igHandle, setIgHandle] = useState('');
+  const [igTouched, setIgTouched] = useState(false);
   const [communityCodeStatus, setCommunityCodeStatus] = useState<'idle' | 'valid' | 'invalid'>('idle');
   const [communityCodeError, setCommunityCodeError] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -692,7 +696,7 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
       p.push({ id: 'acompanantes', titulo: varios ? '¿Quiénes vienen contigo?' : '¿Quién viene contigo?', sub: 'Nombre y documento tal como aparecen en su carnet.', keys: acompKeys });
     }
     if (requiresCommunityCode) {
-      p.push({ id: 'codigo-comunidad', titulo: 'Tu código de comunidad', sub: 'Lo necesitas para completar esta compra.', keys: colabBrand ? ['buyer__instagram', 'acceso__codigo_acceso'] : ['acceso__codigo_acceso'] });
+      p.push({ id: 'codigo-comunidad', titulo: 'Tu código de comunidad', sub: 'Lo necesitas para completar esta compra.', keys: ['acceso__codigo_acceso'] });
     }
     if (isPartner) {
       p.push({ id: 'bienvenida-playroom', titulo: '💜 Bienvenid@ a Playroom', sub: 'Es tu primera vez con nosotros: así cuidamos la fiesta entre todos. Léelo y confirma para continuar.', keys: [] });
@@ -722,10 +726,8 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
   const allFields = useMemo(() => {
     const buyer = compradorCampos.map((f) => ({ key: `buyer__${f.name}`, field: f }));
     const extra = camposAcceso.map((f) => ({ key: `acceso__${f.name}`, field: f }));
-    // Colab: el Instagram solo se pide a hombres solos y dúo de hombres, en el paso del código (uno solo, obligatorio).
-    const ig = colabBrand && requiresCommunityCode ? CAMPOS_COMPRADOR.filter((f) => f.name === 'instagram').map((f) => ({ key: 'buyer__instagram', field: f })) : [];
-    return [...buyer, ...ig, ...extra];
-  }, [camposAcceso, compradorCampos, colabBrand, requiresCommunityCode]);
+    return [...buyer, ...extra];
+  }, [camposAcceso, compradorCampos]);
 
   const schema = useMemo(() => buildSchema(allFields), [allFields]);
 
@@ -734,7 +736,7 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
     try { return JSON.parse(sessionStorage.getItem(storageKey) || '{}'); } catch { return {}; }
   }, []);
 
-  const { register, handleSubmit, trigger, setValue, setError, watch, formState: { errors } } = useForm({
+  const { register, handleSubmit, trigger, setValue, watch, formState: { errors } } = useForm({
     resolver: zodResolver(schema),
     mode: 'onBlur',
     defaultValues: draft.values ?? {},
@@ -947,10 +949,6 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
 
   /* ── Navegación entre pasos ──────────────────────────────── */
   const continuar = async () => {
-    if (colabBrand && pasoActual.id === 'codigo-comunidad') {
-      const problem = instagramProblem(watch('buyer__instagram' as any));
-      if (problem) { setError('buyer__instagram' as any, { message: problem }); return; }
-    }
     if (pasoActual.keys.length > 0) {
       const ok = await trigger(pasoActual.keys as any, { shouldFocus: true });
       if (!ok) return;
@@ -1528,17 +1526,6 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
               {/* Paso: código de comunidad (Soltero / Dúo Dos Hombres) — validación en vivo */}
               {pasoActual.id === 'codigo-comunidad' && (
                 <div className="space-y-4">
-                  {colabBrand && (
-                    <div>
-                      <Label htmlFor="buyer__instagram" className="mb-1.5 block text-sm font-semibold">Tu Instagram (obligatorio)</Label>
-                      <Input id="buyer__instagram" {...register('buyer__instagram' as any)} placeholder="@tuusuario" autoComplete="off" autoCapitalize="none" autoCorrect="off" className="h-12 text-base" />
-                      {err('buyer__instagram')
-                        ? <p className="mt-1.5 text-sm text-destructive" role="alert">{err('buyer__instagram')}</p>
-                        : <p className="mt-1.5 text-xs leading-snug text-muted-foreground">{duoComposicion === 'dos_hombres' && accesoSlug === 'duo'
-                          ? 'Un solo Instagram, el de uno de los dos. Este acceso es para parejas, no para amigos.'
-                          : 'Lo usamos para verificar tu identidad y que cumples con el perfil de la fiesta.'}</p>}
-                    </div>
-                  )}
                   <div>
                     <Input
                       value={communityCodeInput}
@@ -1567,21 +1554,39 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
                       >
                         {validateCommunityCode.isPending ? 'Validando…' : 'Validar código'}
                       </Button>
-                      {(() => {
-                        const ig = String(watch('buyer__instagram' as any) ?? '');
-                        const igOk = !colabBrand || !instagramProblem(ig);
-                        const link = whatsappComunidadLink(accesoSlug === 'soltero' ? 'Soltero' : 'Dúo (Dos Hombres)', eventLabel, colabBrand ? { nombre: String(watch('buyer__nombre') ?? ''), instagram: normalizeIgHandle(ig) ? `@${normalizeIgHandle(ig)}` : ig, documento: String(watch('buyer__rut') ?? '') } : undefined);
-                        return (
-                          <>
-                            <a href={igOk ? link : undefined} target="_blank" rel="noopener noreferrer" aria-disabled={!igOk}
-                              onClick={(e) => { if (!igOk) { e.preventDefault(); setError('buyer__instagram' as any, { message: instagramProblem(ig) ?? 'Escribe tu Instagram.' }); } }}
-                              className={`btn-jelly w-full inline-flex items-center justify-center gap-2 px-6 py-3.5 bg-primary text-primary-foreground rounded-full text-sm font-bold uppercase tracking-wide interactive${igOk ? '' : ' opacity-50'}`}>
-                              <MessageCircle className="w-4 h-4" /> Pedir mi código por WhatsApp
+                      {colabBrand ? (
+                        !noCode ? (
+                          <button type="button" onClick={() => setNoCode(true)} className="w-full text-center text-sm font-semibold text-primary underline-offset-2 hover:underline">
+                            No tengo código
+                          </button>
+                        ) : (
+                          <div className="space-y-3 rounded-2xl border border-[#d6b25e]/35 bg-white/[0.03] p-4">
+                            <div>
+                              <Label htmlFor="ig-comunidad" className="mb-1.5 block text-sm font-semibold">Tu Instagram (obligatorio)</Label>
+                              <Input id="ig-comunidad" value={igHandle} onChange={(e) => { setIgHandle(e.target.value); setIgTouched(false); }} placeholder="@tuusuario" autoComplete="off" autoCapitalize="none" autoCorrect="off" className="h-12 text-base" />
+                              {igTouched && instagramProblem(igHandle)
+                                ? <p className="mt-1.5 text-sm text-destructive" role="alert">{instagramProblem(igHandle)}</p>
+                                : <p className="mt-1.5 text-xs leading-snug text-muted-foreground">{accesoSlug === 'duo'
+                                  ? 'Un solo Instagram, el de uno de los dos. Este acceso es para parejas, no para amigos.'
+                                  : 'Lo usamos para verificar tu identidad y que cumples con el perfil de la fiesta.'}</p>}
+                            </div>
+                            <a
+                              href={instagramProblem(igHandle) ? undefined : whatsappComunidadLink(accesoSlug === 'soltero' ? 'Soltero' : 'Dúo (Dos Hombres)', eventLabel, {
+                                nombre: String(watch('buyer__nombre') ?? ''), instagram: `@${normalizeIgHandle(igHandle) ?? igHandle.replace(/^@/, '')}`, documento: String(watch('buyer__rut') ?? ''),
+                              })}
+                              target="_blank" rel="noopener noreferrer" aria-disabled={!!instagramProblem(igHandle)}
+                              onClick={(e) => { if (instagramProblem(igHandle)) { e.preventDefault(); setIgTouched(true); } }}
+                              className={`btn-jelly w-full inline-flex items-center justify-center gap-2 px-6 py-3.5 bg-primary text-primary-foreground rounded-full text-sm font-bold uppercase tracking-wide interactive${instagramProblem(igHandle) ? ' opacity-50' : ''}`}
+                            >
+                              <MessageCircle className="w-4 h-4" /> Pedir mi código de comunidad
                             </a>
-                            {colabBrand && !igOk && <p className="-mt-2 text-center text-xs text-muted-foreground">Escribe tu Instagram para pedir tu código.</p>}
-                          </>
-                        );
-                      })()}
+                          </div>
+                        )
+                      ) : (
+                        <a href={whatsappComunidadLink(accesoSlug === 'soltero' ? 'Soltero' : 'Dúo (Dos Hombres)', eventLabel)} target="_blank" rel="noopener noreferrer" className="btn-jelly w-full inline-flex items-center justify-center gap-2 px-6 py-3.5 bg-primary text-primary-foreground rounded-full text-sm font-bold uppercase tracking-wide interactive">
+                          <MessageCircle className="w-4 h-4" /> Conseguir mi código por WhatsApp
+                        </a>
+                      )}
                       <a href="/cuenta?soltero=1" className="block text-center text-sm font-semibold text-primary underline-offset-2 hover:underline">
                         ¿Vienes seguido? Pide tu aprobación en tu app y compra sin código
                       </a>
