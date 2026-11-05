@@ -4,6 +4,7 @@ import { orders, orderItems, ticketTypes, discountCodes, lockerItems, kitchenTic
 import { applyOp } from "./ops";
 import { ensureCustomerIdForEmail, awardPlaycoins, redeemPlaycoinsAuthoritative, validateDiscountCode, verifyCardPin, spendPrepaidAuthoritative, refundPrepaidForVoidedSale } from "../db";
 import { isTopupProduct } from "../../shared/prepaid";
+import { COLAB_NO_PLAYCARD_MESSAGE, cajaSaleChargesPlaycard } from "../../shared/colabPlaycard";
 import { computeCodeDiscount } from "../../shared/discountCode";
 import { descontarVenta } from "../insumos";
 
@@ -102,6 +103,12 @@ export async function createCajaSale(
   }
 ) {
   if (params.items.length === 0) throw new Error("La venta necesita al menos un producto");
+
+  // Evento de colaboración sin sistema PlayCard: la PlayCard no recibe cargos (ni saldo ni canje de Playcoins).
+  if (cajaSaleChargesPlaycard(params)) {
+    const { colabBlocksPlaycard } = await import("../coproduction");
+    if (await colabBlocksPlaycard(params.eventId)) throw new Error(COLAB_NO_PLAYCARD_MESSAGE);
+  }
 
   // El QR de «Pagar en caja» de la app (y la autorización de un supervisor) existen SOLO para cobrar con
   // saldo. Si llegan con otro medio de pago -- la caja se quedaba con el último medio usado (débito, QR de

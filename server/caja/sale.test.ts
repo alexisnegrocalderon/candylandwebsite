@@ -36,6 +36,10 @@ vi.mock("../memberPay", async (importOriginal) => ({
 const descontarVenta = vi.fn(async (_db: unknown, _p: { opId: string; eventId: number; operatorId: number; items: { ticketTypeId: number; quantity: number }[] }) => {});
 vi.mock("../insumos", () => ({ descontarVenta: (...args: [unknown, any]) => descontarVenta(...args) }));
 
+// Evento de colaboración sin sistema PlayCard: la caja no cobra con saldo ni canjea Playcoins (server/coproduction.ts).
+const colabBlocksPlaycard = vi.fn(async (_eventId: number) => false);
+vi.mock("../coproduction", () => ({ colabBlocksPlaycard: (...args: [number]) => colabBlocksPlaycard(...args) }));
+
 const { createCajaSale, resolveCajaBuyerName } = await import("./sale");
 
 /* Doble de la cadena de drizzle. El orden de consultas de `createCajaSale`
@@ -119,6 +123,40 @@ const piscola = { id: 1, name: "Piscola", price: "5000", costPrice: "1800", tota
 const cerveza = { id: 2, name: "Cerveza", price: "4000", costPrice: null, totalStock: 50, soldCount: 50 };
 
 describe("createCajaSale", () => {
+  describe("evento de colaboración sin sistema PlayCard", () => {
+    beforeEach(() => { colabBlocksPlaycard.mockReset(); colabBlocksPlaycard.mockResolvedValue(true); });
+
+    it("rechaza cobrar con saldo y no toca el saldo del cliente", async () => {
+      spendPrepaidAuthoritative.mockClear();
+      const { db, calls } = makeFakeDb({ products: [piscola] });
+      await expect(createCajaSale(db, { ...baseParams, paymentMethod: "saldo", buyerEmail: "cliente@test.cl", cardPin: "1234", items: [{ ticketTypeId: 1, quantity: 1 }] }))
+        .rejects.toThrow(/colaboración/);
+      expect(spendPrepaidAuthoritative).not.toHaveBeenCalled();
+      expect(calls.order).toBeNull();
+    });
+
+    it("rechaza el cobro mixto, el QR de «Pagar en caja» y el canje de Playcoins", async () => {
+      const mk = () => makeFakeDb({ products: [piscola] }).db;
+      await expect(createCajaSale(mk(), { ...baseParams, paymentMethod: "efectivo", saldoAmount: 2000, buyerEmail: "c@test.cl", cardPin: "1234", items: [{ ticketTypeId: 1, quantity: 1 }] })).rejects.toThrow(/colaboración/);
+      await expect(createCajaSale(mk(), { ...baseParams, paymentMethod: "debito", payToken: "tok", buyerEmail: "c@test.cl", items: [{ ticketTypeId: 1, quantity: 1 }] })).rejects.toThrow(/colaboración/);
+      await expect(createCajaSale(mk(), { ...baseParams, paymentMethod: "debito", redeemPlaycoins: 500, buyerEmail: "c@test.cl", items: [{ ticketTypeId: 1, quantity: 1 }] })).rejects.toThrow(/colaboración/);
+    });
+
+    it("una venta en efectivo sigue pasando", async () => {
+      const { db, calls } = makeFakeDb({ products: [piscola] });
+      const res = await createCajaSale(db, { ...baseParams, items: [{ ticketTypeId: 1, quantity: 1 }] });
+      expect(res.result).toBe("applied");
+      expect(calls.order).toMatchObject({ paymentStatus: "approved" });
+    });
+
+    it("un evento normal sigue cobrando con saldo", async () => {
+      colabBlocksPlaycard.mockResolvedValue(false);
+      const { db } = makeFakeDb({ products: [piscola] });
+      const res = await createCajaSale(db, { ...baseParams, paymentMethod: "saldo", buyerEmail: "cliente@test.cl", cardPin: "1234", items: [{ ticketTypeId: 1, quantity: 1 }] });
+      expect(res.result).toBe("applied");
+    });
+  });
+
   it("cobra con el precio del servidor, no con lo que mande el cliente", async () => {
     const { db, calls } = makeFakeDb({ products: [piscola] });
 

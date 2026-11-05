@@ -31,7 +31,11 @@ const Field = ({ label, value, cls = '', wrap = false }: { label: string; value:
 );
 
 /** La entrada de PLAYMORE: titular, acceso, fecha, hora y lugar, con la cuenta regresiva o «Ya entraste». */
-export function PlaymorePass({ ev, t, holder, landing }: { ev: MeEvent; t: MeTicket; holder: string; landing?: CoproductionLanding | null }) {
+export function PlaymorePass({ ev, t, holder, landing, wallet }: {
+  ev: MeEvent; t: MeTicket; holder: string; landing?: CoproductionLanding | null;
+  /** Saldo y Playcoins de la cuenta: se ven pero en este evento no se pueden usar. */
+  wallet?: { saldo: number; playcoins: number } | null;
+}) {
   const countdown = useCountdown(ev.eventDate);
   const used = t.status === 'used';
   const d = new Date(ev.eventDate);
@@ -63,6 +67,13 @@ export function PlaymorePass({ ev, t, holder, landing }: { ev: MeEvent; t: MeTic
           {used ? `✓ YA ENTRASTE${t.usedAt ? ` · ${formatChileTime(t.usedAt)}` : ''}` : countdown}
         </span>
       </div>
+      {wallet && (
+        <div className="mt-3.5 flex items-end justify-between gap-3 border-t border-dashed border-[#d6b25e]/40 pt-3">
+          <Field label="SALDO" value={clp(wallet.saldo)} />
+          <Field label="PLAYCOINS" value={String(wallet.playcoins)} />
+          <p className="max-w-[44%] text-right text-[8px] font-semibold leading-snug tracking-[0.12em] text-[#e9d9b0]/55">NO SE USAN EN ESTE EVENTO</p>
+        </div>
+      )}
       <p className="mt-3 flex items-center justify-between gap-3 whitespace-nowrap text-[9px] font-semibold tracking-[0.14em] text-[#e9d9b0]/55">
         <span className="font-mono tracking-wider">{maskCode(t.ticketCode)}</span><span>ENTRADA NOMINATIVA · +21</span>
       </p>
@@ -71,10 +82,10 @@ export function PlaymorePass({ ev, t, holder, landing }: { ev: MeEvent; t: MeTic
 }
 
 /** La PlayCard de miembro (saldo y Playcoins) con la cara de PLAYMORE, para quien todavía no tiene entrada: invita a comprar. */
-export function PlaymoreMemberCard({ holder, prepaidBalance, playcoins, landing, buyHref, isPreview, showMoney = true }: {
+export function PlaymoreMemberCard({ holder, prepaidBalance, playcoins, landing, buyHref, isPreview, chargesBlocked = false }: {
   holder: string; prepaidBalance: number; playcoins: number; landing: CoproductionLanding; buyHref: string; isPreview: boolean;
-  /** Con el sistema PlayCard apagado para la colab no se muestran saldo ni Playcoins: solo el titular. */
-  showMoney?: boolean;
+  /** Con el sistema PlayCard apagado para la colab el saldo y los Playcoins se ven, pero no se pueden usar en este evento. */
+  chargesBlocked?: boolean;
 }) {
   return (
     <article className="relative overflow-hidden rounded-[26px] border border-[#d6b25e]/45 p-5 uppercase shadow-[0_18px_50px_-18px_rgba(150,21,157,0.6)]" style={{ background: SURFACE }}>
@@ -86,12 +97,12 @@ export function PlaymoreMemberCard({ holder, prepaidBalance, playcoins, landing,
       </div>
       <p className="mt-3 text-[40px] font-extrabold leading-none tracking-[-0.01em]" style={{ background: FUSE, WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent' }}>{landing.eventName}</p>
       <p className="mt-2 text-[11px] font-semibold tracking-[0.2em] text-[#e9d9b0]/85">{landing.dateText} · {landing.timeText} · {landing.venueText}</p>
-      <div className={`mt-4 grid items-end gap-x-5 border-t border-dashed border-[#d6b25e]/40 pt-3.5 ${showMoney ? 'grid-cols-[1fr_auto_auto]' : 'grid-cols-1'}`}>
+      <div className="mt-4 grid grid-cols-[1fr_auto_auto] items-end gap-x-5 border-t border-dashed border-[#d6b25e]/40 pt-3.5">
         <Field label="TITULAR" value={holder} />
-        {showMoney && <Field label="SALDO" value={clp(prepaidBalance)} />}
-        {showMoney && <Field label="PLAYCOINS" value={String(playcoins)} />}
+        <Field label="SALDO" value={clp(prepaidBalance)} />
+        <Field label="PLAYCOINS" value={String(playcoins)} />
       </div>
-      {!showMoney && <p className="mt-2 text-[10px] font-semibold tracking-[0.16em] text-[#e9d9b0]/65">TU ENTRADA CON QR QUEDA AQUÍ APENAS COMPRES. ES NOMINATIVA Y SE VALIDA CON TU DOCUMENTO EN LA PUERTA.</p>}
+      {chargesBlocked && <p className="mt-2 text-[10px] font-semibold leading-snug tracking-[0.14em] text-[#e9d9b0]/65">EN ESTE EVENTO NO SE PUEDE PAGAR CON SALDO NI PLAYCOINS. TU ENTRADA CON QR QUEDA AQUÍ APENAS COMPRES Y SE VALIDA CON TU DOCUMENTO EN LA PUERTA.</p>}
       <Link href={buyHref} className="mt-4 inline-flex h-11 items-center gap-2 rounded-full px-5 text-[12px] font-bold tracking-[0.16em] text-[#141210] shadow-[0_14px_40px_-12px_rgba(247,231,168,0.55)]" style={{ background: GOLD }}>
         COMPRAR ENTRADA <ArrowRight className="h-4 w-4" aria-hidden="true" />
       </Link>

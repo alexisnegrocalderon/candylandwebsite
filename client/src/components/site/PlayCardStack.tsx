@@ -65,15 +65,15 @@ export function PlayCardStack({ ev, holder, prepaidBalance, playcoins, movements
 
   // La entrada de PLAYMORE se ve como PLAYMORE; las demás, como siempre.
   const isPm = !!playmore && ev?.eventSlug === playmore.slug;
-  // Colab sin sistema PlayCard: solo el QR de ingreso. Nada de saldo, Playcoins, pagar, recargar ni extras de «Mi noche».
+  // Colab sin sistema PlayCard: el saldo y los Playcoins se ven, pero no se pueden usar. Sin pagar, recargar ni extras de «Mi noche».
   const noMoney = hidesPlaycardMoney(playmore ? { slug: playmore.slug, usesPlaycard: playmore.landing.usesPlaycard } : null, ev?.eventSlug);
   const nightEv = noMoney ? null : ev;
-  const passOf = (x: MeTicket) => isPm ? <PlaymorePass ev={ev!} t={x} holder={holder} landing={playmore!.landing} /> : <TicketPass ev={ev!} t={x} holder={holder} />;
+  const passOf = (x: MeTicket) => isPm ? <PlaymorePass ev={ev!} t={x} holder={holder} landing={playmore!.landing} wallet={{ saldo: prepaidBalance, playcoins }} /> : <TicketPass ev={ev!} t={x} holder={holder} />;
   const pass = hasPass ? passOf(t!) : null;
   const peek = next ? passOf(next) : null;
   // Sin entrada para mostrar: la PlayCard de miembro (con la cara de PLAYMORE mientras se vende).
   const memberCard = playmore ? (
-    <PlaymoreMemberCard holder={holder} prepaidBalance={prepaidBalance} playcoins={playcoins} landing={playmore.landing} buyHref={playmore.buyHref} isPreview={playmore.isPreview} showMoney={!noMoney} />
+    <PlaymoreMemberCard holder={holder} prepaidBalance={prepaidBalance} playcoins={playcoins} landing={playmore.landing} buyHref={playmore.buyHref} isPreview={playmore.isPreview} chargesBlocked={noMoney} />
   ) : (
     <TiltCard>
       <WalletCard

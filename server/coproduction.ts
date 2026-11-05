@@ -15,6 +15,7 @@ import { hashPin, verifyPin } from './caja/auth';
 import { normalizeLanding, applyEventToLanding, splitProfit, generatePartnerPassword, type ColabBrand, type CoproductionLanding } from '../shared/coproduction';
 import { personasForTicket } from '../shared/mission300';
 import { COLAB_HOSTS } from '../shared/colabHosts';
+import { presaleParkingOnlyFor } from '../shared/colabPlaycard';
 
 const isMissingTable = (err: unknown) => /doesn't exist|no such table|unknown table/i.test(String((err as any)?.message ?? (err as any)?.cause?.message ?? err));
 
@@ -110,6 +111,7 @@ export async function updateCoproductionSetup(id: number, patch: {
       .where(and(eq(coproductions.eventId, patch.eventId), ne(coproductions.id, id))).limit(1);
     if (other) throw new Error('Ese evento ya está enlazado a otra co-producción.');
   }
+  const touchesPresale = patch.eventId !== undefined || !!patch.landing;
   await db.update(coproductions).set({
     ...(patch.eventId !== undefined ? { eventId: patch.eventId } : {}),
     ...(patch.splitPercentPartner !== undefined ? { splitPercentPartner: Math.min(100, Math.max(0, Math.round(patch.splitPercentPartner))) } : {}),
@@ -117,6 +119,29 @@ export async function updateCoproductionSetup(id: number, patch: {
     // `launchedAt` nunca viene del editor: una pestaña vieja del panel no puede borrarlo y hacer que el lanzamiento salga dos veces.
     ...(patch.landing ? { landing: normalizeLanding({ ...normalizeLanding(cp.landing), ...patch.landing, launchedAt: normalizeLanding(cp.landing).launchedAt }) } : {}),
   }).where(eq(coproductions.id, id));
+  if (touchesPresale) await syncColabPresale(id);
+}
+
+/** El evento enlazado vende por la web solo entrada y estacionamiento mientras la colaboración NO use el sistema PlayCard
+ * (el interruptor del panel). Se reutiliza `events.presaleParkingOnly`, que ya bloquea en el servidor cualquier otro extra o
+ * recarga de saldo. Nunca lanza: un fallo acá no debe romper guardar la configuración. */
+export async function syncColabPresale(coproductionId: number): Promise<void> {
+  try {
+    const db = await getDb();
+    if (!db) return;
+    const cp = await getCoproductionById(coproductionId);
+    if (!cp?.eventId) return;
+    await db.update(events).set({ presaleParkingOnly: presaleParkingOnlyFor(normalizeLanding(cp.landing).usesPlaycard) }).where(eq(events.id, cp.eventId));
+  } catch (err) {
+    console.error('[Coproducción] No se pudo sincronizar «solo entrada y estacionamiento»:', err);
+  }
+}
+
+/** ¿Este evento es de una colaboración que NO usa el sistema PlayCard? Ahí la PlayCard no puede recibir cargos (saldo ni Playcoins),
+ * esté la colaboración activa o todavía por venir. */
+export async function colabBlocksPlaycard(eventId: number): Promise<boolean> {
+  const cp = await getCoproductionByEventId(eventId);
+  return !!cp && !normalizeLanding(cp.landing).usesPlaycard;
 }
 
 export async function rotatePreviewToken(id: number): Promise<string> {
@@ -136,6 +161,7 @@ export async function setCoproductionLive(id: number, live: boolean): Promise<vo
   if (!cp) throw new Error('Co-producción no encontrada');
   if (live && !cp.eventId) throw new Error('Primero enlaza el evento en Configuración.');
   await db.update(coproductions).set({ isLive: live ? 1 : 0 }).where(eq(coproductions.id, id));
+  if (live) await syncColabPresale(id);
   if (cp.eventId) {
     await db.update(events).set(live ? { status: 'published', featured: 1 } : { status: 'draft', featured: 0 })
       .where(eq(events.id, cp.eventId));

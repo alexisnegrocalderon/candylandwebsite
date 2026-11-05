@@ -1060,7 +1060,7 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
                     ...(animador ? [{ key: 'animador', label: 'Animador', icon: Mic, onClick: () => { setMore(false); setSheet('animador'); } }] : []),
                     ...(dosier ? [{ key: 'dosier', label: 'Dosier', icon: BookOpen, onClick: () => { setMore(false); setSheet('dosier'); } }] : []),
                     { key: 'entradas', label: 'Mis entradas', icon: TicketIcon, onClick: () => { setMore(false); setSheet('entradas'); } },
-                    ...(!pmNoMoney ? [{ key: 'movimientos', label: 'Movimientos', icon: History, onClick: () => { setMore(false); setSheet('movimientos'); } }] : []),
+                    { key: 'movimientos', label: 'Movimientos', icon: History, onClick: () => { setMore(false); setSheet('movimientos'); } },
                     ...(pay.cajaPay && !pmNoMoney ? [{ key: 'caja', label: 'Pagar en caja', icon: Wallet, onClick: () => { setMore(false); setPayOpen(true); } }] : []),
                     ...(pay.accountTopup && !pmNoMoney ? [{ key: 'recarga', label: 'Recargar saldo', icon: Plus, onClick: () => { setMore(false); setTopupOpen(true); } }] : []),
                     { key: 'beneficios', label: 'Beneficios', icon: Sparkles, onClick: () => { setMore(false); setSheet('beneficios'); } },

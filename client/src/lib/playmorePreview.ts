@@ -29,7 +29,8 @@ export function readPlaymorePreviewToken(): string | undefined {
   return token;
 }
 
-/** ¿La PlayCard de la app esconde todo lo que tenga que ver con dinero (saldo, Playcoins, pagar, recargar, extras de «Mi noche»)?
+/** ¿La PlayCard de la app esconde las acciones con dinero (pagar en caja, recargar, extras de «Mi noche»)? El saldo y los Playcoins
+ * se siguen mostrando, pero no se pueden usar en ese evento.
  * Sí cuando la colaboración está activa (a la venta o en vista previa), NO usa el sistema PlayCard y la tarjeta que se está
  * mostrando es la de esa colaboración o no hay entrada. Con entradas de otros eventos la PlayCard sigue como siempre. */
 export function hidesPlaycardMoney(theme: { slug: string; usesPlaycard: boolean } | null | undefined, shownEventSlug: string | null | undefined): boolean {
