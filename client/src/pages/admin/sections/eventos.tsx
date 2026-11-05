@@ -143,15 +143,25 @@ export function TicketTypeRow({ tt, eventId }: { tt: any; eventId: number }) {
     onError: onMutationError,
   });
 
+  // Una entrada con precio general vive de las tandas: su precio vigente sale de la «Escala de tandas» del evento
+  // (monto por acceso en cada tanda), no se escribe a mano acá. Solo se edita el precio general.
+  const { data: allEvents } = trpc.events.listAll.useQuery();
+  const ev = (allEvents ?? []).find((e: any) => e.id === eventId);
+  const phase = ev ? normalizeTandaSchedule(ev.tandaDiscountSchedule)[ev.tandaPhaseIndex ?? 0] : undefined;
+  const byTanda = tt.category === 'acceso' && !!tt.originalPrice;
+  const tandaPrice = byTanda && phase?.prices && form.accesoSlug && phase.prices[form.accesoSlug] != null
+    ? phasePriceFor(phase, form.accesoSlug, form.originalPrice) : null;
+
   const handleSave = () => {
-    if (!form.name || !form.price) return;
+    const price = byTanda && tandaPrice != null ? tandaPrice : form.price;
+    if (!form.name || !price) return;
     updateTicketType.mutate({
       id: tt.id,
       name: form.name,
       category: form.category,
       accesoSlug: form.category === 'extra' ? undefined : (form.accesoSlug || undefined),
       stockPoolId: form.category === 'extra' ? null : form.stockPoolId,
-      price: form.price,
+      price,
       originalPrice: form.originalPrice || undefined,
       totalStock: form.totalStock,
       description: form.description,
@@ -179,10 +189,16 @@ export function TicketTypeRow({ tt, eventId }: { tt: any; eventId: number }) {
         </div>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div><Label>Nombre</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="mt-1" placeholder="VIP, General..." /></div>
-          <div><Label>Precio (CLP)</Label><Input type="number" value={form.price} onChange={(e) => setForm({ ...form, price: Number(e.target.value) })} className="mt-1" /></div>
+          {!byTanda && <div><Label>Precio (CLP)</Label><Input type="number" value={form.price} onChange={(e) => setForm({ ...form, price: Number(e.target.value) })} className="mt-1" /></div>}
           <div>
-            <Label>Precio general (opcional, se muestra tachado)</Label>
+            <Label>{byTanda ? 'Precio general (CLP)' : 'Precio general (opcional, se muestra tachado)'}</Label>
             <Input type="number" value={form.originalPrice} onChange={(e) => setForm({ ...form, originalPrice: Number(e.target.value) })} className="mt-1" placeholder="Ej: 20000" />
+            {byTanda && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Vigente ahora: {clp(tandaPrice ?? form.price)}{form.originalPrice > 0 ? ` · ${discountPercent(form.originalPrice, tandaPrice ?? form.price)}% de descuento` : ''}.
+                El monto de cada tanda y su % se definen en «Escala de tandas» del evento.
+              </p>
+            )}
           </div>
           <div><Label>Stock Total</Label><Input type="number" value={form.totalStock} onChange={(e) => setForm({ ...form, totalStock: Number(e.target.value) })} className="mt-1" /></div>
         </div>
