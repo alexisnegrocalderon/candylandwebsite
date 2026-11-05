@@ -738,7 +738,7 @@ export async function applyPlaymoreTandas(
   const cp = await getCoproductionById(coproductionId);
   if (!cp?.eventId) throw new Error('Primero enlaza el evento en Configuración.');
   for (const r of rows) { const p = tandaRowProblem(r); if (p) throw new Error(p); }
-  if (!(Number.isInteger(solteroPrice) && solteroPrice > 0) || !(Number.isInteger(solteroStock) && solteroStock > 0)) throw new Error('Vengo solo: precio y cupos deben ser enteros mayores a 0.');
+  if (!(Number.isInteger(solteroPrice) && solteroPrice > 0) || !(Number.isInteger(solteroStock) && solteroStock > 0)) throw new Error('Voy solo: precio y cupos deben ser enteros mayores a 0.');
   const tts = (await db.select().from(ticketTypes).where(and(eq(ticketTypes.eventId, cp.eventId), eq(ticketTypes.category, 'acceso'), eq(ticketTypes.status, 'active'))));
   const sold = tts.filter((t) => t.soldCount > 0);
   if (sold.length && !force) throw new Error('Ya hay entradas vendidas en este evento: aplicar las tandas de nuevo pisaría la tanda en curso. Confirma para forzarlo.');

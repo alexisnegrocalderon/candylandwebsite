@@ -39,6 +39,12 @@ export function WhoGuide<T extends GuideType>({ types, value, onPick, className 
   // Si la opción cambia desde afuera (por ejemplo el acceso destacado al abrir el selector), el paso 1 la sigue.
   useEffect(() => { const p = avail.find((o) => o.key === value)?.people; if (p) setCount(p); }, [value, avail]);
   const options = whoForCount(avail, count);
+  // Si esa cantidad tiene una única opción (ej. 3 = «Somos 3 (mixto)») queda elegida sola.
+  const pickCount = (n: number) => {
+    setCount(n);
+    const only = whoForCount(avail, n);
+    if (only.length === 1 && only[0].type.status !== 'soldout' && only[0].type.hasStock !== false) onPick(only[0]);
+  };
   if (avail.length === 0) return null;
 
   return (
@@ -49,7 +55,7 @@ export function WhoGuide<T extends GuideType>({ types, value, onPick, className 
           const on = count === n;
           const sample = avail.find((o) => o.people === n)!;
           return (
-            <button key={n} type="button" role="radio" aria-checked={on} onClick={() => setCount(n)}
+            <button key={n} type="button" role="radio" aria-checked={on} onClick={() => pickCount(n)}
               className={`flex flex-col items-center rounded-2xl border px-1 py-3 transition active:scale-[0.98] ${on ? 'border-[#d6b25e] bg-[#d6b25e]/10' : 'border-[#d6b25e]/35 bg-white/[0.03] hover:border-[#d6b25e]/70'}`}>
               <Figures s={sample.figures.length === n ? sample.figures : 'f'.repeat(n)} h={28} color={on ? '#f7e7a8' : GOLD} />
               <span className={`mt-1.5 text-lg font-extrabold leading-none ${on ? 'playmore-gold' : ''}`}>{n}</span>

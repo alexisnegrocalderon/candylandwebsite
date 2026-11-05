@@ -10,11 +10,11 @@ export interface PlaymoreTandaRow { slug: string; label: string; general: number
 
 export const PLAYMORE_TANDA_ROWS: PlaymoreTandaRow[] = [
   { slug: 'duo', label: 'Pareja y Dos hombres', general: 70000, t1: 40000, t2: 50000 },
-  { slug: 'soltera', label: 'Vengo sola', general: 15000, t1: 10000, t2: 12500 },
+  { slug: 'soltera', label: 'Voy sola', general: 15000, t1: 10000, t2: 12500 },
   { slug: 'duo_mujeres', label: 'Dos mujeres', general: 25000, t1: 15000, t2: 20000 },
   { slug: 'trio', label: 'Trío', general: 80000, t1: 50000, t2: 60000 },
 ];
-export const PLAYMORE_SOLTERO = { slug: 'soltero', label: 'Vengo solo', price: 50000, stock: 5 };
+export const PLAYMORE_SOLTERO = { slug: 'soltero', label: 'Voy solo', price: 50000, stock: 5 };
 
 /** Una fila es coherente si la 1ª tanda es la más barata y el general la más cara. */
 export function tandaRowProblem(r: PlaymoreTandaRow): string | null {

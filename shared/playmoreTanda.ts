@@ -45,7 +45,7 @@ export function deriveTanda(types: PlaymoreTicketView[], nowMs: number): Playmor
 
 /** "¿Con quién vienes?": cada grupo reúne los accesos de esa cantidad de personas. */
 export const ACCESO_GROUPS = [
-  { key: 'solo', label: 'Vengo solx', people: 1, slugs: ['soltera', 'soltero'] },
+  { key: 'solo', label: 'Voy solx', people: 1, slugs: ['soltera', 'soltero'] },
   { key: 'duo', label: 'Dúo', people: 2, slugs: ['duo', 'duo_mujeres'] },
   { key: 'trio', label: 'Trío', people: 3, slugs: ['trio'] },
   { key: 'grupo', label: 'Grupo', people: 4, slugs: ['grupo'] },

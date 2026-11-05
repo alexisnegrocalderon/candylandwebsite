@@ -23,8 +23,8 @@ export interface WhoOption {
 }
 
 export const WHO_OPTIONS: readonly WhoOption[] = [
-  { key: 'soltera', label: 'Vengo sola', slug: 'soltera', composicion: null, people: 1, figures: 'f', needsCode: false, note: null },
-  { key: 'soltero', label: 'Vengo solo', slug: 'soltero', composicion: null, people: 1, figures: 'm', needsCode: true, note: null },
+  { key: 'soltera', label: 'Voy sola', slug: 'soltera', composicion: null, people: 1, figures: 'f', needsCode: false, note: null },
+  { key: 'soltero', label: 'Voy solo', slug: 'soltero', composicion: null, people: 1, figures: 'm', needsCode: true, note: null },
   { key: 'pareja', label: 'Pareja', slug: 'duo', composicion: 'mixta', people: 2, figures: 'fm', needsCode: false, note: null },
   { key: 'dos-mujeres', label: 'Dos mujeres', slug: 'duo_mujeres', composicion: 'dos_mujeres', people: 2, figures: 'ff', needsCode: false, note: null },
   { key: 'dos-hombres', label: 'Dos hombres', slug: 'duo', composicion: 'dos_hombres', people: 2, figures: 'mm', needsCode: true, note: 'PARA PAREJAS, NO PARA AMIGOS' },
