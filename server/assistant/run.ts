@@ -23,6 +23,18 @@ const MAX_TOOL_ROUNDS = 8;
 
 type Msg = Anthropic.Beta.BetaMessageParam;
 
+/** Quita el razonamiento («thinking») de los turnos que ya terminaron. Claude lo guarda atado al texto exacto de las instrucciones
+ * y de las herramientas con que se generó: si después se cambia cualquiera de las dos (cada vez que se mejora el asistente), repetirlo
+ * en una conversación guardada da error 400 y la conversación deja de servir. De un turno ya cerrado no hace falta: dentro del turno
+ * en curso sí se repite sin tocar (así lo exige la API entre una consulta y la siguiente). */
+export function stripThinking(messages: Msg[]): Msg[] {
+  return messages.map((m) => {
+    if (m.role !== "assistant" || !Array.isArray(m.content)) return m;
+    const content = (m.content as any[]).filter((b) => b?.type !== "thinking" && b?.type !== "redacted_thinking");
+    return content.length === (m.content as any[]).length ? m : { ...m, content: content as any };
+  });
+}
+
 const SYSTEM_PROMPT = `Eres el Asistente IA de Mansion Playroom, una productora de fiestas en Chile. Le respondes al dueño cualquier pregunta sobre sus fiestas, ventas, entradas, clientes, stock de barra, compras, finanzas, gastos, staff, regalos y fechas.
 
 Cómo trabajas:
@@ -75,7 +87,7 @@ export async function ask(params: { threadId?: number | null; question: string; 
     throw new Error("Esta conversación ya es muy larga. Empieza una nueva con «Nueva» para seguir.");
   }
   // La conversación tal como se mandó: nunca se edita un turno anterior.
-  const history = previous.api as Msg[];
+  const history = stripThinking(previous.api as Msg[]);
   const userMsg: Msg = { role: "user", content: `${contextLine(now, params.context)}\n\n${params.question}` };
   const userRowId = await store.insertMessage(threadId, "user", [userMsg], { text: params.question });
 
@@ -143,7 +155,8 @@ export async function ask(params: { threadId?: number | null; question: string; 
 
   // Un turno que falló o se cortó no se guarda en la conversación de la API (tampoco su pregunta): así la conversación
   // que se repite en la próxima pregunta siempre es válida. La pantalla igual muestra la pregunta y el aviso.
-  const apiToSave = failed ? [] : turn;
+  // Se guarda sin el razonamiento (ocupa mucho y no se puede repetir si cambian las instrucciones o las herramientas).
+  const apiToSave = failed ? [] : stripThinking(turn);
   const ui: AssistantUi = {
     text: finalText || "No encontré qué responder.",
     ...(ctx.charts.length ? { charts: ctx.charts } : {}),
