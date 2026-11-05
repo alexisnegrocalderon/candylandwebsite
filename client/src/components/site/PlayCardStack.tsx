@@ -8,6 +8,8 @@ import { QrViewer, TicketPass, holderLabels, tapHaptic, useRealTap, type MeEvent
 import { LiveStrip, NightRow, NightSheet } from '@/components/site/NightExtras';
 import { horizontalSwipe } from '@shared/cardSwipe';
 import { canEnterParty } from '@shared/party';
+import type { CoproductionLanding } from '@shared/coproduction';
+import { PlaymoreMemberCard, PlaymorePass } from '@/components/playmore/PlaymoreCards';
 
 /* La pestaña PlayCard de «Mi cuenta», como pases de Apple Wallet: la entrada del próximo evento adelante y,
  * asomando detrás, el encabezado de la SIGUIENTE entrada (si hay más de una). Deslizar de lado sobre la
@@ -20,9 +22,12 @@ import { canEnterParty } from '@shared/party';
 /** Cuánto asoma la tarjeta de atrás (su encabezado), como en Apple Wallet. */
 const STACK_PEEK = 58;
 
-export function PlayCardStack({ ev, holder, prepaidBalance, playcoins, movements, onTopup, onPayCaja, onPlaymatch }: {
+/** PLAYMORE a la venta (o en vista previa): la PlayCard toma su cara negra y dorada. */
+export type PlaymoreCardTheme = { slug: string; landing: CoproductionLanding; buyHref: string; isPreview: boolean };
+
+export function PlayCardStack({ ev, holder, prepaidBalance, playcoins, movements, onTopup, onPayCaja, onPlaymatch, playmore }: {
   ev: MeEvent | null; holder: string; prepaidBalance: number; playcoins: number; movements: Movement[];
-  onTopup?: () => void; onPayCaja?: () => void; onPlaymatch: () => void;
+  onTopup?: () => void; onPayCaja?: () => void; onPlaymatch: () => void; playmore?: PlaymoreCardTheme | null;
 }) {
   const [i, setI] = useState(0);
   // El QR abierto (por código): desde el botón, desde «Mi noche» o al cambiar de QR dentro de la pantalla.
@@ -57,10 +62,15 @@ export function PlayCardStack({ ev, holder, prepaidBalance, playcoins, movements
   };
   const ownsSwipe = count > 1;
 
-  const pass = hasPass ? <TicketPass ev={ev!} t={t!} holder={holder} /> : null;
-  const peek = next ? <TicketPass ev={ev!} t={next} holder={holder} /> : null;
-  // Sin entrada para mostrar: la PlayCard de miembro.
-  const memberCard = (
+  // La entrada de PLAYMORE se ve como PLAYMORE; las demás, como siempre.
+  const isPm = !!playmore && ev?.eventSlug === playmore.slug;
+  const passOf = (x: MeTicket) => isPm ? <PlaymorePass ev={ev!} t={x} holder={holder} landing={playmore!.landing} /> : <TicketPass ev={ev!} t={x} holder={holder} />;
+  const pass = hasPass ? passOf(t!) : null;
+  const peek = next ? passOf(next) : null;
+  // Sin entrada para mostrar: la PlayCard de miembro (con la cara de PLAYMORE mientras se vende).
+  const memberCard = playmore ? (
+    <PlaymoreMemberCard holder={holder} prepaidBalance={prepaidBalance} playcoins={playcoins} landing={playmore.landing} buyHref={playmore.buyHref} isPreview={playmore.isPreview} />
+  ) : (
     <TiltCard>
       <WalletCard
         eventTitle="" eventDateShort="" holderName={holder} ticketCode={null} qrImageUrl={null}
@@ -135,7 +145,7 @@ export function PlayCardStack({ ev, holder, prepaidBalance, playcoins, movements
           <button type="button" {...playmatchTap} className="flex h-14 shrink-0 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-pink-500 via-fuchsia-500 to-sky-500 text-headline font-bold text-white shadow-[0_10px_28px_-8px_rgba(236,72,153,0.7)] interactive"><Heart className="h-5 w-5" /> Entrar a Playmatch</button>
         )}
         {usable && (
-          <button type="button" {...qrTap} className={`flex h-14 shrink-0 items-center justify-center gap-2 rounded-full text-headline font-bold text-white interactive [@media(max-height:700px)]:h-12 ${playmatch ? 'lg-pill' : 'bg-gradient-to-r from-pink-500 via-fuchsia-500 to-sky-500 shadow-[0_10px_28px_-8px_rgba(236,72,153,0.7),inset_0_1px_0_rgba(255,255,255,0.4)]'}`}>
+          <button type="button" {...qrTap} style={isPm && !playmatch ? { background: 'linear-gradient(100deg,#9c7630 0%,#c9a24c 15%,#f7e7a8 35%,#d6b25e 55%,#9c7630 100%)' } : undefined} className={`flex h-14 shrink-0 items-center justify-center gap-2 rounded-full text-headline font-bold interactive [@media(max-height:700px)]:h-12 ${playmatch ? 'lg-pill text-white' : isPm ? 'text-[#141210] shadow-[0_14px_40px_-12px_rgba(247,231,168,0.55)]' : 'text-white bg-gradient-to-r from-pink-500 via-fuchsia-500 to-sky-500 shadow-[0_10px_28px_-8px_rgba(236,72,153,0.7),inset_0_1px_0_rgba(255,255,255,0.4)]'}`}>
             <QrCode className="h-5 w-5" /> Mostrar QR
           </button>
         )}

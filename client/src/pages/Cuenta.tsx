@@ -38,7 +38,9 @@ import { canEnterParty } from '@shared/party';
 import { TICKET_KIND_META, type TicketKind } from '@shared/ticketKind';
 import { isStandalone, reportAppOpen, useCustomerPush } from '@/lib/customerPush';
 import { avisosNotice } from '@/lib/pushPromptView';
-import { PlaymoreAppBanner, useLivePlaymoreSlug } from '@/components/playmore/AppBanner';
+import { PlaymoreAppBanner, useLivePlaymoreSlug, usePlaymore } from '@/components/playmore/AppBanner';
+import type { PlaymoreCardTheme } from '@/components/site/PlayCardStack';
+import { DALMORE_MARK } from '@/components/playmore/sections';
 import { useIsMobile } from '@/hooks/useMobile';
 import { MemberLogin, type LoginDone } from '@/components/site/MemberLogin';
 import { fmtDate, fmtDateTime, useMemberSession } from '@/lib/member';
@@ -275,8 +277,8 @@ function BuyNextCard({ me }: { me: Me }) {
   const { href, last } = useBuyHref(me.nextEvent?.slug);
   const playmoreSlug = useLivePlaymoreSlug();
   if ((me.events as MeEvent[])[0]) return null;
-  // PLAYMORE ya tiene su tarjeta negra y dorada justo arriba.
-  if (playmoreSlug && me.nextEvent?.slug === playmoreSlug) return null;
+  // PLAYMORE ya tiene su PlayCard negra y dorada arriba, que invita a comprar: no va además el aviso genérico de «próxima fiesta».
+  if (playmoreSlug && (!me.nextEvent || me.nextEvent.slug === playmoreSlug)) return null;
   // Sin entrada y sin fiesta anunciada: igual se invita a mirar lo que viene (nunca una tarjeta vacía sola).
   if (!me.nextEvent) {
     return (
@@ -743,6 +745,14 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
   const push = useCustomerPush({ source: 'puntos' });
   const level = CUSTOMER_LEVEL_META[me.level as keyof typeof CUSTOMER_LEVEL_META];
   const upcoming = me.events as MeEvent[];
+  // PLAYMORE a la venta (o tu vista previa): la PlayCard toma su cara y, si no tienes entrada, te invita a comprar.
+  const pm = usePlaymore();
+  const pmSlug = pm.data?.event?.slug ?? null;
+  const pmOwned = !!pmSlug && upcoming.some((e) => e.eventSlug === pmSlug);
+  const pmTheme: PlaymoreCardTheme | null = pm.data?.event ? {
+    slug: pm.data.event.slug, landing: { ...pm.data.landing, partnerLogoUrl: pm.data.landing.partnerLogoUrl || DALMORE_MARK },
+    buyHref: `/checkout/${pm.data.event.slug}${pm.isPreview && pm.preview ? `?preview=${pm.preview}` : ''}`, isPreview: pm.isPreview,
+  } : null;
   const activeCoupons = me.coupons.filter((c) => c.status === 'disponible').length + giftsOf(me).pases.length + giftsOf(me).consumos.filter((g) => !g.used).length;
   const { href: buyHref, last: lastBuy } = useBuyHref(me.nextEvent?.slug);
   // La noche de la fiesta, ya escaneada: un punto en la pestaña Playmatch.
@@ -815,10 +825,10 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
               <WelcomeBanner welcome={welcome} />
               {staff && <StaffBanner staff={staff} onOpen={() => { tapHaptic(); setSheet('staff'); }} />}
               <PlayCardStack ev={upcoming[0] ?? null} holder={me.fullName || me.email} prepaidBalance={me.prepaidBalance} playcoins={me.playcoins} movements={me.movements}
-                onTopup={pay.accountTopup ? () => setTopupOpen(true) : undefined} onPayCaja={pay.cajaPay ? () => setPayOpen(true) : undefined} onPlaymatch={() => go('playmatch')} />
-              <PlaymoreAppBanner ownedSlugs={(me.events as MeEvent[]).map((e) => e.eventSlug)} />
-              <PlaymoreAppBanner ownedSlugs={(me.events as MeEvent[]).map((e) => e.eventSlug)} />
-          <BuyNextCard me={me} />
+                onTopup={pay.accountTopup ? () => setTopupOpen(true) : undefined} onPayCaja={pay.cajaPay ? () => setPayOpen(true) : undefined} onPlaymatch={() => go('playmatch')} playmore={pmTheme} />
+              {/* Con entrada de otro evento y sin la de PLAYMORE: su tarjeta de compra va debajo. Sin ninguna entrada la propia PlayCard ya invita a comprar. */}
+              {pmTheme && !pmOwned && upcoming.length > 0 && upcoming[0].eventSlug !== pmSlug && <PlaymoreAppBanner ownedSlugs={upcoming.map((e) => e.eventSlug)} />}
+              <BuyNextCard me={me} />
             </>
           )}
           {tab === 'playmatch' && (
@@ -1224,6 +1234,14 @@ function DesktopAccount({ me, welcome, onLogout, shell, offlineAt }: { me: Me; w
   const ambassador = useAmbassadorPanel();
   const level = CUSTOMER_LEVEL_META[me.level as keyof typeof CUSTOMER_LEVEL_META];
   const upcoming = me.events as MeEvent[];
+  // PLAYMORE a la venta (o tu vista previa): la PlayCard toma su cara y, si no tienes entrada, te invita a comprar.
+  const pm = usePlaymore();
+  const pmSlug = pm.data?.event?.slug ?? null;
+  const pmOwned = !!pmSlug && upcoming.some((e) => e.eventSlug === pmSlug);
+  const pmTheme: PlaymoreCardTheme | null = pm.data?.event ? {
+    slug: pm.data.event.slug, landing: { ...pm.data.landing, partnerLogoUrl: pm.data.landing.partnerLogoUrl || DALMORE_MARK },
+    buyHref: `/checkout/${pm.data.event.slug}${pm.isPreview && pm.preview ? `?preview=${pm.preview}` : ''}`, isPreview: pm.isPreview,
+  } : null;
   const pay = useMemberPayConfig();
   const [topupOpen, setTopupOpen] = useState(false);
   const [payOpen, setPayOpen] = useState(false);
@@ -1252,6 +1270,7 @@ function DesktopAccount({ me, welcome, onLogout, shell, offlineAt }: { me: Me; w
             <h2 className="font-heading text-title3 font-bold text-white">Playmatch 🍬</h2>
             <PlaymatchTab events={upcoming} buyHref={buyHref} />
           </section>
+          {pmTheme && <PlaymoreAppBanner ownedSlugs={upcoming.map((e) => e.eventSlug)} />}
           <BuyNextCard me={me} />
           {ambassador && <AmbassadorAccount panel={ambassador} />}
 

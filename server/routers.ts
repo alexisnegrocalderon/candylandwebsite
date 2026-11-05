@@ -1619,7 +1619,12 @@ export const appRouter = router({
       // consulta cada 30s, así que no hace falta ningún cron nuevo.
       await checkAndAdvanceTandaIfNeeded(event.id);
       // Eventos de «solo entrada y estacionamiento»: los demás extras no se ofrecen por la web.
-      return (await db.getTicketTypesByEventId(event.id)).filter((t: any) => presaleAllows(event, t));
+      const all = (await db.getTicketTypesByEventId(event.id)).filter((t: any) => presaleAllows(event, t));
+      // Un evento de colaboración (PLAYMORE) vende por la web solo accesos y extras: la carta de la caja (tragos, comida,
+      // merch) no se ofrece nunca, tampoco al administrador ni con el evento ya activo.
+      return (await coproductionSvc.isEventColab(event.id))
+        ? all.filter((t: any) => (t.category === 'acceso' || t.category === 'extra') && t.status !== 'hidden')
+        : all;
     }),
     // Admin
     listAll: panelStaffReadProcedure.query(async () => {

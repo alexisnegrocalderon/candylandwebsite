@@ -235,6 +235,24 @@ describe('checkout en vista previa de un evento de colab sin activar', () => {
     expect(t.map((x) => x.name)).toEqual(['Acceso Pareja', 'Estacionamiento']);
   });
 
+  it('el administrador tampoco ve la carta de la caja en la compra (solo accesos y extras de la web)', async () => {
+    const t: any[] = await caller(user('admin')).events.getTicketTypes({ slug: 'playmore' });
+    expect(t.map((x) => x.name)).toEqual(['Acceso Pareja', 'Estacionamiento']);
+  });
+
+  it('con el evento ya activo, el público ve solo accesos y extras: jamás la carta de la caja', async () => {
+    vi.mocked(coproductionSvc.isEventHiddenByCoproduction).mockResolvedValue(false);
+    const t: any[] = await caller(null).events.getTicketTypes({ slug: 'playmore' });
+    expect(t.map((x) => x.name)).toEqual(['Acceso Pareja', 'Estacionamiento']);
+  });
+
+  it('un evento que no es de colaboración conserva todo su catálogo', async () => {
+    vi.mocked(coproductionSvc.isEventHiddenByCoproduction).mockResolvedValue(false);
+    vi.mocked(coproductionSvc.isEventColab).mockResolvedValue(false);
+    const t: any[] = await caller(null).events.getTicketTypes({ slug: 'playmore' });
+    expect(t.map((x) => x.name)).toEqual(['Acceso Pareja', 'Estacionamiento', 'Mojito', 'Oculto']);
+  });
+
   it('aun así no se puede comprar mientras no esté activo', async () => {
     vi.mocked(coproductionSvc.getCoproductionByEventId).mockResolvedValue(colab({}));
     await expect(caller(null).orders.create({ eventSlug: 'playmore', buyerName: 'A', buyerEmail: 'a@b.cl', items: [{ ticketTypeId: 1, quantity: 1 }] })).rejects.toMatchObject({ code: 'BAD_REQUEST' });
