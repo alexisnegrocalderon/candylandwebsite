@@ -141,19 +141,21 @@
     linear-gradient(180deg, #16110f, #0c0908);
   border: 1px solid rgba(214, 178, 94, 0.35);
 }
+/* Las muescas del troquel son medias lunas que entran SOLO hacia adentro del boleto (nunca sobresalen, así los boletos
+ * apilados no se tocan) y quedan centradas en la línea punteada: `--stub` es el ancho de la parte que se arranca. */
 .playmore-ticket-card::before,
 .playmore-ticket-card::after {
   content: '';
   position: absolute;
-  right: 92px;
-  width: 22px;
-  height: 22px;
-  border-radius: 999px;
+  right: calc(var(--stub, 92px) - 12px);
+  width: 24px;
+  height: 12px;
   background: var(--pm-ink);
   border: 1px solid rgba(214, 178, 94, 0.35);
+  pointer-events: none;
 }
-.playmore-ticket-card::before { top: -12px; }
-.playmore-ticket-card::after { bottom: -12px; }
+.playmore-ticket-card::before { top: -1px; border-top: 0; border-radius: 0 0 12px 12px; }
+.playmore-ticket-card::after { bottom: -1px; border-bottom: 0; border-radius: 12px 12px 0 0; }
 
 @media (prefers-reduced-motion: reduce) {
   .playmore-gold, .playmore-velvet, .playmore-marquee, .playmore-hint, .playmore-lite-ticket,

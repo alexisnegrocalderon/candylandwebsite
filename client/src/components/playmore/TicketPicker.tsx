@@ -103,6 +103,7 @@ export function TicketPicker({ open, onClose, types, buyHref, flowHref = null, e
                   return (
                     <div key={t.id}>
                       <button type="button" role="radio" aria-checked={on} disabled={soldout} onClick={() => pick(t)}
+                        style={{ '--stub': '74px' } as React.CSSProperties}
                         className={`playmore-ticket-card relative flex w-full rounded-2xl text-left transition active:scale-[0.99] ${on ? 'ring-2 ring-[#f7e7a8] shadow-[0_0_34px_-6px_rgba(247,231,168,0.55)]' : soldout ? 'opacity-50' : 'hover:border-[#d6b25e]/70'}`}>
                         <span className="min-w-0 flex-1 p-4 pr-3">
                           <span className="block text-[10px] font-semibold tracking-[0.35em] text-[var(--pm-orchid)]">{eventName}</span>

@@ -1498,12 +1498,14 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
                     return (
                       <button key={t.id} type="button" role="radio" aria-checked={accesoSlug === t.accesoSlug} disabled={!op}
                         onClick={() => op && chooseAcceso(op)}
-                        className={`playmore-ticket-card flex w-full items-center justify-between rounded-2xl p-5 text-left transition active:scale-[0.99] ${accesoSlug === t.accesoSlug ? 'ring-2 ring-[#f7e7a8]' : ''}`}>
-                        <span>
+                        style={{ '--stub': '136px' } as React.CSSProperties}
+                        className={`playmore-ticket-card flex w-full items-stretch rounded-2xl text-left transition active:scale-[0.99] ${accesoSlug === t.accesoSlug ? 'ring-2 ring-[#f7e7a8]' : ''}`}>
+                        <span className="flex min-w-0 flex-1 flex-col justify-center p-5 pr-3">
                           <span className="block text-base font-extrabold tracking-[0.04em]">{t.name}</span>
                           {t.originalPrice && Number(t.originalPrice) > Number(t.price) && <span className="text-xs text-white/40 line-through tabular-nums">{formatCLP(Number(t.originalPrice))}</span>}
                         </span>
-                        <span className="playmore-gold text-2xl font-extrabold tabular-nums">{formatCLP(Number(t.price))}</span>
+                        {/* La parte del precio, separada por la línea punteada del troquel, como el boleto de la landing. */}
+                        <span className="playmore-gold flex w-[136px] shrink-0 items-center justify-center rounded-r-2xl border-l border-dashed border-[#d6b25e]/35 bg-[#d6b25e]/5 px-2 text-2xl font-extrabold tabular-nums">{formatCLP(Number(t.price))}</span>
                       </button>
                     );
                   })}
