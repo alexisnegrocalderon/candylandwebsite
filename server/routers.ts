@@ -6559,9 +6559,10 @@ export const appRouter = router({
       // Link personal de cada embajador (el mismo que ve en su panel y recibe
       // por correo), para copiarlo desde el admin y mandárselo a mano.
       const featured = await db.getFeaturedEvent();
+      const colab = await ambassadorProgram.activeColabForLinks();
       return list.map((a: any) => ({
         ...a,
-        referralUrl: ambassadorProgram.buildAmbassadorReferralUrl(featured, a.code),
+        referralUrl: ambassadorProgram.buildAmbassadorReferralUrl(featured, a.code, colab),
       }));
     }),
     create: adminProcedure.input(z.object({

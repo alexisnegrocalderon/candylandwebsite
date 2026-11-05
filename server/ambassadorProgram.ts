@@ -16,6 +16,7 @@ import { invokeLLM } from './_core/llm';
 import { z } from 'zod';
 import { formatChileDate } from '../shared/chileDate';
 import { itemsForPanel, personalizeItem } from '../shared/ambassadorContent';
+import { getPlaymoreFocus } from './playmoreFocus';
 import { getUpcomingContentEvents, listApprovedAmbassadorItems } from './ambassadorContent';
 
 /* Motor del programa de Embajadores VIP: atribución de cada venta, y las
@@ -446,18 +447,26 @@ export async function findAmbassadorByEmail(email: string) {
   return rows.length === 1 ? rows[0] : null;
 }
 
+/** La colaboración activa (PLAYMORE) con la dirección desde la que vende, o null: los links de embajador de ese evento
+ * van a su landing y no a /eventos/<slug>. */
+export async function activeColabForLinks(): Promise<{ slug: string; host: string } | null> {
+  const focus = await getPlaymoreFocus();
+  return focus ? { slug: focus.event.slug, host: 'dalmore.mansionplayroom.cl' } : null;
+}
+
 /** Link y ventas de cada embajador por correo (para la ficha del staff: DJ y RRPP). */
 export async function listAmbassadorsWithLink() {
   const db = await getDb();
   const out = new Map<string, { code: string; link: string | null; sales: number }>();
   if (!db) return out;
   const featured = await getFeaturedEvent();
+  const colab = await activeColabForLinks();
   const rows = await db.select().from(exclusiveAmbassadors).where(eq(exclusiveAmbassadors.active, 1));
   for (const a of rows) {
     const key = (a.email ?? '').trim().toLowerCase();
     if (!key) continue;
     const [r] = await db.select({ n: sql<number>`COUNT(*)` }).from(ambassadorCommissions).where(eq(ambassadorCommissions.ambassadorId, a.id));
-    out.set(key, { code: a.code, link: buildAmbassadorReferralUrl(featured, a.code) ?? `${PANEL_BASE_URL}/?embajador=${encodeURIComponent(a.code)}`, sales: Number(r?.n ?? 0) });
+    out.set(key, { code: a.code, link: buildAmbassadorReferralUrl(featured, a.code, colab) ?? `${PANEL_BASE_URL}/?embajador=${encodeURIComponent(a.code)}`, sales: Number(r?.n ?? 0) });
   }
   return out;
 }
@@ -485,6 +494,7 @@ export async function getAmbassadorPanel(code: string, now: Date = new Date()) {
   if (!ambassador) return null;
 
   const featuredEvent = await getFeaturedEvent();
+  const colab = await activeColabForLinks();
   const stats = featuredEvent ? await getAmbassadorStats(ambassador.id, featuredEvent.id) : null;
   const sales = await getAmbassadorSales(ambassador.id, 200);
   const config = await getProgramConfig();
@@ -501,9 +511,9 @@ export async function getAmbassadorPanel(code: string, now: Date = new Date()) {
 
   const avgSalePrice = await getAmbassadorAvgSalePrice(ambassador.id);
   const eventStats = featuredEvent ? await getAmbassadorEventStats(ambassador.id, featuredEvent.id) : null;
-  const contentEvents = (await getUpcomingContentEvents(now)).map((e) => ({ ...e, referralUrl: buildAmbassadorReferralUrl(e, ambassador.code)! }));
+  const contentEvents = (await getUpcomingContentEvents(now)).map((e) => ({ ...e, referralUrl: buildAmbassadorReferralUrl(e, ambassador.code, colab)! }));
   // Lo que el dueño aprobó, con el link, el código y el nombre de ESTE embajador.
-  const generalLink = buildAmbassadorReferralUrl(featuredEvent, ambassador.code) ?? `${PANEL_BASE_URL}/?embajador=${encodeURIComponent(ambassador.code)}`;
+  const generalLink = buildAmbassadorReferralUrl(featuredEvent, ambassador.code, colab) ?? `${PANEL_BASE_URL}/?embajador=${encodeURIComponent(ambassador.code)}`;
   const contentItems = itemsForPanel(await listApprovedAmbassadorItems(contentEvents.map((e) => e.id)), contentEvents.map((e) => e.id))
     .map(({ updatedAt: _u, ...item }) => personalizeItem(item, {
       code: ambassador.code,
@@ -527,7 +537,7 @@ export async function getAmbassadorPanel(code: string, now: Date = new Date()) {
     avgSalePrice,
     eventStats,
     eventsHistory: summarizeSalesByEvent(sales),
-    referralUrl: buildAmbassadorReferralUrl(featuredEvent, ambassador.code),
+    referralUrl: buildAmbassadorReferralUrl(featuredEvent, ambassador.code, colab),
     contentEvents,
     contentItems,
     weeklyMaterial,
@@ -768,8 +778,10 @@ export const PANEL_BASE_URL = process.env.APP_URL && process.env.APP_URL !== 'ht
  * persona compre, aunque sea más tarde -- pensado para el swipe-up de una
  * historia, donde nadie transcribe un código a mano. `null` si no hay evento
  * destacado: no hay a qué apuntar todavía. */
-export function buildAmbassadorReferralUrl(featured: { slug: string } | null | undefined, code: string): string | null {
+export function buildAmbassadorReferralUrl(featured: { slug: string } | null | undefined, code: string, colab?: { slug: string; host: string } | null): string | null {
   if (!featured?.slug) return null;
+  // PLAYMORE se vende desde su propia dirección (la página genérica del evento no tiene su cara ni sus reglas).
+  if (colab && colab.slug === featured.slug) return `https://${colab.host}/?embajador=${encodeURIComponent(code)}`;
   return `${PANEL_BASE_URL}/eventos/${featured.slug}?embajador=${encodeURIComponent(code)}`;
 }
 
@@ -789,6 +801,7 @@ export async function sendWeeklyAmbassadorEmails(now: Date = new Date()) {
 
   const material = await getWeeklyMaterial();
   const featured = await getFeaturedEvent();
+  const colab = await activeColabForLinks();
   // Cada evento es su propia campaña: sin evento destacado no hay a qué resumir.
   if (!featured) { console.log('[Embajadores] Correo semanal: no hay evento destacado.'); return { sent: 0, skipped: 0, failed: 0 }; }
   const materialLinks = resolveMaterialLinks(material);
@@ -825,7 +838,7 @@ export async function sendWeeklyAmbassadorEmails(now: Date = new Date()) {
         benefitBonusClp: stats.benefits.bonusClp,
         exclusiveClientsCount: stats.exclusiveClientsCount,
         panelUrl: `${PANEL_BASE_URL}/embajador/${a.code}`,
-        referralUrl: buildAmbassadorReferralUrl(featured, a.code),
+        referralUrl: buildAmbassadorReferralUrl(featured, a.code, colab),
         material: (material || countdownText || materialLinks.length > 0)
           ? { ...material, countdownText, links: materialLinks, images: Array.isArray(material?.images) ? (material!.images as WeeklyMaterialImage[]) : [] }
           : null,

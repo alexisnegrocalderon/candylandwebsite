@@ -16,7 +16,7 @@ import { AI_PHRASES_ES } from '../shared/aiPhrasesEs';
 import { EVENT_BRAND } from '../shared/eventBrand';
 import { dropSupersededTickets } from '../shared/liveTickets';
 import { getPlaymoreFocus } from './playmoreFocus';
-import { buildPlaymoreContext, PLAYMORE_RULES } from './playmoreAgent';
+import { buildPlaymoreContext, PLAYMORE_RULES, PLAYMORE_BRAND_NOTES, PLAYMORE_SALES_PLAYBOOK } from './playmoreAgent';
 import { buildKnowledgeBlock } from '../shared/agentKnowledge';
 import { activeKnowledgeFacts } from './agentLearning';
 
@@ -378,10 +378,10 @@ function buildSystemPrompt(
     `Eres quien contesta los mensajes ${channel === 'instagram' ? 'directos del Instagram' : 'del WhatsApp'} de Mansion Playroom. Le escribes a personas de afuera, en público: cada respuesta tuya se lee como si la hubiera escrito la productora.`,
     '',
     'CONTEXTO DE LA MARCA (lo escribió el dueño, respétalo):',
-    config.brandNotes,
+    opts.playmore ? PLAYMORE_BRAND_NOTES : config.brandNotes,
     '',
-    ...(config.salesPlaybook.trim().length > 0
-      ? ['GUÍA DE VENTAS DEL DUEÑO (tipos de cliente y objeciones -- úsala para leer a quién le hablas y cómo acompañarlo):', config.salesPlaybook, '']
+    ...((opts.playmore ? PLAYMORE_SALES_PLAYBOOK : config.salesPlaybook).trim().length > 0
+      ? ['GUÍA DE VENTAS DEL DUEÑO (tipos de cliente y objeciones -- úsala para leer a quién le hablas y cómo acompañarlo):', opts.playmore ? PLAYMORE_SALES_PLAYBOOK : config.salesPlaybook, '']
       : []),
     ...buildKnowledgeBlock(opts.learned ?? []),
     buildSiteLinksBlock(),
