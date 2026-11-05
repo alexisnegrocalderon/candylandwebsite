@@ -52,6 +52,7 @@ const CoproResumen = lazy(() => import('@/components/admin/coproduction/Coproduc
 const CoproAsistentes = lazy(() => import('@/components/admin/coproduction/CoproductionViews').then((m) => ({ default: m.CoproAsistentes })));
 const CoproCortesias = lazy(() => import('@/components/admin/coproduction/CoproductionViews').then((m) => ({ default: m.CoproCortesias })));
 const CoproGastos = lazy(() => import('@/components/admin/coproduction/CoproductionViews').then((m) => ({ default: m.CoproGastos })));
+const CoproMovimientos = lazy(() => import('@/components/admin/coproduction/CoproductionViews').then((m) => ({ default: m.CoproMovimientos })));
 const CoproReparto = lazy(() => import('@/components/admin/coproduction/CoproductionViews').then((m) => ({ default: m.CoproReparto })));
 const CoproConfig = lazy(() => import('@/components/admin/coproduction/CoproductionViews').then((m) => ({ default: m.CoproConfig })));
 const AmbassadorsView = lazy(() => import('./sections/comunidad').then((m) => ({ default: m.AmbassadorsView })));
@@ -139,6 +140,7 @@ const ADMIN_SECTIONS = [
   { id: 'copro-asistentes', label: 'Asistentes', hub: 'coproduccion', icon: Users, render: () => <CoproAsistentes /> },
   { id: 'copro-cortesias', label: 'Cortesías', hub: 'coproduccion', icon: Gift, render: () => <CoproCortesias /> },
   { id: 'copro-gastos', label: 'Gastos', hub: 'coproduccion', icon: Receipt, render: () => <CoproGastos /> },
+  { id: 'copro-movimientos', label: 'Movimientos', hub: 'coproduccion', icon: ListChecks, render: () => <CoproMovimientos /> },
   { id: 'copro-reparto', label: 'Reparto', hub: 'coproduccion', icon: DollarSign, render: () => <CoproReparto /> },
   { id: 'copro-config', label: 'Configuración', hub: 'coproduccion', icon: SettingsIcon, render: () => <CoproConfig /> },
   // 2 · Vender: las ventas del evento, cortesías y lo que trae ventas (concursos, embajadores, referidos).

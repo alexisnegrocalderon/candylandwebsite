@@ -5,9 +5,9 @@
  * Las tablas son nuevas (drizzle/0108_coproductions.sql): si la migración no
  * está aplicada, las lecturas devuelven null/vacío en vez de romper el sitio. */
 import { randomBytes, randomInt } from 'crypto';
-import { and, desc, eq, gt, inArray, ne } from 'drizzle-orm';
+import { and, desc, eq, gt, inArray, like, ne } from 'drizzle-orm';
 import {
-  coproductions, coproductionInvites, coproductionExpenses, events, expenses, orders, orderItems, tickets, ticketTypes,
+  coproductions, coproductionInvites, coproductionExpenses, adminAuditLog, events, expenses, orders, orderItems, tickets, ticketTypes,
   type Coproduction,
 } from '../drizzle/schema';
 import { getDb, getEventPnl, getOrderStats, getSalesByDay, getTicketTypesByEventId, createExpense, createManualOrder } from './db';
@@ -374,6 +374,71 @@ export async function createCoproductionInvite(cp: Coproduction, input: {
   const db = (await getDb())!;
   await db.insert(coproductionInvites).values({ coproductionId: cp.id, orderId: result.orderId, createdBy });
   return result;
+}
+
+/** Bitácora única de transparencia: todo lo que mueve el evento, de más nuevo a más viejo.
+ * Ventas (web y caja), cortesías (con quién las creó), reembolsos, gastos (cargados, aprobados,
+ * rechazados) y los cambios que hace Playroom a la venta (activar, tandas, reparto). Solo el
+ * evento de la colab: nada de otros eventos ni de los gastos generales de Playroom. */
+export type CoproductionMovement = {
+  key: string; at: Date; kind: 'sale' | 'courtesy' | 'refund' | 'expense' | 'change';
+  title: string; detail: string; amount: number | null; by: string;
+};
+
+export async function getCoproductionMovements(cp: Coproduction, limit = 400): Promise<CoproductionMovement[]> {
+  const db = await getDb();
+  if (!db || !cp.eventId) return [];
+  const eventId = cp.eventId;
+  const out: CoproductionMovement[] = [];
+
+  const orderRows = await db.select({
+    id: orders.id, orderNumber: orders.orderNumber, buyerName: orders.buyerName, total: orders.total,
+    paymentStatus: orders.paymentStatus, channel: orders.channel, createdAt: orders.createdAt,
+  }).from(orders).where(and(eq(orders.eventId, eventId), inArray(orders.paymentStatus, ['approved', 'refunded'])))
+    .orderBy(desc(orders.createdAt)).limit(limit);
+  const ids = orderRows.map((o) => o.id);
+  const invites = ids.length ? await safe(() => db.select().from(coproductionInvites).where(inArray(coproductionInvites.orderId, ids)), []) : [];
+  const inviteBy = new Map(invites.map((i) => [i.orderId, i.createdBy]));
+  const items = ids.length
+    ? await db.select({ orderId: orderItems.orderId, quantity: orderItems.quantity, name: ticketTypes.name })
+        .from(orderItems).innerJoin(ticketTypes, eq(ticketTypes.id, orderItems.ticketTypeId)).where(inArray(orderItems.orderId, ids))
+    : [];
+  for (const o of orderRows) {
+    const total = Number(o.total);
+    const what = items.filter((i) => i.orderId === o.id).map((i) => `${i.quantity}× ${i.name}`).join(' + ');
+    const invitedBy = inviteBy.get(o.id);
+    const isCourtesy = !!invitedBy || total === 0;
+    out.push({
+      key: `o${o.id}`, at: o.createdAt,
+      kind: o.paymentStatus === 'refunded' ? 'refund' : isCourtesy ? 'courtesy' : 'sale',
+      title: `${o.buyerName} · ${o.orderNumber}`,
+      detail: `${what}${isCourtesy ? '' : ` · ${o.channel === 'caja' ? 'Caja' : 'Web'}`}`,
+      amount: isCourtesy ? 0 : total,
+      by: isCourtesy ? (invitedBy === 'partner' ? cp.partnerName : 'Playroom') : o.channel === 'caja' ? 'Caja' : 'Compra web',
+    });
+  }
+
+  const submitted = await safe(() => db.select().from(coproductionExpenses).where(eq(coproductionExpenses.coproductionId, cp.id)), []);
+  for (const e of submitted) {
+    out.push({
+      key: `e${e.id}`, at: e.createdAt, kind: 'expense', title: `Gasto cargado: ${e.description}`,
+      detail: `${e.category}${e.supplier ? ` · ${e.supplier}` : ''} · ${e.status === 'approved' ? 'aprobado' : e.status === 'rejected' ? `rechazado${e.rejectReason ? ` (${e.rejectReason})` : ''}` : 'por aprobar'}`,
+      amount: e.amountTotal, by: e.submittedBy === 'partner' ? cp.partnerName : 'Playroom',
+    });
+    if (e.reviewedAt && e.status !== 'pending') {
+      out.push({ key: `er${e.id}`, at: e.reviewedAt, kind: 'expense', title: `Gasto ${e.status === 'approved' ? 'aprobado' : 'rechazado'}: ${e.description}`, detail: '', amount: e.amountTotal, by: 'Playroom' });
+    }
+  }
+
+  const audit = await safe(() => db.select().from(adminAuditLog)
+    .where(and(eq(adminAuditLog.eventId, eventId), like(adminAuditLog.action, 'coproduction.%')))
+    .orderBy(desc(adminAuditLog.createdAt)).limit(limit), []);
+  for (const a of audit) {
+    const detail = (a.payload as { detail?: string } | null)?.detail ?? '';
+    out.push({ key: `a${a.id}`, at: a.createdAt, kind: 'change', title: detail || a.action, detail: '', amount: null, by: 'Playroom' });
+  }
+
+  return out.sort((a, b) => b.at.getTime() - a.at.getTime()).slice(0, limit);
 }
 
 // ── Gastos y reparto ─────────────────────────────────────────────────────

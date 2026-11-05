@@ -904,6 +904,13 @@ async function scopedCoproduction(ctx: { partnerCoproductionId: number | null },
   return requireCoproduction(input?.slug ?? 'dalmore');
 }
 
+/** Deja en la bitácora (visible al socio en «Movimientos») un cambio que hace Playroom a la venta. */
+async function auditColab(cp: Coproduction, action: string, detail: string, ctx: any) {
+  const fwd = ctx.req?.headers?.['x-forwarded-for'];
+  const ip = (typeof fwd === 'string' ? fwd.split(',')[0].trim() : fwd?.[0]) || ctx.req?.socket?.remoteAddress || null;
+  await db.recordAdminAudit({ action: `coproduction.${action}`, targetType: 'coproduction', targetId: cp.slug, eventId: cp.eventId, payload: { detail }, ip });
+}
+
 const blockedInputSchema = z.object({
   fullName: z.string().max(255).nullish(), rut: z.string().max(20).nullish(), email: z.string().max(320).nullish(),
   phone: z.string().max(40).nullish(), instagram: z.string().max(100).nullish(), reason: z.string().max(500).nullish(),
@@ -4636,6 +4643,10 @@ export const appRouter = router({
     split: partnerProcedure.input(coproductionScopeInput).query(async ({ input, ctx }) => {
       return coproductionSvc.getCoproductionSplit(await scopedCoproduction(ctx, input));
     }),
+    // Bitácora de transparencia: todos los movimientos de SU evento.
+    movements: partnerProcedure.input(coproductionScopeInput).query(async ({ input, ctx }) => {
+      return coproductionSvc.getCoproductionMovements(await scopedCoproduction(ctx, input));
+    }),
 
     // Solo el dueño.
     list: adminReadProcedure.query(async () => {
@@ -4656,13 +4667,17 @@ export const appRouter = router({
       splitPercentPartner: z.number().int().min(0).max(100).optional(),
       partnerName: z.string().trim().min(1).max(100).optional(),
       landing: z.record(z.string(), z.unknown()).optional(),
-    })).mutation(async ({ input }) => {
+    })).mutation(async ({ input, ctx }) => {
       const cp = await requireCoproduction(input.slug);
       try {
         await coproductionSvc.updateCoproductionSetup(cp.id, { ...input, landing: input.landing as any });
       } catch (err) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo guardar.' });
       }
+      if (input.splitPercentPartner != null && input.splitPercentPartner !== cp.splitPercentPartner) {
+        await auditColab(cp, 'split', `Reparto cambiado: ${cp.partnerName} de ${cp.splitPercentPartner}% a ${input.splitPercentPartner}% de la utilidad`, ctx);
+      }
+      if (input.eventId !== undefined && input.eventId !== cp.eventId) await auditColab(cp, 'event', 'Se cambió el evento enlazado a la co-producción', ctx);
       return { success: true };
     }),
     resetPartnerPassword: adminPasswordProcedure.input(z.object({ slug: z.string().max(50), adminPassword: z.string() })).mutation(async ({ input }) => {
@@ -4676,12 +4691,14 @@ export const appRouter = router({
     rotatePreviewToken: adminProcedure.input(z.object({ slug: z.string().max(50) })).mutation(async ({ input }) => {
       return { previewToken: await coproductionSvc.rotatePreviewToken((await requireCoproduction(input.slug)).id) };
     }),
-    setLive: adminProcedure.input(z.object({ slug: z.string().max(50), live: z.boolean() })).mutation(async ({ input }) => {
+    setLive: adminProcedure.input(z.object({ slug: z.string().max(50), live: z.boolean() })).mutation(async ({ input, ctx }) => {
+      const cp = await requireCoproduction(input.slug);
       try {
-        await coproductionSvc.setCoproductionLive((await requireCoproduction(input.slug)).id, input.live);
+        await coproductionSvc.setCoproductionLive(cp.id, input.live);
       } catch (err) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo cambiar.' });
       }
+      await auditColab(cp, 'live', input.live ? 'Venta activada: el evento quedó a la venta' : 'Venta pausada: el evento quedó oculto', ctx);
       return { success: true };
     }),
     applyTandas: adminProcedure.input(z.object({
@@ -4689,9 +4706,12 @@ export const appRouter = router({
       rows: z.array(z.object({ slug: z.string().max(50), label: z.string().max(100), general: z.number().int(), t1: z.number().int(), t2: z.number().int() })).min(1).max(10),
       until: z.array(z.string().max(40).nullable()).max(4).default([]),
       solteroPrice: z.number().int(), solteroStock: z.number().int(), force: z.boolean().default(false),
-    })).mutation(async ({ input }) => {
+    })).mutation(async ({ input, ctx }) => {
       try {
-        return await coproductionSvc.applyPlaymoreTandas((await requireCoproduction(input.slug)).id, input.rows, input.until, input.solteroPrice, input.solteroStock, input.force);
+        const cp = await requireCoproduction(input.slug);
+        const res = await coproductionSvc.applyPlaymoreTandas(cp.id, input.rows, input.until, input.solteroPrice, input.solteroStock, input.force);
+        await auditColab(cp, 'tandas', `Precios y tandas actualizados: ${input.rows.map((r) => `${r.label} $${r.general.toLocaleString('es-CL')}`).join(' · ')}`, ctx);
+        return res;
       } catch (err) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudieron aplicar las tandas.' });
       }

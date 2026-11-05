@@ -838,3 +838,60 @@ export function CoproConfig() {
     </div>
   );
 }
+
+// ── Movimientos (transparencia) ────────────────────────────────────────────
+
+const MOVEMENT_STYLE: Record<string, [string, string]> = {
+  sale: ['Venta', 'bg-emerald-400/15 text-emerald-300'],
+  courtesy: ['Cortesía', 'bg-sky-400/15 text-sky-300'],
+  refund: ['Reembolso', 'bg-red-400/15 text-red-300'],
+  expense: ['Gasto', 'bg-amber-400/15 text-amber-200'],
+  change: ['Cambio', 'bg-fuchsia-400/15 text-fuchsia-300'],
+};
+
+/** Bitácora única: ventas, cortesías, reembolsos, gastos y cambios de Playroom a la venta, con fecha y quién. */
+export function CoproMovimientos() {
+  const { data, isLoading } = trpc.coproduction.movements.useQuery(undefined, { refetchInterval: 60_000 });
+  const [kind, setKind] = useState('all');
+  const rows = useMemo(() => (data ?? []).filter((m) => kind === 'all' || m.kind === kind), [data, kind]);
+
+  return (
+    <div className="space-y-4">
+      <SectionTitle
+        title="Movimientos"
+        subtitle="Todo lo que pasa con el evento, en orden: ventas, cortesías, reembolsos, gastos y cambios en precios o reparto."
+        action={(
+          <Button variant="outline" disabled={!rows.length} onClick={() => downloadCsv('movimientos-playroom-dalmore.csv', [
+            ['Fecha', 'Tipo', 'Movimiento', 'Detalle', 'Monto', 'Quién'],
+            ...rows.map((m) => [formatChileDateTime(m.at), MOVEMENT_STYLE[m.kind][0], m.title, m.detail, m.amount ?? '', m.by]),
+          ])}>
+            <Download className="mr-1.5 h-4 w-4" /> Descargar CSV
+          </Button>
+        )}
+      />
+      <div className="flex flex-wrap gap-1.5">
+        {[['all', 'Todo'], ...Object.entries(MOVEMENT_STYLE).map(([k, v]) => [k, v[0]])].map(([k, label]) => (
+          <button key={k} type="button" onClick={() => setKind(k)}
+            className={`rounded-full px-3 py-1 text-xs ${kind === k ? 'bg-primary text-primary-foreground' : 'bg-white/10 text-muted-foreground'}`}>{label}</button>
+        ))}
+      </div>
+      {isLoading ? <p className="text-sm text-muted-foreground">Cargando…</p> : rows.length === 0 ? <EmptyState icon={Receipt} title="Todavía no hay movimientos" /> : (
+        <ul className="space-y-2">
+          {rows.map((m) => (
+            <li key={m.key} className="admin-clay-sm flex items-start justify-between gap-3 border border-white/10 bg-white/5 p-3 text-sm">
+              <div className="min-w-0">
+                <p className="flex flex-wrap items-center gap-2">
+                  <span className={`rounded-full px-2 py-0.5 text-[11px] ${MOVEMENT_STYLE[m.kind][1]}`}>{MOVEMENT_STYLE[m.kind][0]}</span>
+                  <span className="font-medium">{m.title}</span>
+                </p>
+                {m.detail && <p className="mt-0.5 text-xs text-muted-foreground">{m.detail}</p>}
+                <p className="mt-0.5 text-xs text-muted-foreground">{formatChileDateTime(m.at)} · {m.by}</p>
+              </div>
+              {m.amount != null && <span className={`shrink-0 font-semibold tabular-nums ${m.kind === 'refund' ? 'text-red-300' : ''}`}>{m.kind === 'refund' ? '−' : ''}{clp(m.amount)}</span>}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
