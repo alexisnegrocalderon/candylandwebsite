@@ -415,8 +415,8 @@ export function formatCLP(value: number): string {
 
 
 /** Link de WhatsApp genérico para conseguir el código de comunidad (Soltero, Dúo Dos Hombres, etc). */
-export function whatsappComunidadLink(contexto: string): string {
+export function whatsappComunidadLink(contexto: string, eventName: string = EVENTO.nombre): string {
   const num = CANDYLAND.whatsappSoltero.replace(/[^0-9]/g, '');
-  const msg = encodeURIComponent(`Hola! Quiero validarme como miembro de la comunidad para comprar el acceso ${contexto} de ${EVENTO.nombre} 🍭`);
+  const msg = encodeURIComponent(`Hola! Quiero validarme como miembro de la comunidad para comprar el acceso ${contexto} de ${eventName} 🍭`);
   return `https://wa.me/${num}?text=${msg}`;
 }

@@ -67,3 +67,11 @@ export function buyHrefFor(buyHref: string, t: Pick<PlaymoreTicketView, 'accesoS
   if (nombre) params.push(`nombre=${encodeURIComponent(nombre.slice(0, 60))}`);
   return params.length ? `${buyHref}${buyHref.includes('?') ? '&' : '?'}${params.join('&')}` : buyHref;
 }
+
+/** Aviso corto para los accesos que piden código de comunidad (hombres solos y dúos de hombres), en las tarjetas de la
+ * landing y de la compra. «duo» es el mismo acceso para parejas y para dos hombres: el aviso es solo para los segundos. */
+export function communityNote(accesoSlug: string | null | undefined): string | null {
+  if (accesoSlug === 'soltero') return 'CON CÓDIGO DE COMUNIDAD O APROBACIÓN';
+  if (accesoSlug === 'duo') return 'DOS HOMBRES: CON CÓDIGO DE COMUNIDAD';
+  return null;
+}

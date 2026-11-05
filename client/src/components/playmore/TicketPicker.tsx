@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'wouter';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ArrowRight, Check, Ticket, X } from 'lucide-react';
-import { buyHrefFor, groupOf, type PlaymoreTanda, type PlaymoreTicketView } from '@shared/playmoreTanda';
+import { buyHrefFor, communityNote, groupOf, type PlaymoreTanda, type PlaymoreTicketView } from '@shared/playmoreTanda';
 import { clp } from './sections';
 
 /* Selector de tickets de PLAYMORE: se abre al instante al tocar "Comprar entrada"
@@ -108,6 +108,7 @@ export function TicketPicker({ open, onClose, types, buyHref, flowHref = null, e
                         <span className="min-w-0 flex-1 p-4 pr-3">
                           <span className="block text-[10px] font-semibold tracking-[0.35em] text-[var(--pm-orchid)]">{eventName}</span>
                           <span className="mt-1 block text-base font-extrabold leading-tight tracking-[0.04em]">{t.name}</span>
+                          {communityNote(t.accesoSlug) && <span className="mt-0.5 block text-[10px] font-semibold tracking-[0.12em] text-[#e477ea]">{communityNote(t.accesoSlug)}</span>}
                           <span className="mt-2 flex items-baseline gap-2">
                             <span className={`text-2xl font-extrabold tabular-nums ${soldout ? 'text-white/40 line-through' : 'playmore-gold'}`}>{t.price > 0 ? clp(t.price) : 'Gratis'}</span>
                             {t.originalPrice != null && t.originalPrice > t.price && !soldout && <span className="text-xs text-white/40 line-through tabular-nums">{clp(t.originalPrice)}</span>}
