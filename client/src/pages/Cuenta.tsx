@@ -40,6 +40,7 @@ import { isStandalone, reportAppOpen, useCustomerPush } from '@/lib/customerPush
 import { avisosNotice } from '@/lib/pushPromptView';
 import { PlaymoreAppBanner, useLivePlaymoreSlug, usePlaymore } from '@/components/playmore/AppBanner';
 import type { PlaymoreCardTheme } from '@/components/site/PlayCardStack';
+import { PlaymoreBuyButton } from '@/components/playmore/PlaymoreCards';
 import { DALMORE_MARK } from '@/components/playmore/sections';
 import { useIsMobile } from '@/hooks/useMobile';
 import { MemberLogin, type LoginDone } from '@/components/site/MemberLogin';
@@ -1012,7 +1013,7 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
         <button type="button" onClick={() => { tapHaptic(); setMore(!more); }} aria-label={more ? 'Cerrar' : 'Más acciones'} aria-expanded={more}
           className="absolute bottom-3 left-1/2 grid h-16 w-16 -translate-x-1/2 place-items-center rounded-full bg-gradient-to-br from-pink-500 via-fuchsia-500 to-sky-500 text-white shadow-[0_10px_30px_-4px_rgba(236,72,153,0.65),inset_0_1px_0_rgba(255,255,255,0.45)] ring-[5px] ring-[#0b0612]/70 transition-transform duration-300 active:scale-95">
           <Plus className={`h-7 w-7 transition-transform duration-300 ${more ? 'rotate-45' : ''}`} strokeWidth={2.4} />
-          {earlyOn && !more && <span className="absolute right-0.5 top-0.5 h-3 w-3 rounded-full border-2 border-[#0b0612] bg-amber-300" />}
+          {(earlyOn || (!!pmTheme && !pmOwned)) && !more && <span className="absolute right-0.5 top-0.5 h-3 w-3 rounded-full border-2 border-[#0b0612] bg-amber-300" />}
         </button>
       </nav>
 
@@ -1030,9 +1031,14 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
               <div className="mb-4 [@media(max-height:700px)]:mb-2">
                 <p className="font-heading text-title3 font-bold">¿Qué quieres hacer?</p>
               </div>
-              <div className="space-y-3">
+              <div className="space-y-2.5">
+                {/* El botón destacado: comprar PLAYMORE (o ver la entrada si ya la tiene), siempre lo primero del menú. */}
+                {pmTheme && (
+                  <PlaymoreBuyButton landing={pmTheme.landing} buyHref={pmTheme.buyHref} isPreview={pmTheme.isPreview} owned={pmOwned}
+                    onNavigate={() => { tapHaptic(); setMore(false); }} onOpenTicket={() => { tapHaptic(); setMore(false); go('card'); }} />
+                )}
                 <EarlyCard me={me} />
-                {me.nextEvent && buyHref && (
+                {me.nextEvent && buyHref && me.nextEvent.slug !== pmSlug && (
                   <Link href={buyHref} className="flex min-h-[60px] items-center gap-3 rounded-[22px] bg-gradient-to-r from-pink-500/90 via-fuchsia-500/90 to-sky-500/90 px-4 py-2.5 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.35)]">
                     <TicketIcon className="h-5 w-5 shrink-0" />
                     <span className="min-w-0 flex-1">
@@ -1043,7 +1049,7 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
                   </Link>
                 )}
                 {/* Mosaicos iguales: cada tema abre su propia hoja, así esta nunca crece. */}
-                <div className="grid grid-cols-3 gap-2.5">
+                <div className="grid grid-cols-3 gap-2">
                   {([
                     // El correo del administrador tiene su acceso al panel acá también (además de la tarjeta de Perfil).
                     ...(me.isAdmin ? [{ key: 'admin', label: 'Panel admin', icon: Crown, href: '/admin' }] : []),
@@ -1058,7 +1064,7 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
                     { key: 'eventos', label: 'Eventos', icon: Calendar, href: '/eventos' },
                     { key: 'ayuda', label: 'Ayuda', icon: CircleHelp, onClick: () => { setMore(false); setInfo('faq'); } },
                   ] as { key: string; label: string; icon: typeof Bell; onClick?: () => void; href?: string }[]).map(({ key, label, icon: Icon, onClick, href }) => {
-                    const cls = 'account-glass relative flex h-[84px] flex-col items-center justify-center gap-1.5 rounded-[22px] text-footnote font-semibold text-white interactive [@media(max-height:700px)]:h-[66px] [@media(max-height:700px)]:gap-1';
+                    const cls = 'account-glass relative flex h-[74px] flex-col items-center justify-center gap-1 rounded-[22px] text-footnote font-semibold text-white interactive [@media(max-height:700px)]:h-[62px]';
                     const inner = (<><Icon className="h-5 w-5 text-pink-300" />{label}</>);
                     return href ? <Link key={key} href={href} onClick={tapHaptic} className={cls}>{inner}</Link> : <button key={key} type="button" onClick={() => { tapHaptic(); onClick?.(); }} className={cls}>{inner}</button>;
                   })}

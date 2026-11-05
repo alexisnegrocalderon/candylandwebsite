@@ -95,3 +95,28 @@ export function PlaymoreMemberCard({ holder, prepaidBalance, playcoins, landing,
     </article>
   );
 }
+
+/** El botón destacado de compra de PLAYMORE (menú del «+»): negro y dorado, con el nombre en degradado, la fecha y un
+ * botón dorado. Con entrada ya comprada pasa a «Ver mi entrada». */
+export function PlaymoreBuyButton({ landing, buyHref, isPreview, owned = false, onNavigate, onOpenTicket }: {
+  landing: CoproductionLanding; buyHref: string; isPreview: boolean; owned?: boolean; onNavigate?: () => void; onOpenTicket?: () => void;
+}) {
+  const body = (
+    <span className="flex w-full flex-col gap-1.5">
+      <span className="flex items-center justify-between gap-3">
+        <span className="text-[27px] font-extrabold leading-none tracking-[-0.01em]" style={{ background: FUSE, WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent' }}>{landing.eventName}</span>
+        <span className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-full px-4 text-[11px] font-bold tracking-[0.14em] text-[#141210] shadow-[0_12px_32px_-10px_rgba(247,231,168,0.6)]" style={{ background: GOLD }}>
+          {owned ? 'VER ENTRADA' : 'COMPRAR'} <ArrowRight className="h-4 w-4" aria-hidden="true" />
+        </span>
+      </span>
+      <span className="flex items-center gap-2 text-[10px] font-semibold tracking-[0.16em] text-[#e9d9b0]/85">
+        <span className="min-w-0 truncate">{landing.dateText} · {landing.timeText}</span>
+        {isPreview && <span className="shrink-0 rounded-full border border-[#e477ea]/50 px-2 py-0.5 text-[8px] font-bold tracking-[0.18em] text-[#ffb3e2]">VISTA PREVIA</span>}
+      </span>
+    </span>
+  );
+  const cls = 'flex min-h-[72px] w-full items-center overflow-hidden rounded-[24px] border border-[#d6b25e]/50 px-4 py-3 text-left uppercase shadow-[0_14px_40px_-16px_rgba(150,21,157,0.7)]';
+  return owned
+    ? <button type="button" onClick={onOpenTicket} className={cls} style={{ background: SURFACE }} aria-label={`Ver mi entrada de ${landing.eventName}`}>{body}</button>
+    : <Link href={buyHref} onClick={onNavigate} className={cls} style={{ background: SURFACE }} aria-label={`Comprar entrada para ${landing.eventName}`}>{body}</Link>;
+}
