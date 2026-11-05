@@ -16,6 +16,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { EmptyState } from '@/components/admin/EmptyState';
 import { ImageUploadField } from '@/components/admin/ImageUploadField';
 import { formatChileDate, formatChileDateTime, formatChileShortDate } from '@shared/chileDate';
+import { PLAYMORE_TANDA_ROWS, PLAYMORE_SOLTERO, exactPercents, tandaRowProblem, type PlaymoreTandaRow } from '@shared/playmoreTandas';
 import { timelineFromText, timelineToText, type CoproductionLanding } from '@shared/coproduction';
 
 /* Panel de una co-producción (Playroom × Dalmore). Lo ven el dueño y el
@@ -527,6 +528,61 @@ function toLocalInput(iso: string): string {
   return `${get('year')}-${get('month')}-${get('day')}T${get('hour') === '24' ? '00' : get('hour')}:${get('minute')}`;
 }
 
+/** Las 3 tandas de PLAYMORE: precio exacto por acceso, con el % de descuento exacto de cada tanda. */
+function PlaymoreTandas({ slug }: { slug: string }) {
+  const utils = trpc.useUtils();
+  const [rows, setRows] = useState<PlaymoreTandaRow[]>(PLAYMORE_TANDA_ROWS);
+  const [solteroPrice, setSolteroPrice] = useState(PLAYMORE_SOLTERO.price);
+  const [solteroStock, setSolteroStock] = useState(PLAYMORE_SOLTERO.stock);
+  const [until, setUntil] = useState<[string, string]>(['', '']);
+  const apply = trpc.coproduction.applyTandas.useMutation({
+    onSuccess: (r) => {
+      toast.success(`Tandas aplicadas${r.missing.length ? ` (sin entrada para: ${r.missing.join(', ')})` : ''}`);
+      void utils.events.invalidate(); void utils.tickets.invalidate();
+    },
+    onError,
+  });
+  const set = (i: number, k: 'general' | 't1' | 't2', v: string) => setRows(rows.map((r, j) => (j === i ? { ...r, [k]: Math.round(Number(v) || 0) } : r)));
+  const problem = rows.map(tandaRowProblem).find(Boolean) ?? null;
+  const run = (force: boolean) => apply.mutate({
+    slug, rows, force, solteroPrice, solteroStock,
+    until: [until[0] ? new Date(until[0]).toISOString() : null, until[1] ? new Date(until[1]).toISOString() : null],
+  }, { onError: (e) => { if (!force && /Confirma para forzarlo/.test(e.message) && confirm(`${e.message}\n\n¿Aplicar igual?`)) run(true); } });
+  return (
+    <section className="admin-clay space-y-3 p-5">
+      <p className="font-semibold">Tandas de PLAYMORE</p>
+      <p className="text-sm text-muted-foreground">Precio exacto de cada acceso en cada tanda; el % de descuento se calcula solo contra el precio general. Al aplicar queda vigente la 1ª tanda.</p>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead><tr className="text-left text-xs text-muted-foreground"><th className="py-1">Acceso</th><th>1ª tanda</th><th>2ª tanda</th><th>General</th><th>% 1ª</th><th>% 2ª</th></tr></thead>
+          <tbody>
+            {rows.map((r, i) => { const p = tandaRowProblem(r) ? null : exactPercents(r); return (
+              <tr key={r.slug} className="border-t border-white/10">
+                <td className="py-1.5 pr-2">{r.label}</td>
+                {(['t1', 't2', 'general'] as const).map((k) => <td key={k} className="pr-2"><Input className="h-8 w-28" type="number" value={r[k]} onChange={(e) => set(i, k, e.target.value)} /></td>)}
+                <td className="pr-2 tabular-nums">{p ? `${p.t1}%` : '—'}</td><td className="tabular-nums">{p ? `${p.t2}%` : '—'}</td>
+              </tr>
+            ); })}
+            <tr className="border-t border-white/10">
+              <td className="py-1.5 pr-2">{PLAYMORE_SOLTERO.label} <span className="text-xs text-muted-foreground">(sin tandas)</span></td>
+              <td className="pr-2"><Input className="h-8 w-28" type="number" value={solteroPrice} onChange={(e) => setSolteroPrice(Math.round(Number(e.target.value) || 0))} /></td>
+              <td colSpan={2} className="pr-2 text-xs text-muted-foreground">cupos: <Input className="ml-1 inline-block h-8 w-20" type="number" value={solteroStock} onChange={(e) => setSolteroStock(Math.round(Number(e.target.value) || 0))} /></td>
+              <td colSpan={2} className="text-xs text-muted-foreground">precio único</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div><Label>La 1ª tanda termina (opcional)</Label><Input className="mt-1" type="datetime-local" value={until[0]} onChange={(e) => setUntil([e.target.value, until[1]])} /></div>
+        <div><Label>La 2ª tanda termina (opcional)</Label><Input className="mt-1" type="datetime-local" value={until[1]} onChange={(e) => setUntil([until[0], e.target.value])} /></div>
+      </div>
+      <p className="text-xs text-muted-foreground">Sin fecha, la tanda avanza al cerrarla a mano (“Cerrar tanda” en Eventos) o al agotarse su cupo.</p>
+      {problem && <p className="text-xs text-red-400">{problem}</p>}
+      <Button disabled={!!problem || apply.isPending} onClick={() => run(false)}>{apply.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Check className="mr-1.5 h-4 w-4" />} Aplicar tandas al evento</Button>
+    </section>
+  );
+}
+
 export function CoproConfig() {
   const utils = trpc.useUtils();
   const slug = 'dalmore';
@@ -606,6 +662,8 @@ export function CoproConfig() {
           </div>
         </div>
       </section>
+
+      {setup.eventId && <PlaymoreTandas slug={slug} />}
 
       {/* Vista previa */}
       <section className="admin-clay space-y-3 p-5">

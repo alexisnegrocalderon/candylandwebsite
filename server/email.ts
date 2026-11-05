@@ -1963,7 +1963,7 @@ export type MailingEventSections = { banner: boolean; details: boolean; mission3
 /** Un acceso con su precio en la tarjeta de tanda del mailing -- mismo dato
  * que muestra el sitio (`TandaUrgencyCard`): el tachado es el precio general
  * y el otro lo que se paga en esta tanda. */
-export type MailingPriceRow = { label: string; price: number; originalPrice?: number | null };
+export type MailingPriceRow = { label: string; price: number; originalPrice?: number | null; accesoSlug?: string | null };
 
 const clp = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
 

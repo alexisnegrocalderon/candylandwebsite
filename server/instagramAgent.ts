@@ -8,7 +8,7 @@ import {
   normalizeInstagramAgentConfig,
   type InstagramAgentConfig,
 } from '../shared/instagramAgentConfig';
-import { normalizeTandaSchedule, nextPhase, computePhasePrice } from '../shared/tandaSchedule';
+import { normalizeTandaSchedule, nextPhase, phasePriceFor } from '../shared/tandaSchedule';
 import type { IgMessage } from '../drizzle/schema';
 import { AGENT_SITE_PAGES, AGENT_PAGE_KEYS, stripUrlsFromReply, pageForMessage } from './agentLinks';
 import { cleanAiMarks } from '../shared/captionCheck';
@@ -136,7 +136,7 @@ export async function buildInstagramContext(now: Date = new Date()): Promise<str
         let linea = `  · ${t.name}${llave ? ` [${llave}]` : ''}: ${precio} CLP — ${label}${t.description ? ` (${t.description})` : ''}`;
 
         if (label !== 'AGOTADA' && upcomingPhase && t.originalPrice) {
-          const proximoPrecio = computePhasePrice(Number(t.originalPrice), upcomingPhase.phase.percent);
+          const proximoPrecio = phasePriceFor(upcomingPhase.phase, t.accesoSlug, Number(t.originalPrice));
           if (proximoPrecio > Number(t.price)) {
             const proximo = `$${proximoPrecio.toLocaleString('es-CL')}`;
             linea += ` -- este precio es de esta tanda: sube a ${proximo} en la próxima tanda, ni bien se acabe el cupo de esta tanda`;

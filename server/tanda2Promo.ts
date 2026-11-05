@@ -67,6 +67,7 @@ export async function resolveCurrentOffer(eventId: number): Promise<Tanda2Offer 
       label: a.name,
       price: Number(a.price),
       originalPrice: a.originalPrice != null ? Number(a.originalPrice) : null,
+      accesoSlug: a.accesoSlug,
     }))
     .filter((r) => Number.isFinite(r.price) && r.price > 0);
   if (prices.length === 0) return null;

@@ -32,7 +32,7 @@ import { resolveCurrentOffer, type Tanda2Offer } from './tanda2Promo';
 import { checkAndAdvanceTandaIfNeeded } from './tandaAutoAdvance';
 import { EMAIL_BASE_URL } from './emailLayout';
 import { formatChileDate, formatChileTime, startOfChileDay } from '../shared/chileDate';
-import { normalizeTandaSchedule, nextPhase, computePhasePrice } from '../shared/tandaSchedule';
+import { normalizeTandaSchedule, nextPhase, phasePriceFor } from '../shared/tandaSchedule';
 import { MAX_EVENT_MAILS_PER_PERSON, pickDueForRotation, remainingMailsNeeded } from '../shared/mailRotation';
 
 /** Cuántos correos de aviso de venta (drip + avisos por tanda) salen como máximo por día. */
@@ -79,7 +79,7 @@ export function resolveNextPrice(event: DripEvent, offer: Tanda2Offer): { price:
   if (!current?.untilDate || !next) return null;
   const prices = offer.prices
     .filter((r) => r.originalPrice != null && r.originalPrice > 0)
-    .map((r) => computePhasePrice(Number(r.originalPrice), next.phase.percent))
+    .map((r) => phasePriceFor(next.phase, r.accesoSlug, Number(r.originalPrice)))
     .filter((p) => p > 0);
   if (prices.length === 0) return null;
   return { price: Math.min(...prices), untilDate: current.untilDate };

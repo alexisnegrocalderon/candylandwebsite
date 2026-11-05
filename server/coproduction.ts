@@ -16,6 +16,7 @@ import { normalizeLanding, applyEventToLanding, splitProfit, generatePartnerPass
 import { personasForTicket } from '../shared/mission300';
 import { COLAB_HOSTS } from '../shared/colabHosts';
 import { presaleParkingOnlyFor } from '../shared/colabPlaycard';
+import { buildPlaymorePhases, tandaRowProblem, PLAYMORE_SOLTERO, type PlaymoreTandaRow } from '../shared/playmoreTandas';
 
 const isMissingTable = (err: unknown) => /doesn't exist|no such table|unknown table/i.test(String((err as any)?.message ?? (err as any)?.cause?.message ?? err));
 
@@ -541,4 +542,37 @@ export function checkoutPreviewAccess(
   if (!cp || cp.isLive === 1) return null;
   if (opts.isAdmin || opts.previewOk) return 'owner';
   return normalizeLanding(cp.landing).showTicketsEarly ? 'early' : null;
+}
+
+/** Carga en el evento de la colab las 3 tandas con el precio exacto de cada acceso (shared/playmoreTandas.ts):
+ * deja la 1ª tanda vigente (price = 1ª, originalPrice = general), guarda las fases en el evento y fija el soltero
+ * (precio único y pocos cupos, sin tandas). Si ya hay entradas vendidas pide `force` para no pisar una tanda en curso. */
+export async function applyPlaymoreTandas(
+  coproductionId: number, rows: PlaymoreTandaRow[], until: [string | null, string | null],
+  solteroPrice: number, solteroStock: number, force: boolean,
+): Promise<{ updated: string[]; missing: string[]; percents: { slug: string; t1: number; t2: number }[] }> {
+  const db = await getDb();
+  if (!db) throw new Error('Database not available');
+  const cp = await getCoproductionById(coproductionId);
+  if (!cp?.eventId) throw new Error('Primero enlaza el evento en Configuración.');
+  for (const r of rows) { const p = tandaRowProblem(r); if (p) throw new Error(p); }
+  if (!(Number.isInteger(solteroPrice) && solteroPrice > 0) || !(Number.isInteger(solteroStock) && solteroStock > 0)) throw new Error('Vengo solo: precio y cupos deben ser enteros mayores a 0.');
+  const tts = (await db.select().from(ticketTypes).where(and(eq(ticketTypes.eventId, cp.eventId), eq(ticketTypes.category, 'acceso'), eq(ticketTypes.status, 'active'))));
+  const sold = tts.filter((t) => t.soldCount > 0);
+  if (sold.length && !force) throw new Error('Ya hay entradas vendidas en este evento: aplicar las tandas de nuevo pisaría la tanda en curso. Confirma para forzarlo.');
+  const updated: string[] = []; const missing: string[] = [];
+  for (const r of rows) {
+    const tt = tts.find((t) => t.accesoSlug === r.slug);
+    if (!tt) { missing.push(r.slug); continue; }
+    await db.update(ticketTypes).set({ price: String(r.t1), originalPrice: String(r.general) }).where(eq(ticketTypes.id, tt.id));
+    updated.push(r.slug);
+  }
+  const sol = tts.find((t) => t.accesoSlug === PLAYMORE_SOLTERO.slug);
+  if (sol) {
+    await db.update(ticketTypes).set({ price: String(solteroPrice), originalPrice: null, totalStock: Math.max(solteroStock, sol.soldCount) }).where(eq(ticketTypes.id, sol.id));
+    updated.push(sol.accesoSlug!);
+  } else missing.push(PLAYMORE_SOLTERO.slug);
+  await db.update(events).set({ tandaDiscountSchedule: buildPlaymorePhases(rows, until) as any, tandaPhaseIndex: 0 }).where(eq(events.id, cp.eventId));
+  const { exactPercents } = await import('../shared/playmoreTandas');
+  return { updated, missing, percents: rows.map((r) => ({ slug: r.slug, ...(({ t1, t2 }) => ({ t1, t2 }))(exactPercents(r)) })) };
 }

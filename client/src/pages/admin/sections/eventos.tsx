@@ -20,7 +20,7 @@ import { ImageUploadField } from '@/components/admin/ImageUploadField';
 import { MailingComposer } from '@/components/admin/MailingComposer';
 import { openEventPackInStudio } from '@/components/admin/studio/handoff';
 import { TableSkeleton } from '@/components/admin/TableSkeleton';
-import { computePhasePrice, nextPhase, normalizeTandaSchedule, type TandaPhase } from '@shared/tandaSchedule';
+import { phasePriceFor, nextPhase, normalizeTandaSchedule, type TandaPhase } from '@shared/tandaSchedule';
 import { formatChileShortDate } from '@shared/chileDate';
 import { presaleAllows } from '@shared/presaleExtras';
 import { DISCOUNT_ORIGIN_LABEL, discountOrigin, isAutomaticDiscount, type DiscountOrigin } from '@shared/discountOrigin';
@@ -357,7 +357,7 @@ export function AdvanceTandaDialog({ event }: { event: any }) {
     if (open && activos.length > 0 && Object.keys(rows).length === 0) {
       setRows(Object.fromEntries(activos.map((tt: any) => {
         const seedPrice = next && tt.originalPrice
-          ? computePhasePrice(Number(tt.originalPrice), next.phase.percent)
+          ? phasePriceFor(next.phase, tt.accesoSlug, Number(tt.originalPrice))
           : Number(tt.price);
         return [tt.id, { newPrice: seedPrice, newTotalStock: tt.totalStock, newStockPoolId: null }];
       })));

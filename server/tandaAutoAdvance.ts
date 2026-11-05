@@ -2,7 +2,7 @@ import { eq, and } from 'drizzle-orm';
 import { getDb, advanceTanda, getStockPoolRemaining } from './db';
 import { notifyEventLaunch } from './customerPush';
 import { events, ticketTypes } from '../drizzle/schema';
-import { normalizeTandaSchedule, computePhasePrice, nextPhase } from '../shared/tandaSchedule';
+import { normalizeTandaSchedule, phasePriceFor, nextPhase } from '../shared/tandaSchedule';
 import { UNLIMITED_STOCK } from '../shared/stock';
 
 /** Revisa si la tanda vigente de un evento debe pasar sola a la siguiente
@@ -64,9 +64,10 @@ export async function checkAndAdvanceTandaIfNeeded(eventId: number): Promise<{ a
     // ni reasigna pool. Si el dueño quiere que la fase siguiente también
     // tenga su propio cupo compartido, lo arma a mano con "Cerrar tanda"
     // (ahí sigue pudiendo elegir precio/stock/pool como siempre).
-    const rows = activos.map((tt) => ({
+    // Un acceso sin precio general (ej. el Soltero de PLAYMORE, de precio único y pocos cupos) no participa de las tandas: queda como está.
+    const rows = activos.filter((tt) => tt.originalPrice).map((tt) => ({
       oldTicketTypeId: tt.id,
-      newPrice: tt.originalPrice ? computePhasePrice(Number(tt.originalPrice), next.phase.percent) : Number(tt.price),
+      newPrice: phasePriceFor(next.phase, tt.accesoSlug, Number(tt.originalPrice)),
       newTotalStock: UNLIMITED_STOCK,
       newStockPoolId: null,
     }));

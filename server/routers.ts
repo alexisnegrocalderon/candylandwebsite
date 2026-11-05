@@ -1718,6 +1718,7 @@ export const appRouter = router({
       tandaDiscountSchedule: z.array(z.object({
         percent: z.number().min(0).max(100),
         untilDate: z.string().nullable().optional(),
+        prices: z.record(z.string().regex(/^[a-z0-9_]{1,40}$/), z.number().int().min(0).max(10_000_000)).optional(),
       })).optional(),
     })).mutation(async ({ input }) => {
       const { id, ...data } = input;
@@ -4682,6 +4683,18 @@ export const appRouter = router({
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo cambiar.' });
       }
       return { success: true };
+    }),
+    applyTandas: adminProcedure.input(z.object({
+      slug: z.string().max(50),
+      rows: z.array(z.object({ slug: z.string().max(50), label: z.string().max(100), general: z.number().int(), t1: z.number().int(), t2: z.number().int() })).min(1).max(10),
+      until: z.tuple([z.string().max(40).nullable(), z.string().max(40).nullable()]).default([null, null]),
+      solteroPrice: z.number().int(), solteroStock: z.number().int(), force: z.boolean().default(false),
+    })).mutation(async ({ input }) => {
+      try {
+        return await coproductionSvc.applyPlaymoreTandas((await requireCoproduction(input.slug)).id, input.rows, input.until, input.solteroPrice, input.solteroStock, input.force);
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudieron aplicar las tandas.' });
+      }
     }),
     approveExpense: adminProcedure.input(z.object({ slug: z.string().max(50), id: z.number().int() })).mutation(async ({ input }) => {
       try {
