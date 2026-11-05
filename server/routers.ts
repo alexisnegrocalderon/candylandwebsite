@@ -4643,6 +4643,22 @@ export const appRouter = router({
     split: partnerProcedure.input(coproductionScopeInput).query(async ({ input, ctx }) => {
       return coproductionSvc.getCoproductionSplit(await scopedCoproduction(ctx, input));
     }),
+    // Planilla de contactos del socio (aparte de los Clientes de Playroom).
+    contacts: partnerProcedure.input(coproductionScopeInput).query(async ({ input, ctx }) => {
+      return coproductionSvc.listCoproductionContacts(await scopedCoproduction(ctx, input));
+    }),
+    importContacts: partnerProcedure.input(coproductionScopeBase.extend({ text: z.string().min(3).max(2_000_000) })).mutation(async ({ input, ctx }) => {
+      const cp = await scopedCoproduction(ctx, input);
+      try {
+        return await coproductionSvc.importCoproductionContacts(cp, input.text, ctx.user.role === 'partner' ? 'partner' : 'playroom');
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo importar la planilla.' });
+      }
+    }),
+    deleteContact: partnerProcedure.input(coproductionScopeBase.extend({ id: z.number().int() })).mutation(async ({ input, ctx }) => {
+      await coproductionSvc.deleteCoproductionContact(await scopedCoproduction(ctx, input), input.id);
+      return { success: true };
+    }),
     // Bitácora de transparencia: todos los movimientos de SU evento.
     movements: partnerProcedure.input(coproductionScopeInput).query(async ({ input, ctx }) => {
       return coproductionSvc.getCoproductionMovements(await scopedCoproduction(ctx, input));

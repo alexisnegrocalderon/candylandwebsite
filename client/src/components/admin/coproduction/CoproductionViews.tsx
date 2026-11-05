@@ -1,9 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import {
   CalendarClock, Check, Copy, Download, Eye, Gift, KeyRound, Loader2, Plus, Receipt, RefreshCw, Rocket, Search, ShieldOff,
-  Ticket, Users, Wallet, X, type LucideIcon,
+  Ticket, Upload, Users, Wallet, X, type LucideIcon,
 } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { fromChileInputValue } from '@/pages/admin/sections/shared';
@@ -18,6 +18,7 @@ import { EmptyState } from '@/components/admin/EmptyState';
 import { ImageUploadField } from '@/components/admin/ImageUploadField';
 import { formatChileDate, formatChileDateTime, formatChileShortDate } from '@shared/chileDate';
 import { PLAYMORE_TANDA_ROWS, PLAYMORE_SOLTERO, exactPercents, tandaRowProblem, type PlaymoreTandaRow } from '@shared/playmoreTandas';
+import { parseColabContacts, COLAB_CONTACTS_MAX } from '@shared/colabContacts';
 import { timelineFromText, timelineToText, type CoproductionLanding } from '@shared/coproduction';
 
 /* Panel de una co-producción (Playroom × Dalmore). Lo ven el dueño y el
@@ -892,6 +893,102 @@ export function CoproMovimientos() {
           ))}
         </ul>
       )}
+    </div>
+  );
+}
+
+// ── Base de contactos (planilla del socio) ─────────────────────────────────
+
+/** El socio sube su planilla (CSV o pegada desde Excel / Google Sheets). Queda en una lista de ESTA colab:
+ * no se mezcla con los Clientes de Playroom ni entra a sus mailings. */
+export function CoproContactos() {
+  const utils = trpc.useUtils();
+  const { data: me } = useMe();
+  const { data, isLoading } = trpc.coproduction.contacts.useQuery();
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState('');
+  const [q, setQ] = useState('');
+  const fileRef = useRef<HTMLInputElement>(null);
+  const preview = useMemo(() => parseColabContacts(text), [text]);
+
+  const importer = trpc.coproduction.importContacts.useMutation({
+    onSuccess: (r) => {
+      toast.success(`${r.added} contacto${r.added === 1 ? '' : 's'} agregado${r.added === 1 ? '' : 's'}${r.alreadyThere ? ` · ${r.alreadyThere} ya estaban` : ''}${r.invalid ? ` · ${r.invalid} sin correo válido` : ''}`);
+      setOpen(false); setText('');
+      void utils.coproduction.contacts.invalidate();
+    },
+    onError,
+  });
+  const remove = trpc.coproduction.deleteContact.useMutation({ onSuccess: () => void utils.coproduction.contacts.invalidate(), onError });
+
+  const rows = useMemo(() => {
+    const term = q.trim().toLowerCase();
+    return (data ?? []).filter((c) => !term || `${c.fullName ?? ''} ${c.email} ${c.phone ?? ''}`.toLowerCase().includes(term));
+  }, [data, q]);
+  const owner = me?.partnerName ?? 'socio';
+
+  return (
+    <div className="space-y-4">
+      <SectionTitle
+        title="Base de contactos"
+        subtitle={`${(data ?? []).length} contactos de ${owner}. Esta lista es solo de esta colab: no se mezcla con los Clientes de Playroom.`}
+        action={(
+          <div className="flex gap-2">
+            <Button variant="outline" disabled={!rows.length} onClick={() => downloadCsv('contactos-colab.csv', [['Nombre', 'Correo', 'Teléfono'], ...rows.map((c) => [c.fullName ?? '', c.email, c.phone ?? ''])])}>
+              <Download className="mr-1.5 h-4 w-4" /> CSV
+            </Button>
+            <Button onClick={() => setOpen(true)}><Upload className="mr-1.5 h-4 w-4" /> Importar planilla</Button>
+          </div>
+        )}
+      />
+      <label className="flex h-11 items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3">
+        <Search className="h-4 w-4 text-muted-foreground" />
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por nombre, correo o teléfono" className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground" />
+      </label>
+      {isLoading ? <p className="text-sm text-muted-foreground">Cargando…</p> : rows.length === 0 ? (
+        <EmptyState icon={Users} title={data?.length ? 'Nada coincide' : 'Todavía no hay contactos'} />
+      ) : (
+        <ul className="space-y-2">
+          {rows.slice(0, 300).map((c) => (
+            <li key={c.id} className="admin-clay-sm flex items-center justify-between gap-3 border border-white/10 bg-white/5 p-3 text-sm">
+              <div className="min-w-0">
+                <p className="truncate font-medium">{c.fullName || '—'}</p>
+                <p className="break-all text-xs text-muted-foreground">{c.email}{c.phone ? ` · ${c.phone}` : ''}</p>
+              </div>
+              <button type="button" aria-label="Quitar contacto" className="shrink-0 rounded-full p-1.5 text-muted-foreground hover:bg-white/10"
+                onClick={() => { if (confirm(`¿Quitar a ${c.fullName || c.email} de la lista?`)) remove.mutate({ id: c.id }); }}>
+                <X className="h-4 w-4" />
+              </button>
+            </li>
+          ))}
+          {rows.length > 300 && <li className="text-center text-xs text-muted-foreground">Mostrando 300 de {rows.length}. Usa el buscador o descarga el CSV.</li>}
+        </ul>
+      )}
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Importar planilla de contactos</DialogTitle></DialogHeader>
+          <div className="space-y-3 text-sm">
+            <p className="text-muted-foreground">Sube un CSV o pega las filas desde Excel / Google Sheets. Columnas: <strong>Nombre, Correo, Teléfono</strong> (solo el correo es obligatorio). Los correos repetidos se saltan.</p>
+            <input ref={fileRef} type="file" accept=".csv,.txt,text/csv" className="hidden"
+              onChange={async (e) => { const f = e.target.files?.[0]; if (f) setText(await f.text()); e.target.value = ''; }} />
+            <Button variant="outline" onClick={() => fileRef.current?.click()}><Upload className="mr-1.5 h-4 w-4" /> Elegir archivo CSV</Button>
+            <Textarea rows={7} value={text} onChange={(e) => setText(e.target.value)} placeholder={'Nombre\tCorreo\tTeléfono\nAna Pérez\tana@correo.cl\t+56911112222'} />
+            {text.trim() && (
+              <p className="text-xs text-muted-foreground">
+                Listos para agregar: <strong className="text-foreground">{preview.rows.length}</strong>
+                {preview.invalid > 0 && ` · ${preview.invalid} sin correo válido (se omiten)`}
+                {preview.duplicates > 0 && ` · ${preview.duplicates} repetidos`}
+                {preview.tooMany && ` · máximo ${COLAB_CONTACTS_MAX} por planilla`}
+              </p>
+            )}
+            <p className="text-xs text-muted-foreground">Al importar confirmas que tienes permiso de estas personas para contactarlas por el evento.</p>
+          </div>
+          <Button disabled={preview.rows.length === 0 || importer.isPending} onClick={() => importer.mutate({ text })}>
+            {importer.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Check className="mr-1.5 h-4 w-4" />} Agregar {preview.rows.length || ''} contactos
+          </Button>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

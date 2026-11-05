@@ -12,6 +12,7 @@ vi.mock('./coproduction', async (importOriginal) => {
     getCoproductionBySlug: vi.fn(),
     getCoproductionOverview: vi.fn(),
     getCoproductionMovements: vi.fn(),
+    listCoproductionContacts: vi.fn(),
     isEventHiddenByCoproduction: vi.fn(),
     isEventColab: vi.fn(),
     getCoproductionByEventId: vi.fn(),
@@ -57,6 +58,13 @@ describe('el socio solo ve su co-producción', () => {
     await caller(socio).coproduction.movements({ slug: 'otra' });
     expect(coproductionSvc.getCoproductionMovements).toHaveBeenCalledWith(dalmore);
     await expect(caller(user('viewer')).coproduction.movements()).rejects.toMatchObject({ code: 'FORBIDDEN' });
+  });
+
+  it('los contactos son solo los suyos, aunque pida otro slug', async () => {
+    vi.mocked(coproductionSvc.listCoproductionContacts).mockResolvedValue([]);
+    await caller(socio).coproduction.contacts({ slug: 'otra' });
+    expect(coproductionSvc.listCoproductionContacts).toHaveBeenCalledWith(dalmore);
+    await expect(caller(user('viewer')).coproduction.contacts()).rejects.toMatchObject({ code: 'FORBIDDEN' });
   });
 
   it('el dueño sí elige la co-producción', async () => {

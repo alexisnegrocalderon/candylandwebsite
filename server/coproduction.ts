@@ -7,12 +7,13 @@
 import { randomBytes, randomInt } from 'crypto';
 import { and, desc, eq, gt, inArray, like, ne } from 'drizzle-orm';
 import {
-  coproductions, coproductionInvites, coproductionExpenses, adminAuditLog, events, expenses, orders, orderItems, tickets, ticketTypes,
+  coproductions, coproductionInvites, coproductionExpenses, coproductionContacts, adminAuditLog, events, expenses, orders, orderItems, tickets, ticketTypes,
   type Coproduction,
 } from '../drizzle/schema';
 import { getDb, getEventPnl, getOrderStats, getSalesByDay, getTicketTypesByEventId, createExpense, createManualOrder } from './db';
 import { hashPin, verifyPin } from './caja/auth';
 import { normalizeLanding, applyEventToLanding, splitProfit, generatePartnerPassword, type ColabBrand, type CoproductionLanding } from '../shared/coproduction';
+import { parseColabContacts } from '../shared/colabContacts';
 import { personasForTicket } from '../shared/mission300';
 import { COLAB_HOSTS } from '../shared/colabHosts';
 import { presaleParkingOnlyFor } from '../shared/colabPlaycard';
@@ -374,6 +375,35 @@ export async function createCoproductionInvite(cp: Coproduction, input: {
   const db = (await getDb())!;
   await db.insert(coproductionInvites).values({ coproductionId: cp.id, orderId: result.orderId, createdBy });
   return result;
+}
+
+// ── Base de contactos del socio ──────────────────────────────────────────
+// Aparte de `customers`: no entra a los mailings ni a las audiencias de Playroom.
+
+export async function listCoproductionContacts(cp: Coproduction) {
+  const db = await getDb();
+  if (!db) return [];
+  return safe(() => db.select().from(coproductionContacts).where(eq(coproductionContacts.coproductionId, cp.id)).orderBy(desc(coproductionContacts.createdAt), desc(coproductionContacts.id)), []);
+}
+
+/** Importa la planilla (CSV o pegada). Los correos que ya están se saltan; devuelve el conteo. */
+export async function importCoproductionContacts(cp: Coproduction, text: string, createdBy: 'playroom' | 'partner') {
+  const db = await getDb();
+  if (!db) throw new Error('Database not available');
+  const parsed = parseColabContacts(text);
+  if (parsed.rows.length === 0) throw new Error('No encontré correos válidos en la planilla. Necesita una columna de correo.');
+  const existing = new Set((await listCoproductionContacts(cp)).map((c) => c.email));
+  const fresh = parsed.rows.filter((r) => !existing.has(r.email));
+  for (let i = 0; i < fresh.length; i += 500) {
+    await db.insert(coproductionContacts).values(fresh.slice(i, i + 500).map((r) => ({ coproductionId: cp.id, email: r.email, fullName: r.fullName, phone: r.phone, createdBy })));
+  }
+  return { added: fresh.length, alreadyThere: parsed.rows.length - fresh.length, invalid: parsed.invalid, duplicates: parsed.duplicates, tooMany: parsed.tooMany };
+}
+
+export async function deleteCoproductionContact(cp: Coproduction, id: number) {
+  const db = await getDb();
+  if (!db) throw new Error('Database not available');
+  await db.delete(coproductionContacts).where(and(eq(coproductionContacts.id, id), eq(coproductionContacts.coproductionId, cp.id)));
 }
 
 /** Bitácora única de transparencia: todo lo que mueve el evento, de más nuevo a más viejo.

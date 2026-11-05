@@ -3077,6 +3077,20 @@ export const coproductionInvites = mysqlTable("coproductionInvites", {
   coproductionIdx: index("coproduction_invites_coproduction_idx").on(table.coproductionId),
 }));
 
+// Base de contactos que sube el socio (su planilla). Vive APARTE de `customers`:
+// no entra a los mailings ni a las audiencias de Playroom, solo a esta colab.
+export const coproductionContacts = mysqlTable("coproductionContacts", {
+  id: int("id").autoincrement().primaryKey(),
+  coproductionId: int("coproductionId").notNull(),
+  email: varchar("email", { length: 320 }).notNull(),
+  fullName: varchar("fullName", { length: 255 }),
+  phone: varchar("phone", { length: 40 }),
+  createdBy: mysqlEnum("createdBy", ["playroom", "partner"]).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  emailIdx: uniqueIndex("coproduction_contacts_email_idx").on(table.coproductionId, table.email),
+}));
+
 // Gastos que carga la otra productora. Viven acá (y NO en `expenses`) hasta
 // que el dueño los aprueba: así un gasto sin revisar nunca toca los reportes
 // de Playroom. Al aprobar se crea el gasto real en `expenses` (scope evento)
