@@ -250,6 +250,8 @@ import { hasSalesLink } from "../shared/staffSales";
 import { autoPackFromDesign, deleteAmbassadorItem, ensureAmbassadorDrafts, getUpcomingContentEvents, listAmbassadorItems, notifyAmbassadorsNewContent, saveAmbassadorItem, sendStudioToAmbassadors, setAmbassadorItemStatus } from "./ambassadorContent";
 import { listContentDesigns, getContentDesign, saveContentDesign, deleteContentDesign, getContentVideo, saveContentVideo, listVideoStyles, saveVideoStyle, deleteVideoStyle } from "./contentStudio";
 import { renderMissingConfig, requestVideoRender } from "./studioRender";
+import { generateVoice, voiceMissingConfig } from "./studioVoice";
+import { TTS_VOICE_KEYS, VOICE_MAX_BEATS, VOICE_MAX_SAY } from "../shared/studioVoice";
 import { quickPhotoTexts, quickVideoFromIdea } from "./studioAi/quickIdea";
 import { recordAiUsage, listAiUsageSince } from "./db";
 import { summarizeAiUsage } from "../shared/aiUsage";
@@ -4014,6 +4016,21 @@ export const appRouter = router({
       }
     }),
     renderConfig: adminReadProcedure.query(() => ({ missing: renderMissingConfig() })),
+    // Voz de los reels con voz (server/studioVoice.ts): Azure es-CL. Devuelve el WAV con
+    // las pausas y lo que dura cada frase; el panel lo guarda en el video.
+    voiceConfig: adminReadProcedure.query(() => ({ missing: voiceMissingConfig() })),
+    generateVoice: adminProcedure.input(z.object({
+      says: z.array(z.string().min(1).max(VOICE_MAX_SAY)).min(1).max(VOICE_MAX_BEATS),
+      voice: z.enum(TTS_VOICE_KEYS as [string, ...string[]]),
+      rate: z.number().int().min(-25).max(30),
+      pitch: z.number().int().min(-12).max(12),
+    })).mutation(async ({ input }) => {
+      try {
+        return await generateVoice({ ...input, voice: input.voice as (typeof TTS_VOICE_KEYS)[number] });
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo generar la voz.' });
+      }
+    }),
     // Modo «Rápido»: la IA escribe los textos y la plantilla Bubble dibuja (server/studioAi/quick.ts).
     quick: adminProcedure.input(z.object({
       brief: z.string().trim().min(1, 'Escribe qué quieres').max(2000),

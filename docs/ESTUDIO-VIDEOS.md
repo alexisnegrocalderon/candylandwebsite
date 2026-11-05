@@ -63,3 +63,32 @@ lleva la dirección.
 
 Código: `shared/studioCountdown.ts` (datos, días que faltan, texto) y
 `shared/studioCountdownHtml.ts` (la composición). Panel: `CountdownControls.tsx`.
+
+## Reel con voz chilena («Reel con voz chilena (valores)»)
+
+Estudio → Video → «Partir de» → **Reel con voz chilena**. Un guion por escenas: cada escena
+dice una frase y el texto, los movimientos y el subtítulo (palabra por palabra) caen en el
+ritmo de esa voz. Tipos de escena: gancho de celular (mensaje que llega), palabra grande
+(con etiqueta, frase en cursiva y píldoras), sello grande (+18) y tarjeta final (logo, ciudad
+y @usuario). Cada escena acepta una foto o un clip de fondo, que se pueden ir sumando.
+
+- **La voz se genera en el servidor** con Azure Speech, voces `es-CL` (Catalina y Lorenzo).
+  Se pide una frase por vez (así se sabe cuánto dura cada una), se unen en un WAV con
+  pausas y se sube a Vercel Blob. Velocidad y tono se ajustan con las barras.
+  «Playroom» se dice «Pleirrum» (ver `pronounce` en `server/studioVoice.ts`).
+- **Si cambias una frase, la voz hay que generarla de nuevo**: el panel lo avisa. Mientras
+  no haya voz al día, la vista previa va muda con tiempos estimados.
+- **Acabado:** cámara que empuja despacio, grano de película, viñeta, desenfoque de
+  movimiento y destello en los cortes, separación de color en cada golpe. Todo con los
+  colores de la marca (`shared/studioVoiceReel.ts`).
+- Se graba igual que los demás: «Exportar MP4».
+
+### Configuración de la voz (una sola vez)
+
+1. En portal.azure.com crea un recurso **Speech** (plan **F0**, gratis: 500.000 letras al mes).
+2. Copia su **clave** y su **región** (por ejemplo `brazilsouth`).
+3. En Vercel → Settings → Environment Variables: `AZURE_SPEECH_KEY` y `AZURE_SPEECH_REGION`.
+4. Vuelve a desplegar. El panel dice qué falta si algo no está.
+
+Código: `shared/studioVoice.ts` (datos y guion de partida), `shared/studioVoiceReel.ts`
+(composición), `server/studioVoice.ts` (voz), `VoiceControls.tsx` (panel).
