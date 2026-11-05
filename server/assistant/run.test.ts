@@ -85,14 +85,38 @@ describe("asistente: el ciclo con herramientas", () => {
     expect(r.message.ui.sources).toEqual(["listar_eventos"]);
   });
 
-  it("repite la conversación anterior tal cual", async () => {
-    history = [{ role: "user", content: "hola" }, { role: "assistant", content: [{ type: "thinking", thinking: "", signature: "s" }, { type: "text", text: "hola" }] }];
+  it("repite la conversación anterior sin el razonamiento (que deja de servir si cambian las instrucciones o las herramientas)", async () => {
+    history = [
+      { role: "user", content: "hola" },
+      { role: "assistant", content: [{ type: "thinking", thinking: "", signature: "s" }, { type: "tool_use", id: "t0", name: "listar_eventos", input: {} }] },
+      { role: "user", content: [{ type: "tool_result", tool_use_id: "t0", content: "[]" }] },
+      { role: "assistant", content: [{ type: "thinking", thinking: "", signature: "s2" }, { type: "redacted_thinking", data: "x" }, { type: "text", text: "hola" }] },
+    ];
     exchanges = 1;
     const run = await import("./run");
     const { client, calls } = fakeClient([msg([{ type: "text", text: "ok" }], "end_turn")]);
     run.setAssistantClientForTests(client as any);
     await run.ask({ threadId: 7, question: "¿y ahora?", context: {} });
-    expect(calls[0].messages.slice(0, 2)).toEqual(history);
+    expect(calls[0].messages.slice(0, 4)).toEqual([
+      { role: "user", content: "hola" },
+      { role: "assistant", content: [{ type: "tool_use", id: "t0", name: "listar_eventos", input: {} }] },
+      { role: "user", content: [{ type: "tool_result", tool_use_id: "t0", content: "[]" }] },
+      { role: "assistant", content: [{ type: "text", text: "hola" }] },
+    ]);
+  });
+
+  it("dentro del turno en curso el razonamiento se repite tal cual (la API lo exige entre consultas), y al guardar se quita", async () => {
+    const run = await import("./run");
+    const thinking = { type: "thinking", thinking: "", signature: "firma-del-turno" };
+    const { client, calls } = fakeClient([
+      msg([thinking, toolUse("t1", "listar_eventos")], "tool_use"),
+      msg([{ type: "text", text: "Listo." }], "end_turn"),
+    ]);
+    run.setAssistantClientForTests(client as any);
+    await run.ask({ question: "x", context: {} });
+    expect(calls[1].messages[1].content[0]).toEqual(thinking);
+    expect(JSON.stringify(saved[1].api)).not.toMatch(/thinking/);
+    expect(saved[1].api.map((m: any) => m.role)).toEqual(["assistant", "user", "assistant"]);
   });
 
   it("corta tras 8 rondas de consultas, no guarda un turno a medias y lo explica", async () => {
