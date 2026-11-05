@@ -919,6 +919,19 @@ export function CoproContactos() {
     },
     onError,
   });
+  const { data: overview } = trpc.coproduction.overview.useQuery();
+  const { data: attendees } = trpc.coproduction.attendees.useQuery();
+  const [ticketTypeId, setTicketTypeId] = useState('');
+  const [sendingEmail, setSendingEmail] = useState<string | null>(null);
+  const invited = useMemo(() => new Set((attendees ?? []).filter((a) => a.invitedBy).map((a) => a.buyerEmail.toLowerCase())), [attendees]);
+  const sendCourtesy = trpc.coproduction.createInvite.useMutation({
+    onSuccess: (r) => {
+      toast.success(`Cortesía enviada (${r.orderNumber}). La entrada le llega por correo.`);
+      void utils.coproduction.attendees.invalidate(); void utils.coproduction.overview.invalidate(); void utils.coproduction.movements.invalidate();
+    },
+    onError,
+    onSettled: () => setSendingEmail(null),
+  });
   const remove = trpc.coproduction.deleteContact.useMutation({ onSuccess: () => void utils.coproduction.contacts.invalidate(), onError });
 
   const rows = useMemo(() => {
@@ -941,6 +954,14 @@ export function CoproContactos() {
           </div>
         )}
       />
+      <div className="admin-clay-sm flex flex-wrap items-center gap-3 border border-white/10 bg-white/5 p-3 text-sm">
+        <Gift className="h-4 w-4 shrink-0 text-muted-foreground" />
+        <span className="text-muted-foreground">Cortesía en un clic, con este acceso:</span>
+        <Select value={ticketTypeId} onValueChange={setTicketTypeId}>
+          <SelectTrigger className="h-9 w-full sm:w-56"><SelectValue placeholder="Elige el acceso" /></SelectTrigger>
+          <SelectContent>{(overview?.ticketTypes ?? []).map((t) => <SelectItem key={t.id} value={String(t.id)}>{t.name}</SelectItem>)}</SelectContent>
+        </Select>
+      </div>
       <label className="flex h-11 items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3">
         <Search className="h-4 w-4 text-muted-foreground" />
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por nombre, correo o teléfono" className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground" />
@@ -955,6 +976,20 @@ export function CoproContactos() {
                 <p className="truncate font-medium">{c.fullName || '—'}</p>
                 <p className="break-all text-xs text-muted-foreground">{c.email}{c.phone ? ` · ${c.phone}` : ''}</p>
               </div>
+              {invited.has(c.email) ? (
+                <span className="shrink-0 rounded-full bg-sky-400/15 px-2.5 py-1 text-xs text-sky-300">Cortesía enviada</span>
+              ) : (
+                <Button size="sm" variant="outline" className="shrink-0"
+                  disabled={!ticketTypeId || sendCourtesy.isPending}
+                  title={ticketTypeId ? undefined : 'Elige primero el acceso'}
+                  onClick={() => {
+                    if (!confirm(`¿Enviar una cortesía a ${c.fullName || c.email}? Le llega la entrada por correo.`)) return;
+                    setSendingEmail(c.email);
+                    sendCourtesy.mutate({ buyerName: c.fullName || c.email.split('@')[0], buyerEmail: c.email, buyerPhone: c.phone?.slice(0, 20) || undefined, ticketTypeId: Number(ticketTypeId), quantity: 1 });
+                  }}>
+                  {sendingEmail === c.email ? <Loader2 className="h-4 w-4 animate-spin" /> : <Gift className="mr-1 h-4 w-4" />} Cortesía
+                </Button>
+              )}
               <button type="button" aria-label="Quitar contacto" className="shrink-0 rounded-full p-1.5 text-muted-foreground hover:bg-white/10"
                 onClick={() => { if (confirm(`¿Quitar a ${c.fullName || c.email} de la lista?`)) remove.mutate({ id: c.id }); }}>
                 <X className="h-4 w-4" />

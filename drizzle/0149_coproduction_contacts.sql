@@ -6,7 +6,6 @@ CREATE TABLE IF NOT EXISTS `coproductionContacts` (
 	`phone` varchar(40),
 	`createdBy` enum('playroom','partner') NOT NULL,
 	`createdAt` timestamp NOT NULL DEFAULT (now()),
-	CONSTRAINT `coproductionContacts_id` PRIMARY KEY(`id`)
+	CONSTRAINT `coproductionContacts_id` PRIMARY KEY(`id`),
+	CONSTRAINT `coproduction_contacts_email_idx` UNIQUE(`coproductionId`,`email`)
 );
---> statement-breakpoint
-CREATE UNIQUE INDEX `coproduction_contacts_email_idx` ON `coproductionContacts` (`coproductionId`,`email`);
