@@ -12,6 +12,12 @@ describe('colabHosts', () => {
   it('desvía la home de Playroom hasta la fecha del evento', () => {
     expect(colabHomeRedirectActive('mansionplayroom.cl', '', before)).toBe(true);
     expect(colabHomeRedirectActive('www.mansionplayroom.cl', '?utm_source=ig', before)).toBe(true);
+    // Quien NO tiene la app llega a la landing aunque el link traiga rastreo propio.
+    expect(colabHomeRedirectActive('mansionplayroom.cl', '?source=instagram', before)).toBe(true);
+    expect(colabHomeRedirectActive('mansionplayroom.cl', '?source=whatsapp&utm_campaign=x', before)).toBe(true);
+    // La app instalada y la notificación de bienvenida siguen sin desviarse.
+    expect(colabHomeRedirectActive('mansionplayroom.cl', '?source=app', before)).toBe(false);
+    expect(colabHomeRedirectActive('mansionplayroom.cl', '?bienvenida=1', before)).toBe(false);
     expect(colabHomeRedirectActive('mansionplayroom.cl', '', after)).toBe(false);
   });
   it('no desvía la app instalada, la bienvenida ni otros hosts', () => {

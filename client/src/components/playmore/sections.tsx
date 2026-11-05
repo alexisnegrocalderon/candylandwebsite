@@ -82,7 +82,7 @@ export function PlaymoreHero({ landing, partnerName, buyHref, preview, early = f
   const { scrollYProgress } = useScroll({ target: ref, offset: ['start start', 'end start'] });
   // Al bajar, los dos logos se acercan hasta fundirse en el centro.
   // En celular parten más juntos para que no se salgan de la pantalla.
-  const spread = typeof window !== 'undefined' && window.innerWidth < 640 ? 36 : 90;
+  const spread = typeof window !== 'undefined' && window.innerWidth < 640 ? 14 : 90;
   const leftX = useTransform(scrollYProgress, [0, 0.45], [-spread, 0]);
   const rightX = useTransform(scrollYProgress, [0, 0.45], [spread, 0]);
   const crossOpacity = useTransform(scrollYProgress, [0, 0.35], [1, 0]);
@@ -112,10 +112,10 @@ export function PlaymoreHero({ landing, partnerName, buyHref, preview, early = f
         <div className="relative mb-8 flex h-24 items-center justify-center sm:h-28">
           <motion.div className="absolute h-36 w-36 rounded-full bg-[radial-gradient(circle,rgba(228,119,234,0.55),transparent_65%)] blur-xl" style={{ opacity: fuseGlow }} />
           <motion.img src="/playmore/playroom-logo.png" alt="Mansion Playroom" style={{ x: leftX }}
-            className="relative h-16 w-auto max-w-[9.5rem] object-contain sm:h-20 sm:max-w-[12rem]" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 1, delay: 0.2 }} />
+            className="relative h-16 w-auto max-w-[8.5rem] object-contain sm:h-20 sm:max-w-[12rem]" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 1, delay: 0.2 }} />
           <motion.span style={{ opacity: crossOpacity }} className="playmore-serif relative mx-2 text-3xl italic text-[var(--pm-sand)]">×</motion.span>
           <motion.div style={{ x: rightX }} className="relative" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 1, delay: 0.35 }}>
-            <PartnerMark logoUrl={landing.partnerLogoUrl === DALMORE_MARK ? DALMORE_LOGO : landing.partnerLogoUrl} name={partnerName} className="h-20 w-20 text-[5.5rem] sm:h-24 sm:w-24 sm:text-[6.5rem]" imgClassName="h-16 w-auto max-w-[9.5rem] sm:h-24 sm:max-w-[12rem]" />
+            <PartnerMark logoUrl={landing.partnerLogoUrl === DALMORE_MARK ? DALMORE_LOGO : landing.partnerLogoUrl} name={partnerName} className="h-20 w-20 text-[5.5rem] sm:h-24 sm:w-24 sm:text-[6.5rem]" imgClassName="h-16 w-auto max-w-[8.5rem] sm:h-24 sm:max-w-[12rem]" />
           </motion.div>
         </div>
 

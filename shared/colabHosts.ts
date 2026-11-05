@@ -42,5 +42,8 @@ export function colabHomeRedirectActive(host: string | undefined | null, search:
   if (!host || !COLAB_HOME_REDIRECT.fromHosts.includes(host.toLowerCase().split(':')[0])) return false;
   if (nowMs >= COLAB_HOME_REDIRECT.untilMs) return false;
   const params = new URLSearchParams(search);
+  // `source` solo cuenta cuando es la app instalada (`?source=app`): un link con `?source=instagram` (o cualquier otro
+  // rastreo) NO es la app y debe llegar a la landing como todos los que no la tienen.
+  if (params.get('source') !== null && params.get('source') !== 'app') params.delete('source');
   return !COLAB_HOME_REDIRECT.skipParams.some((k) => params.has(k));
 }

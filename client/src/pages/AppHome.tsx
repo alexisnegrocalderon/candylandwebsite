@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import { CalendarDays, CircleHelp, CircleUser, FileText, PartyPopper, Shirt } from 'lucide-react';
 import { useEntryState } from '@/lib/appNav';
@@ -11,7 +11,10 @@ import { splitEvents, type AppEvent } from '@/components/app/AppEventCard';
 import { EventHero } from '@/components/app/EventHero';
 import { EventDetail } from '@/components/app/EventDetail';
 import { InfoSheet, type InfoKind } from '@/components/app/InfoSheets';
-import { PlaymoreAppBanner, useLivePlaymoreSlug } from '@/components/playmore/AppBanner';
+import { PlaymoreAppBanner, usePlaymore } from '@/components/playmore/AppBanner';
+
+// Con PLAYMORE a la venta (o en vista previa) la portada de la app es la misma landing: ver PlaymoreAppHome.
+const PlaymoreAppHome = lazy(() => import('@/components/playmore/PlaymoreAppHome'));
 
 /* La portada en «modo app» (lib/appMode.ts): lo primero que ve quien abre la
  * app o entra al sitio desde el celular sin sesión. En vez de la portada web,
@@ -34,7 +37,8 @@ export default function AppHome() {
 
   const { data: events, isLoading } = trpc.events.listPublished.useQuery();
   // PLAYMORE (colab) tiene su propia tarjeta arriba: no se repite como «Tu próxima fiesta».
-  const playmoreSlug = useLivePlaymoreSlug();
+  const playmore = usePlaymore();
+  const playmoreSlug = playmore.data?.event?.slug ?? null;
   const { upcoming } = splitEvents(((events ?? []) as AppEvent[]).filter((e) => e.slug !== playmoreSlug));
   const next = upcoming[0];
   const { data: nextTickets } = trpc.events.getTicketTypes.useQuery({ slug: next?.slug ?? '' }, { enabled: !!next, retry: false });
@@ -50,6 +54,14 @@ export default function AppHome() {
     return () => window.removeEventListener('pageshow', onShow);
   }, []);
   const openInfo = (kind: InfoKind) => { if (kind === 'fiesta' && next) setDetail(true); else setSheet(kind); };
+
+  if (playmore.data?.event) {
+    return (
+      <Suspense fallback={<div className="min-h-dvh bg-[#0c0908]" />}>
+        <PlaymoreAppHome landing={playmore.data.landing} partnerName={playmore.data.partnerName} eventSlug={playmore.data.event.slug} previewToken={playmore.preview} isPreview={playmore.isPreview} />
+      </Suspense>
+    );
+  }
 
   return (
     <div className={`account-font account-tokens relative min-h-dvh bg-[#0b0612] text-white ${halloween ? 'pm-halloween' : ''}`}>

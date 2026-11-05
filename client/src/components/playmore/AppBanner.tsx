@@ -12,7 +12,7 @@ const FUSE = 'linear-gradient(90deg,#ffb3e2 0%,#e477ea 22%,#d98fc6 40%,#ecc3a0 5
 const GOLD = 'linear-gradient(100deg,#9c7630 0%,#c9a24c 15%,#f7e7a8 35%,#d6b25e 55%,#9c7630 100%)';
 
 /** Consulta de PLAYMORE: pública con la venta abierta; con la clave de vista previa (`?playmore=`) el dueño la ve antes. */
-function usePlaymore() {
+export function usePlaymore() {
   const preview = readPlaymorePreviewToken();
   const { data } = trpc.coproduction.publicGet.useQuery({ slug: COLAB_HOME_REDIRECT.slug, preview }, { staleTime: 60_000, retry: false });
   const visible = !!data?.event && (data.isLive || (!!preview && data.preview));
