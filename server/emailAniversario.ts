@@ -10,7 +10,7 @@
 import { BRAND, EVENT_BRAND } from '../shared/eventBrand';
 import { LOGO_URL, emailShell } from './emailLayout';
 
-export type AnniversaryTheme = 'oro' | 'neon';
+export type AnniversaryTheme = 'oro' | 'neon' | 'playmore';
 
 interface Palette {
   bg: string; card: string; border: string; ink: string; muted: string;
@@ -26,7 +26,14 @@ const PALETTES: Record<AnniversaryTheme, Palette> = {
     bg: '#0B0614', card: '#1A0F2B', border: '#4B2A7A', ink: '#F6EEFF', muted: '#B9A5D6',
     accent: '#FF4FB1', accentText: '#FF8AD0', ctaBg: '#FF4FB1', ctaText: '#12061F', band: '#7DF9FF', bandText: '#06121A', chipBg: '#2B1646',
   },
+  // PLAYMORE (Playroom × Dalmore): negro, dorado y magenta, como la landing.
+  playmore: {
+    bg: '#0C0908', card: '#15100F', border: '#3A2E14', ink: '#F3E9D2', muted: '#B9A98A',
+    accent: '#D6B25E', accentText: '#F7E7A8', ctaBg: '#D6B25E', ctaText: '#141210', band: '#E477EA', bandText: '#16060F', chipBg: '#1E1410',
+  },
 };
+
+const PM_SITE = 'https://mansionplayroom.cl';
 
 export type AnniversaryPriceRow = { label: string; price: number; originalPrice?: number | null };
 
@@ -50,7 +57,7 @@ export interface AnniversaryEmailData {
 
 const clp = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
 
-function priceCard(p: Palette, rows: AnniversaryPriceRow[], remaining?: number | null): string {
+function priceCard(p: Palette, rows: AnniversaryPriceRow[], remaining?: number | null, playmore = false): string {
   const hasStrike = rows.some((r) => r.originalPrice && r.originalPrice > r.price);
   const line = (r: AnniversaryPriceRow) => `
     <tr>
@@ -62,10 +69,10 @@ function priceCard(p: Palette, rows: AnniversaryPriceRow[], remaining?: number |
     </tr>`;
   return `
     <div style="background-color:${p.card};border:1px solid ${p.border};border-radius:24px;padding:26px 22px 14px;margin-bottom:22px;">
-      <p style="color:${p.accentText};font-size:11px;font-weight:800;letter-spacing:2.5px;text-transform:uppercase;text-align:center;margin:0 0 6px;">Precio de hoy</p>
-      <h3 style="color:${p.ink};font-size:22px;font-weight:800;text-align:center;margin:0 0 ${remaining != null || hasStrike ? '6px' : '16px'};">Último día a este valor</h3>
-      ${hasStrike ? `<p style="color:${p.muted};font-size:12px;text-align:center;margin:0 0 ${remaining != null ? '6px' : '16px'};">Tachado: precio general desde mañana.</p>` : ''}
-      ${remaining != null ? `<p style="color:${p.accentText};font-size:13px;font-weight:800;text-align:center;margin:0 0 16px;">Quedan ${remaining} cupos a este precio</p>` : ''}
+      <p style="color:${p.accentText};font-size:11px;font-weight:800;letter-spacing:2.5px;text-transform:uppercase;text-align:center;margin:0 0 6px;">${playmore ? 'Primera tanda' : 'Precio de hoy'}</p>
+      <h3 style="color:${p.ink};font-size:22px;font-weight:800;text-align:center;margin:0 0 ${(remaining != null && !playmore) || hasStrike ? '6px' : '16px'};">${playmore ? 'Accesos' : 'Último día a este valor'}</h3>
+      ${hasStrike ? `<p style="color:${p.muted};font-size:12px;text-align:center;margin:0 0 ${remaining != null && !playmore ? '6px' : '16px'};">${playmore ? 'Tachado: precio de la tanda siguiente.' : 'Tachado: precio general desde mañana.'}</p>` : ''}
+      ${remaining != null && !playmore ? `<p style="color:${p.accentText};font-size:13px;font-weight:800;text-align:center;margin:0 0 16px;">Quedan ${remaining} cupos a este precio</p>` : ''}
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">${rows.map(line).join('')}</table>
     </div>`;
 }
@@ -77,15 +84,26 @@ export function buildAnniversaryBlastEmail(data: AnniversaryEmailData): string {
   const showDetails = data.eventSections?.details ?? true;
   const ev = data.eventInfo;
   const hasHighlight = !!(data.highlightLabel && data.highlightValue);
+  const isPm = data.theme === 'playmore';
 
   return emailShell({
     preheader: data.preheader,
     pageBg: p.bg,
     footer: true,
-    beforeContainer: ev?.imageUrl && showBanner
+    beforeContainer: isPm
+      ? `<img src="${PM_SITE}/playmore/flyer-playmore.jpg" alt="PLAYMORE · Playroom × Dalmore" style="display:block;width:100%;height:auto;" />`
+      : ev?.imageUrl && showBanner
       ? `<img src="${ev.imageUrl}" alt="${ev.title}" style="display:block;width:100%;height:auto;" />`
       : undefined,
-    hero: `
+    hero: isPm ? `
+      <div style="background-color:${p.band};padding:11px 20px;text-align:center;">
+        <p style="color:${p.bandText};font-size:11px;font-weight:800;letter-spacing:3px;margin:0;">PLAYROOM × DALMORE</p>
+      </div>
+      <div style="background-color:${p.card};padding:30px 24px 30px;text-align:center;border-radius:0 0 32px 32px;border-bottom:1px solid ${p.border};">
+        <!-- El flyer de arriba ya trae los logos y PLAYMORE: aquí solo el saludo y el titular. -->
+        <p style="color:${p.muted};font-size:14px;margin:0 0 6px;">${greeting}</p>
+        <h1 style="color:${p.ink};font-size:27px;font-weight:800;line-height:1.2;margin:0;">${data.headline}</h1>
+      </div>` : `
       <div style="background-color:${p.band};padding:11px 20px;text-align:center;">
         <p style="color:${p.bandText};font-size:11px;font-weight:800;letter-spacing:3px;margin:0;">${EVENT_BRAND.kicker}</p>
       </div>
@@ -105,7 +123,7 @@ export function buildAnniversaryBlastEmail(data: AnniversaryEmailData): string {
 
       ${data.paragraphs.map((t) => `<p style="color:${p.muted};font-size:15px;line-height:1.65;margin:0 0 18px;">${t}</p>`).join('')}
 
-      ${data.priceList && data.priceList.length > 0 ? priceCard(p, data.priceList, data.remaining) : ''}
+      ${data.priceList && data.priceList.length > 0 ? priceCard(p, data.priceList, data.remaining, isPm) : ''}
 
       <div style="text-align:center;padding:6px 0 26px;">
         <a href="${data.ctaUrl}" style="display:inline-block;background-color:${p.ctaBg};color:${p.ctaText};text-decoration:none;padding:17px 40px;border-radius:999px;font-weight:800;font-size:16px;letter-spacing:0.3px;">${data.ctaText || 'Comprar mi entrada'}</a>

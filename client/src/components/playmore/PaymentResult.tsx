@@ -11,6 +11,13 @@ import './playmore.css';
 const ColabPostPurchase = lazy(() => import('./PostPurchase').then((m) => ({ default: m.ColabPostPurchase })));
 const DALMORE_LOGO = '/playmore/dalmore-logo.png';
 
+/** La app vive en mansionplayroom.cl: desde la landing de la colab se va allá (la sesión es la misma en ambos). */
+function appUrl(path: string): string {
+  if (typeof window === 'undefined') return path;
+  const host = window.location.hostname;
+  return host.endsWith('.mansionplayroom.cl') ? `https://mansionplayroom.cl${path}` : path;
+}
+
 type Kind = 'ok' | 'pending' | 'error';
 
 const COPY: Record<Kind, { title: string; text: string; Icon: typeof Check }> = {
@@ -57,6 +64,18 @@ export function ColabPaymentResult({ brand, kind, holderName = '', accesoSlug, a
       {kind === 'ok' && brand.eventSlug && (
         <div className="mx-auto mt-8 max-w-md">
           <Suspense fallback={null}><ColabPostPurchase eventSlug={brand.eventSlug} holderName={holderName} accesoSlug={accesoSlug} accessLabel={accessLabel} /></Suspense>
+        </div>
+      )}
+
+      {/* Una sola experiencia: la entrada (con su QR) vive en «Mi cuenta» de la app de Playroom. */}
+      {kind === 'ok' && !simulated && (
+        <div className="mx-auto mt-8 max-w-md rounded-[28px] border border-[#d6b25e]/35 bg-black/40 p-6 text-center">
+          <p className="text-[11px] font-semibold tracking-[0.35em] text-[var(--pm-orchid)]">TU ENTRADA EN LA APP</p>
+          <p className="mt-2 text-sm leading-relaxed text-[var(--pm-cream)]/80">TU QR Y TU ENTRADA QUEDAN EN «MI CUENTA» DE LA APP DE PLAYROOM. ENTRA CON EL MISMO CORREO DE LA COMPRA.</p>
+          <div className="mt-5 flex flex-col gap-3">
+            <a href={appUrl('/cuenta')} className="inline-flex h-12 items-center justify-center rounded-full text-xs font-bold tracking-[0.18em] text-[#141210] shadow-[0_14px_40px_-12px_rgba(247,231,168,0.55)]" style={{ background: 'var(--pm-gold)' }}>VER MI ENTRADA EN LA APP</a>
+            <a href={appUrl('/app')} className="inline-flex h-12 items-center justify-center rounded-full border border-[#d6b25e]/40 text-xs font-semibold tracking-[0.18em] text-[var(--pm-sand)] hover:bg-white/5">INSTALAR LA APP DE PLAYROOM</a>
+          </div>
         </div>
       )}
 

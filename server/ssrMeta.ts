@@ -208,7 +208,7 @@ export function registerSsrMetaRoutes(app: Express) {
         ? `${landing.headline} ${landing.venueText}. ${landing.fusionText}.`
         : `${landing.title}: muy pronto. ${landing.venueText}.`;
       // Sin imagen propia en la landing, se comparte el afiche de PLAYMORE (no el flyer del sitio).
-      const image = landing.heroImageUrl.startsWith("https://") ? landing.heroImageUrl : `${SITE_URL}/playmore/og-playmore-v3.jpg`;
+      const image = landing.heroImageUrl.startsWith("https://") ? landing.heroImageUrl : `${SITE_URL}/playmore/og-playmore-v4.jpg`;
       // La dirección canónica es la del propio subdominio por el que entró la persona.
       const host = colabSlugForHost(req.hostname) ? req.hostname : Object.entries(COLAB_HOSTS).find(([, s]) => s === slug)?.[0];
       const url = host ? `https://${host}/` : `${SITE_URL}/playroomdalmore`;

@@ -56,7 +56,7 @@ export const MailingContentSchema = z.object({
   // Prueba A/B de asunto: la mitad de la lista (por id de cliente, par/impar) recibe `subject` y la otra mitad `subjectB`.
   subjectB: z.string().min(4).max(90).optional(),
   // Look del correo (campañas del aniversario); sin valor = el de siempre.
-  theme: z.enum(["oro", "neon"]).optional(),
+  theme: z.enum(["oro", "neon", "playmore"]).optional(),
 });
 export type MailingContent = z.infer<typeof MailingContentSchema>;
 
@@ -277,6 +277,11 @@ const CRON_MAX_PER_RUN = Number(process.env.MAILING_CRON_RUN_CAP) || 500;
  * `AUTOMATED_EMAIL_DAILY_CAP` si hace falta más (600 desde Resend Pro, 21/10). */
 export const AUTOMATED_EMAIL_DAILY_CAP = Number(process.env.AUTOMATED_EMAIL_DAILY_CAP) || 600;
 
+/** Lanzamiento de una colab (PLAYMORE): las 24 h siguientes a "Activar evento" el tope diario sube en este monto y
+ * cada corrida manda más, para que el mailing llegue a toda la base el mismo día. Ver launchMailingBoostActive. */
+export const LAUNCH_EXTRA_DAILY_CAP = Number(process.env.LAUNCH_EXTRA_DAILY_CAP) || 15000;
+const LAUNCH_RUN_CAP = Number(process.env.LAUNCH_RUN_CAP) || 2000;
+
 export type MailingCronResult = {
   processed: number;
   sent: number;
@@ -386,13 +391,15 @@ export async function processMailingCronBatch(): Promise<MailingCronResult> {
   try { await materializeDueCampaigns(); } catch (err) { console.error('[Mailing] No se pudieron armar las campañas programadas (¿falta la migración 0139?):', err); }
 
   // Presupuesto diario compartido: ver AUTOMATED_EMAIL_DAILY_CAP.
+  let boost = false;
+  try { boost = await (await import("./coproduction")).launchMailingBoostActive(); } catch (err) { console.error('[Mailing] No se pudo revisar el lanzamiento:', err); }
   const sentToday = await db.countAutomatedEmailsSentToday();
-  const dailyRemaining = AUTOMATED_EMAIL_DAILY_CAP - sentToday;
+  const dailyRemaining = AUTOMATED_EMAIL_DAILY_CAP + (boost ? LAUNCH_EXTRA_DAILY_CAP : 0) - sentToday;
   if (dailyRemaining <= 0) {
     return { processed: 0, sent: 0, failed: 0, skipped: 0, campaignsTouched: 0 };
   }
 
-  const pending = await db.getPendingMailingRecipients(Math.min(CRON_MAX_PER_RUN, dailyRemaining));
+  const pending = await db.getPendingMailingRecipients(Math.min(boost ? Math.max(CRON_MAX_PER_RUN, LAUNCH_RUN_CAP) : CRON_MAX_PER_RUN, dailyRemaining));
 
   let sent = 0;
   let failed = 0;

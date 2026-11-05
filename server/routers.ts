@@ -186,7 +186,7 @@ import * as customerPush from "./customerPush";
 import { notifyEventLaunch } from "./customerPush";
 import * as appDevices from "./appDevices";
 import * as members from "./members";
-import { getMemberEmail, setMemberSession, clearMemberSession, verifyMemberCode, normalizeMemberEmail, currentMemberCode } from "./memberAuth";
+import { getMemberEmail, setMemberSession, sharedCookieDomain, clearMemberSession, verifyMemberCode, normalizeMemberEmail, currentMemberCode } from "./memberAuth";
 import { isAdminEmail, adminLoginCodeKey } from "./adminEmail";
 import * as memberPasskeys from "./memberPasskeys";
 import * as demoAccount from "./demoAccount";
@@ -5303,6 +5303,8 @@ export const appRouter = router({
       const email = getMemberEmail(ctx.req);
       if (!email) return { loggedIn: false as const };
       const c = await members.findCustomer(email);
+      // Quien entró antes del cambio tenía la cookie solo en este host: se renueva compartida (app ↔ landing de la colab).
+      if (c && sharedCookieDomain(ctx.req)) { try { setMemberSession(ctx.req, ctx.res, email); } catch { /* sin respuesta escribible */ } }
       return c ? { loggedIn: true as const, email: c.email, fullName: c.fullName, isMember: !!c.memberSince } : { loggedIn: false as const };
     }),
     // Lo que se regala al entrar por primera vez (para que el texto de los avisos no prometa lo que no existe).

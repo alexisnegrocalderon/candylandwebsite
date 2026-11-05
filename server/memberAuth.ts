@@ -82,12 +82,27 @@ function secureRequest(req: Request): boolean {
   return (Array.isArray(fwd) ? fwd : (fwd ?? '').split(',')).some((p) => p.trim().toLowerCase() === 'https');
 }
 
+/** En mansionplayroom.cl y sus subdominios (dalmore., playmore.) la sesión de «Mi cuenta» es UNA sola: la cookie va
+ * al dominio padre, así quien entró en la app llega reconocido a la landing de la colab y viceversa. */
+export function sharedCookieDomain(req: Request): string | undefined {
+  const raw = req.headers['x-forwarded-host'] ?? req.headers.host ?? '';
+  const host = String(Array.isArray(raw) ? raw[0] : raw).split(',')[0].trim().toLowerCase().split(':')[0];
+  return host === 'mansionplayroom.cl' || host.endsWith('.mansionplayroom.cl') ? '.mansionplayroom.cl' : undefined;
+}
+
 export function setMemberSession(req: Request, res: Response, email: string): void {
-  res.cookie(MEMBER_COOKIE, signMemberSession(email), { httpOnly: true, sameSite: 'lax', secure: secureRequest(req), path: '/', maxAge: MEMBER_SESSION_MS });
+  const base = { httpOnly: true, sameSite: 'lax' as const, secure: secureRequest(req), path: '/' };
+  const domain = sharedCookieDomain(req);
+  // La cookie vieja (solo de este host) se borra para que no conviva con la compartida.
+  if (domain) res.clearCookie(MEMBER_COOKIE, base);
+  res.cookie(MEMBER_COOKIE, signMemberSession(email), { ...base, ...(domain ? { domain } : {}), maxAge: MEMBER_SESSION_MS });
 }
 
 export function clearMemberSession(req: Request, res: Response): void {
-  res.clearCookie(MEMBER_COOKIE, { httpOnly: true, sameSite: 'lax', secure: secureRequest(req), path: '/' });
+  const base = { httpOnly: true, sameSite: 'lax' as const, secure: secureRequest(req), path: '/' };
+  res.clearCookie(MEMBER_COOKIE, base);
+  const domain = sharedCookieDomain(req);
+  if (domain) res.clearCookie(MEMBER_COOKIE, { ...base, domain });
 }
 
 const COUPON_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';

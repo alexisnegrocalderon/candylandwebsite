@@ -573,9 +573,21 @@ export function CoproConfig() {
           </div>
         </div>
         <Switch checked={setup.isLive} disabled={setLive.isPending} onCheckedChange={(live) => {
-          if (live && !confirm('¿Activar el evento? La página y la venta quedan abiertas al público y aparece destacado en tu home.')) return;
+          const mailing = d.landing.launchMailing && !setup.landing?.launchedAt;
+          if (live && !confirm(`¿Activar el evento? La página y la venta quedan abiertas al público y aparece destacado en tu home.${mailing ? ' Además sale el mailing de lanzamiento a toda la base.' : ''}`)) return;
           setLive.mutate({ slug, live });
         }} />
+        <div className="flex w-full items-start gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+          <Switch checked={d.landing.launchMailing} disabled={!!setup.landing?.launchedAt} onCheckedChange={(v) => editLanding({ launchMailing: v })} />
+          <div>
+            <p className="text-sm font-semibold">Mailing de lanzamiento al activar</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {setup.landing?.launchedAt
+                ? `Ya se programó el ${new Date(setup.landing.launchedAt).toLocaleString('es-CL', { timeZone: 'America/Santiago', dateStyle: 'medium', timeStyle: 'short' })}. Sale una sola vez; el avance se ve en Mensajes → Mailing.`
+                : 'Al activar el evento sale solo el correo PLAYMORE (negro y oro, con el flyer) a toda la base que todavía no tiene entrada: clientes y leads. Ese día el tope de envío sube para que llegue a todos en unas horas. Si lo apagas, recuerda guardar.'}
+            </p>
+          </div>
+        </div>
       </section>
 
       {/* Vista previa */}

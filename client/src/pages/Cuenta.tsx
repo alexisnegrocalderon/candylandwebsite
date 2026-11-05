@@ -38,6 +38,7 @@ import { canEnterParty } from '@shared/party';
 import { TICKET_KIND_META, type TicketKind } from '@shared/ticketKind';
 import { isStandalone, reportAppOpen, useCustomerPush } from '@/lib/customerPush';
 import { avisosNotice } from '@/lib/pushPromptView';
+import { PlaymoreAppBanner, useLivePlaymoreSlug } from '@/components/playmore/AppBanner';
 import { useIsMobile } from '@/hooks/useMobile';
 import { MemberLogin, type LoginDone } from '@/components/site/MemberLogin';
 import { fmtDate, fmtDateTime, useMemberSession } from '@/lib/member';
@@ -272,7 +273,10 @@ const OPTION_EMOJI: Record<string, string> = { soltera: '🍭', pareja: '💑', 
 
 function BuyNextCard({ me }: { me: Me }) {
   const { href, last } = useBuyHref(me.nextEvent?.slug);
+  const playmoreSlug = useLivePlaymoreSlug();
   if ((me.events as MeEvent[])[0]) return null;
+  // PLAYMORE ya tiene su tarjeta negra y dorada justo arriba.
+  if (playmoreSlug && me.nextEvent?.slug === playmoreSlug) return null;
   // Sin entrada y sin fiesta anunciada: igual se invita a mirar lo que viene (nunca una tarjeta vacía sola).
   if (!me.nextEvent) {
     return (
@@ -812,7 +816,9 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
               {staff && <StaffBanner staff={staff} onOpen={() => { tapHaptic(); setSheet('staff'); }} />}
               <PlayCardStack ev={upcoming[0] ?? null} holder={me.fullName || me.email} prepaidBalance={me.prepaidBalance} playcoins={me.playcoins} movements={me.movements}
                 onTopup={pay.accountTopup ? () => setTopupOpen(true) : undefined} onPayCaja={pay.cajaPay ? () => setPayOpen(true) : undefined} onPlaymatch={() => go('playmatch')} />
-              <BuyNextCard me={me} />
+              <PlaymoreAppBanner ownedSlugs={(me.events as MeEvent[]).map((e) => e.eventSlug)} />
+              <PlaymoreAppBanner ownedSlugs={(me.events as MeEvent[]).map((e) => e.eventSlug)} />
+          <BuyNextCard me={me} />
             </>
           )}
           {tab === 'playmatch' && (

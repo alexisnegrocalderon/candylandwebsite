@@ -36,7 +36,7 @@ type MailingContent = {
   /** Prueba A/B: la otra mitad de la lista recibe este asunto. */
   subjectB?: string;
   /** Look del aniversario (sin valor = el de siempre). */
-  theme?: 'oro' | 'neon';
+  theme?: 'oro' | 'neon' | 'playmore';
 };
 
 type SendResult = { customerId: number; email: string; success: boolean; reason?: string };
@@ -314,7 +314,7 @@ export function MailingComposer({
           <div className="space-y-2">
             <Label>Estilo del mail</Label>
             <div className="flex flex-wrap gap-2">
-              {([[undefined, 'Clásico'], ['oro', '2º aniversario · dorado'], ['neon', '2º aniversario · neón']] as const).map(([value, label]) => (
+              {([[undefined, 'Clásico'], ['oro', '2º aniversario · dorado'], ['neon', '2º aniversario · neón'], ['playmore', 'PLAYMORE · negro y oro']] as const).map(([value, label]) => (
                 <Button key={label} type="button" size="sm" variant={content.theme === value ? 'default' : 'outline'} onClick={() => setContent({ ...content, theme: value })}>{label}</Button>
               ))}
             </div>

@@ -64,14 +64,18 @@ export interface CoproductionLanding {
   /** Antes de "Activar evento": muestra la página completa con los tickets (sin habilitar la compra).
    * Para cuando la dirección todavía no la conoce nadie. */
   showTicketsEarly: boolean;
+  /** Al activar el evento sale solo el mailing de lanzamiento a toda la base (una sola vez). */
+  launchMailing: boolean;
+  /** Cuándo se activó por primera vez (ISO). Marca que el mailing de lanzamiento ya se programó. */
+  launchedAt: string;
 }
 
 export const DEFAULT_LANDING: CoproductionLanding = {
   title: 'Playroom × Dalmore',
   headline: 'Las dos productoras liberales más grandes, una sola noche.',
-  subheadline: 'Un salón gigante en NEW SPOT, Santiago: dos pistas de energía y la experiencia Playroom con la comunidad de Dalmore.',
+  subheadline: 'Las fiestas liberales más grandes de la Región Metropolitana y la V Región, juntas por primera vez: dos pistas, dos comunidades y un nuevo spot especial en Providencia.',
   dateText: 'Viernes 4 de diciembre',
-  venueText: 'NEW SPOT, Santiago',
+  venueText: 'Nuevo spot especial · Providencia',
   capacityText: 'Aforo para 800 personas',
   fusionText: 'Dos universos · una fusión',
   capacity: 800,
@@ -99,13 +103,15 @@ export const DEFAULT_LANDING: CoproductionLanding = {
     'El equipo puede retirar a quien no respete las reglas, sin devolución.',
   ],
   faq: [
-    { q: '¿Dónde es?', a: 'En NEW SPOT, un lugar exclusivo para PLAYMORE en Santiago. La dirección exacta te llega por correo junto con tu entrada.' },
+    { q: '¿Dónde es?', a: 'En un nuevo spot especial en Providencia, exclusivo para PLAYMORE. La dirección exacta te llega por correo junto con tu entrada.' },
     { q: '¿Dónde compro las entradas?', a: 'Solo en esta página. No vendemos por transferencia ni por Instagram.' },
     { q: '¿Cuándo me llega la dirección exacta?', a: 'Te llega por correo junto con tu entrada, después de comprar.' },
     { q: '¿Puedo ir sola o solo?', a: 'Sí. Mucha gente llega así y conoce gente adentro.' },
   ],
   // Encendido por defecto mientras la dirección no es pública; se apaga desde Configuración.
   showTicketsEarly: true,
+  launchMailing: true,
+  launchedAt: '',
   timeline: [
     { time: '23:00', title: 'Se abren las puertas', text: 'Llegas, muestras tu QR y te recibe el equipo. El primer trago marca el comienzo.' },
     { time: '00:00', title: 'Dos pistas encendidas', text: 'Playroom y Dalmore suben la energía, cada uno con su sonido y su luz.' },
@@ -166,6 +172,8 @@ export function normalizeLanding(raw: unknown): CoproductionLanding {
         .slice(0, 12)
       : d.faq,
     showTicketsEarly: typeof p.showTicketsEarly === 'boolean' ? p.showTicketsEarly : d.showTicketsEarly,
+    launchMailing: typeof p.launchMailing === 'boolean' ? p.launchMailing : d.launchMailing,
+    launchedAt: typeof p.launchedAt === 'string' && !Number.isNaN(Date.parse(p.launchedAt)) ? p.launchedAt.slice(0, 40) : '',
     timeline: Array.isArray(p.timeline)
       ? p.timeline
         .filter((m): m is CoproductionMoment => !!m && typeof (m as any).time === 'string' && typeof (m as any).title === 'string')

@@ -14,6 +14,7 @@ import { getDb, getEventPnl, getOrderStats, getSalesByDay, getTicketTypesByEvent
 import { hashPin, verifyPin } from './caja/auth';
 import { normalizeLanding, applyEventToLanding, splitProfit, generatePartnerPassword, type ColabBrand, type CoproductionLanding } from '../shared/coproduction';
 import { personasForTicket } from '../shared/mission300';
+import { COLAB_HOSTS } from '../shared/colabHosts';
 
 const isMissingTable = (err: unknown) => /doesn't exist|no such table|unknown table/i.test(String((err as any)?.message ?? (err as any)?.cause?.message ?? err));
 
@@ -113,7 +114,8 @@ export async function updateCoproductionSetup(id: number, patch: {
     ...(patch.eventId !== undefined ? { eventId: patch.eventId } : {}),
     ...(patch.splitPercentPartner !== undefined ? { splitPercentPartner: Math.min(100, Math.max(0, Math.round(patch.splitPercentPartner))) } : {}),
     ...(patch.partnerName ? { partnerName: patch.partnerName.trim().slice(0, 100) } : {}),
-    ...(patch.landing ? { landing: normalizeLanding({ ...normalizeLanding(cp.landing), ...patch.landing }) } : {}),
+    // `launchedAt` nunca viene del editor: una pestaña vieja del panel no puede borrarlo y hacer que el lanzamiento salga dos veces.
+    ...(patch.landing ? { landing: normalizeLanding({ ...normalizeLanding(cp.landing), ...patch.landing, launchedAt: normalizeLanding(cp.landing).launchedAt }) } : {}),
   }).where(eq(coproductions.id, id));
 }
 
@@ -138,6 +140,66 @@ export async function setCoproductionLive(id: number, live: boolean): Promise<vo
     await db.update(events).set(live ? { status: 'published', featured: 1 } : { status: 'draft', featured: 0 })
       .where(eq(events.id, cp.eventId));
   }
+  // La primera activación también lanza el mailing a toda la base (si está prendido en Configuración).
+  if (live) {
+    try { await scheduleLaunchMailing(cp); } catch (err) { console.error('[Coproducción] No se pudo programar el mailing de lanzamiento:', err); }
+  }
+}
+
+export const LAUNCH_CAMPAIGN_NAME = 'PLAYMORE · Lanzamiento de la venta';
+
+/** Mailing de lanzamiento: una sola vez, a toda la base (clientes y leads) que todavía no tiene entrada del evento.
+ * Queda programado para "ahora": el cron de mailing (cada 5 min) lo arma y lo manda en lotes. */
+async function scheduleLaunchMailing(cp: Coproduction): Promise<void> {
+  const landing = normalizeLanding(cp.landing);
+  if (!landing.launchMailing || landing.launchedAt || !cp.eventId) return;
+  const db = await getDb();
+  if (!db) return;
+  const [ev] = await db.select({ eventDate: events.eventDate, venue: events.venue }).from(events).where(eq(events.id, cp.eventId)).limit(1);
+  const shown = applyEventToLanding(landing, ev);
+  const launchedAt = new Date().toISOString();
+  // Se marca antes de programar: un segundo clic en "Activar" ya no manda otra campaña.
+  await db.update(coproductions).set({ landing: { ...landing, launchedAt } }).where(eq(coproductions.id, cp.id));
+  try {
+    const host = Object.entries(COLAB_HOSTS).find(([, s]) => s === cp.slug)?.[0] ?? 'dalmore.mansionplayroom.cl';
+    const { scheduleMailingCampaign } = await import('./mailing');
+    await scheduleMailingCampaign({
+      name: LAUNCH_CAMPAIGN_NAME,
+      audienceDescription: `Toda la base (clientes y leads) sin entrada de ${landing.eventName}`,
+      audienceFilters: { notPurchasedEventId: cp.eventId, includeLeads: true },
+      content: {
+        subject: `${landing.eventName}: se abrió la venta de entradas`,
+        subjectB: `Ya puedes comprar tu entrada para ${landing.eventName} · Playroom × Dalmore`,
+        preheader: 'Las fiestas liberales más grandes de la RM y la V Región, juntas por primera vez.',
+        headline: `Se abrió la venta de ${landing.eventName}`,
+        paragraphs: [
+          'Las fiestas liberales más grandes de la Región Metropolitana y la V Región se juntan por primera vez. Playroom pone el juego, Dalmore la exclusividad: una noche nueva, libre y con respeto.',
+          'Un nuevo spot especial en Providencia, dos pistas y dos comunidades en un mismo lugar. Las entradas son nominativas y la primera tanda es la de mejor precio.',
+          'La dirección exacta te llega por correo junto con tu entrada. Evento solo para mayores de 21.',
+        ],
+        ctaText: 'Comprar mi entrada',
+        highlightLabel: `${shown.dateText} · ${shown.timeText} hrs`,
+        highlightValue: 'Venta abierta',
+        theme: 'playmore',
+      },
+      ctaUrl: `https://${host}/?utm_source=mailing&utm_medium=email&utm_campaign=playmore-lanzamiento`,
+      eventId: cp.eventId,
+      scheduledAt: new Date(),
+    });
+  } catch (err) {
+    // Sin campaña no queda marcado: el próximo "Activar" lo vuelve a intentar.
+    await db.update(coproductions).set({ landing: { ...landing, launchedAt: '' } }).where(eq(coproductions.id, cp.id));
+    throw err;
+  }
+}
+
+/** Las 24 h siguientes a un lanzamiento el mailing puede salir completo (ver processMailingCronBatch). */
+export async function launchMailingBoostActive(now: number = Date.now()): Promise<boolean> {
+  for (const cp of await listCoproductions()) {
+    const t = Date.parse(normalizeLanding(cp.landing).launchedAt);
+    if (Number.isFinite(t) && now >= t && now - t < 24 * 3600_000) return true;
+  }
+  return false;
 }
 
 // ── Lo que ve el socio ───────────────────────────────────────────────────

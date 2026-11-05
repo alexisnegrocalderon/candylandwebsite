@@ -11,6 +11,7 @@ import { splitEvents, type AppEvent } from '@/components/app/AppEventCard';
 import { EventHero } from '@/components/app/EventHero';
 import { EventDetail } from '@/components/app/EventDetail';
 import { InfoSheet, type InfoKind } from '@/components/app/InfoSheets';
+import { PlaymoreAppBanner, useLivePlaymoreSlug } from '@/components/playmore/AppBanner';
 
 /* La portada en «modo app» (lib/appMode.ts): lo primero que ve quien abre la
  * app o entra al sitio desde el celular sin sesión. En vez de la portada web,
@@ -32,7 +33,9 @@ export default function AppHome() {
   useEffect(() => { if (session?.loggedIn) navigate('/cuenta', { replace: true }); }, [session?.loggedIn, navigate]);
 
   const { data: events, isLoading } = trpc.events.listPublished.useQuery();
-  const { upcoming } = splitEvents((events ?? []) as AppEvent[]);
+  // PLAYMORE (colab) tiene su propia tarjeta arriba: no se repite como «Tu próxima fiesta».
+  const playmoreSlug = useLivePlaymoreSlug();
+  const { upcoming } = splitEvents(((events ?? []) as AppEvent[]).filter((e) => e.slug !== playmoreSlug));
   const next = upcoming[0];
   const { data: nextTickets } = trpc.events.getTicketTypes.useQuery({ slug: next?.slug ?? '' }, { enabled: !!next, retry: false });
   const from = next && nextTickets ? fromPrice(nextTickets as any[], next as any) : null;
@@ -60,6 +63,9 @@ export default function AppHome() {
           <Link href="/cuenta" aria-label="Mi cuenta" className="lg-pill grid h-10 w-10 place-items-center rounded-full interactive"><CircleUser className="h-5 w-5" /></Link>
         </header>
 
+        <PlaymoreAppBanner className="relative z-10 mt-5" />
+
+        {(next || !playmoreSlug) && <>
         <h1 className="relative z-10 mt-5 text-large-title font-bold leading-tight tracking-tight">{next ? 'Tu próxima fiesta' : 'Pronto, la próxima'}</h1>
 
         <div className="mt-4">
@@ -74,6 +80,7 @@ export default function AppHome() {
             </div>
           )}
         </div>
+        </>}
 
         <Link href="/cuenta" className="account-glass mt-3 flex h-14 items-center justify-center gap-2 rounded-full text-headline font-semibold interactive">
           <CircleUser className="h-5 w-5 text-pink-300" /> Entrar a mi cuenta
