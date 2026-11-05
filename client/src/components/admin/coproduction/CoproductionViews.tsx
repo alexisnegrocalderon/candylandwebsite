@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import {
-  CalendarClock, Check, Copy, Download, Eye, Gift, KeyRound, Loader2, Plus, Receipt, RefreshCw, Rocket, Search, ShieldOff,
+  CalendarClock, Check, Copy, Download, Eye, Gift, Mail, KeyRound, Loader2, Plus, Receipt, RefreshCw, Rocket, Search, ShieldOff,
   Ticket, Upload, Users, Wallet, X, type LucideIcon,
 } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
@@ -932,6 +932,22 @@ export function CoproContactos() {
     onError,
     onSettled: () => setSendingEmail(null),
   });
+  const { data: defaults } = trpc.coproduction.mailingDefaults.useQuery();
+  const [mailOpen, setMailOpen] = useState(false);
+  const [mail, setMail] = useState<{ subject: string; message: string } | null>(null);
+  const [testTo, setTestTo] = useState('');
+  const form = mail ?? defaults ?? { subject: '', message: '' };
+  const ticketEmails = useMemo(() => new Set((attendees ?? []).map((a) => a.buyerEmail.toLowerCase())), [attendees]);
+  const recipients = (data ?? []).filter((c) => !ticketEmails.has(c.email)).length;
+  const sendMail = trpc.coproduction.sendMailing.useMutation({
+    onSuccess: (r) => {
+      if (r.test) { toast.success('Prueba enviada. Revisa tu bandeja (y spam).'); return; }
+      toast.success(`Aviso enviado a ${r.sent} contactos${r.skippedWithTicket ? ` · ${r.skippedWithTicket} omitidos (ya tienen entrada)` : ''}${r.optedOut ? ` · ${r.optedOut} pidieron no recibir correos` : ''}${r.failed ? ` · ${r.failed} fallaron` : ''}`);
+      setMailOpen(false);
+      void utils.coproduction.movements.invalidate();
+    },
+    onError,
+  });
   const remove = trpc.coproduction.deleteContact.useMutation({ onSuccess: () => void utils.coproduction.contacts.invalidate(), onError });
 
   const rows = useMemo(() => {
@@ -950,6 +966,7 @@ export function CoproContactos() {
             <Button variant="outline" disabled={!rows.length} onClick={() => downloadCsv('contactos-colab.csv', [['Nombre', 'Correo', 'Teléfono'], ...rows.map((c) => [c.fullName ?? '', c.email, c.phone ?? ''])])}>
               <Download className="mr-1.5 h-4 w-4" /> CSV
             </Button>
+            <Button variant="outline" disabled={!(data ?? []).length} onClick={() => setMailOpen(true)}><Mail className="mr-1.5 h-4 w-4" /> Enviar aviso</Button>
             <Button onClick={() => setOpen(true)}><Upload className="mr-1.5 h-4 w-4" /> Importar planilla</Button>
           </div>
         )}
@@ -999,6 +1016,26 @@ export function CoproContactos() {
           {rows.length > 300 && <li className="text-center text-xs text-muted-foreground">Mostrando 300 de {rows.length}. Usa el buscador o descarga el CSV.</li>}
         </ul>
       )}
+
+      <Dialog open={mailOpen} onOpenChange={setMailOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Avisar del evento por correo</DialogTitle></DialogHeader>
+          <div className="space-y-3 text-sm">
+            <p className="text-muted-foreground">Le llega a <strong className="text-foreground">{recipients}</strong> de tus contactos (sin quienes ya tienen entrada ni quienes pidieron no recibir correos), con el botón para comprar. Se puede mandar <strong>un aviso por día</strong>.</p>
+            <div><Label>Asunto</Label><Input className="mt-1" value={form.subject} maxLength={150} onChange={(e) => setMail({ ...form, subject: e.target.value })} /></div>
+            <div><Label>Mensaje</Label><Textarea className="mt-1" rows={7} value={form.message} maxLength={3000} onChange={(e) => setMail({ ...form, message: e.target.value })} /><p className="mt-1 text-xs text-muted-foreground">Deja una línea en blanco para separar párrafos.</p></div>
+            <div className="flex gap-2">
+              <Input type="email" placeholder="Tu correo para una prueba" value={testTo} onChange={(e) => setTestTo(e.target.value)} />
+              <Button variant="outline" disabled={!/\S+@\S+\.\S+/.test(testTo) || sendMail.isPending} onClick={() => sendMail.mutate({ ...form, testTo })}>Enviar prueba</Button>
+            </div>
+            <p className="text-xs text-muted-foreground">Cada correo lleva el link para darse de baja. Mándate una prueba antes del envío real.</p>
+          </div>
+          <Button disabled={sendMail.isPending || recipients === 0 || form.subject.trim().length < 3 || form.message.trim().length < 10}
+            onClick={() => { if (confirm(`¿Enviar este aviso a ${recipients} contactos? No se puede deshacer y solo puedes mandar uno por día.`)) sendMail.mutate(form); }}>
+            {sendMail.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Mail className="mr-1.5 h-4 w-4" />} Enviar a {recipients} contactos
+          </Button>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>

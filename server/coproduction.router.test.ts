@@ -13,6 +13,7 @@ vi.mock('./coproduction', async (importOriginal) => {
     getCoproductionOverview: vi.fn(),
     getCoproductionMovements: vi.fn(),
     listCoproductionContacts: vi.fn(),
+    sendCoproductionMailing: vi.fn(),
     isEventHiddenByCoproduction: vi.fn(),
     isEventColab: vi.fn(),
     getCoproductionByEventId: vi.fn(),
@@ -65,6 +66,13 @@ describe('el socio solo ve su co-producción', () => {
     await caller(socio).coproduction.contacts({ slug: 'otra' });
     expect(coproductionSvc.listCoproductionContacts).toHaveBeenCalledWith(dalmore);
     await expect(caller(user('viewer')).coproduction.contacts()).rejects.toMatchObject({ code: 'FORBIDDEN' });
+  });
+
+  it('el aviso por correo sale solo a SU lista, aunque pida otro slug', async () => {
+    vi.mocked(coproductionSvc.sendCoproductionMailing).mockResolvedValue({ test: false, sent: 1, failed: 0, optedOut: 0, skippedWithTicket: 0 } as any);
+    await caller(socio).coproduction.sendMailing({ slug: 'otra', subject: 'Hola evento', message: 'Mensaje de prueba largo' });
+    expect(coproductionSvc.sendCoproductionMailing).toHaveBeenCalledWith(dalmore, expect.objectContaining({ subject: 'Hola evento' }), 'partner');
+    await expect(caller(user('viewer')).coproduction.sendMailing({ subject: 'Hola evento', message: 'Mensaje de prueba largo' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
   });
 
   it('el dueño sí elige la co-producción', async () => {

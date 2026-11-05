@@ -4655,6 +4655,28 @@ export const appRouter = router({
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo importar la planilla.' });
       }
     }),
+    mailingDefaults: partnerProcedure.input(coproductionScopeInput).query(async ({ input, ctx }) => {
+      const cp = await scopedCoproduction(ctx, input);
+      return { ...coproductionSvc.defaultColabMailing(normalizeLanding(cp.landing)), max: coproductionSvc.COLAB_MAILING_MAX };
+    }),
+    sendMailing: partnerProcedure.input(coproductionScopeBase.extend({
+      subject: z.string().trim().min(3).max(150),
+      message: z.string().trim().min(10).max(3000),
+      testTo: z.string().trim().email().optional(),
+    })).mutation(async ({ input, ctx }) => {
+      const cp = await scopedCoproduction(ctx, input);
+      // Las pruebas van a cualquier correo: se limitan para que no sirvan de relé (el envío real ya tiene su tope diario).
+      if (input.testTo) {
+        const key = `colab-mailing-test:${cp.id}`;
+        if (!(await db.checkIpRateLimit(key))) throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Demasiadas pruebas seguidas. Espera unos minutos.' });
+        await db.recordIpFailedAttempt(key);
+      }
+      try {
+        return await coproductionSvc.sendCoproductionMailing(cp, input, ctx.user.role === 'partner' ? 'partner' : 'playroom');
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo enviar el aviso.' });
+      }
+    }),
     deleteContact: partnerProcedure.input(coproductionScopeBase.extend({ id: z.number().int() })).mutation(async ({ input, ctx }) => {
       await coproductionSvc.deleteCoproductionContact(await scopedCoproduction(ctx, input), input.id);
       return { success: true };

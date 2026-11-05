@@ -7,13 +7,15 @@
 import { randomBytes, randomInt } from 'crypto';
 import { and, desc, eq, gt, inArray, like, ne } from 'drizzle-orm';
 import {
-  coproductions, coproductionInvites, coproductionExpenses, coproductionContacts, adminAuditLog, events, expenses, orders, orderItems, tickets, ticketTypes,
+  coproductions, coproductionInvites, coproductionExpenses, coproductionContacts, adminAuditLog, rateLimits, events, expenses, orders, orderItems, tickets, ticketTypes,
   type Coproduction,
 } from '../drizzle/schema';
 import { getDb, getEventPnl, getOrderStats, getSalesByDay, getTicketTypesByEventId, createExpense, createManualOrder } from './db';
 import { hashPin, verifyPin } from './caja/auth';
-import { normalizeLanding, applyEventToLanding, splitProfit, generatePartnerPassword, type ColabBrand, type CoproductionLanding } from '../shared/coproduction';
+import { normalizeLanding, applyEventToLanding, splitProfit, generatePartnerPassword, COLAB_MIN_AGE, type ColabBrand, type CoproductionLanding } from '../shared/coproduction';
 import { parseColabContacts } from '../shared/colabContacts';
+import { escapeHtml } from '../shared/slideEdit';
+import { chileDateKey } from '../shared/chileDate';
 import { personasForTicket } from '../shared/mission300';
 import { COLAB_HOSTS } from '../shared/colabHosts';
 import { presaleParkingOnlyFor } from '../shared/colabPlaycard';
@@ -406,6 +408,91 @@ export async function deleteCoproductionContact(cp: Coproduction, id: number) {
   await db.delete(coproductionContacts).where(and(eq(coproductionContacts.id, id), eq(coproductionContacts.coproductionId, cp.id)));
 }
 
+/** Tope de destinatarios por aviso: una sola corrida del servidor (300 s) los manda en lotes de 100. */
+export const COLAB_MAILING_MAX = 3000;
+
+export function defaultColabMailing(landing: CoproductionLanding): { subject: string; message: string } {
+  return {
+    subject: `${landing.eventName}: tu entrada ya está disponible`,
+    message: `Te escribimos porque queremos que vivas ${landing.eventName} con nosotros: ${landing.dateText}, ${landing.timeText} hrs.\n\nLas entradas son nominativas y el cupo es limitado. Evento solo para mayores de ${COLAB_MIN_AGE}.`,
+  };
+}
+
+/** Aviso del evento a la base de contactos del socio. Lo manda el socio (o el dueño) desde su panel.
+ * - Con `testTo` manda UNA prueba a ese correo y no gasta el envío del día.
+ * - Real: un solo aviso por colab por día, sin quienes ya tienen entrada ni quienes pidieron la baja.
+ * Cada correo lleva el pie y los headers de baja del mailing de Playroom. El texto del socio se escapa. */
+export async function sendCoproductionMailing(cp: Coproduction, input: { subject: string; message: string; testTo?: string }, sentBy: 'playroom' | 'partner') {
+  const db = await getDb();
+  if (!db) throw new Error('Database not available');
+  if (!cp.eventId) throw new Error('Todavía no hay evento enlazado a la co-producción.');
+  const landing = normalizeLanding(cp.landing);
+  const [ev] = await db.select({ eventDate: events.eventDate, venue: events.venue, slug: events.slug }).from(events).where(eq(events.id, cp.eventId)).limit(1);
+  const shown = applyEventToLanding(landing, ev);
+  const host = Object.entries(COLAB_HOSTS).find(([, slug]) => slug === cp.slug)?.[0] ?? 'dalmore.mansionplayroom.cl';
+  const subject = input.subject.trim().slice(0, 150);
+  const paragraphs = input.message.replace(/\r/g, '').split(/\n\s*\n/).map((t) => t.trim()).filter(Boolean).slice(0, 8)
+    .map((t) => escapeHtml(t).replace(/\n/g, '<br>'));
+  if (!subject || paragraphs.length === 0) throw new Error('Escribe el asunto y el mensaje.');
+
+  const { buildMailingBlastEmail, resendTagValue, sendEmail, sendMarketingEmailBatch } = await import('./email');
+  const build = (name: string | null) => buildMailingBlastEmail({
+    buyerName: escapeHtml((name ?? '').trim().split(/\s+/)[0] ?? ''),
+    preheader: subject,
+    headline: escapeHtml(landing.eventName),
+    paragraphs,
+    ctaText: 'Comprar mi entrada',
+    ctaUrl: `https://${host}/?utm_source=colab-contactos&utm_medium=email&utm_campaign=${resendTagValue(cp.slug)}`,
+    highlightLabel: `${shown.dateText} · ${shown.timeText} hrs`,
+    highlightValue: escapeHtml(landing.eventName),
+    theme: 'playmore',
+  });
+  const tags = [{ name: 'campaign', value: resendTagValue(`colab-${cp.slug}`) }];
+
+  if (input.testTo) {
+    const r = await sendEmail({ to: input.testTo, subject: `[PRUEBA] ${subject}`, html: build('Prueba'), marketing: true, tags });
+    if (!r.success) throw new Error('No se pudo enviar la prueba. Revisa el correo e intenta de nuevo.');
+    return { test: true as const };
+  }
+
+  // Sin quienes ya compraron (o tienen cortesía) para este evento.
+  const buyers = await db.select({ email: orders.buyerEmail }).from(orders)
+    .where(and(eq(orders.eventId, cp.eventId), eq(orders.paymentStatus, 'approved')));
+  const hasTicket = new Set(buyers.map((b) => (b.email ?? '').toLowerCase()));
+  const contacts = await listCoproductionContacts(cp);
+  const targets = contacts.filter((c) => !hasTicket.has(c.email));
+  if (targets.length === 0) throw new Error(contacts.length ? 'Todos tus contactos ya tienen entrada. No hay a quién avisar.' : 'Primero importa tu planilla de contactos.');
+  if (targets.length > COLAB_MAILING_MAX) throw new Error(`Son ${targets.length} destinatarios y el máximo por aviso es ${COLAB_MAILING_MAX}. Quita contactos de la lista e intenta de nuevo.`);
+
+  // Un aviso por colab por día: reclamo atómico (la clave es única).
+  const claimKey = `colab-mailing:${cp.id}:${chileDateKey(new Date())}`;
+  try {
+    await db.insert(rateLimits).values({ key: claimKey, attempts: targets.length });
+  } catch {
+    throw new Error('Hoy ya se envió un aviso a esta lista. Se puede mandar uno nuevo mañana.');
+  }
+
+  let results: Awaited<ReturnType<typeof sendMarketingEmailBatch>> = [];
+  try {
+    results = await sendMarketingEmailBatch(targets.map((c) => ({ to: c.email, subject, html: build(c.fullName), marketing: true, tags })));
+  } catch (err) {
+    await db.delete(rateLimits).where(eq(rateLimits.key, claimKey));
+    throw err;
+  }
+  const sent = results.filter((r) => r.success).length;
+  const optedOut = results.filter((r) => r.reason === 'Pidió no recibir correos').length;
+  // Si no salió ninguno, no se gasta el envío del día.
+  if (sent === 0) await db.delete(rateLimits).where(eq(rateLimits.key, claimKey));
+  else {
+    const { recordAdminAudit } = await import('./db');
+    await recordAdminAudit({
+      action: 'coproduction.mailing', targetType: 'coproduction', targetId: cp.slug, eventId: cp.eventId,
+      payload: { detail: `Aviso del evento por correo a la base de ${cp.partnerName}: «${subject}» · ${sent} enviados`, by: sentBy === 'partner' ? cp.partnerName : 'Playroom' },
+    });
+  }
+  return { test: false as const, sent, failed: results.length - sent - optedOut, optedOut, skippedWithTicket: contacts.length - targets.length };
+}
+
 /** Bitácora única de transparencia: todo lo que mueve el evento, de más nuevo a más viejo.
  * Ventas (web y caja), cortesías (con quién las creó), reembolsos, gastos (cargados, aprobados,
  * rechazados) y los cambios que hace Playroom a la venta (activar, tandas, reparto). Solo el
@@ -465,7 +552,7 @@ export async function getCoproductionMovements(cp: Coproduction, limit = 400): P
     .orderBy(desc(adminAuditLog.createdAt)).limit(limit), []);
   for (const a of audit) {
     const detail = (a.payload as { detail?: string } | null)?.detail ?? '';
-    out.push({ key: `a${a.id}`, at: a.createdAt, kind: 'change', title: detail || a.action, detail: '', amount: null, by: 'Playroom' });
+    out.push({ key: `a${a.id}`, at: a.createdAt, kind: 'change', title: detail || a.action, detail: '', amount: null, by: (a.payload as { by?: string } | null)?.by ?? 'Playroom' });
   }
 
   return out.sort((a, b) => b.at.getTime() - a.at.getTime()).slice(0, limit);
