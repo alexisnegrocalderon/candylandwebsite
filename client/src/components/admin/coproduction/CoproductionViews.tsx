@@ -557,6 +557,8 @@ export function CoproConfig() {
   const editLanding = (patch: Partial<CoproductionLanding>) => edit({ landing: { ...d.landing, ...patch } });
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
   const previewUrl = `https://dalmore.mansionplayroom.cl/?preview=${setup.previewToken}`;
+  // La app (portada, Eventos y Mi cuenta) con la tarjeta PLAYMORE, antes de activar. `app=1` la muestra también en computador.
+  const appPreviewUrl = `https://mansionplayroom.cl/?app=1&playmore=${setup.previewToken}`;
   const copy = (text: string) => navigator.clipboard?.writeText(text).then(() => toast.success('Copiado'), () => toast.error('No se pudo copiar'));
 
   return (
@@ -614,6 +616,15 @@ export function CoproConfig() {
           <Button variant="outline" size="sm" onClick={() => copy(previewUrl)}><Copy className="mr-1 h-4 w-4" /> Copiar</Button>
           <Button variant="outline" size="sm" asChild><a href={previewUrl} target="_blank" rel="noreferrer">Abrir</a></Button>
           <Button variant="ghost" size="sm" disabled={rotate.isPending} onClick={() => { if (confirm('El link anterior deja de funcionar. ¿Seguir?')) rotate.mutate({ slug }); }}><RefreshCw className="mr-1 h-4 w-4" /> Renovar</Button>
+        </div>
+        <div className="space-y-2 border-t border-white/10 pt-3">
+          <p className="text-sm font-semibold">Vista previa en la app</p>
+          <p className="text-sm text-muted-foreground">Así se verá PLAYMORE dentro de la app (portada, Eventos y Mi cuenta) apenas actives el evento: la tarjeta negra y dorada, y la compra con el checkout PLAYMORE. Ábrelo en tu celular o en el computador; el pago es simulado y no cobra.</p>
+          <div className="flex flex-wrap gap-2">
+            <code className="min-w-0 flex-1 truncate rounded-xl bg-black/30 px-3 py-2 text-xs">{appPreviewUrl}</code>
+            <Button variant="outline" size="sm" onClick={() => copy(appPreviewUrl)}><Copy className="mr-1 h-4 w-4" /> Copiar</Button>
+            <Button variant="outline" size="sm" asChild><a href={appPreviewUrl} target="_blank" rel="noreferrer">Abrir</a></Button>
+          </div>
         </div>
       </section>
 

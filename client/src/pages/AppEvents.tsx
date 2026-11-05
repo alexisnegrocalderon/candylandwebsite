@@ -7,6 +7,7 @@ import { useHalloweenMode } from '@/lib/halloween';
 import { AppEventCard, eventWhen, splitEvents, type AppEvent } from '@/components/app/AppEventCard';
 import { BottomSheet } from '@/components/site/AccountPayments';
 import { eventImage } from '@shared/eventImage';
+import { PlaymoreAppBanner, useLivePlaymoreSlug } from '@/components/playmore/AppBanner';
 
 /* «Eventos» dentro de la app (reemplaza /eventos y /eventos/:slug del sitio en
  * modo app): los próximos con su botón de compra y los pasados como recuerdo.
@@ -15,7 +16,9 @@ import { eventImage } from '@shared/eventImage';
 export default function AppEvents() {
   useSeo({ title: 'Eventos — Mansion Playroom', description: 'Próximos eventos de Mansion Playroom.', path: '/eventos' });
   const { data: events, isLoading } = trpc.events.listPublished.useQuery();
-  const { upcoming, past } = splitEvents((events ?? []) as AppEvent[]);
+  // PLAYMORE (colab) tiene su tarjeta negra y dorada arriba: no se repite en la lista.
+  const playmoreSlug = useLivePlaymoreSlug();
+  const { upcoming, past } = splitEvents(((events ?? []) as AppEvent[]).filter((e) => e.slug !== playmoreSlug));
   // El evento abierto queda en la entrada del historial (por slug): al volver de la compra sigue abierto.
   const [detailSlug, setDetailSlug] = useEntryState<string | null>('eventos.detalle', null);
   const detail = detailSlug ? ((events ?? []) as AppEvent[]).find((e) => e.slug === detailSlug) ?? null : null;
@@ -35,9 +38,10 @@ export default function AppEvents() {
       <div className="account-backdrop" />
       <div className="relative z-10 mx-auto max-w-lg px-4 pb-[max(28px,env(safe-area-inset-bottom))] pt-[calc(env(safe-area-inset-top)+72px)]">
         <h1 className="text-large-title font-bold tracking-tight">Eventos</h1>
+        <PlaymoreAppBanner className="mt-4" />
         <div className="mt-4 space-y-4">
           {isLoading && <div className="account-glass aspect-[16/10] rounded-[28px] lg-skeleton" />}
-          {!isLoading && upcoming.length === 0 && (
+          {!isLoading && upcoming.length === 0 && !playmoreSlug && (
             <div className="account-glass rounded-[28px] p-6 text-center">
               <p className="text-title3 font-bold">Pronto anunciamos la próxima</p>
               <p className="mt-1 text-subhead text-white/60">Activa los avisos en tu cuenta y te contamos primero.</p>
