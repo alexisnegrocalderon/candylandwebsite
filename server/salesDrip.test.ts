@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import * as db from "./db";
 import { sendMailingBatch } from "./mailing";
 import { resolveCurrentOffer } from "./tanda2Promo";
-import { runSalesDripDaily, buildSalesDripContent, daysUntilEvent, SALES_DRIP_DAILY_TARGET } from "./salesDrip";
+import { runSalesDripDaily, buildSalesDripContent, daysUntilEvent, dailyDripCap, SALES_DRIP_CAP_FIRST_TANDA, SALES_DRIP_CAP_LATER_TANDAS } from "./salesDrip";
 
 vi.mock("./db", () => ({
   getFeaturedEvent: vi.fn(),
@@ -103,7 +103,7 @@ describe("runSalesDripDaily", () => {
   });
 
   it("respeta el tope diario compartido", async () => {
-    countSentTodayMock.mockResolvedValue(SALES_DRIP_DAILY_TARGET);
+    countSentTodayMock.mockResolvedValue(dailyDripCap(0));
     expect(await runSalesDripDaily(NOW)).toEqual({ ran: false, reason: 'daily-cap-reached' });
   });
 
@@ -169,11 +169,35 @@ describe("runSalesDripDaily", () => {
   });
 
   it("salta a quien compró mientras tanto y completa el cupo con los siguientes", async () => {
-    countSentTodayMock.mockResolvedValue(SALES_DRIP_DAILY_TARGET - 1);
+    countSentTodayMock.mockResolvedValue(dailyDripCap(0) - 1);
     hasApprovedMock.mockImplementation(async (email: string) => email === 'a@t.cl');
     const r = await runSalesDripDaily(NOW);
     expect(sendMock.mock.calls[0][0]).toEqual([2]);
     expect(r).toMatchObject({ ran: true, skipped: 1 });
+  });
+
+  it("el tope diario es 460 en la 1ª tanda y 100 desde la 2ª", async () => {
+    expect(SALES_DRIP_CAP_FIRST_TANDA).toBe(460);
+    expect(SALES_DRIP_CAP_LATER_TANDAS).toBe(100);
+    expect(dailyDripCap(0)).toBe(460);
+    expect(dailyDripCap(1)).toBe(100);
+    expect(dailyDripCap(4)).toBe(100);
+  });
+
+  it("desde la 2ª tanda manda solo hasta 100 por día, contando lo que ya salió hoy", async () => {
+    const many = Array.from({ length: 300 }, (_, i) => ({ id: i + 1, email: `c${i + 1}@t.cl` }));
+    listCustomersMock.mockResolvedValue(many as any);
+    getFeaturedEventMock.mockResolvedValue(event(20, { tandaPhaseIndex: 1 }) as any);
+    countSentTodayMock.mockResolvedValue(30);
+    await runSalesDripDaily(NOW);
+    expect(sendMock.mock.calls[0][0]).toHaveLength(70);
+  });
+
+  it("en la 1ª tanda manda hasta 460 por día", async () => {
+    const many = Array.from({ length: 917 }, (_, i) => ({ id: i + 1, email: `c${i + 1}@t.cl` }));
+    listCustomersMock.mockResolvedValue(many as any);
+    await runSalesDripDaily(NOW);
+    expect(sendMock.mock.calls[0][0]).toHaveLength(460);
   });
 
   it("funciona en cualquier tanda (3ª o más)", async () => {
