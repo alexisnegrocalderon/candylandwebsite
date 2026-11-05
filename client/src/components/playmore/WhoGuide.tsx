@@ -64,24 +64,33 @@ export function WhoGuide<T extends GuideType>({ types, value, onPick, className 
       {count == null ? (
         <p className="mt-3 rounded-2xl border border-dashed border-[#d6b25e]/30 px-4 py-5 text-center text-[11px] font-semibold tracking-[0.18em] text-[var(--pm-sand)]/55">ELIGE ARRIBA CUÁNTOS SON</p>
       ) : (
-        <div className="space-y-2.5 pt-1" role="radiogroup" aria-label="Quiénes son" style={{ ['--stub' as string]: '104px' }}>
+        <div className="space-y-2.5 pt-1" role="radiogroup" aria-label="Quiénes son">
           {options.map((o) => {
             const sold = o.type.status === 'soldout' || o.type.hasStock === false;
             const on = value === o.key && !sold;
             return (
               <button key={o.key} type="button" role="radio" aria-checked={on} disabled={sold} onClick={() => onPick(o)}
-                style={{ ['--stub' as string]: '104px' }}
+                style={{ ['--stub' as string]: '128px' }}
                 className={`playmore-ticket-card flex w-full items-stretch rounded-2xl text-left transition active:scale-[0.99] ${on ? 'ring-2 ring-inset ring-[#f7e7a8]' : ''} ${sold ? 'opacity-55' : ''}`}>
                 <span className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3">
                   <Figures s={o.figures} h={o.people === 4 ? 20 : 26} color={on ? '#f7e7a8' : GOLD} />
                   <span className="min-w-0">
-                    <span className="block text-[13px] font-extrabold tracking-[0.05em]">{o.label}</span>
+                    <span className="block text-[15px] font-extrabold leading-tight tracking-[0.05em]">{o.label}</span>
                     {o.note && <span className="mt-0.5 block text-[9px] font-semibold leading-snug tracking-[0.12em] text-[#e477ea]">{o.note}</span>}
-                    {o.type.originalPrice != null && o.type.originalPrice > o.type.price && !sold && <span className="text-[10px] text-white/40 line-through tabular-nums">{clp(o.type.originalPrice)}</span>}
                   </span>
                 </span>
-                <span className="playmore-gold flex w-[104px] shrink-0 items-center justify-center rounded-r-2xl border-l border-dashed border-[#d6b25e]/35 bg-[#d6b25e]/5 px-2 text-[17px] font-extrabold tabular-nums">
-                  {sold ? <span className="text-[10px] font-bold tracking-[0.2em] text-[var(--pm-sand)]">AGOTADO</span> : o.type.price > 0 ? clp(o.type.price) : 'Gratis'}
+                <span className="flex w-[128px] shrink-0 flex-col items-center justify-center rounded-r-2xl border-l border-dashed border-[#d6b25e]/35 bg-[#d6b25e]/5 px-2 py-2 text-center">
+                  {sold ? <span className="text-[10px] font-bold tracking-[0.2em] text-[var(--pm-sand)]">AGOTADO</span> : (
+                    <>
+                      {o.type.originalPrice != null && o.type.originalPrice > o.type.price && (
+                        <>
+                          <span className="text-[8px] font-bold tracking-[0.18em] text-[var(--pm-sand)]/70">PRECIO GENERAL</span>
+                          <span className="text-[15px] font-bold tabular-nums text-[#cdbf9d] line-through decoration-[#e477ea] decoration-2">{clp(o.type.originalPrice)}</span>
+                        </>
+                      )}
+                      <span className="playmore-gold text-[21px] font-extrabold leading-tight tabular-nums">{o.type.price > 0 ? clp(o.type.price) : 'Gratis'}</span>
+                    </>
+                  )}
                 </span>
               </button>
             );
