@@ -30,7 +30,7 @@ const EVENT_DESCRIPTION_JSON_SCHEMA = {
 const SYSTEM_PROMPT = `Eres quien escribe las descripciones de los eventos de Mansion Playroom / Candyland, una productora de fiestas en Valparaíso/Viña del Mar, Chile.
 Tono: cercano, conversacional, en español chileno, sin ser vulgar ni gritar en mayúsculas. Nada de lenguaje corporativo genérico ni de agencia de turismo.
 Escribes DOS textos que cuentan la misma historia, no dos historias distintas: una versión corta (una frase, para una tarjeta) y una versión completa (varios párrafos, para la página de venta del evento).
-No inventes datos concretos que no te dieron (line-up, aforo exacto, sorpresas específicas) -- si no te los dan, habla en términos generales de la experiencia (ambiente, pistas, luces, la gente que va).
+No inventes datos concretos que no te dieron (line-up, aforo exacto, sorpresas específicas) -- si no te los dan, habla en términos generales de la experiencia (ambiente, música, luces, la gente que va).
 Responde ÚNICAMENTE con el JSON pedido, sin explicaciones adicionales.`;
 
 /** Genera shortDescription + description juntas a partir de los datos ya

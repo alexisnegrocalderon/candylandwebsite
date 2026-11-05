@@ -80,7 +80,7 @@ export interface CoproductionLanding {
 export const DEFAULT_LANDING: CoproductionLanding = {
   title: 'Playroom × Dalmore',
   headline: 'Las dos productoras liberales más grandes, una sola noche.',
-  subheadline: 'Las fiestas liberales más grandes de la Región Metropolitana y la V Región, juntas por primera vez: dos pistas, dos comunidades y un nuevo spot especial en Providencia.',
+  subheadline: 'Las fiestas liberales más grandes de la Región Metropolitana y la V Región, juntas por primera vez: dos comunidades, un line up de DJs pensado especialmente para esta fusión y un nuevo spot especial en Providencia.',
   dateText: 'Viernes 4 de diciembre',
   venueText: 'Nuevo spot especial · Providencia',
   capacityText: 'Aforo para 800 personas',
@@ -124,7 +124,7 @@ export const DEFAULT_LANDING: CoproductionLanding = {
   launchedAt: '',
   timeline: [
     { time: '23:00', title: 'Se abren las puertas', text: 'Llegas, muestras tu QR y te recibe el equipo. El primer trago marca el comienzo.' },
-    { time: '00:00', title: 'Dos pistas encendidas', text: 'Playroom y Dalmore suben la energía, cada uno con su sonido y su luz.' },
+    { time: '00:00', title: 'Line up encendido', text: 'Playroom y Dalmore suben la energía con un line up de DJs pensado especialmente para esta fusión.' },
     { time: '01:30', title: 'Se abren las zonas de juego', text: 'Los espacios Playroom se encienden. Entra quien quiere, cuando quiere.' },
     { time: '03:00', title: 'La mezcla', text: 'Las dos comunidades se cruzan en un solo momento. Lo vas a entender cuando pase.' },
     { time: '05:00', title: 'Último track', text: 'Las luces bajan y la noche se queda contigo.' },
@@ -145,8 +145,32 @@ export const isOpaqueLogo = (u: string) => /\.jpe?g$/i.test(u.split(/[?#]/)[0]);
 /** Solo https (o rutas del propio sitio) para las imágenes de la landing. */
 const isSafeImageUrl = (u: string) => u === '' || /^https:\/\//.test(u) || /^\/[^/]/.test(u);
 
+/** Esta noche hay UNA sola pista: nunca se habla de «dos pistas», solo de un line up de DJs hecho para esta fusión.
+ * Los textos guardados antes del cambio (el panel guarda la landing completa) se corrigen al leerlos. */
+export function singleFloorText(text: string): string {
+  return text
+    .replace(/\bDos pistas encendidas\b/g, 'Line up encendido')
+    .replace(/\b(?:dos|2) pistas(?: de baile)?(?: encendidas)?/gi, 'un line up de DJs pensado especialmente para esta fusión')
+    .replace(/\bdos comunidades, un line up/gi, 'dos comunidades, un line up');
+}
+
 /** Completa y limpia el JSON guardado: nunca deja un campo en undefined. */
 export function normalizeLanding(raw: unknown): CoproductionLanding {
+  return fixFloors(normalizeLandingRaw(raw));
+}
+
+function fixFloors(l: CoproductionLanding): CoproductionLanding {
+  const f = singleFloorText;
+  return {
+    ...l,
+    subheadline: f(l.subheadline), playroomBlurb: f(l.playroomBlurb), partnerBlurb: f(l.partnerBlurb),
+    highlights: l.highlights.map(f), rules: l.rules.map(f),
+    faq: l.faq.map((q) => ({ q: f(q.q), a: f(q.a) })),
+    timeline: l.timeline.map((m) => ({ ...m, title: f(m.title), text: f(m.text) })),
+  };
+}
+
+function normalizeLandingRaw(raw: unknown): CoproductionLanding {
   const p = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
   const d = DEFAULT_LANDING;
   const heroImageUrl = str(p.heroImageUrl, 500, d.heroImageUrl);

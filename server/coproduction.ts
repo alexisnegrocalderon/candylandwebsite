@@ -209,7 +209,7 @@ async function scheduleLaunchMailing(cp: Coproduction): Promise<void> {
           headline: `Se abrió la venta de ${landing.eventName}`,
           paragraphs: [
             'Las fiestas liberales más grandes de la Región Metropolitana y la V Región se juntan por primera vez. Playroom pone el juego, Dalmore la exclusividad: una noche nueva, libre y con respeto.',
-            'Un nuevo spot especial en Providencia, dos pistas y dos comunidades en un mismo lugar. Las entradas son nominativas y la primera tanda es la de mejor precio.',
+            'Un nuevo spot especial en Providencia, dos comunidades y un line up de DJs pensado especialmente para esta fusión. Las entradas son nominativas y la primera tanda es la de mejor precio.',
             'La dirección exacta te llega por correo junto con tu entrada. Evento solo para mayores de 21.',
           ],
           ctaText: 'Comprar mi entrada',

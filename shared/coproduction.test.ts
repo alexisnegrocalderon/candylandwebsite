@@ -95,3 +95,20 @@ describe('usesPlaycard', () => {
     expect(normalizeLanding({ usesPlaycard: true }).usesPlaycard).toBe(true);
   });
 });
+
+describe('una sola pista', () => {
+  it('corrige los textos guardados que hablaban de dos pistas', () => {
+    const l = normalizeLanding({
+      subheadline: 'Juntas: dos pistas, dos comunidades y un spot.',
+      timeline: [{ time: '00:00', title: 'Dos pistas encendidas', text: 'Cada uno con su pista.' }],
+      faq: [{ q: '¿Cuántas pistas hay?', a: 'Hay 2 pistas de baile.' }],
+    });
+    const all = JSON.stringify(l);
+    expect(all).not.toMatch(/dos pistas|2 pistas/i);
+    expect(l.timeline[0].title).toBe('Line up encendido');
+    expect(l.subheadline).toContain('line up de DJs pensado especialmente para esta fusión');
+  });
+  it('los textos por defecto ya no mencionan pistas', () => {
+    expect(JSON.stringify(normalizeLanding({}))).not.toMatch(/dos pistas|2 pistas/i);
+  });
+});

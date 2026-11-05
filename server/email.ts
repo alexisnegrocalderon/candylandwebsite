@@ -527,7 +527,7 @@ export function buildOrderEmail(data: {
       <!-- QUÉ ENCONTRARÁS -->
       ${cfg.sections.encontraras ? `
       ${sectionTitle('🛝', '¿Qué encontrarás?')}
-      ${grid(CONTENT.encontraras.map(x => `
+      ${grid(CONTENT.encontraras.map(x => data.colab && /pistas/i.test(x.label) ? { ...x, label: 'Line up de DJs especial para esta fusión' } : x).map(x => `
         <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(150,110,255,0.18);border-radius:16px;padding:14px;">
           <p style="font-size:22px;margin:0 0 4px;">${x.emoji}</p>
           <p style="color:${INK};font-size:12px;font-weight:700;margin:0;">${x.label}</p>
