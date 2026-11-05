@@ -6749,6 +6749,41 @@ export async function getLastSalesDripByCustomer(eventId: number): Promise<Map<n
   return out;
 }
 
+/** Cuántos mails de ESTE evento ya recibió cada cliente y cuándo fue el último: customerId → { count, last }.
+ * Suma las dos vías por las que sale un mail de venta: las campañas del evento (el masivo del lanzamiento y
+ * cualquier otra con `eventId`, por `mailingRecipients`) y los avisos diarios/inmediatos con evento
+ * (`mailingSendLog`). Solo cuentan los enviados con éxito. */
+export async function getEventMailStatsByCustomer(eventId: number): Promise<Map<number, { count: number; last: Date }>> {
+  const out = new Map<number, { count: number; last: Date }>();
+  const db = await getDb();
+  if (!db) return out;
+  const add = (customerId: number, count: number, last: Date | string | null) => {
+    const when = last ? new Date(last) : new Date(0);
+    const prev = out.get(customerId);
+    out.set(customerId, { count: (prev?.count ?? 0) + count, last: prev && prev.last > when ? prev.last : when });
+  };
+  const [campaignRows, logRows] = await Promise.all([
+    db.select({
+      customerId: mailingRecipients.customerId,
+      count: sql<number>`COUNT(*)`,
+      last: sql<Date | null>`MAX(${mailingRecipients.sentAt})`,
+    }).from(mailingRecipients)
+      .innerJoin(mailingCampaigns, eq(mailingCampaigns.id, mailingRecipients.campaignId))
+      .where(and(eq(mailingCampaigns.eventId, eventId), eq(mailingRecipients.status, 'sent')))
+      .groupBy(mailingRecipients.customerId),
+    db.select({
+      customerId: mailingSendLog.customerId,
+      count: sql<number>`COUNT(*)`,
+      last: sql<Date | null>`MAX(${mailingSendLog.sentAt})`,
+    }).from(mailingSendLog)
+      .where(and(eq(mailingSendLog.eventId, eventId), eq(mailingSendLog.success, 1)))
+      .groupBy(mailingSendLog.customerId),
+  ]);
+  for (const r of campaignRows) add(r.customerId, Number(r.count), r.last);
+  for (const r of logRows) add(r.customerId, Number(r.count), r.last);
+  return out;
+}
+
 /** Últimas tandas de envíos inmediatos, agrupadas por `batchId` -- para la
  * sección "Envíos inmediatos" de Historial de Mailing. */
 export async function listRecentMailingSendBatches(limit = 10) {

@@ -10,7 +10,7 @@ vi.mock("./db", () => ({
   getSalesDripSettings: vi.fn(),
   hasApprovedOrderForEvent: vi.fn(),
   countTandaPromoEmailsSentToday: vi.fn(),
-  getLastSalesDripByCustomer: vi.fn(),
+  getEventMailStatsByCustomer: vi.fn(),
   hasMailingCampaignToday: vi.fn(async () => false),
 }));
 vi.mock("./tandaAutoAdvance", () => ({ checkAndAdvanceTandaIfNeeded: vi.fn() }));
@@ -25,7 +25,7 @@ const listCustomersMock = vi.mocked(db.listCustomers);
 const getSettingsMock = vi.mocked(db.getSalesDripSettings);
 const hasApprovedMock = vi.mocked(db.hasApprovedOrderForEvent);
 const countSentTodayMock = vi.mocked(db.countTandaPromoEmailsSentToday);
-const lastDripMock = vi.mocked(db.getLastSalesDripByCustomer);
+const lastDripMock = vi.mocked(db.getEventMailStatsByCustomer);
 const offerMock = vi.mocked(resolveCurrentOffer);
 const sendMock = vi.mocked(sendMailingBatch);
 
@@ -116,8 +116,8 @@ describe("runSalesDripDaily", () => {
 
   it("no repite antes de N días y retoma al cumplirse la espera", async () => {
     lastDripMock.mockResolvedValue(new Map([
-      [1, new Date(NOW.getTime() - 2 * DAY)], // hace 2 días: aún no
-      [2, new Date(NOW.getTime() - 5 * DAY)], // hace 5 días: le toca
+      [1, { count: 1, last: new Date(NOW.getTime() - 2 * DAY) }], // hace 2 días: aún no
+      [2, { count: 1, last: new Date(NOW.getTime() - 5 * DAY) }], // hace 5 días: le toca
     ]));
     await runSalesDripDaily(NOW);
     expect(sendMock.mock.calls[0][0]).toEqual([2]);
@@ -125,21 +125,47 @@ describe("runSalesDripDaily", () => {
 
   it("al terminar una vuelta NO se apaga: queda en 'nobody-due' para mañana", async () => {
     lastDripMock.mockResolvedValue(new Map([
-      [1, new Date(NOW.getTime() - 1 * DAY)],
-      [2, new Date(NOW.getTime() - 1 * DAY)],
+      [1, { count: 1, last: new Date(NOW.getTime() - 1 * DAY) }],
+      [2, { count: 1, last: new Date(NOW.getTime() - 1 * DAY) }],
     ]));
     expect(await runSalesDripDaily(NOW)).toEqual({ ran: false, reason: 'nobody-due' });
     expect(sendMock).not.toHaveBeenCalled();
   });
 
-  it("primero los que nunca recibieron, luego el aviso más antiguo", async () => {
+  it("primero los que nunca recibieron, luego los que menos mails llevan y el envío más antiguo", async () => {
     listCustomersMock.mockResolvedValue([{ id: 1, email: 'a@t.cl' }, { id: 2, email: 'b@t.cl' }, { id: 3, email: 'c@t.cl' }] as any);
     lastDripMock.mockResolvedValue(new Map([
-      [1, new Date(NOW.getTime() - 5 * DAY)],
-      [2, new Date(NOW.getTime() - 9 * DAY)],
+      [1, { count: 1, last: new Date(NOW.getTime() - 5 * DAY) }],
+      [2, { count: 1, last: new Date(NOW.getTime() - 9 * DAY) }],
     ]));
     await runSalesDripDaily(NOW);
     expect(sendMock.mock.calls[0][0]).toEqual([3, 2, 1]);
+  });
+
+  it("nunca pasa de 3 mails por persona: quien ya recibió el masivo y 2 avisos no recibe más", async () => {
+    lastDripMock.mockResolvedValue(new Map([
+      [1, { count: 3, last: new Date(NOW.getTime() - 30 * DAY) }], // tope alcanzado
+      [2, { count: 2, last: new Date(NOW.getTime() - 5 * DAY) }],  // le queda el 3º
+    ]));
+    await runSalesDripDaily(NOW);
+    expect(sendMock.mock.calls[0][0]).toEqual([2]);
+  });
+
+  it("si todos llegaron al tope no manda nada, aunque pase el tiempo", async () => {
+    lastDripMock.mockResolvedValue(new Map([
+      [1, { count: 3, last: new Date(NOW.getTime() - 30 * DAY) }],
+      [2, { count: 3, last: new Date(NOW.getTime() - 30 * DAY) }],
+    ]));
+    expect(await runSalesDripDaily(NOW)).toEqual({ ran: false, reason: 'nobody-due' });
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it("el masivo del lanzamiento cuenta como el 1º: el día siguiente no se manda un 2º", async () => {
+    lastDripMock.mockResolvedValue(new Map([
+      [1, { count: 1, last: new Date(NOW.getTime() - 1 * DAY) }],
+      [2, { count: 1, last: new Date(NOW.getTime() - 1 * DAY) }],
+    ]));
+    expect(await runSalesDripDaily(NOW)).toEqual({ ran: false, reason: 'nobody-due' });
   });
 
   it("salta a quien compró mientras tanto y completa el cupo con los siguientes", async () => {

@@ -7,12 +7,13 @@
  *  - Sigue al evento destacado desde que sale a la venta hasta el día de la
  *    fiesta, sea cual sea el evento y la tanda en que esté (no hay nada que
  *    activar por evento).
- *  - Cada día manda hasta `SALES_DRIP_DAILY_TARGET` (50) correos a quienes
- *    todavía no compraron. A cada persona le escribe como máximo cada
- *    `salesDripIntervalDays` días (la "espera" se mide sobre `mailingSendLog`,
- *    no con etiquetas), así que cuando termina una vuelta simplemente empieza
- *    la siguiente. Nunca se apaga por falta de audiencia: mañana puede haber
- *    leads nuevos, o alguien cumplió su espera.
+ *  - Cada día manda hasta `SALES_DRIP_DAILY_TARGET` correos a quienes todavía
+ *    no compraron. A cada persona le llegan como MÁXIMO `MAX_EVENT_MAILS_PER_PERSON`
+ *    (3) mails de este evento, contando el masivo del lanzamiento como el
+ *    primero, y siempre separados por `salesDripIntervalDays` días (se mide
+ *    sobre las campañas del evento y `mailingSendLog`). Se turnan: primero
+ *    quienes menos mails llevan. Quien llega a 3 no recibe más; si queda
+ *    gente con mails pendientes, mañana sigue.
  *  - El correo es una plantilla fija con datos vivos: precio actual de cada
  *    acceso (con el tachado), cupos, próximo precio y cuántos días faltan.
  *    Fecha, lugar y nombre salen del evento en la base, nunca de textos fijos.
@@ -24,7 +25,7 @@
  */
 import {
   getFeaturedEvent, listCustomers, getSalesDripSettings, hasApprovedOrderForEvent,
-  countTandaPromoEmailsSentToday, getLastSalesDripByCustomer, hasMailingCampaignToday,
+  countTandaPromoEmailsSentToday, getEventMailStatsByCustomer, hasMailingCampaignToday,
 } from './db';
 import { sendMailingBatch, type MailingContent } from './mailing';
 import { resolveCurrentOffer, type Tanda2Offer } from './tanda2Promo';
@@ -32,6 +33,7 @@ import { checkAndAdvanceTandaIfNeeded } from './tandaAutoAdvance';
 import { EMAIL_BASE_URL } from './emailLayout';
 import { formatChileDate, formatChileTime, startOfChileDay } from '../shared/chileDate';
 import { normalizeTandaSchedule, nextPhase, computePhasePrice } from '../shared/tandaSchedule';
+import { MAX_EVENT_MAILS_PER_PERSON, pickDueForRotation, remainingMailsNeeded } from '../shared/mailRotation';
 
 /** Cuántos correos de aviso de venta (drip + avisos por tanda) salen como máximo por día. */
 export const SALES_DRIP_DAILY_TARGET = Number(process.env.SALES_DRIP_DAILY_CAP) || 300;
@@ -138,21 +140,18 @@ export function buildSalesDripContent(event: DripEvent, offer: Tanda2Offer, now:
 type Customer = { id: number; email: string };
 
 /** Quiénes les toca el correo hoy: no han comprado (listCustomers ya deja
- * fuera compradores y bajas) y cumplieron su espera. Primero quienes nunca
- * recibieron uno de este evento, luego el último aviso más antiguo. */
+ * fuera compradores y bajas), todavía no llegaron al tope de
+ * `MAX_EVENT_MAILS_PER_PERSON` mails de ESTE evento (el masivo del lanzamiento
+ * cuenta como el primero) y cumplieron su espera desde el último. Salen primero
+ * los que menos mails llevan, luego el último envío más antiguo: así se turnan
+ * y a todos les llega el 2º antes de que a alguien le llegue el 3º. */
 export async function selectDueCustomers(eventId: number, intervalDays: number, now: Date = new Date()) {
-  const [eligible, lastByCustomer] = await Promise.all([
+  const [eligible, stats] = await Promise.all([
     listCustomers({ forMailing: true, notPurchasedEventId: eventId }) as Promise<Customer[]>,
-    getLastSalesDripByCustomer(eventId),
+    getEventMailStatsByCustomer(eventId),
   ]);
-  const cutoff = now.getTime() - intervalDays * DAY_MS;
-  const due = eligible
-    .filter((c) => {
-      const last = lastByCustomer.get(c.id);
-      return !last || last.getTime() <= cutoff;
-    })
-    .sort((a, b) => (lastByCustomer.get(a.id)?.getTime() ?? 0) - (lastByCustomer.get(b.id)?.getTime() ?? 0));
-  return { eligibleCount: eligible.length, due };
+  const due = pickDueForRotation(eligible, stats, { maxPerPerson: MAX_EVENT_MAILS_PER_PERSON, intervalDays, now });
+  return { eligibleCount: eligible.length, due, mailsStillNeeded: remainingMailsNeeded(eligible.map((c) => c.id), stats) };
 }
 
 /** La corrida diaria (`/api/cron/sales-drip`). Nunca se apaga sola. */
@@ -217,7 +216,7 @@ export async function runSalesDripDaily(now: Date = new Date()): Promise<SalesDr
 /** Estado en vivo para el panel de admin -- sin mandar nada. */
 export async function getSalesDripStatus(now: Date = new Date()) {
   const settings = await getSalesDripSettings();
-  const base = { enabled: settings.enabled, intervalDays: settings.intervalDays, dailyTarget: SALES_DRIP_DAILY_TARGET };
+  const base = { enabled: settings.enabled, intervalDays: settings.intervalDays, dailyTarget: SALES_DRIP_DAILY_TARGET, maxPerPerson: MAX_EVENT_MAILS_PER_PERSON, mailsStillNeeded: 0 };
   const event = await getFeaturedEvent();
   if (!event || new Date(event.eventDate).getTime() <= now.getTime()) {
     return { ...base, eventTitle: null, daysLeft: null, priceFrom: null, prices: [] as Tanda2Offer['prices'], remaining: null, audienceSize: 0, dueToday: 0, sentToday: 0 };
@@ -236,6 +235,8 @@ export async function getSalesDripStatus(now: Date = new Date()) {
     remaining: offer?.remaining ?? null,
     audienceSize: due.eligibleCount,
     dueToday: due.due.length,
+    maxPerPerson: MAX_EVENT_MAILS_PER_PERSON,
+    mailsStillNeeded: due.mailsStillNeeded,
     sentToday,
   };
 }
