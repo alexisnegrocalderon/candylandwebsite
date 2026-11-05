@@ -14,7 +14,9 @@ export function isAllowedCustomButtonUrl(raw: string, siteHost: string): boolean
     const u = new URL(raw.trim());
     if (u.protocol !== 'https:') return false;
     const host = u.hostname.toLowerCase().replace(/^www\./, '');
-    return host === siteHost.toLowerCase().replace(/^www\./, '');
+    const site = siteHost.toLowerCase().replace(/^www\./, '');
+    // El sitio y sus subdominios (ej. dalmore.mansionplayroom.cl, la landing de PLAYMORE).
+    return host === site || host.endsWith(`.${site}`);
   } catch {
     return false;
   }

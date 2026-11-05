@@ -875,7 +875,7 @@ const automationButtonSchema = z.object({
     ctx.addIssue({ code: 'custom', message: 'Elige una página de la lista.' });
   }
   if (b.buttonKind === 'custom' && !(target && isAllowedCustomButtonUrl(target, new URL(process.env.APP_URL || 'https://mansionplayroom.cl').hostname))) {
-    ctx.addIssue({ code: 'custom', message: 'El link propio tiene que ser https y de mansionplayroom.cl.' });
+    ctx.addIssue({ code: 'custom', message: 'El link propio tiene que ser https y de mansionplayroom.cl (o un subdominio, como dalmore.mansionplayroom.cl).' });
   }
   return {
     buttonKind: b.buttonKind,

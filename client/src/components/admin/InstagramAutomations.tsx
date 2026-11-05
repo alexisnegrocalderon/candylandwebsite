@@ -43,7 +43,7 @@ const BUTTON_KIND_LABEL: Record<ButtonKind, string> = {
   none: 'Sin botón',
   event: 'Comprar entrada del próximo evento',
   page: 'Una página del sitio',
-  custom: 'Link propio (mansionplayroom.cl)',
+  custom: 'Link propio (mansionplayroom.cl o dalmore.mansionplayroom.cl)',
 };
 
 const toButtonInput = (b: ButtonValue) => ({
