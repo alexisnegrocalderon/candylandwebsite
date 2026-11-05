@@ -13,12 +13,10 @@
  */
 import { BRAND, EVENT_BRAND } from '../shared/eventBrand';
 
-/** El dominio propio todavía no sirve los assets, así que las imágenes de los
- * correos (logo, QR) salen por el dominio de Vercel. Apenas se conecte
- * `mansionplayroom.cl` alcanza con setear `APP_URL` en Vercel. */
-export const EMAIL_BASE_URL = process.env.APP_URL && process.env.APP_URL !== 'https://mansionplayroom.cl'
-  ? process.env.APP_URL
-  : 'https://candylandwebsite.vercel.app';
+/** El dominio de los links y de las imágenes de los correos (logo, QR, botones): siempre el propio, `mansionplayroom.cl`, para que
+ * quien toca un botón del correo llegue a la misma dirección y a la misma sesión que usa en la app. Antes se forzaba el dominio de
+ * Vercel porque el propio todavía no servía las imágenes; ya las sirve. `APP_URL` permite apuntar a otro (pruebas). */
+export const EMAIL_BASE_URL = (process.env.APP_URL || 'https://mansionplayroom.cl').replace(/\/+$/, '');
 
 export const LOGO_URL = `${EMAIL_BASE_URL}/candyland/logo-wordmark-email.png`;
 
