@@ -30,13 +30,15 @@ export function exactPercents(r: PlaymoreTandaRow): { t1: number; t2: number; ge
 }
 
 /** Las 3 fases del evento, con el precio exacto de cada acceso. `percent` de la fase = el de la entrada principal (el dúo), solo como referencia. */
-export function buildPlaymorePhases(rows: PlaymoreTandaRow[], until: [string | null, string | null] = [null, null]): TandaPhase[] {
+export function buildPlaymorePhases(rows: PlaymoreTandaRow[], until: (string | null)[] = []): TandaPhase[] {
   const ref = rows.find((r) => r.slug === 'duo') ?? rows[0];
   const pct = ref ? exactPercents(ref) : { t1: 0, t2: 0, general: 0 };
   const prices = (k: 't1' | 't2' | 'general') => Object.fromEntries(rows.map((r) => [r.slug, r[k]]));
   return [
-    { percent: pct.t1, untilDate: until[0], prices: prices('t1') },
-    { percent: pct.t2, untilDate: until[1], prices: prices('t2') },
-    { percent: 0, untilDate: null, prices: prices('general') },
+    { percent: pct.t1, untilDate: until[0] ?? null, prices: prices('t1') },
+    { percent: pct.t2, untilDate: until[1] ?? null, prices: prices('t2') },
+    // 3ª y 4ª tanda: precio general (la 4ª es la última, hasta el cierre de la venta).
+    { percent: 0, untilDate: until[2] ?? null, prices: prices('general') },
+    { percent: 0, untilDate: until[3] ?? null, prices: prices('general') },
   ];
 }

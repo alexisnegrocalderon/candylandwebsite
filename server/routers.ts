@@ -4687,7 +4687,7 @@ export const appRouter = router({
     applyTandas: adminProcedure.input(z.object({
       slug: z.string().max(50),
       rows: z.array(z.object({ slug: z.string().max(50), label: z.string().max(100), general: z.number().int(), t1: z.number().int(), t2: z.number().int() })).min(1).max(10),
-      until: z.tuple([z.string().max(40).nullable(), z.string().max(40).nullable()]).default([null, null]),
+      until: z.array(z.string().max(40).nullable()).max(4).default([]),
       solteroPrice: z.number().int(), solteroStock: z.number().int(), force: z.boolean().default(false),
     })).mutation(async ({ input }) => {
       try {

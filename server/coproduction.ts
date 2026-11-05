@@ -548,7 +548,7 @@ export function checkoutPreviewAccess(
  * deja la 1ª tanda vigente (price = 1ª, originalPrice = general), guarda las fases en el evento y fija el soltero
  * (precio único y pocos cupos, sin tandas). Si ya hay entradas vendidas pide `force` para no pisar una tanda en curso. */
 export async function applyPlaymoreTandas(
-  coproductionId: number, rows: PlaymoreTandaRow[], until: [string | null, string | null],
+  coproductionId: number, rows: PlaymoreTandaRow[], until: (string | null)[],
   solteroPrice: number, solteroStock: number, force: boolean,
 ): Promise<{ updated: string[]; missing: string[]; percents: { slug: string; t1: number; t2: number }[] }> {
   const db = await getDb();

@@ -6,6 +6,7 @@ import {
   Ticket, Users, Wallet, X, type LucideIcon,
 } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
+import { fromChileInputValue } from '@/pages/admin/sections/shared';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -534,7 +535,8 @@ function PlaymoreTandas({ slug }: { slug: string }) {
   const [rows, setRows] = useState<PlaymoreTandaRow[]>(PLAYMORE_TANDA_ROWS);
   const [solteroPrice, setSolteroPrice] = useState(PLAYMORE_SOLTERO.price);
   const [solteroStock, setSolteroStock] = useState(PLAYMORE_SOLTERO.stock);
-  const [until, setUntil] = useState<[string, string]>(['', '']);
+  // Fin de cada tanda (hora de Chile): 1ª hasta el dom 8-nov, 2ª hasta el 22-nov, 3ª hasta el 2-dic y la 4ª (general) hasta el sáb 5-dic 06:00.
+  const [until, setUntil] = useState<string[]>(['2026-11-08T23:59', '2026-11-22T23:59', '2026-12-02T23:59', '2026-12-05T06:00']);
   const apply = trpc.coproduction.applyTandas.useMutation({
     onSuccess: (r) => {
       toast.success(`Tandas aplicadas${r.missing.length ? ` (sin entrada para: ${r.missing.join(', ')})` : ''}`);
@@ -546,7 +548,7 @@ function PlaymoreTandas({ slug }: { slug: string }) {
   const problem = rows.map(tandaRowProblem).find(Boolean) ?? null;
   const run = (force: boolean) => apply.mutate({
     slug, rows, force, solteroPrice, solteroStock,
-    until: [until[0] ? new Date(until[0]).toISOString() : null, until[1] ? new Date(until[1]).toISOString() : null],
+    until: until.map((u) => (u ? fromChileInputValue(u) : null)),
   }, { onError: (e) => { if (!force && /Confirma para forzarlo/.test(e.message) && confirm(`${e.message}\n\n¿Aplicar igual?`)) run(true); } });
   return (
     <section className="admin-clay space-y-3 p-5">
@@ -573,8 +575,9 @@ function PlaymoreTandas({ slug }: { slug: string }) {
         </table>
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
-        <div><Label>La 1ª tanda termina (opcional)</Label><Input className="mt-1" type="datetime-local" value={until[0]} onChange={(e) => setUntil([e.target.value, until[1]])} /></div>
-        <div><Label>La 2ª tanda termina (opcional)</Label><Input className="mt-1" type="datetime-local" value={until[1]} onChange={(e) => setUntil([until[0], e.target.value])} /></div>
+        {['1ª tanda (precios de lanzamiento)', '2ª tanda', '3ª tanda (general)', '4ª tanda (general, hasta el cierre)'].map((l, i) => (
+          <div key={l}><Label>{l} termina</Label><Input className="mt-1" type="datetime-local" value={until[i] ?? ''} onChange={(e) => setUntil(until.map((u, j) => (j === i ? e.target.value : u)))} /></div>
+        ))}
       </div>
       <p className="text-xs text-muted-foreground">Sin fecha, la tanda avanza al cerrarla a mano (“Cerrar tanda” en Eventos) o al agotarse su cupo.</p>
       {problem && <p className="text-xs text-red-400">{problem}</p>}
