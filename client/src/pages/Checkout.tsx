@@ -1361,8 +1361,8 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
   const companionChoices = (repurchase.data?.companions ?? []).filter((c) => !usedCompanion(c));
 
   return (
-    <div className={`min-h-dvh flex flex-col ${colabBrand ? 'pm-compact pb-28 pt-3' : `pb-40 ${appMode ? '' : 'pt-20'}`}`}>
-      <div className={`container flex-1 ${colabBrand ? 'max-w-xl' : 'max-w-lg'}`}>
+    <div className={colabBrand ? 'pm-compact flex h-dvh flex-col overflow-hidden pt-[max(12px,env(safe-area-inset-top))]' : `min-h-dvh flex flex-col pb-40 ${appMode ? '' : 'pt-20'}`}>
+      <div className={colabBrand ? 'container flex min-h-0 max-w-xl flex-1 flex-col' : 'container flex-1 max-w-lg'}>
         {/* Encabezado + progreso. En la app: barra de navegación propia (‹ paso anterior, ✕ cerrar). */}
         {appMode ? (
           <div className="sticky top-0 z-30 -mx-4 mb-4 px-4 pb-3 pt-[max(10px,env(safe-area-inset-top))] backdrop-blur-xl bg-[#0b0612]/70">
@@ -1380,8 +1380,8 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
             </div>
           </div>
         ) : (
-          <>
-          <div className="flex items-center justify-between mb-2 pt-4">
+          <div className={colabBrand ? 'shrink-0' : undefined}>
+          <div className={`flex items-center justify-between mb-2 ${colabBrand ? 'pt-1' : 'pt-4'}`}>
             <Link href="/" className="inline-flex items-center gap-1.5 text-muted-foreground hover:text-foreground text-sm interactive" aria-label="Volver al inicio">
               <ArrowLeft className="w-4 h-4" /> Salir
             </Link>
@@ -1389,15 +1389,19 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
               Paso {paso + 1} de {total_pasos}
             </span>
           </div>
-          <div className="h-1.5 rounded-full bg-muted overflow-hidden mb-6" role="progressbar" aria-valuenow={paso + 1} aria-valuemin={1} aria-valuemax={total_pasos}>
+          <div className={`h-1.5 rounded-full bg-muted overflow-hidden ${colabBrand ? 'mb-3' : 'mb-6'}`} role="progressbar" aria-valuenow={paso + 1} aria-valuemin={1} aria-valuemax={total_pasos}>
             <motion.div
               animate={{ width: `${((paso + 1) / total_pasos) * 100}%` }}
               transition={{ duration: 0.35, ease: [0.23, 1, 0.32, 1] }}
               className="h-full rounded-full bg-gradient-to-r from-primary via-cherry to-violet-electric"
             />
           </div>
-          </>
+          </div>
         )}
+
+        {/* La compra de una colab es una ventana fija: el encabezado de arriba y los botones de abajo no se mueven;
+            solo el contenido del medio podría desplazarse si el teléfono es muy chico. */}
+        <div className={colabBrand ? 'min-h-0 flex-1 overflow-y-auto overscroll-contain pb-28' : undefined}>
 
         {!isPartner && <ColabBanner eventSlug={eventSlug} preview={previewToken} />}
 
@@ -1488,7 +1492,9 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
               {pasoActual.id === 'acceso' && colabBrand && (
                 <div className="space-y-3" role="radiogroup" aria-label="Accesos">
                   {accesoTickets.filter((t: any) => t.status === 'active').map((t: any) => {
-                    const op = ACCESO_OPTIONS.find((o) => o.slug === t.accesoSlug && !o.composicion);
+                    // «duo» tiene dos opciones (pareja mixta y dos hombres, que pide código): la lista de la colab usa la mixta;
+                    // «duo_mujeres» su propia opción. Antes se descartaba todo lo que tuviera composición y «Pareja» no se podía elegir.
+                    const op = ACCESO_OPTIONS.find((o) => o.slug === t.accesoSlug && o.composicion !== 'dos_hombres');
                     return (
                       <button key={t.id} type="button" role="radio" aria-checked={accesoSlug === t.accesoSlug} disabled={!op}
                         onClick={() => op && chooseAcceso(op)}
@@ -2019,6 +2025,7 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
               )}
           </motion.div>
         </form>
+        </div>
       </div>
 
       {/* Barra de acciones fija (thumb-reach en móvil). padding-bottom suma el
@@ -2098,6 +2105,19 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
 function ColabCheckoutShell({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
   useEffect(() => { void import('@/components/playmore/playmore.css').then(() => setReady(true)); }, []);
+  // Detrás de la barra de estado y al estirar la pantalla: el negro de PLAYMORE, nunca el fondo claro del sitio.
+  useEffect(() => {
+    const html = document.documentElement;
+    const prev = [html.style.background, document.body.style.background];
+    const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+    const prevColor = meta?.content;
+    html.style.background = '#0c0908'; document.body.style.background = '#0c0908';
+    if (meta) meta.content = '#0c0908';
+    return () => {
+      html.style.background = prev[0]; document.body.style.background = prev[1];
+      if (meta && prevColor !== undefined) meta.content = prevColor;
+    };
+  }, []);
   return <div className="playmore pm-checkout min-h-dvh" style={ready ? undefined : { opacity: 0 }}>{children}</div>;
 }
 
