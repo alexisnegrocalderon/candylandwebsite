@@ -1,4 +1,4 @@
-/* «¿Con quién vienes?» de PLAYMORE: primero cuántos son (1, 2, 3 o 4) y luego quiénes, que es lo que decide el acceso y si pide
+/* «¿Con quién vienes?» de PLAYMORE: primero cuántos son (1, 2 o 3) y luego quiénes, que es lo que decide el acceso y si pide
  * código de comunidad. Es la única definición de las opciones: la landing, el selector de tickets y la compra la comparten.
  *
  *  - Vengo solo (hombre) y Dos hombres piden código de comunidad (o la aprobación de soltero, solo para «Vengo solo»). Eso NO se avisa
@@ -6,7 +6,7 @@
  *  - «Dos hombres» es para parejas, no para amigos: esa es la única aclaración que sí se muestra al elegir.
  *  - «duo» es un único acceso en la base: Pareja y Dos hombres se distinguen por la composición, no por otro ticket. */
 
-export type WhoKey = 'soltera' | 'soltero' | 'pareja' | 'dos-mujeres' | 'dos-hombres' | 'trio' | 'grupo';
+export type WhoKey = 'soltera' | 'soltero' | 'pareja' | 'dos-mujeres' | 'dos-hombres' | 'trio';
 export type WhoComposicion = 'mixta' | 'dos_mujeres' | 'dos_hombres';
 
 export interface WhoOption {
@@ -15,7 +15,7 @@ export interface WhoOption {
   /** `accesoSlug` del tipo de entrada que se compra. */
   slug: string;
   composicion: WhoComposicion | null;
-  people: 1 | 2 | 3 | 4;
+  people: 1 | 2 | 3;
   /** Siluetas: f = mujer, m = hombre. */
   figures: string;
   needsCode: boolean;
@@ -29,7 +29,6 @@ export const WHO_OPTIONS: readonly WhoOption[] = [
   { key: 'dos-mujeres', label: 'Dos mujeres', slug: 'duo_mujeres', composicion: 'dos_mujeres', people: 2, figures: 'ff', needsCode: false, note: null },
   { key: 'dos-hombres', label: 'Dos hombres', slug: 'duo', composicion: 'dos_hombres', people: 2, figures: 'mm', needsCode: true, note: 'PARA PAREJAS, NO PARA AMIGOS' },
   { key: 'trio', label: 'Somos tres', slug: 'trio', composicion: null, people: 3, figures: 'fmf', needsCode: false, note: null },
-  { key: 'grupo', label: 'Somos cuatro', slug: 'grupo', composicion: null, people: 4, figures: 'fmfm', needsCode: false, note: null },
 ];
 
 type TypeLike = { accesoSlug?: string | null; category?: string | null; status?: string | null };

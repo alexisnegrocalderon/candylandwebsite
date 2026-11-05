@@ -40,7 +40,7 @@ describe('código de comunidad', () => {
   it('lo piden hombre solo y dos hombres, nadie más', () => {
     expect(whoByKey('soltero')?.needsCode).toBe(true);
     expect(whoByKey('dos-hombres')?.needsCode).toBe(true);
-    for (const k of ['soltera', 'pareja', 'dos-mujeres', 'trio', 'grupo']) expect(whoByKey(k)?.needsCode).toBe(false);
+    for (const k of ['soltera', 'pareja', 'dos-mujeres', 'trio']) expect(whoByKey(k)?.needsCode).toBe(false);
   });
   it('avisa por cantidad', () => {
     const av = whoAvailable(types);
