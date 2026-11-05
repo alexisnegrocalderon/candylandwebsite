@@ -20,7 +20,7 @@ import { ImageUploadField } from '@/components/admin/ImageUploadField';
 import { MailingComposer } from '@/components/admin/MailingComposer';
 import { openEventPackInStudio } from '@/components/admin/studio/handoff';
 import { TableSkeleton } from '@/components/admin/TableSkeleton';
-import { phasePriceFor, nextPhase, normalizeTandaSchedule, type TandaPhase } from '@shared/tandaSchedule';
+import { phasePriceFor, discountPercent, nextPhase, normalizeTandaSchedule, type TandaPhase } from '@shared/tandaSchedule';
 import { formatChileShortDate } from '@shared/chileDate';
 import { presaleAllows } from '@shared/presaleExtras';
 import { DISCOUNT_ORIGIN_LABEL, discountOrigin, isAutomaticDiscount, type DiscountOrigin } from '@shared/discountOrigin';
@@ -481,6 +481,24 @@ export function TandaScheduleEditor({ event }: { event: any }) {
   const [open, setOpen] = useState(false);
   const [schedule, setSchedule] = useState<TandaPhase[]>(normalizeTandaSchedule(event.tandaDiscountSchedule));
 
+  // Los accesos con precio general (originalPrice) son los que entran en tandas: cada uno admite un monto propio por fase.
+  const { data: ttData } = trpc.events.listTicketTypes.useQuery({ eventId: event.id }, { enabled: open });
+  const accesos = (() => {
+    const m = new Map<string, number>();
+    for (const tt of (ttData ?? []) as any[]) {
+      if (tt.category !== 'acceso' || !tt.accesoSlug || tt.status === 'hidden' || tt.originalPrice == null) continue;
+      if (!m.has(tt.accesoSlug)) m.set(tt.accesoSlug, Number(tt.originalPrice));
+    }
+    return Array.from(m, ([slug, general]) => ({ slug, general, label: ACCESO_SLUG_OPTIONS.find((o) => o.value === slug)?.label ?? slug }));
+  })();
+  const setPrice = (i: number, slug: string, raw: string) => setSchedule(schedule.map((x, j) => {
+    if (j !== i) return x;
+    const prices = { ...(x.prices ?? {}) };
+    const n = Math.round(Number(raw));
+    if (raw === '' || !Number.isFinite(n) || n < 0) delete prices[slug]; else prices[slug] = n;
+    return { ...x, prices: Object.keys(prices).length ? prices : undefined };
+  }));
+
   const update = trpc.events.update.useMutation({
     onSuccess: () => {
       utils.events.listAll.invalidate();
@@ -498,29 +516,46 @@ export function TandaScheduleEditor({ event }: { event: any }) {
       <DialogTrigger asChild>
         <Button variant="outline" size="sm">Escala de tandas</Button>
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent className="max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Escala de descuentos por fase</DialogTitle>
         </DialogHeader>
         <p className="text-xs text-muted-foreground">
-          % de descuento sobre el precio general de cada fase, en orden. Fase actual de este evento: {(event.tandaPhaseIndex ?? 0) + 1}.
+          Monto de cada acceso en cada fase (el % se calcula solo), en orden. Si dejas un monto vacío, ese acceso usa el % parejo de la fase. Fase actual de este evento: {(event.tandaPhaseIndex ?? 0) + 1}.
           Si le ponés fecha a una fase, pasa sola a la siguiente cuando llegue esa fecha. Si además esa fase vende con cupo
           compartido y se agota antes, también pasa sola -- lo que ocurra primero. Dejalo vacío para que esa fase solo avance
           con el botón manual, en cualquier momento.
         </p>
         <div className="space-y-2">
           {schedule.map((phase, i) => (
-            <div key={i} className="flex items-end gap-3">
-              <div className="text-xs text-muted-foreground w-16">Fase {i + 1}</div>
-              <div>
-                <Label className="text-xs">% descuento</Label>
-                <Input type="number" value={phase.percent} onChange={(e) => setSchedule(schedule.map((x, j) => j === i ? { ...x, percent: Number(e.target.value) || 0 } : x))} className="w-24 mt-1" />
+            <div key={i} className="space-y-2 rounded-xl border border-border/60 p-3">
+              <div className="flex items-end gap-3">
+                <div className="text-xs text-muted-foreground w-16">Fase {i + 1}</div>
+                <div>
+                  <Label className="text-xs">% parejo</Label>
+                  <Input type="number" value={phase.percent} onChange={(e) => setSchedule(schedule.map((x, j) => j === i ? { ...x, percent: Number(e.target.value) || 0 } : x))} className="w-24 mt-1" />
+                </div>
+                <div>
+                  <Label className="text-xs">Fecha límite (opcional)</Label>
+                  <Input type="datetime-local" value={toChileInputValue(phase.untilDate)} onChange={(e) => setSchedule(schedule.map((x, j) => j === i ? { ...x, untilDate: e.target.value ? fromChileInputValue(e.target.value) : null } : x))} className="mt-1" />
+                </div>
+                <Button variant="outline" size="sm" className="text-destructive" onClick={() => setSchedule(schedule.filter((_, j) => j !== i))}><Trash2 className="w-3 h-3" /></Button>
               </div>
-              <div>
-                <Label className="text-xs">Fecha límite (opcional)</Label>
-                <Input type="datetime-local" value={toChileInputValue(phase.untilDate)} onChange={(e) => setSchedule(schedule.map((x, j) => j === i ? { ...x, untilDate: e.target.value ? fromChileInputValue(e.target.value) : null } : x))} className="mt-1" />
-              </div>
-              <Button variant="outline" size="sm" className="text-destructive" onClick={() => setSchedule(schedule.filter((_, j) => j !== i))}><Trash2 className="w-3 h-3" /></Button>
+              {accesos.length > 0 && (
+                <div className="grid grid-cols-2 gap-2">
+                  {accesos.map((a) => {
+                    const amount = phasePriceFor(phase, a.slug, a.general);
+                    const set = phase.prices?.[a.slug] != null;
+                    return (
+                      <div key={a.slug}>
+                        <Label className="text-xs">{a.label} <span className="text-muted-foreground">· general {clp(a.general)}</span></Label>
+                        <Input type="number" min={0} placeholder={String(amount)} value={phase.prices?.[a.slug] ?? ''} onChange={(e) => setPrice(i, a.slug, e.target.value)} className="mt-1" />
+                        <p className="mt-0.5 text-[11px] text-muted-foreground">{clp(amount)} · {discountPercent(a.general, amount)}% de descuento{set ? '' : ' (por % parejo)'}</p>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           ))}
         </div>
