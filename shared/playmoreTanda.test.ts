@@ -59,3 +59,15 @@ describe('communityNote', () => {
     expect(communityNote(null)).toBeNull();
   });
 });
+
+describe('buyHrefFor con «quién»', () => {
+  const duo = { accesoSlug: 'duo', category: 'acceso' };
+  it('agrega la opción elegida', () => {
+    expect(buyHrefFor('/checkout/pm', duo, { quien: 'dos-hombres' })).toBe('/checkout/pm?items=duo:1&quien=dos-hombres');
+    expect(buyHrefFor('/checkout/pm?preview=x', duo, { quien: 'pareja', nombre: 'Ana' })).toBe('/checkout/pm?preview=x&items=duo:1&quien=pareja&nombre=Ana');
+  });
+  it('ignora valores raros y los extras', () => {
+    expect(buyHrefFor('/c', duo, { quien: '<script>' })).toBe('/c?items=duo:1');
+    expect(buyHrefFor('/c', { accesoSlug: null, category: 'extra' }, { quien: 'pareja' })).toBe('/c');
+  });
+});

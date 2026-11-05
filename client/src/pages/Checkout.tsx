@@ -33,7 +33,8 @@ import { isMemberEarlyAccess } from '@shared/memberConfig';
 import { isAppMode } from '@/lib/appMode';
 import { useDarkChrome } from '@/lib/darkChrome';
 import { isColabHost } from '@shared/colabHosts';
-import { communityNote } from '@shared/playmoreTanda';
+import { whoByKey, whoKeyFor } from '@shared/playmoreWho';
+import { WhoGuide } from '@/components/playmore/WhoGuide';
 import { useHalloweenMode } from '@/lib/halloween';
 import { AccessList, type AccessRow, type Person } from '@/components/checkout/AccessList';
 import { DisclosureSummary, ExtraRow } from '@/components/checkout/ExtraRow';
@@ -465,7 +466,9 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
     return null;
   });
   const [accesoSlug, setAccesoSlug] = useState<string>(initialFromUrl);
-  const [duoComposicion, setDuoComposicion] = useState<DuoComposicion | null>(null);
+  // «¿Con quién vienes?» ya respondido en la landing o en el selector de tickets (?quien=pareja|dos-hombres|…).
+  const quienOp = useMemo(() => { const o = whoByKey(new URLSearchParams(search).get('quien')); return o ? ACCESO_OPTIONS.find((x) => x.key === o.key) ?? null : null; }, [search]);
+  const [duoComposicion, setDuoComposicion] = useState<DuoComposicion | null>(quienOp?.composicion ?? null);
   const [qty, setQty] = useState(initialQtyFromUrl);
 
   // Busca la entrada real (DB) para un slug fijo (soltera/soltero/duo/trio/
@@ -661,7 +664,7 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
   const compradorCampos = useMemo(() => CAMPOS_COMPRADOR.filter((f) => !(colabBrand && f.name === 'instagram')), [colabBrand]);
   type Paso = { id: string; titulo: string; sub?: string; keys: string[] };
   // Evento de colab: si el acceso ya viene elegido desde la página (selector de tickets), no se vuelve a preguntar.
-  const colabPreselected = !!colabBrand && initialFromUrl !== 'duo' && accesoTickets.some((t: any) => t.accesoSlug === initialFromUrl && t.status === 'active');
+  const colabPreselected = !!colabBrand && (initialFromUrl !== 'duo' || !!quienOp?.composicion) && accesoTickets.some((t: any) => t.accesoSlug === initialFromUrl && t.status === 'active');
   const skipAcceso = skipVibe || colabPreselected;
   const eventLabel = colabBrand?.eventName ?? EVENTO.nombre;
   const pasos: Paso[] = useMemo(() => {
@@ -1491,35 +1494,8 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
                 )
               )}
               {pasoActual.id === 'acceso' && colabBrand && (
-                <div className="space-y-3" role="radiogroup" aria-label="Accesos">
-                  {accesoTickets.filter((t: any) => t.status === 'active').flatMap((t: any) => {
-                    // «duo» es un solo acceso con dos opciones: pareja (mixta) y dos hombres, que SIEMPRE pide código de comunidad.
-                    // «duo_mujeres» y los demás tienen su propia opción. Hombres solos («soltero») piden código o aprobación.
-                    const ops = t.accesoSlug === 'duo'
-                      ? ACCESO_OPTIONS.filter((o) => o.slug === 'duo')
-                      : ACCESO_OPTIONS.filter((o) => o.slug === t.accesoSlug && o.composicion !== 'dos_hombres').slice(0, 1);
-                    if (ops.length === 0) ops.push(undefined as any);
-                    return ops.map((op: any) => {
-                      const menDuo = op?.composicion === 'dos_hombres';
-                      const note = menDuo ? communityNote('duo') : communityNote(t.accesoSlug === 'duo' ? null : t.accesoSlug);
-                      const active = op && accesoSlug === t.accesoSlug && (op.composicion ? duoComposicion === op.composicion : true);
-                      return (
-                        <button key={`${t.id}-${op?.key ?? 'x'}`} type="button" role="radio" aria-checked={!!active} disabled={!op}
-                          onClick={() => op && chooseAcceso(op)}
-                          style={{ '--stub': '136px' } as React.CSSProperties}
-                          className={`playmore-ticket-card flex w-full items-stretch rounded-2xl text-left transition active:scale-[0.99] ${active ? 'ring-2 ring-[#f7e7a8]' : ''}`}>
-                          <span className="flex min-w-0 flex-1 flex-col justify-center p-5 pr-3">
-                            <span className="block text-base font-extrabold tracking-[0.04em]">{menDuo ? 'Dúo de hombres' : t.name}</span>
-                            {note && <span className="mt-0.5 block text-[10px] font-semibold tracking-[0.12em] text-[#e477ea]">{note}</span>}
-                            {!menDuo && t.originalPrice && Number(t.originalPrice) > Number(t.price) && <span className="text-xs text-white/40 line-through tabular-nums">{formatCLP(Number(t.originalPrice))}</span>}
-                          </span>
-                          {/* La parte del precio, separada por la línea punteada del troquel, como el boleto de la landing. */}
-                          <span className="playmore-gold flex w-[136px] shrink-0 items-center justify-center rounded-r-2xl border-l border-dashed border-[#d6b25e]/35 bg-[#d6b25e]/5 px-2 text-2xl font-extrabold tabular-nums">{formatCLP(Number(t.price))}</span>
-                        </button>
-                      );
-                    });
-                  })}
-                </div>
+                <WhoGuide types={accesoTickets.filter((t: any) => t.status === 'active' || t.status === 'soldout').map((t: any) => ({ ...t, price: Number(t.price), originalPrice: t.originalPrice ? Number(t.originalPrice) : null }))} value={whoKeyFor(accesoSlug, duoComposicion)}
+                  onPick={(o) => { const op = ACCESO_OPTIONS.find((x) => x.key === o.key); if (op) chooseAcceso(op); }} />
               )}
 
               {pasoActual.id === 'acceso' && !appMode && !colabBrand && (

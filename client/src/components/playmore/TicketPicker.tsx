@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'wouter';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ArrowRight, Check, Ticket, X } from 'lucide-react';
+import { ArrowRight, X } from 'lucide-react';
 import { buyHrefFor, communityNote, groupOf, type PlaymoreTanda, type PlaymoreTicketView } from '@shared/playmoreTanda';
 import { clp } from './sections';
+import { WhoGuide } from './WhoGuide';
+import { whoByKey, whoKeyFor, type WhoKey } from '@shared/playmoreWho';
 
 /* Selector de tickets de PLAYMORE: se abre al instante al tocar "Comprar entrada"
  * (sin bajar por la página). Muestra todos los accesos como boletos con
@@ -34,6 +36,8 @@ export function TicketPicker({ open, onClose, types, buyHref, flowHref = null, e
   const accesos = useMemo(() => types.filter((t) => t.category === 'acceso'), [types]);
   const extras = useMemo(() => types.filter((t) => t.category !== 'acceso' && t.status !== 'soldout'), [types]);
   const [selId, setSelId] = useState<number | null>(null);
+  // La opción de «¿Con quién vienes?» (pareja, dos hombres…): el acceso solo no la distingue (el dúo sirve para las dos).
+  const [whoKey, setWhoKey] = useState<WhoKey | null>(null);
   const [holder, setHolder] = useState('');
   const closeRef = useRef<HTMLButtonElement>(null);
 
@@ -42,6 +46,7 @@ export function TicketPicker({ open, onClose, types, buyHref, flowHref = null, e
     if (!open) return;
     const first = tanda?.featured && tanda.featured.status !== 'soldout' ? tanda.featured : accesos.find((t) => t.status === 'active' && t.hasStock);
     setSelId(first?.id ?? null);
+    setWhoKey(whoKeyFor(first?.accesoSlug));
     setHolder(readName());
     closeRef.current?.focus();
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -56,16 +61,12 @@ export function TicketPicker({ open, onClose, types, buyHref, flowHref = null, e
   const sel = accesos.find((t) => t.id === selId) ?? null;
   const total = sel ? sel.price : 0;
   const people = sel ? (groupOf(sel.accesoSlug)?.people ?? 1) : 0;
-  const pick = (t: PlaymoreTicketView) => {
-    if (t.status === 'soldout' || !t.hasStock) return;
-    if (t.id !== selId) { setSelId(t.id); try { navigator.vibrate?.(8); } catch { /* sin vibración */ } }
-  };
   const setName = (v: string) => { setHolder(v); try { sessionStorage.setItem(NAME_KEY, v); } catch { /* sin almacenamiento */ } };
   const pay = () => {
     const target = buyHref ?? flowHref;
     if (!sel || !target) return;
     onClose();
-    navigate(buyHrefFor(target, sel, { qty: 1, nombre: holder.trim() }));
+    navigate(buyHrefFor(target, sel, { qty: 1, nombre: holder.trim(), quien: whoKey }));
   };
 
   return (
@@ -95,41 +96,9 @@ export function TicketPicker({ open, onClose, types, buyHref, flowHref = null, e
                 </p>
               )}
               <p className="mb-3 text-[10.5px] font-semibold leading-relaxed tracking-[0.18em] text-[var(--pm-sand)]/70">ENTRADA NOMINATIVA: UN ACCESO POR COMPRA, CON LOS DATOS DE QUIEN ASISTE.</p>
-              <div className="space-y-3">
-                {accesos.map((t) => {
-                  const soldout = t.status === 'soldout' || !t.hasStock;
-                  const on = t.id === selId && !soldout;
-                  const per = groupOf(t.accesoSlug)?.people ?? 1;
-                  return (
-                    <div key={t.id}>
-                      <button type="button" role="radio" aria-checked={on} disabled={soldout} onClick={() => pick(t)}
-                        style={{ '--stub': '74px' } as React.CSSProperties}
-                        className={`playmore-ticket-card relative flex w-full rounded-2xl text-left transition active:scale-[0.99] ${on ? 'ring-2 ring-[#f7e7a8] shadow-[0_0_34px_-6px_rgba(247,231,168,0.55)]' : soldout ? 'opacity-50' : 'hover:border-[#d6b25e]/70'}`}>
-                        <span className="min-w-0 flex-1 p-4 pr-3">
-                          <span className="block text-[10px] font-semibold tracking-[0.35em] text-[var(--pm-orchid)]">{eventName}</span>
-                          <span className="mt-1 block text-base font-extrabold leading-tight tracking-[0.04em]">{t.name}</span>
-                          {communityNote(t.accesoSlug) && <span className="mt-0.5 block text-[10px] font-semibold tracking-[0.12em] text-[#e477ea]">{communityNote(t.accesoSlug)}</span>}
-                          <span className="mt-2 flex items-baseline gap-2">
-                            <span className={`text-2xl font-extrabold tabular-nums ${soldout ? 'text-white/40 line-through' : 'playmore-gold'}`}>{t.price > 0 ? clp(t.price) : 'Gratis'}</span>
-                            {t.originalPrice != null && t.originalPrice > t.price && !soldout && <span className="text-xs text-white/40 line-through tabular-nums">{clp(t.originalPrice)}</span>}
-                          </span>
-                          {per > 1 && t.price > 0 && !soldout && <span className="mt-0.5 block text-[10.5px] tabular-nums text-[var(--pm-sand)]/60">{clp(Math.round(t.price / per))} por persona · {per} personas</span>}
-                        </span>
-                        <span className="flex w-[74px] shrink-0 items-center justify-center rounded-r-2xl border-l border-dashed border-[#d6b25e]/35 bg-[#d6b25e]/5">
-                          {soldout ? (
-                            <span className="rotate-90 whitespace-nowrap text-[10px] font-bold tracking-[0.3em] text-[var(--pm-sand)]">AGOTADO</span>
-                          ) : (
-                            <span className={`grid h-9 w-9 place-items-center rounded-full border transition ${on ? 'border-[#f7e7a8] bg-[#d6b25e] text-[#141210]' : 'border-[#d6b25e]/50 text-[#d6b25e]'}`}>
-                              {on ? <Check className="h-4 w-4" aria-hidden="true" /> : <Ticket className="h-4 w-4" aria-hidden="true" />}
-                            </span>
-                          )}
-                        </span>
-                      </button>
-                    </div>
-                  );
-                })}
-                {accesos.length === 0 && <p className="py-8 text-center text-sm text-[var(--pm-sand)]/70">TODAVÍA NO HAY ACCESOS DISPONIBLES.</p>}
-              </div>
+              {accesos.length === 0
+                ? <p className="py-8 text-center text-sm text-[var(--pm-sand)]/70">TODAVÍA NO HAY ACCESOS DISPONIBLES.</p>
+                : <WhoGuide types={accesos} value={whoKey} onPick={(o) => { if (o.key !== whoKey) { setSelId(o.type.id); setWhoKey(o.key); try { navigator.vibrate?.(8); } catch { /* sin vibración */ } } }} />}
 
               {extras.length > 0 && (
                 <p className="mt-4 text-center text-[11px] leading-relaxed tracking-[0.12em] text-[var(--pm-sand)]/70">
@@ -148,7 +117,7 @@ export function TicketPicker({ open, onClose, types, buyHref, flowHref = null, e
             <div className="shrink-0 border-t border-[#d6b25e]/25 bg-black/60 px-5 pb-[max(env(safe-area-inset-bottom),1rem)] pt-3 backdrop-blur">
               <div className="mb-3 flex items-end justify-between">
                 <span className="text-[11px] font-semibold tracking-[0.3em] text-[var(--pm-sand)]/70">
-                  {sel ? `${sel.name}${people > 1 ? ` · ${people} PERSONAS` : ''}` : 'ELIGE UN ACCESO'}
+                  {sel ? `${whoByKey(whoKey)?.label ?? sel.name}${people > 1 ? ` · ${people} PERSONAS` : ''}` : 'ELIGE UN ACCESO'}
                 </span>
                 <span className="playmore-sans playmore-gold text-3xl font-extrabold tabular-nums">{clp(total)}</span>
               </div>

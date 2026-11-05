@@ -60,9 +60,11 @@ export function groupOf(slug: string | null | undefined): (typeof ACCESO_GROUPS)
 /** Link de compra de un acceso: el checkout lo deja preseleccionado
  * (?items=slug:cantidad) y, si la persona escribió su nombre en el ticket,
  * llega ya puesto en el formulario (?nombre=). */
-export function buyHrefFor(buyHref: string, t: Pick<PlaymoreTicketView, 'accesoSlug' | 'category'>, opts: { qty?: number; nombre?: string } = {}): string {
+export function buyHrefFor(buyHref: string, t: Pick<PlaymoreTicketView, 'accesoSlug' | 'category'>, opts: { qty?: number; nombre?: string; quien?: string | null } = {}): string {
   const params: string[] = [];
   if (t.category === 'acceso' && t.accesoSlug) params.push(`items=${encodeURIComponent(t.accesoSlug)}:${Math.max(1, Math.floor(opts.qty ?? 1))}`);
+  // «¿Con quién vienes?»: la opción elegida (pareja, dos hombres…) viaja al checkout para no volver a preguntarla.
+  if (t.category === 'acceso' && t.accesoSlug && opts.quien && /^[a-z-]{3,20}$/.test(opts.quien)) params.push(`quien=${opts.quien}`);
   const nombre = opts.nombre?.trim();
   if (nombre) params.push(`nombre=${encodeURIComponent(nombre.slice(0, 60))}`);
   return params.length ? `${buyHref}${buyHref.includes('?') ? '&' : '?'}${params.join('&')}` : buyHref;

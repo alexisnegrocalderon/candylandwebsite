@@ -6,6 +6,8 @@ import {
   ACCESO_GROUPS, buyHrefFor, communityNote, groupOf, type AccesoGroupKey, type PlaymoreTanda, type PlaymoreTicketView,
 } from '@shared/playmoreTanda';
 import { Eyebrow, clp, reveal, useCountdown } from './sections';
+import { WhoGuide } from './WhoGuide';
+import { whoByKey, type WhoKey } from '@shared/playmoreWho';
 import { playRip } from './playmoreAudio';
 
 /* Accesos de PLAYMORE: comprar como parte de la noche.
@@ -89,58 +91,6 @@ function TandaPanel({ tanda }: { tanda: PlaymoreTanda }) {
   );
 }
 
-// ── ¿Con quién vienes? ──────────────────────────────────────────────────────
-
-/** N siluetas que se superponen (cabeza + torso), en dorado si está elegido. */
-function Silhouettes({ n, active }: { n: number; active: boolean }) {
-  const w = 22 + (n - 1) * 14;
-  return (
-    <svg viewBox={`0 0 ${w} 30`} className="h-9 w-auto" aria-hidden="true">
-      {Array.from({ length: n }).map((_, i) => {
-        const x = 11 + i * 14;
-        return (
-          <g key={i} fill={active ? 'url(#pm-sil-gold)' : 'rgba(233,217,176,0.45)'} stroke="#0c0908" strokeWidth="1.2">
-            <circle cx={x} cy={8} r={5.2} />
-            <path d={`M${x - 9.5} 30 C${x - 9.5} 19 ${x - 6} 15 ${x} 15 C${x + 6} 15 ${x + 9.5} 19 ${x + 9.5} 30 Z`} />
-          </g>
-        );
-      })}
-      <defs>
-        <linearGradient id="pm-sil-gold" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#f7e7a8" /><stop offset="1" stopColor="#c99a3e" />
-        </linearGradient>
-      </defs>
-    </svg>
-  );
-}
-
-function WhoPicker({ groups, value, onChange, fromPrice }: {
-  groups: (typeof ACCESO_GROUPS)[number][];
-  value: AccesoGroupKey | null;
-  onChange: (g: AccesoGroupKey | null) => void;
-  fromPrice: (g: AccesoGroupKey) => number | null;
-}) {
-  return (
-    <motion.div {...reveal} className="mb-10 text-center">
-      <p className="mb-5 text-[11px] font-semibold tracking-[0.4em] text-[var(--pm-sand)]/80">¿CON QUIÉN VIENES?</p>
-      <div className="mx-auto grid max-w-3xl grid-cols-2 gap-3 sm:grid-cols-4" role="radiogroup" aria-label="Con quién vienes">
-        {groups.map((g) => {
-          const on = value === g.key;
-          const pp = fromPrice(g.key);
-          return (
-            <button key={g.key} type="button" role="radio" aria-checked={on} onClick={() => onChange(on ? null : g.key)}
-              className={`group relative flex flex-col items-center gap-2 rounded-2xl border px-3 py-4 transition ${on ? 'border-[#d6b25e] bg-[#d6b25e]/10 shadow-[0_0_40px_-10px_rgba(247,231,168,0.6)]' : 'border-white/10 bg-white/[0.03] hover:border-[#d6b25e]/50'}`}>
-              <motion.span animate={on ? { y: [0, -4, 0] } : { y: 0 }} transition={{ duration: 0.5 }}><Silhouettes n={g.people} active={on} /></motion.span>
-              <span className={`text-sm font-bold ${on ? 'playmore-gold' : 'text-[var(--pm-cream)]'}`}>{g.label}</span>
-              {pp != null && <span className="text-[11px] tabular-nums text-[var(--pm-sand)]/70">desde {clp(pp)} c/u</span>}
-            </button>
-          );
-        })}
-      </div>
-    </motion.div>
-  );
-}
-
 // ── Ticket con talón ────────────────────────────────────────────────────────
 
 function TearTicket({ t, eventName, holder, index, dimmed, canBuy, onTear }: {
@@ -205,8 +155,8 @@ function TearTicket({ t, eventName, holder, index, dimmed, canBuy, onTear }: {
 
 // ── Hoja de compra ──────────────────────────────────────────────────────────
 
-function BuySheet({ t, holder, eventName, buyHref, demo, early, onClose }: {
-  t: PlaymoreTicketView; holder: string; eventName: string; buyHref: string; demo: boolean; early: boolean; onClose: () => void;
+function BuySheet({ t, holder, eventName, buyHref, demo, early, quien, onClose }: {
+  t: PlaymoreTicketView; holder: string; eventName: string; buyHref: string; demo: boolean; early: boolean; quien?: string | null; onClose: () => void;
 }) {
   const [, navigate] = useLocation();
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -218,7 +168,7 @@ function BuySheet({ t, holder, eventName, buyHref, demo, early, onClose }: {
     document.body.style.overflow = 'hidden';
     return () => { window.removeEventListener('keydown', onKey); document.body.style.overflow = prev; };
   }, [onClose]);
-  const go = () => { if (buyHref) navigate(buyHrefFor(buyHref, t, { qty: 1, nombre: holder })); };
+  const go = () => { if (buyHref) navigate(buyHrefFor(buyHref, t, { qty: 1, nombre: holder, quien })); };
   return (
     <motion.div className="fixed inset-0 z-[70] flex items-end justify-center sm:items-center" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
       <button type="button" aria-label="Cerrar" className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} tabIndex={-1} />
@@ -254,6 +204,7 @@ export function Accesos({ types, buyHref, flowHref = null, eventName, tanda, ini
   types: PlaymoreTicketView[]; buyHref: string | null; flowHref?: string | null; eventName: string; tanda: PlaymoreTanda | null; initialGroup?: AccesoGroupKey | null; preview?: boolean; early?: boolean; diag?: AccesosDiag | null;
 }) {
   const [group, setGroup] = useState<AccesoGroupKey | null>(initialGroup ?? null);
+  const [who, setWho] = useState<WhoKey | null>(null);
   const [holder, setHolder] = useState(readName);
   const [sheet, setSheet] = useState<PlaymoreTicketView | null>(null);
   useEffect(() => { try { sessionStorage.setItem(NAME_KEY, holder); } catch { /* sin almacenamiento */ } }, [holder]);
@@ -261,13 +212,10 @@ export function Accesos({ types, buyHref, flowHref = null, eventName, tanda, ini
   const accesos = types.filter((t) => t.category === 'acceso');
   const extras = types.filter((t) => t.category !== 'acceso');
   const groups = useMemo(() => ACCESO_GROUPS.filter((g) => accesos.some((t) => groupOf(t.accesoSlug)?.key === g.key)), [accesos]);
-  const fromPrice = (key: AccesoGroupKey) => {
-    const ps = accesos.filter((t) => groupOf(t.accesoSlug)?.key === key && t.status === 'active' && t.price > 0)
-      .map((t) => Math.round(t.price / (groupOf(t.accesoSlug)?.people ?? 1)));
-    return ps.length ? Math.min(...ps) : null;
-  };
-  // El grupo elegido va primero; los demás quedan atenuados.
-  const ordered = group ? [...accesos].sort((a, b) => Number(groupOf(b.accesoSlug)?.key === group) - Number(groupOf(a.accesoSlug)?.key === group)) : accesos;
+  // Lo que eligió en «¿Con quién vienes?» va primero; los demás quedan atenuados. Sin eso, el grupo de la invitación.
+  const whoSlug = who ? whoByKey(who)?.slug ?? null : null;
+  const isMine = (t: PlaymoreTicketView) => whoSlug ? t.accesoSlug === whoSlug : !!group && groupOf(t.accesoSlug)?.key === group;
+  const ordered = whoSlug || group ? [...accesos].sort((a, b) => Number(isMine(b)) - Number(isMine(a))) : accesos;
 
   // Vista previa del dueño: los tickets se ven completos y se puede recorrer la compra, pero el pago
   // recién se abre al activar el evento (el servidor igual rechaza órdenes antes).
@@ -304,7 +252,12 @@ export function Accesos({ types, buyHref, flowHref = null, eventName, tanda, ini
         </p>
       )}
       {tanda && <TandaPanel tanda={tanda} />}
-      {groups.length > 1 && <WhoPicker groups={groups} value={group} onChange={setGroup} fromPrice={fromPrice} />}
+      {groups.length > 1 && (
+        <motion.div {...reveal} className="mx-auto mb-10 max-w-md">
+          <p className="mb-5 text-center text-[11px] font-semibold tracking-[0.4em] text-[var(--pm-sand)]/80">¿CON QUIÉN VIENES?</p>
+          <WhoGuide types={accesos} value={who} onPick={(o) => { setWho(o.key); setGroup(groupOf(o.slug)?.key ?? null); }} />
+        </motion.div>
+      )}
 
       {accesos.length > 0 && (
         <motion.div {...reveal} className="mx-auto mb-10 max-w-md text-center">
@@ -317,7 +270,7 @@ export function Accesos({ types, buyHref, flowHref = null, eventName, tanda, ini
       <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
         {ordered.map((t, i) => (
           <TearTicket key={t.id} t={t} index={i} eventName={eventName} holder={holder.trim()} canBuy={!!buyHref || demo}
-            dimmed={!!group && groupOf(t.accesoSlug)?.key !== group} onTear={setSheet} />
+            dimmed={(!!whoSlug || !!group) && !isMine(t)} onTear={setSheet} />
         ))}
       </div>
       {accesos.length > 0 && (buyHref || demo) && <p className="mt-5 text-center text-xs tracking-[0.2em] text-[var(--pm-sand)]/60">ARRASTRA O TOCA EL TALÓN PARA ENTRAR</p>}
@@ -336,7 +289,7 @@ export function Accesos({ types, buyHref, flowHref = null, eventName, tanda, ini
         </motion.div>
       )}
       <AnimatePresence>
-        {sheet && (buyHref || demo) && <BuySheet key={sheet.id} t={sheet} holder={holder.trim()} eventName={eventName} buyHref={buyHref ?? flowHref ?? ''} demo={demo} early={early} onClose={() => setSheet(null)} />}
+        {sheet && (buyHref || demo) && <BuySheet key={sheet.id} t={sheet} quien={who && whoByKey(who)?.slug === sheet.accesoSlug ? who : null} holder={holder.trim()} eventName={eventName} buyHref={buyHref ?? flowHref ?? ''} demo={demo} early={early} onClose={() => setSheet(null)} />}
       </AnimatePresence>
     </section>
   );
