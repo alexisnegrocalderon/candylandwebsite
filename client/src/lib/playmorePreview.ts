@@ -13,6 +13,13 @@ export function parsePreviewToken(search: string, stored: string | null): string
   return stored && TOKEN_RE.test(stored) ? stored : undefined;
 }
 
+/** ¿Se muestra PLAYMORE en la app? Sí con la venta abierta; antes de activar, solo cuando el servidor lo marca como vista
+ * previa, que ocurre únicamente con la clave del panel o con la sesión de administrador (el servidor decide, no la app).
+ * Quien entra sin ninguna de las dos recibe `preview: false` y no ve nada. */
+export function shouldShowPlaymore(data: { isLive?: boolean; preview?: boolean; event?: unknown } | null | undefined): boolean {
+  return !!data?.event && (data.isLive === true || data.preview === true);
+}
+
 export function readPlaymorePreviewToken(): string | undefined {
   if (typeof window === 'undefined') return undefined;
   let stored: string | null = null;

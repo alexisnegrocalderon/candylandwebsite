@@ -2,7 +2,7 @@ import { Link } from 'wouter';
 import { ArrowRight } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { COLAB_HOME_REDIRECT } from '@shared/colabHosts';
-import { readPlaymorePreviewToken } from '@/lib/playmorePreview';
+import { readPlaymorePreviewToken, shouldShowPlaymore } from '@/lib/playmorePreview';
 
 /* PLAYMORE dentro de la app de Playroom. Con la venta abierta, la portada y «Mi cuenta» muestran una tarjeta negra y
  * dorada que compra ahí mismo (el checkout ya toma la cara de PLAYMORE), sin salir de la app. Mientras el evento no
@@ -11,11 +11,12 @@ import { readPlaymorePreviewToken } from '@/lib/playmorePreview';
 const FUSE = 'linear-gradient(90deg,#ffb3e2 0%,#e477ea 22%,#d98fc6 40%,#ecc3a0 54%,#f7e7a8 66%,#d6b25e 82%,#9c7630 100%)';
 const GOLD = 'linear-gradient(100deg,#9c7630 0%,#c9a24c 15%,#f7e7a8 35%,#d6b25e 55%,#9c7630 100%)';
 
-/** Consulta de PLAYMORE: pública con la venta abierta; con la clave de vista previa (`?playmore=`) el dueño la ve antes. */
+/** Consulta de PLAYMORE: pública con la venta abierta; antes de activar la ve el dueño, con su sesión de administrador o con
+ * la clave de vista previa (`?playmore=`). El servidor es quien decide quién es dueño. */
 export function usePlaymore() {
   const preview = readPlaymorePreviewToken();
   const { data } = trpc.coproduction.publicGet.useQuery({ slug: COLAB_HOME_REDIRECT.slug, preview }, { staleTime: 60_000, retry: false });
-  const visible = !!data?.event && (data.isLive || (!!preview && data.preview));
+  const visible = shouldShowPlaymore(data);
   return { data: visible ? data : null, preview, isPreview: !!data && !data.isLive };
 }
 
