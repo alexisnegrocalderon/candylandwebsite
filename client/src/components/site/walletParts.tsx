@@ -144,10 +144,10 @@ export function QrViewer({ ev, t, holder, onClose, onSelect }: { ev: MeEvent; t:
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }} transition={{ duration: 0.22 }}
-      className={`account-font fixed inset-0 z-[90] flex flex-col items-center gap-5 overflow-y-auto px-6 pb-[max(24px,env(safe-area-inset-bottom))] ${showStrip ? 'pt-[calc(max(16px,env(safe-area-inset-top))+60px)]' : 'pt-[max(24px,env(safe-area-inset-top))]'} text-white [&>*:first-child]:shrink-0`}
+      className={`account-font fixed inset-0 z-[90] flex flex-col items-center gap-5 overflow-y-auto px-6 pb-[max(24px,env(safe-area-inset-bottom))] ${showStrip ? 'pt-[calc(calc(env(safe-area-inset-top,0px)+14px)+60px)]' : 'pt-[calc(env(safe-area-inset-top,0px)+14px)]'} text-white [&>*:first-child]:shrink-0`}
       style={QR_PAGE_BG} role="dialog" aria-label="Código QR de tu entrada" onTouchStart={onSwipeStart} onTouchEnd={onSwipeEnd}
     >
-      <button type="button" onClick={onClose} aria-label="Cerrar" className="absolute right-4 top-[max(16px,env(safe-area-inset-top))] grid h-11 w-11 place-items-center rounded-full bg-white/10"><X className="h-5 w-5" /></button>
+      <button type="button" onClick={onClose} aria-label="Cerrar" className="absolute right-4 top-[calc(env(safe-area-inset-top,0px)+14px)] grid h-11 w-11 place-items-center rounded-full bg-white/10"><X className="h-5 w-5" /></button>
       {showStrip ? (
         <div ref={tabs} role="tablist" aria-label="Qué mostrar" className="-mx-6 flex max-w-[100vw] shrink-0 gap-1.5 overflow-x-auto px-6 pr-16 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {groups.map((g) => {

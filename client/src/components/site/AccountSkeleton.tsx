@@ -8,7 +8,7 @@ export function AccountSkeleton() {
   return (
     <div className="account-font fixed inset-0 z-[60] flex flex-col bg-[#0b0612]" aria-busy="true" aria-label="Cargando tu cuenta">
       <div className="account-backdrop" />
-      <div className="relative z-10 flex shrink-0 items-center gap-3 px-4 pb-2 pt-[max(12px,env(safe-area-inset-top))]">
+      <div className="relative z-10 flex shrink-0 items-center gap-3 px-4 pb-2 pt-[calc(env(safe-area-inset-top,0px)+14px)]">
         <img src="/candyland/logo-isotipo-transparent.png" alt="" className="h-9 w-9 opacity-80" />
         <div className={`${bone} h-7 w-44 rounded-full`} />
       </div>

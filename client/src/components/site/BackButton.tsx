@@ -10,7 +10,7 @@ export function BackButton({ fallback = '/cuenta', label = 'Volver' }: { fallbac
   // Solo vuelve si hay una pantalla de la app atrás (lib/appNav.ts); `history.length` contaba también lo de antes.
   const back = () => goBack(() => navigate(fallback, { replace: true }));
   return (
-    <div className="pointer-events-none fixed inset-x-0 top-0 z-40 px-3 pt-[max(10px,env(safe-area-inset-top))]">
+    <div className="pointer-events-none fixed inset-x-0 top-0 z-40 px-3 pt-[calc(env(safe-area-inset-top,0px)+14px)]">
       <button type="button" onClick={back} className="lg-pill pointer-events-auto inline-flex h-10 items-center gap-0.5 rounded-full pl-2 pr-4 text-[15px] font-semibold text-white interactive" aria-label={label}>
         <ChevronLeft className="h-5 w-5" />{label}
       </button>

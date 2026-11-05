@@ -813,7 +813,7 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
       <div className="account-backdrop" />
       {/* Una pantalla fija: cabecera compacta arriba, contenido que reparte el alto y la barra flotante abajo.
           Nada se desplaza en vertical; lo que no cabe se reparte en páginas (Pager). */}
-      <header className="relative z-10 flex shrink-0 items-center gap-3 px-4 pb-2 pt-[max(12px,env(safe-area-inset-top))] [@media(max-height:700px)]:pb-1">
+      <header className="relative z-10 flex shrink-0 items-center gap-3 px-4 pb-2 pt-[calc(env(safe-area-inset-top,0px)+14px)] [@media(max-height:700px)]:pb-1">
         <img src="/candyland/logo-isotipo-transparent.png" alt="" className="h-9 w-9 shrink-0 [@media(max-height:700px)]:h-8 [@media(max-height:700px)]:w-8" />
         <h1 className="min-w-0 flex-1 truncate text-title1 font-bold leading-tight tracking-tight [@media(max-height:700px)]:text-title2">{title}</h1>
         {tab === 'card' && me.isAdmin && <span className="shrink-0 rounded-full bg-gradient-to-r from-pink-500 to-fuchsia-500 px-2.5 py-1 text-caption2 font-bold tracking-wide text-white">ADMIN</span>}
@@ -1176,7 +1176,7 @@ export default function Cuenta() {
     ?.filter((e) => new Date(e.eventDate).getTime() >= Date.now() - 12 * 3_600_000 && e.status !== 'soldout')
     .sort((x, y) => new Date(x.eventDate).getTime() - new Date(y.eventDate).getTime())[0];
   const login = (
-    <div className={`${shell} pt-[max(20px,env(safe-area-inset-top))] pb-16`}>
+    <div className={`${shell} pt-[calc(env(safe-area-inset-top,0px)+14px)] pb-16`}>
       <div className="account-backdrop" />
       <div className="container relative z-10 max-w-md">
         <div className="flex h-12 items-center">

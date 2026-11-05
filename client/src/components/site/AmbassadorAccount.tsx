@@ -96,7 +96,7 @@ export function AppScreen({ open, title, onClose, children }: { open: boolean; t
           transition={{ type: 'spring', damping: 32, stiffness: 320, mass: 0.9 }}
         >
           <div className="account-backdrop" />
-          <header className="relative z-10 flex shrink-0 items-center gap-2 px-3 pb-2 pt-[max(12px,env(safe-area-inset-top))]">
+          <header className="relative z-10 flex shrink-0 items-center gap-2 px-3 pb-2 pt-[calc(env(safe-area-inset-top,0px)+14px)]">
             <button type="button" onClick={onClose} className="inline-flex h-10 items-center gap-0.5 rounded-full pl-1 pr-3 text-subhead font-semibold text-pink-300 interactive" aria-label="Volver">
               <ChevronLeft className="h-6 w-6" /> Volver
             </button>

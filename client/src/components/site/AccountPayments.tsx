@@ -109,8 +109,8 @@ export function PayInCajaViewer({ onClose, prepaidBalance, playcoins }: { onClos
 
   const secs = Math.max(0, Math.ceil((expiresAt - now) / 1000));
   return createPortal(
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="account-font fixed inset-0 z-[90] flex flex-col items-center justify-center gap-5 px-6 pb-[max(24px,env(safe-area-inset-bottom))] pt-[max(24px,env(safe-area-inset-top))] text-white" style={QR_PAGE_BG} role="dialog" aria-label="QR para pagar en caja">
-      <button type="button" onClick={onClose} aria-label="Cerrar" className="absolute right-4 top-[max(16px,env(safe-area-inset-top))] grid h-11 w-11 place-items-center rounded-full bg-white/10"><X className="h-5 w-5" /></button>
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="account-font fixed inset-0 z-[90] flex flex-col items-center justify-center gap-5 px-6 pb-[max(24px,env(safe-area-inset-bottom))] pt-[calc(env(safe-area-inset-top,0px)+14px)] text-white" style={QR_PAGE_BG} role="dialog" aria-label="QR para pagar en caja">
+      <button type="button" onClick={onClose} aria-label="Cerrar" className="absolute right-4 top-[calc(env(safe-area-inset-top,0px)+14px)] grid h-11 w-11 place-items-center rounded-full bg-white/10"><X className="h-5 w-5" /></button>
       <p className="text-title2 font-bold tracking-tight">Pagar en caja</p>
       <div className="flex gap-6 text-center">
         <div><p className="text-caption2 uppercase tracking-wider text-white/60">Saldo</p><p className="text-title2 font-bold tabular-nums">{fmtClp(prepaidBalance)}</p></div>

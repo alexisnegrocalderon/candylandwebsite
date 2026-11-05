@@ -1127,7 +1127,7 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
 
   if (partnerBlock && appMode) {
     return (
-      <div className="flex min-h-dvh flex-col items-center justify-center px-6 pb-16 pt-[max(24px,env(safe-area-inset-top))] text-center">
+      <div className="flex min-h-dvh flex-col items-center justify-center px-6 pb-16 pt-[calc(env(safe-area-inset-top,0px)+14px)] text-center">
         <div className="account-glass grid h-20 w-20 place-items-center rounded-full text-4xl">{partnerBlock.emoji}</div>
         <h1 className="mt-5 text-title1 font-bold leading-tight">{partnerBlock.titulo}</h1>
         <p className="mx-auto mt-2 max-w-xs text-subhead leading-snug text-white/65">{partnerBlock.texto}</p>
@@ -1268,7 +1268,7 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
 
   if (ordenPago) {
     return (
-      <div className={`min-h-dvh ${colabBrand ? 'pm-compact pb-6 pt-3' : `pb-16 ${appMode ? 'pt-[max(16px,env(safe-area-inset-top))]' : 'pt-20'}`}`}>
+      <div className={`min-h-dvh ${colabBrand ? 'pm-compact pb-6 pt-3' : `pb-16 ${appMode ? 'pt-[calc(env(safe-area-inset-top,0px)+14px)]' : 'pt-20'}`}`}>
         <div className={`container ${colabBrand ? 'max-w-xl' : 'max-w-lg'}`}>
           {appMode ? (
             <>
@@ -1365,11 +1365,11 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
   const companionChoices = (repurchase.data?.companions ?? []).filter((c) => !usedCompanion(c));
 
   return (
-    <div className={colabBrand ? 'pm-compact flex h-dvh flex-col overflow-hidden pt-[max(12px,env(safe-area-inset-top))]' : `min-h-dvh flex flex-col pb-40 ${appMode ? '' : 'pt-20'}`}>
-      <div className={colabBrand ? 'container flex min-h-0 max-w-xl flex-1 flex-col' : 'container flex-1 max-w-lg'}>
+    <div className={colabBrand ? 'pm-compact flex h-dvh flex-col overflow-hidden pt-[calc(env(safe-area-inset-top,0px)+14px)]' : `min-h-dvh flex flex-col pb-40 ${appMode ? '' : 'pt-20'}`}>
+      <div className={colabBrand ? 'container flex min-h-0 max-w-xl flex-1 flex-col px-5' : 'container flex-1 max-w-lg'}>
         {/* Encabezado + progreso. En la app: barra de navegación propia (‹ paso anterior, ✕ cerrar). */}
         {appMode ? (
-          <div className="sticky top-0 z-30 -mx-4 mb-4 px-4 pb-3 pt-[max(10px,env(safe-area-inset-top))] backdrop-blur-xl bg-[#0b0612]/70">
+          <div className="sticky top-0 z-30 -mx-4 mb-4 px-4 pb-3 pt-[calc(env(safe-area-inset-top,0px)+14px)] backdrop-blur-xl bg-[#0b0612]/70">
             <div className="flex h-11 items-center justify-between">
               <button type="button" onClick={paso > 0 ? volver : salir} aria-label={paso > 0 ? 'Paso anterior' : 'Cerrar'} className="lg-pill grid h-10 w-10 place-items-center rounded-full text-white interactive">
                 {paso > 0 ? <ChevronLeft className="h-5 w-5" /> : <X className="h-5 w-5" />}

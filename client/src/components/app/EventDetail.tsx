@@ -169,7 +169,7 @@ export function EventDetail({ event, open, from, onClose, onMore }: {
 
           <button
             type="button" onClick={onClose} aria-label="Cerrar"
-            className="lg-pill absolute right-4 top-[max(14px,env(safe-area-inset-top))] z-10 grid h-10 w-10 place-items-center rounded-full"
+            className="lg-pill absolute right-4 top-[calc(env(safe-area-inset-top,0px)+14px)] z-10 grid h-10 w-10 place-items-center rounded-full"
           >
             <X className="h-5 w-5" />
           </button>

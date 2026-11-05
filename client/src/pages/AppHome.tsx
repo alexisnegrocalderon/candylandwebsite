@@ -66,7 +66,7 @@ export default function AppHome() {
   return (
     <div className={`account-font account-tokens relative min-h-dvh bg-[#0b0612] text-white ${halloween ? 'pm-halloween' : ''}`}>
       <div className="account-backdrop" />
-      <div className="relative z-10 mx-auto max-w-lg px-4 pb-[max(28px,env(safe-area-inset-bottom))] pt-[max(14px,env(safe-area-inset-top))]">
+      <div className="relative z-10 mx-auto max-w-lg px-4 pb-[max(28px,env(safe-area-inset-bottom))] pt-[calc(env(safe-area-inset-top,0px)+14px)]">
         <header className="relative z-10 flex h-12 items-center justify-between">
           <span className="flex items-center gap-2">
             <img src="/candyland/logo-isotipo-transparent.png" alt="" className="h-9 w-9" />

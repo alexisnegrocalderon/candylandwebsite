@@ -124,7 +124,7 @@ export default function PlayroomDalmore({ inApp = false, previewToken }: { inApp
       {(
         <motion.main initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }}>
           {data.preview && (
-            <div className={`sticky top-0 z-50 bg-amber-400 px-4 pb-2 text-center text-xs font-bold tracking-[0.15em] text-black ${inApp ? 'pt-[max(8px,env(safe-area-inset-top))]' : 'pt-2'}`}>
+            <div className={`sticky top-0 z-50 bg-amber-400 px-4 pb-2 text-center text-xs font-bold tracking-[0.15em] text-black ${inApp ? 'pt-[calc(env(safe-area-inset-top,0px)+10px)]' : 'pt-2'}`}>
               VISTA PREVIA PRIVADA · EL PÚBLICO TODAVÍA VE "PRÓXIMAMENTE"
             </div>
           )}

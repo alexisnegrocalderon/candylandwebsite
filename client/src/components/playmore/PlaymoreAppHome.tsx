@@ -10,7 +10,7 @@ import PlayroomDalmore from '@/pages/PlayroomDalmore';
 export default function PlaymoreAppHome({ previewToken, isPreview = false }: { previewToken?: string; isPreview?: boolean }) {
   return (
     <div className="relative">
-      <header className={`pointer-events-none absolute inset-x-0 z-[60] flex items-center justify-between px-5 ${isPreview ? 'top-[calc(max(8px,env(safe-area-inset-top))+44px)]' : 'top-0 pt-[max(14px,env(safe-area-inset-top))]'}`}>
+      <header className={`pointer-events-none absolute inset-x-0 z-[60] flex items-center justify-between px-5 ${isPreview ? 'top-[calc(env(safe-area-inset-top,0px)+60px)]' : 'top-0 pt-[calc(env(safe-area-inset-top,0px)+14px)]'}`}>
         <img src="/candyland/logo-isotipo-transparent.png" alt="Mansion Playroom" className="h-9 w-9" />
         <span className="pointer-events-auto flex items-center gap-2">
           <Link href="/eventos" aria-label="Eventos" className="grid h-10 w-10 place-items-center rounded-full border border-[#d6b25e]/45 bg-black/45 text-[#e9d9b0] backdrop-blur"><CalendarDays className="h-[18px] w-[18px]" /></Link>
