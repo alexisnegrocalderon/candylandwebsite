@@ -3,7 +3,7 @@ import { useLocation } from 'wouter';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { ArrowRight, Ticket, X } from 'lucide-react';
 import {
-  ACCESO_GROUPS, buyHrefFor, communityNote, groupOf, type AccesoGroupKey, type PlaymoreTanda, type PlaymoreTicketView,
+  ACCESO_GROUPS, buyHrefFor, groupOf, type AccesoGroupKey, type PlaymoreTanda, type PlaymoreTicketView,
 } from '@shared/playmoreTanda';
 import { Eyebrow, clp, reveal, useCountdown } from './sections';
 import { WhoGuide } from './WhoGuide';
@@ -116,7 +116,6 @@ function TearTicket({ t, eventName, holder, index, dimmed, canBuy, onTear }: {
         <div className="min-w-0 flex-1 p-6">
           <p className="text-[10px] font-semibold tracking-[0.4em] text-[var(--pm-orchid)]">{eventName}</p>
           <p className="mt-2 text-lg font-bold leading-tight">{t.name}</p>
-          {communityNote(t.accesoSlug) && <p className="mt-0.5 text-[10px] font-semibold tracking-[0.12em] text-[var(--pm-orchid)]">{communityNote(t.accesoSlug)}</p>}
           <p className="mt-3 flex items-baseline gap-2">
             <span className={`text-3xl font-extrabold tabular-nums ${soldout ? 'text-white/40 line-through' : 'playmore-gold'}`}>{t.price > 0 ? clp(t.price) : 'Gratis'}</span>
             {t.originalPrice != null && t.originalPrice > t.price && !soldout && <span className="text-sm text-white/40 line-through tabular-nums">{clp(t.originalPrice)}</span>}

@@ -28,6 +28,14 @@ describe('whoAvailable', () => {
   });
 });
 
+describe('avisos al elegir', () => {
+  it('no se avisa del código, pero sí que Dos hombres es para parejas y no para amigos', () => {
+    expect(whoByKey('soltero')?.note).toBeNull();
+    expect(whoByKey('dos-hombres')?.note).toMatch(/PAREJAS/);
+    expect(whoByKey('dos-hombres')?.note).not.toMatch(/C[ÓO]DIGO/);
+  });
+});
+
 describe('código de comunidad', () => {
   it('lo piden hombre solo y dos hombres, nadie más', () => {
     expect(whoByKey('soltero')?.needsCode).toBe(true);

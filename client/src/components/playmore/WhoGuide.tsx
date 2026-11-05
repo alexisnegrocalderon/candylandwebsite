@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { whoAvailable, whoCounts, whoForCount, countHasCodeOption, type WhoKey, type WhoOption } from '@shared/playmoreWho';
+import { whoAvailable, whoCounts, whoForCount, type WhoKey, type WhoOption } from '@shared/playmoreWho';
 
 /* «¿Con quién vienes?» en dos pasos, con la cara de PLAYMORE: primero cuántos son (1, 2, 3 o 4) y después quiénes, que decide
  * el acceso y avisa —antes de pagar— quién necesita código de comunidad. Lo usan la landing, el selector de tickets y la compra:
@@ -39,7 +39,6 @@ export function WhoGuide<T extends GuideType>({ types, value, onPick, className 
   // Si la opción cambia desde afuera (por ejemplo el acceso destacado al abrir el selector), el paso 1 la sigue.
   useEffect(() => { const p = avail.find((o) => o.key === value)?.people; if (p) setCount(p); }, [value, avail]);
   const options = whoForCount(avail, count);
-  const warn = countHasCodeOption(avail, count);
   if (avail.length === 0) return null;
 
   return (
@@ -95,11 +94,6 @@ export function WhoGuide<T extends GuideType>({ types, value, onPick, className 
               </button>
             );
           })}
-          {warn && (
-            <p className="rounded-2xl border border-[#e477ea]/40 bg-[#e477ea]/[0.06] px-3.5 py-2.5 text-[9.5px] font-semibold leading-relaxed tracking-[0.1em] text-[#ffb3e2]">
-              {count === 1 ? 'SI VIENES SOLO (HOMBRE)' : 'SI ELIGES DOS HOMBRES'}, TE PEDIMOS TU CÓDIGO DE COMUNIDAD. ¿NO LO TIENES? TE LLEVAMOS A WHATSAPP PARA VALIDARTE.
-            </p>
-          )}
         </div>
       )}
     </div>

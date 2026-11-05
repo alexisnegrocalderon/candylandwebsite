@@ -92,3 +92,19 @@ export function solteroGateProblem(d: {
   if (d.approvedEmail && d.approvedEmail.trim().toLowerCase() === d.buyerEmail.trim().toLowerCase()) return null;
   return 'Este acceso necesita tu código de comunidad o estar aprobado. Pide tu aprobación desde tu app, en «Mi cuenta».';
 }
+
+/** En una colaboración (PLAYMORE) el Instagram NO se pide a nadie, salvo a quien compra un acceso de hombres (Vengo solo, Dúo de dos
+ * hombres): ahí es obligatorio, uno solo, para poder verificar que cumple con el perfil. Quien ya está aprobado como soltero
+ * (su Instagram quedó en la aprobación) no lo repite, salvo en el Dúo de dos hombres, que siempre pasa por código. null = está todo. */
+export function colabMenInstagramProblem(d: {
+  lines: Line[];
+  duoComposicion?: string | null;
+  instagram?: string | null;
+  /** El correo de la compra es el de una cuenta aprobada como soltero. */
+  approved?: boolean;
+}): string | null {
+  if (!needsSolteroApproval(d.lines, d.duoComposicion)) return null;
+  if (d.approved && !hasDuoDosHombres(d.lines, d.duoComposicion)) return null;
+  return instagramProblem(d.instagram);
+}
+

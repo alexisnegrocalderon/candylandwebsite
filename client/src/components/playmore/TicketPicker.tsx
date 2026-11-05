@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'wouter';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ArrowRight, X } from 'lucide-react';
-import { buyHrefFor, communityNote, groupOf, type PlaymoreTanda, type PlaymoreTicketView } from '@shared/playmoreTanda';
+import { buyHrefFor, groupOf, type PlaymoreTanda, type PlaymoreTicketView } from '@shared/playmoreTanda';
 import { clp } from './sections';
 import { WhoGuide } from './WhoGuide';
 import { whoByKey, whoKeyFor, type WhoKey } from '@shared/playmoreWho';
