@@ -51,7 +51,7 @@ export function WhoGuide<T extends GuideType>({ types, value, onPick, className 
           const sample = avail.find((o) => o.people === n)!;
           return (
             <button key={n} type="button" role="radio" aria-checked={on} onClick={() => setCount(n)}
-              className={`flex flex-col items-center rounded-2xl border px-1 py-3 transition active:scale-[0.98] ${on ? 'border-[#d6b25e] bg-[#d6b25e]/10 shadow-[0_0_30px_-10px_rgba(247,231,168,0.6)]' : 'border-[#d6b25e]/35 bg-white/[0.03] hover:border-[#d6b25e]/70'}`}>
+              className={`flex flex-col items-center rounded-2xl border px-1 py-3 transition active:scale-[0.98] ${on ? 'border-[#d6b25e] bg-[#d6b25e]/10' : 'border-[#d6b25e]/35 bg-white/[0.03] hover:border-[#d6b25e]/70'}`}>
               <Figures s={sample.figures.length === n ? sample.figures : 'f'.repeat(n)} h={n === 4 ? 22 : 28} color={on ? '#f7e7a8' : GOLD} />
               <span className={`mt-1.5 text-lg font-extrabold leading-none ${on ? 'playmore-gold' : ''}`}>{n}</span>
               <span className="mt-0.5 text-[9px] font-semibold tracking-[0.14em] text-[var(--pm-sand)]/65">{n === 1 ? 'SOLO/A' : n === 2 ? 'DÚO' : n === 3 ? 'TRÍO' : 'GRUPO'}</span>
@@ -71,7 +71,7 @@ export function WhoGuide<T extends GuideType>({ types, value, onPick, className 
             return (
               <button key={o.key} type="button" role="radio" aria-checked={on} disabled={sold} onClick={() => onPick(o)}
                 style={{ ['--stub' as string]: '104px' }}
-                className={`playmore-ticket-card flex w-full items-stretch rounded-2xl text-left transition active:scale-[0.99] ${on ? 'ring-2 ring-[#f7e7a8] shadow-[0_0_30px_-8px_rgba(247,231,168,0.55)]' : ''} ${sold ? 'opacity-55' : ''}`}>
+                className={`playmore-ticket-card flex w-full items-stretch rounded-2xl text-left transition active:scale-[0.99] ${on ? 'ring-2 ring-inset ring-[#f7e7a8]' : ''} ${sold ? 'opacity-55' : ''}`}>
                 <span className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3">
                   <Figures s={o.figures} h={o.people === 4 ? 20 : 26} color={on ? '#f7e7a8' : GOLD} />
                   <span className="min-w-0">

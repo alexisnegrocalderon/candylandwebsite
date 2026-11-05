@@ -1405,7 +1405,7 @@ function CheckoutInner({ partnerSlug, appMode = false }: { partnerSlug?: string;
 
         {/* La compra de una colab es una ventana fija: el encabezado de arriba y los botones de abajo no se mueven;
             solo el contenido del medio podría desplazarse si el teléfono es muy chico. */}
-        <div className={colabBrand ? 'min-h-0 flex-1 overflow-y-auto overscroll-contain pb-28' : undefined}>
+        <div className={colabBrand ? '-mx-1.5 min-h-0 flex-1 overflow-y-auto overscroll-contain px-1.5 pb-28' : undefined}>
 
         {!isPartner && <ColabBanner eventSlug={eventSlug} preview={previewToken} />}
 
