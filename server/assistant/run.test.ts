@@ -59,6 +59,8 @@ describe("asistente: el ciclo con herramientas", () => {
     // El contexto (fecha, evento y pantalla) va en el mensaje del usuario, no en el sistema.
     expect(calls[0].messages[0].content).toMatch(/Aniversario.*id 4/);
     expect(calls[0].system[0].text).not.toMatch(/2026/);
+    // Sabe cuál es la cuenta del dueño: «mi correo» no se adivina.
+    expect(calls[0].system[0].text).toMatch(/cuenta del dueño en la app es contacto@mansionplayroom\.cl/);
     // El resultado vuelve como tool_result y la segunda llamada repite todo lo anterior sin cambios.
     expect(calls[1].messages).toHaveLength(3);
     expect(calls[1].messages[1]).toEqual(calls[0].messages.length === 1 ? { role: "assistant", content: [{ type: "text", text: "Reviso." }, toolUse("t1", "listar_eventos", { limite: 5 })] } : null);
