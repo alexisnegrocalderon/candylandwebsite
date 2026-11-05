@@ -7,7 +7,7 @@
  *  - Sigue al evento destacado desde que sale a la venta hasta el día de la
  *    fiesta, sea cual sea el evento y la tanda en que esté (no hay nada que
  *    activar por evento).
- *  - Cada día manda hasta `SALES_DRIP_DAILY_TARGET` correos a quienes todavía
+ *  - Cada día manda hasta `dailyDripCap` correos (460 en la 1ª tanda, 100 desde la 2ª) a quienes todavía
  *    no compraron. A cada persona le llegan como MÁXIMO `MAX_EVENT_MAILS_PER_PERSON`
  *    (3) mails de este evento, contando el masivo del lanzamiento como el
  *    primero, y siempre separados por `salesDripIntervalDays` días (se mide
@@ -36,7 +36,15 @@ import { normalizeTandaSchedule, nextPhase, computePhasePrice } from '../shared/
 import { MAX_EVENT_MAILS_PER_PERSON, pickDueForRotation, remainingMailsNeeded } from '../shared/mailRotation';
 
 /** Cuántos correos de aviso de venta (drip + avisos por tanda) salen como máximo por día. */
-export const SALES_DRIP_DAILY_TARGET = Number(process.env.SALES_DRIP_DAILY_CAP) || 300;
+export const SALES_DRIP_CAP_FIRST_TANDA = Number(process.env.SALES_DRIP_CAP_FIRST_TANDA) || 460;
+export const SALES_DRIP_CAP_LATER_TANDAS = Number(process.env.SALES_DRIP_CAP_LATER_TANDAS) || 100;
+
+/** Tope diario según la tanda vigente: en la 1ª (precio de lanzamiento) el aviso va más rápido para repartir el 2º
+ * mail entre todos antes de que suba el precio; desde la 2ª sigue más despacio, turnando a quienes no han comprado.
+ * (`SALES_DRIP_DAILY_CAP` ya no se usa.) */
+export function dailyDripCap(tandaPhaseIndex: number): number {
+  return tandaPhaseIndex <= 0 ? SALES_DRIP_CAP_FIRST_TANDA : SALES_DRIP_CAP_LATER_TANDAS;
+}
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -173,7 +181,7 @@ export async function runSalesDripDaily(now: Date = new Date()): Promise<SalesDr
   const offer = await resolveCurrentOffer(fresh.id);
   if (!offer) return { ran: false, reason: 'no-price' };
 
-  const budget = SALES_DRIP_DAILY_TARGET - (await countTandaPromoEmailsSentToday(now));
+  const budget = dailyDripCap(fresh.tandaPhaseIndex) - (await countTandaPromoEmailsSentToday(now));
   if (budget <= 0) return { ran: false, reason: 'daily-cap-reached' };
 
   const { due } = await selectDueCustomers(fresh.id, settings.intervalDays, now);
@@ -216,7 +224,7 @@ export async function runSalesDripDaily(now: Date = new Date()): Promise<SalesDr
 /** Estado en vivo para el panel de admin -- sin mandar nada. */
 export async function getSalesDripStatus(now: Date = new Date()) {
   const settings = await getSalesDripSettings();
-  const base = { enabled: settings.enabled, intervalDays: settings.intervalDays, dailyTarget: SALES_DRIP_DAILY_TARGET, maxPerPerson: MAX_EVENT_MAILS_PER_PERSON, mailsStillNeeded: 0 };
+  const base = { enabled: settings.enabled, intervalDays: settings.intervalDays, dailyTarget: SALES_DRIP_CAP_FIRST_TANDA, maxPerPerson: MAX_EVENT_MAILS_PER_PERSON, mailsStillNeeded: 0 };
   const event = await getFeaturedEvent();
   if (!event || new Date(event.eventDate).getTime() <= now.getTime()) {
     return { ...base, eventTitle: null, daysLeft: null, priceFrom: null, prices: [] as Tanda2Offer['prices'], remaining: null, audienceSize: 0, dueToday: 0, sentToday: 0 };
@@ -228,6 +236,7 @@ export async function getSalesDripStatus(now: Date = new Date()) {
   ]);
   return {
     ...base,
+    dailyTarget: dailyDripCap(event.tandaPhaseIndex),
     eventTitle: event.title,
     daysLeft: daysUntilEvent(event.eventDate, now),
     priceFrom: offer?.priceFrom ?? null,
