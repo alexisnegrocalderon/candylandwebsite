@@ -1050,7 +1050,7 @@ async function runGift(params: {
   const eventEnd = (event as any).eventEnd ? new Date((event as any).eventEnd) : new Date(new Date(event.eventDate).getTime() + 12 * 3_600_000);
   const validUntil = params.validDays ? new Date(Date.now() + params.validDays * 86_400_000) : params.anyEvent ? null : eventEnd;
   const resumen = params.items.map((it) => `${it.quantity > 1 ? `${it.quantity} × ` : ''}${byId.get(it.ticketTypeId).name}`).join(', ');
-  const results: { email: string; ok: boolean; error?: string }[] = [];
+  const results: { email: string; ok: boolean; error?: string; codes?: string[] }[] = [];
   for (const raw of params.emails) {
     const email = raw.trim().toLowerCase();
     try {
@@ -1061,12 +1061,14 @@ async function runGift(params: {
         const r = await db.createManualOrder({ eventSlug: event.slug, buyerName: name, buyerEmail: email, items: toOrder, kind: 'invitation', attendeeData: giftMessageData(message) });
         await confirmFreeOrder(r.orderNumber);
       }
+      const codes: string[] = [];
       for (const it of passItems) {
         for (let i = 0; i < it.quantity; i++) {
-          await issueGiftPass({
+          const pass = await issueGiftPass({
             email, name, eventId: params.anyEvent ? null : event.id, accesoSlug: params.anyAccess ? ANY_ACCESS_SLUG : (byId.get(it.ticketTypeId).accesoSlug ?? ANY_ACCESS_SLUG),
             validUntil, reason: params.reason ?? null, actor: params.actor, ip: params.ip ?? null, message,
           });
+          codes.push(pass.code);
         }
       }
       for (const c of comps) await db.createStaffComp({ eventSlug: event.slug, ticketTypeId: c.ticketTypeId, quantity: c.quantity, staffName: name, buyerEmail: email, giftMessage: message });
@@ -1078,7 +1080,7 @@ async function runGift(params: {
         }).catch((err) => console.error('[regalos] correo del trago:', err));
       }
       void customerPush.pushToEmail(email, { title: '🎁 ¡Te regalaron algo!', body: message ? `${resumen}. «${message.slice(0, 60)}${message.length > 60 ? '…' : ''}»` : `${resumen}. Míralo en tu app, en ${passItems.length || comps.length ? 'Cupones' : '«Mis entradas»'}.`, url: '/cuenta' });
-      results.push({ email, ok: true });
+      results.push({ email, ok: true, ...(codes.length ? { codes } : {}) });
     } catch (e) {
       results.push({ email, ok: false, error: e instanceof Error ? e.message : 'No se pudo regalar' });
     }
@@ -1133,9 +1135,12 @@ export const appRouter = router({
             mode: a.modo, anyAccess: a.modo === 'pase' && a.cualquier_evento ? true : undefined, anyEvent: a.modo === 'pase' && a.cualquier_evento ? true : undefined,
             message: a.mensaje ?? undefined, reason: 'Desde el Asistente IA', actor, ip: clientIp(ctx),
           });
-          const ok = r.results.filter((x) => x.ok).length;
+          const good = r.results.filter((x) => x.ok);
           const bad = r.results.filter((x) => !x.ok);
-          resultado = `${r.resumen}: le llegó a ${ok} ${ok === 1 ? 'persona' : 'personas'}${bad.length ? `; falló para ${bad.map((b) => b.email).join(', ')}` : ''}.`;
+          // A qué cuenta quedó, con el código del pase: así se ve de inmediato si es el correo con el que entra a la app.
+          const withApp = await appDevices.appUserEmails().catch(() => new Set<string>());
+          const detalle = good.map((g) => `${g.email}${g.codes?.length ? ` (código ${g.codes.join(', ')})` : ''}${withApp.has(g.email.toLowerCase()) ? '' : ' · ojo: con ese correo todavía no se abrió la app, lo verá en Cupones al entrar con él'}`).join('; ');
+          resultado = `${r.resumen}: quedó en ${good.length} ${good.length === 1 ? 'cuenta' : 'cuentas'}: ${detalle || '—'}${bad.length ? `. Falló para ${bad.map((b) => `${b.email} (${b.error ?? 'error'})`).join(', ')}` : ''}.`;
         } else if (a.tipo === 'cupon') {
           const g = await members.grantManualCoupon(a.correo, { type: a.descuento, value: a.valor, days: a.dias, title: a.titulo ?? undefined, eventId: a.evento_id, notify: true });
           resultado = `Cupón ${g.code} regalado a ${a.correo}${g.notified ? ' (le llegó el aviso)' : ''}.`;

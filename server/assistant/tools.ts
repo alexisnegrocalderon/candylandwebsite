@@ -8,6 +8,7 @@ import { getEventFinanceReport, getEventLive } from "../finance";
 import { getCompanyYear, getPayables } from "../financeCompany";
 import { getMemberHistory } from "../memberHistory";
 import { consumoDelEvento, estadoBarra, personasDelEvento, proyeccion } from "../insumos";
+import { appUserEmails } from "../appDevices";
 import { listStaff } from "../staff";
 import { getQuotas } from "../staffGiftQuota";
 import { listGiftPasses } from "../accessCredit";
@@ -123,7 +124,7 @@ export const ASSISTANT_TOOLS: AssistantTool[] = [
   }),
   tool({
     name: "clientes",
-    description: "Clientes de la productora: buscar por nombre, correo, teléfono o RUT, o ver un ranking (los que más gastan, los que más compran, los más recientes). Trae compras, gasto total, última visita y nivel (vip, recurrente, nuevo, inactivo, sin_compras).",
+    description: "Clientes de la productora: buscar por nombre, correo, teléfono o RUT, o ver un ranking (los que más gastan, los que más compran, los más recientes). Trae compras, gasto total, última visita, nivel (vip, recurrente, nuevo, inactivo, sin_compras) y si esa cuenta ya abrió la app (tiene_la_app).",
     schema: z.object({
       buscar: z.string().max(100).optional(),
       orden: z.enum(["gasto", "compras", "reciente"]).optional().describe("por defecto gasto"),
@@ -131,13 +132,13 @@ export const ASSISTANT_TOOLS: AssistantTool[] = [
       limite: z.number().int().min(1).max(25).optional(),
     }),
     run: async ({ buscar, orden, nivel, limite }, ctx) => {
-      const rows = (await db.listCustomers(buscar ? { search: buscar } : {})) as any[];
+      const [rows, conApp] = await Promise.all([db.listCustomers(buscar ? { search: buscar } : {}) as Promise<any[]>, appUserEmails().catch(() => new Set<string>())]);
       const withLevel = rows.map((c) => ({ c, nivel: computeCustomerLevel({ totalOrders: n(c.totalOrders), totalSpent: n(c.totalSpent), lastActivityAt: c.lastSeenAt, levelOverride: c.levelOverride, now: ctx.now } as any) }));
       const filtered = nivel ? withLevel.filter((x) => x.nivel === nivel) : withLevel;
       const sorted = [...filtered].sort((a, b) => orden === "compras" ? n(b.c.totalOrders) - n(a.c.totalOrders) : orden === "reciente" ? new Date(b.c.lastSeenAt ?? 0).getTime() - new Date(a.c.lastSeenAt ?? 0).getTime() : n(b.c.totalSpent) - n(a.c.totalSpent));
       return {
         total_encontrados: filtered.length,
-        clientes: sorted.slice(0, limite ?? 10).map(({ c, nivel: lv }) => ({ nombre: c.fullName ?? null, correo: c.email, telefono: c.phone ?? null, compras: n(c.totalOrders), gasto_total: n(c.totalSpent), ultima_visita: chileDate(c.lastSeenAt), nivel: lv, etiquetas: c.tags ?? [], ciudad: c.city ?? null })),
+        clientes: sorted.slice(0, limite ?? 10).map(({ c, nivel: lv }) => ({ nombre: c.fullName ?? null, correo: c.email, telefono: c.phone ?? null, compras: n(c.totalOrders), gasto_total: n(c.totalSpent), ultima_visita: chileDate(c.lastSeenAt), nivel: lv, tiene_la_app: conApp.has(String(c.email).toLowerCase()), etiquetas: c.tags ?? [], ciudad: c.city ?? null })),
       };
     },
   }),
@@ -146,12 +147,12 @@ export const ASSISTANT_TOOLS: AssistantTool[] = [
     description: "La ficha de UN cliente por su correo: datos, compras, gasto, nivel y su historial (entradas, consumos, cupones, regalos).",
     schema: z.object({ correo: z.string().email() }),
     run: async ({ correo }, ctx) => {
-      const rows = (await db.listCustomers({ search: correo })) as any[];
+      const [rows, conApp] = await Promise.all([db.listCustomers({ search: correo }) as Promise<any[]>, appUserEmails().catch(() => new Set<string>())]);
       const c = rows.find((r) => String(r.email).toLowerCase() === correo.toLowerCase());
       if (!c) return { aviso: `No hay un cliente con el correo ${correo}.` };
       const historial = await getMemberHistory(c.email, { limit: 25 }).catch(() => ({ items: [], next: null }));
       return {
-        nombre: c.fullName ?? null, correo: c.email, telefono: c.phone ?? null, instagram: c.instagram ?? null, compras: n(c.totalOrders), gasto_total: n(c.totalSpent),
+        nombre: c.fullName ?? null, correo: c.email, tiene_la_app: conApp.has(String(c.email).toLowerCase()), telefono: c.phone ?? null, instagram: c.instagram ?? null, compras: n(c.totalOrders), gasto_total: n(c.totalSpent),
         nivel: computeCustomerLevel({ totalOrders: n(c.totalOrders), totalSpent: n(c.totalSpent), lastActivityAt: c.lastSeenAt, levelOverride: c.levelOverride, now: ctx.now } as any),
         cliente_desde: chileDate(c.firstSeenAt), ultima_visita: chileDate(c.lastSeenAt), cumpleanos: c.birthDate ?? null, etiquetas: c.tags ?? [], notas: c.notes ?? null,
         historial: historial.items,
