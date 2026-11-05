@@ -2,7 +2,7 @@ import { z } from "zod";
 import { nanoid } from "nanoid";
 import { formatChileDate, formatChileTime } from "../shared/chileDate";
 import { invokeLLM, extractContent } from "./_core/llm";
-import { sendEmail, sendMarketingEmailBatch, resendTagValue, EMAIL_BATCH_MAX, buildMailingBlastEmail, type MailingEventInfo, type MailingEventSections, type MailingPriceRow } from "./email";
+import { sendMarketingEmailBatch, resendTagValue, EMAIL_BATCH_MAX, buildMailingBlastEmail, type MailingEventInfo, type MailingEventSections, type MailingPriceRow } from "./email";
 import { customerWhere, type CustomerPageFilters } from "./customerFilters";
 import { appUserEmails } from "./appDevices";
 import { syncLeadsAsMailingAudience } from "./leadsMailing";
@@ -138,11 +138,8 @@ export type MailingSendResult = {
   reason?: string;
 };
 
-const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-
-/** Resend permite 2 envíos por segundo por API (también en Pro): 550 ms entre
- * correos deja margen. Se puede cambiar con la variable MAILING_THROTTLE_MS. */
-const THROTTLE_MS = Number(process.env.MAILING_THROTTLE_MS) || 550;
+/** Tiempo máximo de un envío inmediato antes de cortar (la función serverless permite 300 s). */
+const SEND_BUDGET_MS = Number(process.env.MAILING_SEND_BUDGET_MS) || 240_000;
 
 export async function sendMailingBatch(
   customerIds: number[],
@@ -173,57 +170,68 @@ export async function sendMailingBatch(
   // admin ve "la tanda de hoy" como una sola entrada, no una por email.
   const batchId = nanoid();
 
-  for (const customer of recipients) {
-    const html = buildMailingBlastEmail({
-      buyerName: customer.fullName ?? "",
-      preheader: content.preheader,
-      headline: content.headline,
-      paragraphs: content.paragraphs,
-      ctaText: content.ctaText,
-      ctaUrl,
-      highlightLabel: content.highlightLabel,
-      highlightValue: content.highlightValue,
-      eventInfo,
-      eventSections,
-      priceList: extras?.priceList,
-      remaining: extras?.remaining,
-    });
-    const sent = await sendEmail({ to: customer.email, subject: content.subject, html, marketing: true });
-    results.push({ customerId: customer.id, email: customer.email, success: sent.success, reason: sent.reason });
+  // Envío en lotes de hasta 100 por llamada a Resend (igual que la cola de campañas), no un correo cada 550 ms:
+  // con el envío uno a uno una corrida de 300 s apenas llegaba a ~500 correos, aunque el tope diario fuera mayor.
+  // Si se acaba el tiempo, lo que no salió NO queda en el log y sigue pendiente para la próxima corrida.
+  const deadline = Date.now() + SEND_BUDGET_MS;
+  for (let i = 0; i < recipients.length; i += EMAIL_BATCH_MAX) {
+    if (Date.now() > deadline) {
+      console.warn(`[Mailing] Se acabó el tiempo del envío: salieron ${i} de ${recipients.length}; el resto queda para la próxima corrida.`);
+      break;
+    }
+    const chunk = recipients.slice(i, i + EMAIL_BATCH_MAX);
+    const sentBatch = await sendMarketingEmailBatch(chunk.map((customer) => ({
+      to: customer.email,
+      subject: content.subject,
+      html: buildMailingBlastEmail({
+        buyerName: customer.fullName ?? "",
+        preheader: content.preheader,
+        headline: content.headline,
+        paragraphs: content.paragraphs,
+        ctaText: content.ctaText,
+        ctaUrl,
+        highlightLabel: content.highlightLabel,
+        highlightValue: content.highlightValue,
+        eventInfo,
+        eventSections,
+        priceList: extras?.priceList,
+        remaining: extras?.remaining,
+      }),
+      marketing: true,
+    })));
 
-    // Tagueo automático (pedido explícito del usuario): con el límite de
-    // ~100 emails/día del plan free de Resend, hace falta saber quién ya
-    // recibió esta campaña para retomar al día siguiente excluyendo la tag.
-    // No aborta el lote si el tag falla -- el email ya se mandó igual.
-    if (sent.success && cleanCampaignTag) {
+    for (let j = 0; j < chunk.length; j++) {
+      const customer = chunk[j];
+      const sent = sentBatch[j];
+      results.push({ customerId: customer.id, email: customer.email, success: sent.success, reason: sent.reason });
+
+      // Tagueo automático (pedido explícito del usuario): hace falta saber quién ya recibió esta campaña para
+      // retomar excluyendo la tag. No aborta el lote si el tag falla -- el email ya se mandó igual.
+      if (sent.success && cleanCampaignTag) {
+        try {
+          await db.addCustomerTag(customer.id, cleanCampaignTag);
+        } catch (err) {
+          console.error('[Mailing] No se pudo taguear al cliente tras el envío:', err);
+        }
+      }
+
+      // Log puramente informativo para Historial de Mailing (ver mailingSendLog) -- y la base de la espera y del
+      // tope de 3 mails por persona del aviso diario. Si falla, el correo ya se mandó igual, no aborta el lote.
       try {
-        await db.addCustomerTag(customer.id, cleanCampaignTag);
+        await db.logMailingSend({
+          batchId,
+          source,
+          eventId: extras?.eventId ?? null,
+          label: content.subject,
+          customerId: customer.id,
+          email: customer.email,
+          success: sent.success,
+          reason: sent.reason,
+        });
       } catch (err) {
-        console.error('[Mailing] No se pudo taguear al cliente tras el envío:', err);
+        console.error('[Mailing] No se pudo loguear el envío:', err);
       }
     }
-
-    // Log puramente informativo para Historial de Mailing (ver
-    // mailingSendLog) -- si falla, el correo ya se mandó igual, no aborta
-    // el lote. A propósito NO es mailingRecipients: esa tabla cuenta para
-    // el presupuesto diario compartido que protege los recordatorios de
-    // carrito abandonado (ver server/foundersPromo.ts).
-    try {
-      await db.logMailingSend({
-        batchId,
-        source,
-        eventId: extras?.eventId ?? null,
-        label: content.subject,
-        customerId: customer.id,
-        email: customer.email,
-        success: sent.success,
-        reason: sent.reason,
-      });
-    } catch (err) {
-      console.error('[Mailing] No se pudo loguear el envío:', err);
-    }
-
-    await sleep(THROTTLE_MS);
   }
 
   return { batchId, results };
