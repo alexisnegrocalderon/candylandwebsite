@@ -248,11 +248,14 @@ async function scheduleLaunchMailing(cp: Coproduction): Promise<void> {
   if (failures >= wanted) await db.update(coproductions).set({ landing: { ...landing, launchedAt: '' } }).where(eq(coproductions.id, cp.id));
 }
 
-/** Las 24 h siguientes a un lanzamiento el mailing puede salir completo (ver processMailingCronBatch). */
+/** Las 24 h siguientes a un lanzamiento con el mailing del sistema prendido, el mailing puede salir completo (ver
+ * processMailingCronBatch). Si ese mailing está apagado (el dueño manda su propia campaña), no hay tope ampliado:
+ * rige el tope diario normal, así el dueño decide cuánto sale por día. */
 export async function launchMailingBoostActive(now: number = Date.now()): Promise<boolean> {
   for (const cp of await listCoproductions()) {
-    const t = Date.parse(normalizeLanding(cp.landing).launchedAt);
-    if (Number.isFinite(t) && now >= t && now - t < 24 * 3600_000) return true;
+    const landing = normalizeLanding(cp.landing);
+    const t = Date.parse(landing.launchedAt);
+    if (landing.launchMailing && Number.isFinite(t) && now >= t && now - t < 24 * 3600_000) return true;
   }
   return false;
 }

@@ -9272,20 +9272,24 @@ export async function getCampaignEmailStats(campaignTag: string) {
 }
 
 /** ¿Hay una campaña programada o saliendo hoy (hora de Chile)? El aviso diario de ventas (salesDrip) se pausa ese día
- * para no escribirle dos veces a la misma gente. */
-export async function hasMailingCampaignToday(now: Date = new Date()): Promise<boolean> {
+ * para no escribirle dos veces a la misma gente. Con `eventId`, además cuenta una campaña de ESE evento que todavía se
+ * está enviando de a poco (ej. el masivo del lanzamiento repartido en 2 días): sus pendientes aún no figuran como
+ * enviados, y sin esta pausa el aviso diario les mandaría el mismo mail antes de que les toque en la cola. */
+export async function hasMailingCampaignToday(now: Date = new Date(), eventId?: number | null): Promise<boolean> {
   const db = await getDb();
   if (!db) return false;
   try {
     const dayStart = startOfChileDay(now);
     const dayEnd = new Date(dayStart.getTime() + 86_400_000);
-    const [row] = await db.select({ id: mailingCampaigns.id }).from(mailingCampaigns).where(and(
+    const today = and(
       inArray(mailingCampaigns.status, ['scheduled', 'sending', 'done']),
       or(
         and(gte(mailingCampaigns.scheduledAt, dayStart), lt(mailingCampaigns.scheduledAt, dayEnd)),
         and(isNull(mailingCampaigns.scheduledAt), gte(mailingCampaigns.createdAt, dayStart)),
       ),
-    )).limit(1);
+    );
+    const draining = eventId ? and(eq(mailingCampaigns.status, 'sending'), eq(mailingCampaigns.eventId, eventId)) : undefined;
+    const [row] = await db.select({ id: mailingCampaigns.id }).from(mailingCampaigns).where(draining ? or(today, draining) : today).limit(1);
     return !!row;
   } catch (err) {
     console.warn('[Database] No se pudo revisar si hay campaña hoy:', err);

@@ -78,7 +78,7 @@ describe("runSalesDripDaily", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getSettingsMock.mockResolvedValue({ enabled: true, intervalDays: 4 });
-    getFeaturedEventMock.mockResolvedValue(event(20) as any);
+    getFeaturedEventMock.mockResolvedValue(event(20, { tandaPhaseIndex: 1 }) as any);
     offerMock.mockResolvedValue(offer as any);
     countSentTodayMock.mockResolvedValue(0);
     hasApprovedMock.mockResolvedValue(false);
@@ -103,7 +103,7 @@ describe("runSalesDripDaily", () => {
   });
 
   it("respeta el tope diario compartido", async () => {
-    countSentTodayMock.mockResolvedValue(dailyDripCap(0));
+    countSentTodayMock.mockResolvedValue(dailyDripCap(1));
     expect(await runSalesDripDaily(NOW)).toEqual({ ran: false, reason: 'daily-cap-reached' });
   });
 
@@ -169,35 +169,54 @@ describe("runSalesDripDaily", () => {
   });
 
   it("salta a quien compró mientras tanto y completa el cupo con los siguientes", async () => {
-    countSentTodayMock.mockResolvedValue(dailyDripCap(0) - 1);
+    countSentTodayMock.mockResolvedValue(dailyDripCap(1) - 1);
     hasApprovedMock.mockImplementation(async (email: string) => email === 'a@t.cl');
     const r = await runSalesDripDaily(NOW);
     expect(sendMock.mock.calls[0][0]).toEqual([2]);
     expect(r).toMatchObject({ ran: true, skipped: 1 });
   });
 
-  it("el tope diario es 460 en la 1ª tanda y 100 desde la 2ª", async () => {
-    expect(SALES_DRIP_CAP_FIRST_TANDA).toBe(460);
-    expect(SALES_DRIP_CAP_LATER_TANDAS).toBe(100);
-    expect(dailyDripCap(0)).toBe(460);
-    expect(dailyDripCap(1)).toBe(100);
-    expect(dailyDripCap(4)).toBe(100);
+  it("el tope diario es 450 en la 1ª tanda y 200 desde la 2ª", async () => {
+    expect(SALES_DRIP_CAP_FIRST_TANDA).toBe(450);
+    expect(SALES_DRIP_CAP_LATER_TANDAS).toBe(200);
+    expect(dailyDripCap(0)).toBe(450);
+    expect(dailyDripCap(1)).toBe(200);
+    expect(dailyDripCap(4)).toBe(200);
   });
 
-  it("desde la 2ª tanda manda solo hasta 100 por día, contando lo que ya salió hoy", async () => {
-    const many = Array.from({ length: 300 }, (_, i) => ({ id: i + 1, email: `c${i + 1}@t.cl` }));
+  it("desde la 2ª tanda manda solo hasta 200 por día, contando lo que ya salió hoy", async () => {
+    const many = Array.from({ length: 500 }, (_, i) => ({ id: i + 1, email: `c${i + 1}@t.cl` }));
     listCustomersMock.mockResolvedValue(many as any);
     getFeaturedEventMock.mockResolvedValue(event(20, { tandaPhaseIndex: 1 }) as any);
     countSentTodayMock.mockResolvedValue(30);
     await runSalesDripDaily(NOW);
-    expect(sendMock.mock.calls[0][0]).toHaveLength(70);
+    expect(sendMock.mock.calls[0][0]).toHaveLength(170);
   });
 
-  it("en la 1ª tanda manda hasta 460 por día", async () => {
+  it("en la 1ª tanda solo escribe a quien nunca recibió un mail: nadie recibe un 2º antes de la 2ª tanda", async () => {
+    getFeaturedEventMock.mockResolvedValue(event(20, { tandaPhaseIndex: 0 }) as any);
+    listCustomersMock.mockResolvedValue([{ id: 1, email: 'a@t.cl' }, { id: 2, email: 'b@t.cl' }, { id: 3, email: 'c@t.cl' }] as any);
+    lastDripMock.mockResolvedValue(new Map([
+      [1, { count: 1, last: new Date(NOW.getTime() - 9 * DAY) }], // ya recibió el masivo
+      [2, { count: 1, last: new Date(NOW.getTime() - 9 * DAY) }],
+    ]));
+    await runSalesDripDaily(NOW);
+    expect(sendMock.mock.calls[0][0]).toEqual([3]);
+  });
+
+  it("en la 1ª tanda manda hasta 450 por día", async () => {
+    getFeaturedEventMock.mockResolvedValue(event(20, { tandaPhaseIndex: 0 }) as any);
     const many = Array.from({ length: 917 }, (_, i) => ({ id: i + 1, email: `c${i + 1}@t.cl` }));
     listCustomersMock.mockResolvedValue(many as any);
     await runSalesDripDaily(NOW);
-    expect(sendMock.mock.calls[0][0]).toHaveLength(460);
+    expect(sendMock.mock.calls[0][0]).toHaveLength(450);
+  });
+
+  it("se pausa mientras la campaña del evento todavía se está enviando (no repite el mail a sus pendientes)", async () => {
+    vi.mocked(db.hasMailingCampaignToday).mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    expect(await runSalesDripDaily(NOW)).toEqual({ ran: false, reason: 'campaign-today' });
+    expect(vi.mocked(db.hasMailingCampaignToday).mock.calls[1][1]).toBe(5);
+    expect(sendMock).not.toHaveBeenCalled();
   });
 
   it("funciona en cualquier tanda (3ª o más)", async () => {

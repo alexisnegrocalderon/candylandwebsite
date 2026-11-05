@@ -36,14 +36,21 @@ import { normalizeTandaSchedule, nextPhase, computePhasePrice } from '../shared/
 import { MAX_EVENT_MAILS_PER_PERSON, pickDueForRotation, remainingMailsNeeded } from '../shared/mailRotation';
 
 /** Cuántos correos de aviso de venta (drip + avisos por tanda) salen como máximo por día. */
-export const SALES_DRIP_CAP_FIRST_TANDA = Number(process.env.SALES_DRIP_CAP_FIRST_TANDA) || 460;
-export const SALES_DRIP_CAP_LATER_TANDAS = Number(process.env.SALES_DRIP_CAP_LATER_TANDAS) || 100;
+export const SALES_DRIP_CAP_FIRST_TANDA = Number(process.env.SALES_DRIP_CAP_FIRST_TANDA) || 450;
+export const SALES_DRIP_CAP_LATER_TANDAS = Number(process.env.SALES_DRIP_CAP_LATER_TANDAS) || 200;
 
-/** Tope diario según la tanda vigente: en la 1ª (precio de lanzamiento) el aviso va más rápido para repartir el 2º
- * mail entre todos antes de que suba el precio; desde la 2ª sigue más despacio, turnando a quienes no han comprado.
+/** Tope diario según la tanda vigente. En la 1ª tanda el primer mail sale a toda la base (lo manda la campaña del
+ * lanzamiento); el aviso diario solo cubre a quien aún no recibió ninguno (leads nuevos), hasta 450 por día. Desde la
+ * 2ª tanda empieza el turno de los mails 2 y 3: hasta 200 por día a quienes no han comprado.
  * (`SALES_DRIP_DAILY_CAP` ya no se usa.) */
 export function dailyDripCap(tandaPhaseIndex: number): number {
   return tandaPhaseIndex <= 0 ? SALES_DRIP_CAP_FIRST_TANDA : SALES_DRIP_CAP_LATER_TANDAS;
+}
+
+/** Mails por persona permitidos según la tanda: en la 1ª solo el primero (nadie recibe un 2º antes del lunes de la 2ª
+ * tanda); desde la 2ª, hasta el tope de 3. */
+export function maxMailsForPhase(tandaPhaseIndex: number): number {
+  return tandaPhaseIndex <= 0 ? 1 : MAX_EVENT_MAILS_PER_PERSON;
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -153,12 +160,12 @@ type Customer = { id: number; email: string };
  * cuenta como el primero) y cumplieron su espera desde el último. Salen primero
  * los que menos mails llevan, luego el último envío más antiguo: así se turnan
  * y a todos les llega el 2º antes de que a alguien le llegue el 3º. */
-export async function selectDueCustomers(eventId: number, intervalDays: number, now: Date = new Date()) {
+export async function selectDueCustomers(eventId: number, intervalDays: number, now: Date = new Date(), tandaPhaseIndex = 1) {
   const [eligible, stats] = await Promise.all([
     listCustomers({ forMailing: true, notPurchasedEventId: eventId }) as Promise<Customer[]>,
     getEventMailStatsByCustomer(eventId),
   ]);
-  const due = pickDueForRotation(eligible, stats, { maxPerPerson: MAX_EVENT_MAILS_PER_PERSON, intervalDays, now });
+  const due = pickDueForRotation(eligible, stats, { maxPerPerson: maxMailsForPhase(tandaPhaseIndex), intervalDays, now });
   return { eligibleCount: eligible.length, due, mailsStillNeeded: remainingMailsNeeded(eligible.map((c) => c.id), stats) };
 }
 
@@ -173,6 +180,9 @@ export async function runSalesDripDaily(now: Date = new Date()): Promise<SalesDr
   const event = await getFeaturedEvent();
   if (!event) return { ran: false, reason: 'no-event' };
   if (new Date(event.eventDate).getTime() <= now.getTime()) return { ran: false, reason: 'event-over' };
+  // La campaña de este evento todavía se está enviando de a poco (ej. el masivo repartido en 2 días): sus pendientes aún
+  // no cuentan como enviados, así que se espera a que termine para no repetirles el mismo mail.
+  if (await hasMailingCampaignToday(now, event.id)) return { ran: false, reason: 'campaign-today' };
 
   // Que el precio del correo sea el vigente aunque nadie haya entrado al sitio.
   await checkAndAdvanceTandaIfNeeded(event.id);
@@ -184,7 +194,7 @@ export async function runSalesDripDaily(now: Date = new Date()): Promise<SalesDr
   const budget = dailyDripCap(fresh.tandaPhaseIndex) - (await countTandaPromoEmailsSentToday(now));
   if (budget <= 0) return { ran: false, reason: 'daily-cap-reached' };
 
-  const { due } = await selectDueCustomers(fresh.id, settings.intervalDays, now);
+  const { due } = await selectDueCustomers(fresh.id, settings.intervalDays, now, fresh.tandaPhaseIndex);
 
   // Entre armar la lista y mandar puede haber entrado una compra: se
   // re-verifica uno a uno y se completa con los siguientes hasta el cupo.
@@ -231,7 +241,7 @@ export async function getSalesDripStatus(now: Date = new Date()) {
   }
   const [offer, due, sentToday] = await Promise.all([
     resolveCurrentOffer(event.id),
-    selectDueCustomers(event.id, settings.intervalDays, now),
+    selectDueCustomers(event.id, settings.intervalDays, now, event.tandaPhaseIndex),
     countTandaPromoEmailsSentToday(now),
   ]);
   return {
