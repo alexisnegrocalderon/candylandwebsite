@@ -110,7 +110,7 @@ export function GiftSheet({ open, onClose, team = [], initialIds = [], initialRe
   const [anyAccess, setAnyAccess] = useState(false);
   const [anyQty, setAnyQty] = useState(1);
   const [validDays, setValidDays] = useState<number | null>(null);
-  const [result, setResult] = useState<{ ok: number; bad: { email: string; error?: string }[]; resumen: string } | null>(null);
+  const [result, setResult] = useState<{ ok: number; bad: { email: string; error?: string }[]; resumen: string; passes: { email: string; codes: string[] }[] } | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
 
@@ -232,8 +232,8 @@ export function GiftSheet({ open, onClose, team = [], initialIds = [], initialRe
     }),
   });
 
-  const done = (r: { results: { email: string; ok: boolean; error?: string }[]; resumen: string }) => {
-    setResult({ ok: r.results.filter((x) => x.ok).length, bad: r.results.filter((x) => !x.ok), resumen: r.resumen });
+  const done = (r: { results: { email: string; ok: boolean; error?: string; codes?: string[] }[]; resumen: string }) => {
+    setResult({ ok: r.results.filter((x) => x.ok).length, bad: r.results.filter((x) => !x.ok), resumen: r.resumen, passes: r.results.filter((x) => x.ok && x.codes?.length).map((x) => ({ email: x.email, codes: x.codes! })) });
     setStep('listo');
     utils.orders.listStaffComps.invalidate();
     utils.orders.listGifts.invalidate();
@@ -531,6 +531,12 @@ export function GiftSheet({ open, onClose, team = [], initialIds = [], initialRe
           <span className="grid h-16 w-16 place-items-center rounded-full bg-emerald-500/15 text-emerald-500"><Check className="h-8 w-8" /></span>
           <p className="text-xl font-bold">{result.ok > 0 ? `Le llegó a ${result.ok === 1 ? toLabel : `${result.ok} personas`}` : 'No se pudo regalar'}</p>
           {result.ok > 0 && <p className="text-sm text-muted-foreground">{result.resumen}. Ya tiene el correo y el aviso en su app.</p>}
+          {result.passes.length > 0 && (
+            <div className="w-full space-y-1 rounded-2xl bg-muted/50 p-3 text-left text-sm">
+              <p className="text-xs font-semibold text-muted-foreground">Queda en los Cupones de la cuenta con ese correo:</p>
+              {result.passes.slice(0, 6).map((p) => <p key={p.email} className="break-all"><strong>{p.email}</strong> · <span className="font-mono text-xs">{p.codes.join(', ')}</span></p>)}
+            </div>
+          )}
           {result.bad.length > 0 && (
             <ul className="w-full space-y-1 rounded-2xl bg-destructive/10 p-3 text-left text-sm text-destructive">
               {result.bad.slice(0, 6).map((b) => <li key={b.email}>{b.email}: {b.error}</li>)}
