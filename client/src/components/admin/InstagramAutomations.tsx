@@ -124,7 +124,7 @@ function AutomationFollowersOnly({ automation }: { automation: { id: number; fol
     <label className="mt-2 flex items-center gap-2 text-xs">
       <Switch checked={automation.followersOnly === 1} disabled={save.isPending}
         onCheckedChange={(on) => save.mutate({ id: automation.id, followersOnly: on })} />
-      Solo para seguidores (si no te sigue, le pide seguirte y volver a escribir la palabra)
+      Invitar a seguirnos: a quien no te sigue le llega igual el regalo, con un aviso para que te siga y no se pierda ningún detalle
     </label>
   );
 }

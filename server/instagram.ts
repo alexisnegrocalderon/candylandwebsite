@@ -41,7 +41,7 @@ import { resolveAutomationButton, splitAutomationLink } from './instagramAutomat
 import { ALREADY_BOUGHT_MARKER, buildAlreadyBoughtReply, saysAlreadyBought } from '../shared/igCustomerLink';
 import { buildAdminUrl } from '../shared/adminDeepLink';
 import { parseIgReferral, referralUtmContent } from '../shared/igReferral';
-import { FOLLOWERS_ONLY_REPLY, pickHook, welcomeInstruction } from '../shared/igEngagement';
+import { pickHook, welcomeInstruction, withFollowInvite } from '../shared/igEngagement';
 
 const OWNER_REPLIED_REASON = 'El dueño contestó directo desde Instagram';
 
@@ -515,10 +515,9 @@ async function resolveAutomationExtras(automation: { discountCode: string | null
   return { link, imageUrl, productName: product?.name };
 }
 
-/** ¿La campaña es solo para seguidores y esta persona NO sigue la cuenta?
- * Si Meta no dice si sigue (dato no disponible), se le da el regalo igual:
- * mejor regalar de más que dejar a un seguidor real sin lo prometido. */
-async function blockedByFollowerGate(automation: { followersOnly?: number }, igUserId: string): Promise<boolean> {
+/** ¿La campaña invita a seguirnos y esta persona NO sigue la cuenta? El regalo le llega igual: solo se le suma un aviso
+ * para que nos siga. Si Meta no dice si sigue (dato no disponible), no se le pide nada: podría ya ser seguidora. */
+async function needsFollowInvite(automation: { followersOnly?: number }, igUserId: string): Promise<boolean> {
   if (automation.followersOnly !== 1) return false;
   const profile = await fetchInstagramProfile(igUserId);
   return profile.isFollower === false;
@@ -538,20 +537,14 @@ export async function tryHandleKeywordTrigger(input: {
   const automation = await matchKeywordTrigger(input.text, input.igUserId, input.source);
   if (!automation) return false;
 
-  // Campaña solo para seguidores: si no sigue la cuenta, se le invita a
-  // seguirla y volver a escribir la palabra (sin gastar el regalo).
-  if (await blockedByFollowerGate(automation, input.igUserId)) {
-    const { mid } = await sendInstagramMessage({ recipientId: input.igUserId, text: FOLLOWERS_ONLY_REPLY });
-    await appendIgMessage({ threadId: input.threadId, mid, direction: 'out', source: 'bot', text: FOLLOWERS_ONLY_REPLY });
-    return true;
-  }
-
+  const followInvite = await needsFollowInvite(automation, input.igUserId);
   const extras = await resolveAutomationExtras(automation);
   const { text: replyText, mid, buttonMid, buttonTitle } = await sendAutomationReply(
     automation,
     extras,
     (text) => sendInstagramMessage({ recipientId: input.igUserId, text }),
     (caption, button) => sendButtonMessage({ id: input.igUserId }, caption, button),
+    { followInvite },
   );
   if (mid !== undefined) {
     await appendIgMessage({ threadId: input.threadId, mid, direction: 'out', source: 'bot', text: replyText });
@@ -574,18 +567,21 @@ const BUTTON_TEXT_LIMIT = 640;
  * (la segunda falla con «unknown error», código 1), así que ahí un texto largo se acorta en vez de partirse en dos.
  * En un DM, un texto de más de 640 caracteres no cabe en la tarjeta: sale como mensaje normal y el botón en su propia
  * tarjeta chica (`BUTTON_CARD_CAPTION`). `sendText`/`sendButton` abstraen el destino real (DM vs. Private Reply). */
-async function sendAutomationReply(
+export async function sendAutomationReply(
   automation: Pick<IgKeywordAutomation, 'replyMessage' | 'discountCode' | 'buttonKind' | 'buttonTarget' | 'buttonTitle'>,
   extras: { productName?: string; link?: string; imageUrl?: string },
   sendText: (text: string) => Promise<{ mid: string | null }>,
   sendButton: (caption: string, button: { title: string; url: string }) => Promise<{ mid: string | null }>,
-  options: { single?: boolean } = {},
+  options: { single?: boolean; followInvite?: boolean } = {},
 ): Promise<{ text: string; mid?: string | null; buttonMid?: string | null; buttonTitle?: string }> {
-  const { text, buttonUrl } = splitAutomationLink(automation, extras);
+  const { text: baseText, buttonUrl } = splitAutomationLink(automation, extras);
   // El botón elegido en el panel manda; si no hay, vale el `{{link}}` escrito
   // en el mensaje (como siempre).
   const button = resolveAutomationButton(automation, extras)
     ?? (buttonUrl ? { title: automation.discountCode ? 'Comprar con código' : 'Ver más', url: buttonUrl } : null);
+  // A quien no nos sigue se le suma el aviso en el MISMO mensaje (Meta admite una sola respuesta privada por comentario).
+  // En el comentario con botón el texto se acorta a 640: se recorta el cuerpo, nunca el aviso.
+  const text = options.followInvite ? withFollowInvite(baseText, button && options.single ? BUTTON_TEXT_LIMIT : undefined) : baseText;
   if (!button) {
     const { mid } = await sendText(text);
     return { text, mid };
@@ -626,11 +622,7 @@ export async function handleCommentChange(value: { id?: string; text?: string; f
     return;
   }
 
-  if (await blockedByFollowerGate(automation, igUserId)) {
-    await sendPrivateReply(commentId, FOLLOWERS_ONLY_REPLY);
-    return;
-  }
-
+  const followInvite = await needsFollowInvite(automation, igUserId);
   const extras = await resolveAutomationExtras(automation);
   try {
     await sendAutomationReply(
@@ -638,7 +630,7 @@ export async function handleCommentChange(value: { id?: string; text?: string; f
       extras,
       (replyText) => sendPrivateReply(commentId, replyText),
       (caption, button) => sendButtonMessage({ comment_id: commentId }, caption, button),
-      { single: true },
+      { single: true, followInvite },
     );
   } catch (err) {
     // Un comentario que falla no debe frenar a los demás de la misma entrega, y el error tiene que decir cuál fue
@@ -845,13 +837,14 @@ export async function sendCampaignToComment(commentRowId: number, automationId: 
   if (await hasRedeemedIgKeywordAutomation(automation.id, row.igUserId)) throw new Error('Esa persona ya recibió esta campaña.');
 
   const extras = await resolveAutomationExtras(automation);
+  const followInvite = await needsFollowInvite(automation, row.igUserId);
   try {
     await sendAutomationReply(
       automation,
       extras,
       (replyText) => sendPrivateReply(row.commentId, replyText),
       (caption, button) => sendButtonMessage({ comment_id: row.commentId }, caption, button),
-      { single: true },
+      { single: true, followInvite },
     );
   } catch (err) {
     const message = err instanceof Error ? err.message.slice(0, 250) : 'error desconocido';

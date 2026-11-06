@@ -45,4 +45,15 @@ export function computeFans(
   return new Map(Array.from(totals.entries()).filter(([, n]) => n >= min));
 }
 
-export const FOLLOWERS_ONLY_REPLY = 'Este regalo es solo para quienes nos siguen 💜 Síguenos y vuelve a escribir la palabra para recibirlo 🎁';
+/** Aviso que se suma al final del mensaje de una automatización cuando la persona no sigue la cuenta. El regalo le llega igual. */
+export const FOLLOW_INVITE = '💜 Síguenos en @mansionplayroom.cl para no perderte ningún detalle de las próximas fiestas.';
+
+/** Agrega el aviso de seguirnos tras una línea en blanco. Con `limit` (tope de caracteres del mensaje) se recorta el cuerpo, nunca el aviso. */
+export function withFollowInvite(text: string, limit?: number): string {
+  let body = text.trim();
+  if (limit !== undefined) {
+    const room = limit - FOLLOW_INVITE.length - 2;
+    if (body.length > room) body = `${body.slice(0, Math.max(0, room - 1)).trimEnd()}…`;
+  }
+  return body ? `${body}\n\n${FOLLOW_INVITE}` : FOLLOW_INVITE;
+}
