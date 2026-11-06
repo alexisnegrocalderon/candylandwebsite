@@ -48,3 +48,28 @@ export function isVoiceNoteWav(bytes: Uint8Array): boolean {
 export function voiceNoteSeconds(bytes: Uint8Array): number {
   return Math.max(0, bytes.length - 44) / (VOICE_NOTE_RATE * 2);
 }
+
+/** Pasa muestras de cualquier frecuencia (44,1 o 48 kHz en un teléfono) a 16 kHz, promediando las muestras que se
+ * juntan para no meter ruido. Si la entrada ya es de 16 kHz o menos, la devuelve igual. */
+export function downsampleTo16k(samples: Float32Array, inRate: number): Float32Array {
+  if (inRate <= VOICE_NOTE_RATE) return samples;
+  const ratio = inRate / VOICE_NOTE_RATE;
+  const outLen = Math.floor(samples.length / ratio);
+  const out = new Float32Array(outLen);
+  for (let i = 0; i < outLen; i++) {
+    const from = Math.floor(i * ratio);
+    const to = Math.min(samples.length, Math.max(from + 1, Math.floor((i + 1) * ratio)));
+    let sum = 0;
+    for (let j = from; j < to; j++) sum += samples[j];
+    out[i] = sum / (to - from);
+  }
+  return out;
+}
+
+/** Une los trozos que fue entregando el micrófono en una sola tira. */
+export function concatChunks(chunks: Float32Array[]): Float32Array {
+  const out = new Float32Array(chunks.reduce((n, c) => n + c.length, 0));
+  let at = 0;
+  for (const c of chunks) { out.set(c, at); at += c.length; }
+  return out;
+}

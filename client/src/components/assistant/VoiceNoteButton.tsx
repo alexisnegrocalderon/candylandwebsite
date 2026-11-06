@@ -2,91 +2,77 @@ import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Loader2, Mic } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
-import { encodeWavPcm16, VOICE_NOTE_MAX_SECS, VOICE_NOTE_MIN_SECS, VOICE_NOTE_RATE } from '@shared/voiceNote';
+import { bytesToBase64, PcmRecorder } from '@/lib/pcmRecorder';
+import { VOICE_NOTE_MAX_SECS, VOICE_NOTE_MIN_SECS } from '@shared/voiceNote';
 
 /** Cuánto hay que deslizar el dedo a la izquierda para cancelar (como en WhatsApp). */
 const CANCEL_PX = 90;
+/** Si la transcripción tarda más que esto, se avisa en vez de quedarse esperando. */
+const TRANSCRIBE_TIMEOUT_MS = 30_000;
 
 type Phase = 'idle' | 'recording' | 'processing';
 
-/** Lo grabado (mp4 en iPhone, webm en Android) → WAV 16 kHz mono en base64, que es lo que el servidor transcribe. */
-async function toWavBase64(blob: Blob): Promise<string> {
-  const Ctx: typeof AudioContext = (window as any).AudioContext ?? (window as any).webkitAudioContext;
-  const ctx = new Ctx();
-  let decoded: AudioBuffer;
-  try {
-    const buf = await blob.arrayBuffer();
-    decoded = await new Promise<AudioBuffer>((resolve, reject) => {
-      const p = ctx.decodeAudioData(buf, resolve, reject);
-      if (p && typeof (p as Promise<AudioBuffer>).then === 'function') (p as Promise<AudioBuffer>).then(resolve, reject);
-    });
-  } finally {
-    ctx.close?.().catch(() => {});
-  }
-  const secs = Math.min(decoded.duration, VOICE_NOTE_MAX_SECS);
-  const OfflineCtx: typeof OfflineAudioContext = (window as any).OfflineAudioContext ?? (window as any).webkitOfflineAudioContext;
-  const off = new OfflineCtx(1, Math.max(1, Math.ceil(secs * VOICE_NOTE_RATE)), VOICE_NOTE_RATE);
-  const src = off.createBufferSource();
-  src.buffer = decoded;
-  src.connect(off.destination);
-  src.start(0);
-  const rendered = await off.startRendering();
-  const wav = encodeWavPcm16(rendered.getChannelData(0));
-  let bin = '';
-  for (let i = 0; i < wav.length; i += 0x8000) bin += String.fromCharCode.apply(null, Array.from(wav.subarray(i, i + 0x8000)));
-  return btoa(bin);
-}
-
 const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
+function withTimeout<T>(p: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = window.setTimeout(() => reject(new Error(message)), ms);
+    p.then((v) => { window.clearTimeout(t); resolve(v); }, (e) => { window.clearTimeout(t); reject(e); });
+  });
+}
+
 /** Nota de voz como en WhatsApp: mantén apretado para grabar, suelta para enviar, desliza a la izquierda para cancelar.
- * Lo que se dijo vuelve como texto y se manda al asistente con `onText`. */
+ * Lo que se dijo vuelve como texto y se manda al asistente con `onText`. Cada paso tiene su tiempo límite: si algo se
+ * traba, se avisa qué pasó en vez de quedarse en «Escuchando…». */
 export function VoiceNoteButton({ disabled, onText }: { disabled?: boolean; onText: (text: string) => void }) {
-  const [phase, setPhase] = useState<Phase>('idle');
+  const [phase, setPhaseState] = useState<Phase>('idle');
   const [secs, setSecs] = useState(0);
   const [cancelling, setCancelling] = useState(false);
-  const recorder = useRef<MediaRecorder | null>(null);
-  const stream = useRef<MediaStream | null>(null);
-  const chunks = useRef<Blob[]>([]);
-  const startedAt = useRef(0);
+  // El estado también va en refs: los manejadores del dedo no pueden quedarse con un valor viejo.
+  const phaseRef = useRef<Phase>('idle');
+  const recorder = useRef<PcmRecorder | null>(null);
   const startX = useRef(0);
   const released = useRef(false);
   const cancelRef = useRef(false);
   const timer = useRef<number | null>(null);
+  const onTextRef = useRef(onText);
+  onTextRef.current = onText;
   const transcribe = trpc.assistant.transcribe.useMutation();
 
-  const stopTracks = () => { stream.current?.getTracks().forEach((t) => t.stop()); stream.current = null; };
+  const setPhase = (p: Phase) => { phaseRef.current = p; setPhaseState(p); };
   const clearTimer = () => { if (timer.current != null) window.clearInterval(timer.current); timer.current = null; };
-  useEffect(() => () => { clearTimer(); stopTracks(); }, []);
+  useEffect(() => () => { clearTimer(); recorder.current?.cancel(); recorder.current = null; }, []);
 
-  const finish = (send: boolean) => {
+  /** Corta la grabación y, si `send`, la manda a transcribir. */
+  const finish = async (send: boolean) => {
+    if (phaseRef.current !== 'recording') return;
     clearTimer();
     const rec = recorder.current;
     recorder.current = null;
-    const elapsed = (Date.now() - startedAt.current) / 1000;
-    if (!rec) { stopTracks(); setPhase('idle'); return; }
-    if (!send || elapsed < VOICE_NOTE_MIN_SECS) {
-      rec.onstop = () => stopTracks();
-      try { rec.stop(); } catch { stopTracks(); }
+    if (!rec) { setPhase('idle'); return; }
+    if (!send) { rec.cancel(); setPhase('idle'); return; }
+    const elapsed = rec.seconds;
+    if (elapsed < VOICE_NOTE_MIN_SECS) {
+      rec.cancel();
       setPhase('idle');
-      if (send) toast('Mantén apretado el micrófono mientras hablas.');
+      toast('Mantén apretado el micrófono mientras hablas.');
       return;
     }
     setPhase('processing');
-    rec.onstop = async () => {
-      stopTracks();
-      try {
-        const blob = new Blob(chunks.current, { type: rec.mimeType || 'audio/mp4' });
-        const audio = await toWavBase64(blob);
-        const { text } = await transcribe.mutateAsync({ audio });
-        onText(text);
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : 'No se pudo transcribir la nota.');
-      } finally {
-        setPhase('idle');
-      }
-    };
-    try { rec.stop(); } catch { stopTracks(); setPhase('idle'); }
+    try {
+      const wav = rec.finish();
+      if (!wav) throw new Error('No entró sonido del micrófono. Revisa el permiso y vuelve a intentarlo.');
+      const { text } = await withTimeout(
+        transcribe.mutateAsync({ audio: bytesToBase64(wav) }), TRANSCRIBE_TIMEOUT_MS,
+        'La transcripción tardó demasiado. Revisa tu conexión y vuelve a intentarlo.',
+      );
+      onTextRef.current(text);
+    } catch (err) {
+      console.error('[NotaDeVoz]', err);
+      toast.error(err instanceof Error ? err.message : 'No se pudo transcribir la nota.');
+    } finally {
+      setPhase('idle');
+    }
   };
 
   const start = async (x: number) => {
@@ -94,32 +80,30 @@ export function VoiceNoteButton({ disabled, onText }: { disabled?: boolean; onTe
     cancelRef.current = false;
     setCancelling(false);
     startX.current = x;
-    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
-      toast.error('Este navegador no permite grabar audio. Usa el micrófono del teclado.');
+    setPhase('recording'); // se ve el contador de inmediato; si no hay permiso vuelve a reposo con un aviso
+    setSecs(0);
+    const started = await PcmRecorder.start();
+    if ('error' in started) {
+      setPhase('idle');
+      toast.error(started.error === 'unsupported'
+        ? 'Este navegador no permite grabar audio. Usa el micrófono del teclado.'
+        : 'No hay permiso para el micrófono. Actívalo en Ajustes del teléfono para esta app.');
       return;
     }
-    try {
-      const s = await navigator.mediaDevices.getUserMedia({ audio: true });
-      // Soltó mientras se pedía el permiso (la primera vez): no se graba nada.
-      if (released.current) { s.getTracks().forEach((t) => t.stop()); toast('Ahora sí: mantén apretado el micrófono mientras hablas.'); return; }
-      stream.current = s;
-      const rec = new MediaRecorder(s);
-      chunks.current = [];
-      rec.ondataavailable = (e) => { if (e.data.size > 0) chunks.current.push(e.data); };
-      rec.start();
-      recorder.current = rec;
-      startedAt.current = Date.now();
-      setSecs(0);
-      setPhase('recording');
-      navigator.vibrate?.(15);
-      timer.current = window.setInterval(() => {
-        const t = (Date.now() - startedAt.current) / 1000;
-        setSecs(t);
-        if (t >= VOICE_NOTE_MAX_SECS) finish(true); // tope: se manda lo grabado
-      }, 200);
-    } catch {
-      toast.error('No hay permiso para el micrófono. Actívalo en Ajustes del teléfono para esta app.');
+    // Soltó mientras se pedía el permiso (la primera vez): no se graba nada.
+    if (released.current) {
+      started.recorder.cancel();
+      setPhase('idle');
+      toast('Ahora sí: mantén apretado el micrófono mientras hablas.');
+      return;
     }
+    recorder.current = started.recorder;
+    navigator.vibrate?.(15);
+    timer.current = window.setInterval(() => {
+      const t = recorder.current?.seconds ?? 0;
+      setSecs(t);
+      if (t >= VOICE_NOTE_MAX_SECS) void finish(!cancelRef.current); // tope: se manda lo grabado
+    }, 200);
   };
 
   const busy = phase === 'processing' || transcribe.isPending;
@@ -147,18 +131,18 @@ export function VoiceNoteButton({ disabled, onText }: { disabled?: boolean; onTe
         disabled={disabled || busy}
         onContextMenu={(e) => e.preventDefault()}
         onPointerDown={(e) => {
-          if (disabled || busy || phase !== 'idle') return;
+          if (disabled || busy || phaseRef.current !== 'idle') return;
           e.preventDefault();
           try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* sin captura: igual funciona */ }
           void start(e.clientX);
         }}
         onPointerMove={(e) => {
-          if (phase !== 'recording') return;
+          if (phaseRef.current !== 'recording') return;
           const c = startX.current - e.clientX > CANCEL_PX;
           if (c !== cancelRef.current) { cancelRef.current = c; setCancelling(c); }
         }}
-        onPointerUp={() => { released.current = true; if (phase === 'recording') finish(!cancelRef.current); }}
-        onPointerCancel={() => { released.current = true; if (phase === 'recording') finish(false); }}
+        onPointerUp={() => { released.current = true; void finish(!cancelRef.current); }}
+        onPointerCancel={() => { released.current = true; void finish(false); }}
         style={{ touchAction: 'none', WebkitTouchCallout: 'none', WebkitUserSelect: 'none', userSelect: 'none' }}
         className={`relative z-20 grid h-11 w-11 shrink-0 place-items-center rounded-full text-white transition-transform duration-150 disabled:opacity-60 ${
           phase === 'recording' ? (cancelling ? 'scale-125 bg-zinc-600' : 'scale-125 bg-red-500 shadow-lg shadow-red-500/40') : 'bg-primary'}`}
