@@ -13,6 +13,7 @@ import {
   events, insumoConteoLineas, insumoConteos, insumoMovimientos, insumoRecetas, insumoReglas, insumos, orderItems, orders, ticketTypes, tickets,
 } from "../drizzle/schema";
 import { getDb } from "./db";
+import { eventUsesPlatformStock } from "../shared/stockScope";
 import { insumoSchemaStatus, reglasSchemaStatus } from "./schemaUpdates";
 import { personasForTicket } from "../shared/mission300";
 import { DOSIER_INSUMOS, DOSIER_SUPUESTOS, planDosier } from "../shared/dosier";
@@ -425,6 +426,12 @@ export async function copyRecetasBetweenEvents(fromEventId: number, toEventId: n
 
 // --- Caja: ventas, anulaciones y conteos ---
 
+/** ¿Este evento usa el stock de Playroom? (shared/stockScope.ts) */
+async function usesPlatformStock(db: any, eventId: number): Promise<boolean> {
+  const [e] = await db.select({ presaleParkingOnly: events.presaleParkingOnly }).from(events).where(eq(events.id, eventId)).limit(1);
+  return eventUsesPlatformStock(e);
+}
+
 async function isTestEvent(db: any, eventId: number): Promise<boolean> {
   const [e] = await db.select({ slug: events.slug }).from(events).where(eq(events.id, eventId)).limit(1);
   return e?.slug === TEST_EVENT_SLUG;
@@ -434,7 +441,8 @@ async function isTestEvent(db: any, eventId: number): Promise<boolean> {
  * nunca lanza: un insumo mal cargado no puede frenar un cobro. */
 export async function descontarVenta(db: any, params: { opId: string; eventId: number; operatorId: number; items: { ticketTypeId: number; quantity: number; opciones?: string[] }[] }) {
   try {
-    if (!(await ready()) || (await isTestEvent(db, params.eventId))) return;
+    // Un evento sin caja de la plataforma (la barra la maneja otra productora) no descuenta del stock de Playroom.
+    if (!(await ready()) || (await isTestEvent(db, params.eventId)) || !(await usesPlatformStock(db, params.eventId))) return;
     const ids = params.items.map((i) => i.ticketTypeId);
     const rows = await db.select().from(insumoRecetas).where(inArray(insumoRecetas.ticketTypeId, ids));
     // Los insumos archivados ya no se descuentan (siguen en la base, pero no cuentan para la barra).
@@ -562,6 +570,8 @@ export async function crearConteo(params: {
   if (!(await ready())) throw new Error("El conteo de barra todavía no está activado (falta actualizar la base de datos).");
   const db = await dbOrThrow();
   const test = await isTestEvent(db, params.eventId);
+  // Sin stock de Playroom en este evento: el conteo queda guardado, pero no se compara con el inventario ni lo corrige.
+  const ownStock = !(await usesPlatformStock(db, params.eventId));
   const [all, stock] = await Promise.all([listInsumos(), stockMap(db)]);
   const byId = new Map(all.map((i) => [i.id, i]));
   const lines = params.lines.filter((l) => byId.has(l.insumoId)).map((l) => {
@@ -573,7 +583,7 @@ export async function crearConteo(params: {
         open: (l.openFraction ?? 0) > 0 ? [{ size: insumo.containerSize, portions: (l.openFraction ?? 0) * OPEN_PORTIONS }] : [],
       };
     const counted = l.closed || l.open ? detalleATotal(detail) : conteoATotal(l.closedContainers ?? 0, l.openFraction ?? 0, insumo.containerSize);
-    const expected = stock.get(l.insumoId) ?? 0;
+    const expected = ownStock ? counted : (stock.get(l.insumoId) ?? 0);
     return { insumoId: l.insumoId, detail, insumo, counted, expected };
   });
   if (lines.length === 0) throw new Error("El conteo no tiene insumos");
@@ -590,7 +600,7 @@ export async function crearConteo(params: {
     countedTotal: String(l.counted), expectedTotal: String(l.expected),
   })));
   // En modo prueba se guarda el conteo (para practicar) pero no toca el stock real.
-  if (!test) {
+  if (!test && !ownStock) {
     const adjustments = lines.map((l) => ({ l, delta: Math.round((l.counted - l.expected) * 100) / 100 })).filter((a) => a.delta !== 0);
     if (adjustments.length) {
       await db.insert(insumoMovimientos).values(adjustments.map(({ l, delta }) => ({
@@ -600,7 +610,7 @@ export async function crearConteo(params: {
     }
   }
   return {
-    conteoId, test,
+    conteoId, test, ownStock,
     lines: lines.map((l) => ({ insumoId: l.insumoId, name: l.insumo.name, counted: l.counted, expected: l.expected, ...descuadre(l.expected, l.counted) })),
     forAlerts: lines.map((l) => ({ insumo: l.insumo as Insumo, expected: l.expected, counted: l.counted })),
   };
@@ -652,7 +662,9 @@ export async function proyeccion(params: { eventId: number; personas: number; fa
 
   const estado = await estadoBarra(params.eventId);
   const allInsumos = estado.ready ? estado.insumos : [];
-  const stock = new Map(allInsumos.map((i) => [i.id, i.stock]));
+  // Un evento que no usa el stock de Playroom parte de cero: la lista dice TODO lo que hay que comprar (el stock real ni se mira).
+  const sinStockPlayroom = !(await usesPlatformStock(db, params.eventId));
+  const stock = new Map(allInsumos.map((i) => [i.id, sinStockPlayroom ? 0 : i.stock]));
   // Todos los tragos de la carta: los que no tienen receta no gastan insumos, pero sí tienen su parte de las ventas.
   const productos = estado.ready ? estado.productos.filter((p) => !p.sinInsumos && !p.oculto) : [];
   const result = proyeccionCompra({
@@ -662,7 +674,7 @@ export async function proyeccion(params: { eventId: number; personas: number; fa
   const actuales = await personasDelEvento(db, params.eventId);
   // Insumos que no van por receta (guantes, vasos, hielo…): por persona, por evento o con mínimo.
   const generales = proyeccionGenerales({ insumos: allInsumos as any, stock, personas: params.personas, factor: params.factor });
-  return { ...result, generales, fuentes, personasConEntrada: actuales.expected, sinReceta: estado.ready ? estado.productos.filter((p) => p.receta.length === 0 && !p.sinInsumos && !p.oculto).map((p) => p.name) : [] };
+  return { ...result, generales, fuentes, sinStockPlayroom, personasConEntrada: actuales.expected, sinReceta: estado.ready ? estado.productos.filter((p) => p.receta.length === 0 && !p.sinInsumos && !p.oculto).map((p) => p.name) : [] };
 }
 
 // --- Carga del dosier (shared/dosier.ts) ---

@@ -88,6 +88,7 @@ const SettingsManager = lazy(() => import('./sections/ajustes').then((m) => ({ d
 // cuando se abre, para no sumarle peso al resto del panel.
 const ContentStudio = lazy(() => import('@/components/admin/ContentStudio').then((m) => ({ default: m.ContentStudio })));
 const CrossCheckView = lazy(() => import('@/components/admin/crossCheck/CrossCheckView').then((m) => ({ default: m.CrossCheckView })));
+const CompraFiestaView = lazy(() => import('@/components/admin/insumos/CompraFiestaView').then((m) => ({ default: m.CompraFiestaView })));
 const AutomationsView = lazy(() => import('@/components/admin/AutomationsView').then((m) => ({ default: m.AutomationsView })));
 const PilotView = lazy(() => import('@/components/admin/crossCheck/PilotView').then((m) => ({ default: m.PilotView })));
 const AssistantSection = lazy(() => import('@/components/assistant/AssistantSection').then((m) => ({ default: m.AssistantSection })));
@@ -175,6 +176,7 @@ const ADMIN_SECTIONS = [
   { id: 'discounts', label: 'Descuentos', hub: 'preparar', icon: Percent, render: () => <DiscountsManager /> },
   { id: 'community', label: 'Códigos Comunidad', hub: 'preparar', icon: Users, render: () => <CommunityCodesManager /> },
   { id: 'staff', label: 'Staff', hub: 'preparar', icon: Users, render: () => <StaffManager /> },
+  { id: 'compra-fiesta', onlyNoCaja: true, label: 'Compra de la fiesta', hub: 'preparar', icon: ShoppingBag, render: () => <CompraFiestaView /> },
   { id: 'caja', needsCaja: true, label: 'Caja', hub: 'preparar', icon: Store, render: () => <CajaAdminView /> },
   { id: 'carta', needsCaja: true, label: 'Carta de la Fiesta', hub: 'preparar', icon: Martini, render: () => <CartaManager /> },
   { id: 'insumos', needsCaja: true, label: 'Stock de Barra', hub: 'preparar', icon: Wine, render: () => <InsumosManager /> },

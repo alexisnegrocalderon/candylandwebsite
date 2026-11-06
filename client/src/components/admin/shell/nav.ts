@@ -57,12 +57,15 @@ export interface ShellSection {
   hidden?: boolean;
   /** Pantallas de la caja de la plataforma: se esconden mientras el evento elegido vende solo entrada y estacionamiento por la web. */
   needsCaja?: boolean;
+  /** Lo contrario: solo se muestra cuando el evento elegido NO usa la caja ni el stock de la plataforma. */
+  onlyNoCaja?: boolean;
 }
 
 /** Palabras extra para el buscador (Ctrl+K): cómo lo diría el dueño, no cómo
  * se llama la pantalla. */
 export const SECTION_KEYWORDS: Record<string, string> = {
   home: 'inicio resumen kpi pendientes',
+  'compra-fiesta': 'compra nueva fiesta lista de compras sin stock playmore dalmore barra insumos',
   'cross-check': 'cross check aprobar aprobaciones reportar pendientes automatizaciones visto bueno',
   piloto: 'piloto automatico automatizar evento iniciar pasos recordatorio encuesta anuncio',
   overview: 'evento noche hoy en vivo aforo',

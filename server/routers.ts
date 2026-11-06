@@ -2746,8 +2746,8 @@ export const appRouter = router({
           eventId: input.eventId, registerId: null, shiftId: null, kind: input.kind,
           operatorId: ctx.operator.operatorId, operatorName: ctx.operator.name, lines: input.lines,
         });
-        if (input.kind === 'cierre' && !result.test) await alertConteoDescuadre(input.eventId, result.conteoId, ctx.operator.name, result.forAlerts);
-        return { conteoId: result.conteoId, test: result.test, lines: result.lines };
+        if (input.kind === 'cierre' && !result.test && !result.ownStock) await alertConteoDescuadre(input.eventId, result.conteoId, ctx.operator.name, result.forAlerts);
+        return { conteoId: result.conteoId, test: result.test, ownStock: result.ownStock, lines: result.lines };
       } catch (err) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo guardar el conteo' });
       }

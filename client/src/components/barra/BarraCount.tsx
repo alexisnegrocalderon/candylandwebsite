@@ -68,6 +68,7 @@ export function BarraCount({ eventId, kind, onDone, onBack }: {
       try { localStorage.removeItem(draftKey(eventId, kind)); } catch { /* nada */ }
       const off = res.lines.filter((l) => Math.abs(l.pct) >= 5 && l.diff !== 0);
       if (res.test) toast.info('Modo prueba: el conteo quedó guardado pero no cambia el stock real.');
+      else if (res.ownStock) toast.info('Esta fiesta no usa el stock de Playroom: el conteo quedó guardado, pero no cambia el inventario de Playroom.', { duration: 8000 });
       if (off.length === 0) { toast.success('✅ Conteo guardado — cuadra con el sistema'); onDone(); return; }
       setSummary(off.map((l) => ({ name: l.name, diff: l.diff, pct: l.pct, insumoId: l.insumoId })));
     } catch (err: any) {

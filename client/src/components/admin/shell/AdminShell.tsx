@@ -114,7 +114,7 @@ export function AdminShell({ sections: allSections, activeSection, onOpenSection
   const { events: shellEvents, eventId: shellEventId } = useTonightEvent();
   const noCaja = !!((shellEvents ?? []) as any[]).find((e) => e.id === shellEventId)?.presaleParkingOnly;
   const sections = useMemo(
-    () => allSections.filter((s) => (!s.hidden || s.id === activeSection) && !(noCaja && s.needsCaja && s.id !== activeSection)),
+    () => allSections.filter((s) => (!s.hidden || s.id === activeSection) && !(noCaja && s.needsCaja && s.id !== activeSection) && !(!noCaja && s.onlyNoCaja && s.id !== activeSection)),
     [allSections, activeSection, noCaja],
   );
   const current = sections.find((s) => s.id === activeSection) ?? sections[0];
