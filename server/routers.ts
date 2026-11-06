@@ -8122,6 +8122,8 @@ export const appRouter = router({
   // la IA solo genera texto estructurado (server/mailing.ts), el HTML de
   // marca se arma siempre acá con buildMailingBlastEmail.
   mailing: router({
+    // «Programados»: todo lo que se manda solo a las personas (avisos de venta, carritos, embajadores, encuestas, piloto).
+    automations: adminReadProcedure.query(async () => (await import("./automationsOverview")).getAutomationsOverview()),
     generateTemplate: adminProcedure.input(z.object({
       objective: z.string().min(5).max(1000),
       audienceDescription: z.string(),
