@@ -31,8 +31,11 @@ import { MemberEarlyGate } from '@/components/site/MemberEarlyGate';
 import { useMemberSession } from '@/lib/member';
 import { isMemberEarlyAccess } from '@shared/memberConfig';
 import { isAppMode } from '@/lib/appMode';
-import { useDarkChrome } from '@/lib/darkChrome';
+import { DARK_CHROME_BG, useDarkChrome } from '@/lib/darkChrome';
+import type { inferRouterOutputs } from '@trpc/server';
+import type { AppRouter } from '../../../server/routers';
 import { isColabHost } from '@shared/colabHosts';
+import { brandKey, readSnapshot, snapshotQueryOptions, writeSnapshot } from '@/lib/playmoreSnapshot';
 import { whoByKey, whoKeyFor } from '@shared/playmoreWho';
 import { instagramProblem } from '@shared/soltero';
 import { normalizeIgHandle } from '@shared/igCustomerLink';
@@ -2141,6 +2144,8 @@ function ColabCheckoutShell({ children }: { children: React.ReactNode }) {
   return <div className="playmore pm-checkout min-h-dvh" style={ready ? undefined : { opacity: 0 }}>{children}</div>;
 }
 
+type BrandForEvent = inferRouterOutputs<AppRouter>['coproduction']['brandForEvent'];
+
 /** Puerta de la preventa de socios: si el evento la tiene activa y no hay sesión de «Mi cuenta», se pide entrar antes de comprar. */
 export default function Checkout(props: { partnerSlug?: string } = {}) {
   const [, params] = useRoute('/checkout/:eventSlug');
@@ -2149,11 +2154,16 @@ export default function Checkout(props: { partnerSlug?: string } = {}) {
   const previewToken = new URLSearchParams(search).get('preview') || undefined;
   const { data: event } = trpc.events.getBySlug.useQuery({ slug, preview: previewToken }, { enabled: !!slug, retry: false });
   // Evento de colab (PLAYMORE): el checkout toma su cara (negro, dorado y magenta), también en el celular.
-  const { data: colabBrand, isLoading: brandLoading } = trpc.coproduction.brandForEvent.useQuery({ eventSlug: slug, preview: previewToken }, { enabled: !!slug, retry: false, staleTime: 5 * 60_000 });
+  // Nace con la marca guardada de la última visita (ver lib/playmoreSnapshot.ts): la compra abre ya con la cara de PLAYMORE.
+  const [brandSnap] = useState(() => (slug ? readSnapshot<BrandForEvent>(brandKey(slug, previewToken)) : undefined));
+  const { data: colabBrand, isLoading: brandLoading, isFetchedAfterMount: brandFetched } = trpc.coproduction.brandForEvent.useQuery({ eventSlug: slug, preview: previewToken }, { enabled: !!slug, retry: false, staleTime: 5 * 60_000, ...snapshotQueryOptions(brandSnap) });
+  useEffect(() => { if (slug && brandFetched && colabBrand !== undefined) writeSnapshot(brandKey(slug, previewToken), colabBrand); }, [slug, previewToken, brandFetched, colabBrand]);
   const { data: session, isLoading } = useMemberSession();
-  // En las direcciones de la colab, mientras no se sabe si el evento es PLAYMORE se muestra solo el fondo oscuro:
-  // antes asomaba un instante el checkout genérico de Playroom.
-  if (slug && brandLoading && isColabHost(window.location.hostname)) return <div className="min-h-dvh" style={{ background: '#0c0908' }} />;
+  // Mientras no se sabe si el evento es PLAYMORE se muestra solo el fondo oscuro: antes asomaba un instante el checkout de
+  // Playroom y después se cambiaba a la cara de PLAYMORE. En la colab y en la app (ambas oscuras); el sitio en el computador
+  // sigue mostrando su checkout de inmediato.
+  const colabHost = isColabHost(window.location.hostname);
+  if (slug && brandLoading && (colabHost || isAppMode())) return <div className="min-h-dvh" style={{ background: colabHost ? '#0c0908' : DARK_CHROME_BG }} />;
   if (slug && event && isMemberEarlyAccess(event as any)) {
     if (isLoading) return <div className="min-h-dvh" />;
     if (!(session?.loggedIn && session.isMember)) return <MemberEarlyGate event={event as any} />;

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { invokeLLM } from './_core/llm';
 import * as db from './db';
 import { buildPlanRequest, buildPlayroomKnowledge, generateContentPlan } from './contentPlanner';
+import * as nextEvent from './nextEvent';
 
 vi.mock('./_core/llm', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./_core/llm')>();
@@ -19,6 +20,11 @@ vi.mock('./db', async (importOriginal) => {
     listActiveIgKeywordAutomations: vi.fn(),
     getAccessTicketMix: vi.fn(),
   };
+});
+
+vi.mock('./nextEvent', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./nextEvent')>();
+  return { ...actual, getPlaymoreFor: vi.fn(), playmoreFacts: vi.fn() };
 });
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -48,7 +54,47 @@ beforeEach(() => {
     { keyword: 'GUIA', triggerSource: 'both' },
     { keyword: 'COMENTA', triggerSource: 'comment' },
   ] as any);
+  vi.mocked(nextEvent.getPlaymoreFor).mockResolvedValue(null);
   vi.mocked(db.getAccessTicketMix).mockResolvedValue([{ name: 'Dúo', price: '24000', originalPrice: '40000', totalStock: 999999, soldCount: 3, status: 'active' }] as any);
+});
+
+describe('PLAYMORE (colab en Santiago)', () => {
+  const colab = { event: { ...event, id: 9, title: 'PLAYMORE' }, landing: { dressCode: 'Elegante y atrevido, a tu medida' } } as any;
+
+  it('el plan usa los datos, la marca y las reglas de PLAYMORE, no los de Playroom', async () => {
+    vi.mocked(nextEvent.getPlaymoreFor).mockResolvedValue(colab);
+    vi.mocked(nextEvent.playmoreFacts).mockResolvedValue('DATOS REALES DE PLAYMORE: Providencia, +21');
+    const { userContent, playmore } = await buildPlanRequest(9, NOW);
+    expect(playmore).toBe(true);
+    expect(userContent).toContain('DATOS REALES DE PLAYMORE');
+    expect(userContent).toContain('Elegante y atrevido');
+    expect(userContent).toContain('Santiago, sector Providencia'); // la marca de PLAYMORE reemplaza a la guardada
+    expect(userContent).not.toContain('Tono cercano y respetuoso.');
+    expect(userContent).not.toContain('Disfraz obligatorio'); // el dress code de Playroom
+    expect(userContent).not.toContain('LO QUE PLAYROOM YA EXPLICA'); // el sitio de Playroom habla de Viña y +18
+  });
+
+  it('el prompt del sistema cambia a Santiago, +21 y sin aniversario, disfraz ni hashtags de Viña', async () => {
+    vi.mocked(nextEvent.getPlaymoreFor).mockResolvedValue(colab);
+    vi.mocked(nextEvent.playmoreFacts).mockResolvedValue('DATOS REALES DE PLAYMORE');
+    invokeLLMMock.mockResolvedValue(reply([piece()]));
+    await generateContentPlan(9, NOW);
+    const system = invokeLLMMock.mock.calls[0][0].messages[0].content as string;
+    expect(system).toContain('PLAYMORE, la noche de Mansion Playroom × Dalmore');
+    expect(system).toContain('nunca +18');
+    expect(system).toContain('nunca #Valparaiso ni #Vina');
+    expect(system).not.toContain('FIDELIZACIÓN'); // PlayCard y Playcoins no se usan esa noche
+    expect(system).not.toContain('una productora de fiestas liberales en Valparaíso');
+  });
+
+  it('con una fiesta de Playroom todo sigue igual', async () => {
+    invokeLLMMock.mockResolvedValue(reply([piece()]));
+    await generateContentPlan(undefined, NOW);
+    const system = invokeLLMMock.mock.calls[0][0].messages[0].content as string;
+    expect(system).toContain('Valparaíso / Viña del Mar');
+    expect(system).toContain('FIDELIZACIÓN');
+    expect(system).not.toContain('FOCO EXCLUSIVO: PLAYMORE');
+  });
 });
 
 describe('buildPlanRequest', () => {

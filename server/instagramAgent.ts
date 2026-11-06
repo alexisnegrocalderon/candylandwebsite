@@ -16,7 +16,7 @@ import { AI_PHRASES_ES } from '../shared/aiPhrasesEs';
 import { EVENT_BRAND } from '../shared/eventBrand';
 import { dropSupersededTickets } from '../shared/liveTickets';
 import { getPlaymoreFocus } from './playmoreFocus';
-import { buildPlaymoreContext, PLAYMORE_RULES, PLAYMORE_BRAND_NOTES, PLAYMORE_SALES_PLAYBOOK } from './playmoreAgent';
+import { availabilityLabel, buildPlaymoreContext, PLAYMORE_RULES, PLAYMORE_BRAND_NOTES, PLAYMORE_SALES_PLAYBOOK } from './playmoreAgent';
 import { buildKnowledgeBlock } from '../shared/agentKnowledge';
 import { activeKnowledgeFacts } from './agentLearning';
 
@@ -52,17 +52,7 @@ const CHANNEL_NAME: Record<AgentChannel, string> = {
  * nunca escribe una fecha ni un link dentro de un botón. */
 export type AgentAction = 'none' | 'event_list' | 'buy_link' | 'page_link';
 
-/** Regla de la casa (ver el comentario de `attachStockPoolInfo` en
- * server/db.ts y TandaUrgencyCard): el remanente exacto de un cupo NUNCA se
- * imprime de cara al público. El agente recibe un semáforo, no el número --
- * así ni siquiera puede filtrarlo por accidente. */
-export function availabilityLabel(remaining: number | null, soldOut: boolean): string {
-  if (soldOut) return 'AGOTADA';
-  if (remaining == null) return 'disponible';
-  if (remaining <= 0) return 'AGOTADA';
-  if (remaining <= 10) return 'quedan pocas';
-  return 'disponible';
-}
+export { availabilityLabel };
 
 /** Próximas fechas publicadas (hasta 3), las mismas que ve el agente. Las
  * usan también los botones y listas de WhatsApp (server/whatsappInteractive.ts)

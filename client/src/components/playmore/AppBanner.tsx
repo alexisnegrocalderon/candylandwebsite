@@ -1,6 +1,10 @@
+import { useEffect, useState } from 'react';
 import { Link } from 'wouter';
 import { ArrowRight } from 'lucide-react';
+import type { inferRouterOutputs } from '@trpc/server';
+import type { AppRouter } from '../../../../server/routers';
 import { trpc } from '@/lib/trpc';
+import { brandKey, playmoreGetKey, readSnapshot, snapshotQueryOptions, writeSnapshot } from '@/lib/playmoreSnapshot';
 import { COLAB_HOME_REDIRECT } from '@shared/colabHosts';
 import { readPlaymorePreviewToken, shouldShowPlaymore } from '@/lib/playmorePreview';
 
@@ -13,9 +17,15 @@ const GOLD = 'linear-gradient(100deg,#9c7630 0%,#c9a24c 15%,#f7e7a8 35%,#d6b25e 
 
 /** Consulta de PLAYMORE: pública con la venta abierta; antes de activar la ve el dueño, con su sesión de administrador o con
  * la clave de vista previa (`?playmore=`). El servidor es quien decide quién es dueño. */
+type PlaymoreGet = inferRouterOutputs<AppRouter>['coproduction']['publicGet'];
+
 export function usePlaymore() {
   const preview = readPlaymorePreviewToken();
-  const { data } = trpc.coproduction.publicGet.useQuery({ slug: COLAB_HOME_REDIRECT.slug, preview }, { staleTime: 60_000, retry: false });
+  // Nace con la última respuesta guardada: la portada, «Mi cuenta» y «Eventos» ya salen con PLAYMORE (o sin él) desde el primer
+  // cuadro, en vez de pintar Playroom y cambiar un instante después (ver lib/playmoreSnapshot.ts).
+  const [snap] = useState(() => readSnapshot<PlaymoreGet>(playmoreGetKey(preview)));
+  const { data, isFetchedAfterMount } = trpc.coproduction.publicGet.useQuery({ slug: COLAB_HOME_REDIRECT.slug, preview }, { staleTime: 60_000, retry: false, ...snapshotQueryOptions(snap) });
+  useEffect(() => { if (isFetchedAfterMount && data !== undefined) writeSnapshot(playmoreGetKey(preview), data); }, [data, isFetchedAfterMount, preview]);
   const visible = shouldShowPlaymore(data);
   return { data: visible ? data : null, preview, isPreview: !!data && !data.isLive };
 }
@@ -28,8 +38,19 @@ export function useLivePlaymoreSlug(): string | null {
 
 export function PlaymoreAppBanner({ ownedSlugs = [], className = '' }: { ownedSlugs?: string[]; className?: string }) {
   const { data, preview, isPreview } = usePlaymore();
-  if (!data?.event) return null;
-  const slug = data.event.slug;
+  const slug = data?.event?.slug ?? null;
+  const brandPreview = isPreview ? preview : undefined;
+  const utils = trpc.useUtils();
+  // El checkout de PLAYMORE se prepara apenas se ve la tarjeta (marca, chunk y CSS): al tocar «Comprar» abre con su cara, sin
+  // pasar por la de Playroom.
+  useEffect(() => {
+    if (!slug) return;
+    void utils.coproduction.brandForEvent.prefetch({ eventSlug: slug, preview: brandPreview }, { staleTime: 5 * 60_000 })
+      .then(() => { const b = utils.coproduction.brandForEvent.getData({ eventSlug: slug, preview: brandPreview }); if (b !== undefined) writeSnapshot(brandKey(slug, brandPreview), b); });
+    void import('@/pages/Checkout');
+    void import('@/components/playmore/playmore.css');
+  }, [slug, brandPreview, utils]);
+  if (!data?.event || !slug) return null;
   const owned = ownedSlugs.includes(slug);
   const l = data.landing;
   return (

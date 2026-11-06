@@ -10,6 +10,18 @@ import type { PlaymoreFocus } from './playmoreFocus';
 const clp = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
 const when = (iso: string | Date) => `${formatChileDate(new Date(iso), { withYear: true })} a las ${formatChileTime(new Date(iso))}`;
 
+/** Regla de la casa (ver el comentario de `attachStockPoolInfo` en
+ * server/db.ts y TandaUrgencyCard): el remanente exacto de un cupo NUNCA se
+ * imprime de cara al público. El agente recibe un semáforo, no el número --
+ * así ni siquiera puede filtrarlo por accidente. */
+export function availabilityLabel(remaining: number | null, soldOut: boolean): string {
+  if (soldOut) return 'AGOTADA';
+  if (remaining == null) return 'disponible';
+  if (remaining <= 0) return 'AGOTADA';
+  if (remaining <= 10) return 'quedan pocas';
+  return 'disponible';
+}
+
 /** El bloque de datos reales de PLAYMORE (reemplaza al de fechas de Playroom mientras la colab está activa). */
 export async function buildPlaymoreContext(
   focus: PlaymoreFocus,
