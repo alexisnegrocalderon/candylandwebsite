@@ -15,7 +15,7 @@ import { listGiftPasses } from "../accessCredit";
 import { computeCustomerLevel } from "../../shared/customerInsights";
 import { formatCantidad } from "../../shared/insumos";
 import { valorDe } from "../../shared/inventarioReporte";
-import type { AssistantChart, AssistantLink, AssistantProposal } from "../../shared/assistant";
+import type { AssistantChart, AssistantChoice, AssistantLink, AssistantProposal, AssistantRecipient } from "../../shared/assistant";
 import { ADMIN_SECTION_IDS, ADMIN_SECTION_INDEX } from "../../shared/adminSectionsIndex";
 
 /** Lo que una consulta va juntando además de su respuesta: gráficos y acciones por confirmar. */
@@ -24,6 +24,7 @@ export interface ToolContext {
   charts: AssistantChart[];
   proposals: AssistantProposal[];
   links: AssistantLink[];
+  choices: AssistantChoice[];
 }
 
 export interface AssistantTool<S extends z.ZodTypeAny = z.ZodTypeAny> {
@@ -239,6 +240,22 @@ export const ASSISTANT_TOOLS: AssistantTool[] = [
     },
   }),
   tool({
+    name: "elegir_opciones",
+    description: "Deja una pregunta con botones para que el dueño toque la opción correcta. ÚSALA cuando haya más de una persona o más de un trago que podría ser lo que pidió (ej. «Cata» coincide con varias clientas; «tropical gin» con varios tragos): arma una opción por candidato con SU nombre y correo exactos (para personas) o su nombre exacto (para tragos). Después de usarla NO propongas ninguna acción: termina tu respuesta con una frase corta y espera que el dueño toque una opción.",
+    schema: z.object({
+      pregunta: z.string().max(140).describe("ej. «¿Cuál Cata es?» o «¿Cuál de estos tragos?»"),
+      opciones: z.array(z.object({
+        valor: z.string().max(160).describe("lo que se manda de vuelta al tocarla: nombre y correo (personas) o el nombre del trago, EXACTOS"),
+        titulo: z.string().max(80).describe("nombre de la persona o del trago"),
+        detalle: z.string().max(140).nullable().describe("personas: el correo, y si tiene la app o su última visita; tragos: el precio"),
+      })).min(2).max(8),
+    }),
+    run: async ({ pregunta, opciones }, ctx) => {
+      ctx.choices.push({ pregunta, opciones });
+      return { ok: true, nota: "Quedaron los botones para elegir. Di en una frase qué debe tocar el dueño y no propongas nada hasta que elija." };
+    },
+  }),
+  tool({
     name: "abrir_seccion",
     description: `Deja un botón grande para ir a una pantalla del panel. Úsalo cuando el dueño pregunte dónde está algo, pida «llévame a…», «abre…», o cuando la respuesta se termine de hacer en una pantalla. Pantallas: ${ADMIN_SECTION_INDEX.map((s) => `${s.id} (${s.label}: ${s.what})`).join('; ')}.`,
     schema: z.object({ seccion: z.enum(ADMIN_SECTION_IDS) }),
@@ -270,7 +287,16 @@ export const ASSISTANT_TOOLS: AssistantTool[] = [
     }),
     run: async ({ resumen, accion }, ctx) => {
       const id = `a${ctx.proposals.length + 1}-${Math.random().toString(36).slice(2, 8)}`;
-      ctx.proposals.push({ id, resumen, accion: accion as any, estado: "pendiente" });
+      // Nombre y correo de quien lo recibe, para que el dueño lo corrobore en la tarjeta (solo informativo).
+      const correos: string[] = accion.tipo === "regalar" ? accion.correos : [accion.correo];
+      const para: AssistantRecipient[] = await Promise.all(correos.map(async (correo) => {
+        try {
+          const rows = (await db.listCustomers({ search: correo })) as any[];
+          const c = rows.find((r) => String(r.email).toLowerCase() === correo.toLowerCase());
+          return { nombre: (c?.fullName as string | undefined) ?? null, correo };
+        } catch { return { nombre: null, correo }; }
+      }));
+      ctx.proposals.push({ id, resumen, accion: accion as any, estado: "pendiente", para });
       return { ok: true, nota: "Quedó una tarjeta para que el dueño confirme. Dile qué va a pasar si confirma; no digas que ya se hizo." };
     },
   }),

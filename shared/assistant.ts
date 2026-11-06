@@ -19,9 +19,20 @@ export interface AssistantProposal {
   /** Lo que se va a hacer, en una frase para la tarjeta de confirmación. */
   resumen: string;
   accion: AssistantActionInput;
+  /** A quién va (nombre y correo del contacto, para corroborar; no se edita). */
+  para?: AssistantRecipient[];
   estado: 'pendiente' | 'hecha' | 'cancelada' | 'fallida';
   resultado?: string;
 }
+
+/** Una pregunta con botones: cuando hay varias personas o tragos que podrían ser, el dueño toca el correcto. */
+export interface AssistantChoice {
+  pregunta: string;
+  opciones: { valor: string; titulo: string; detalle: string | null }[];
+}
+
+/** A quién va una acción, solo como información en la tarjeta de confirmar (nombre y correo). */
+export interface AssistantRecipient { nombre: string | null; correo: string }
 
 /** Un botón para ir a una pantalla del panel («llévame a…»). */
 export interface AssistantLink { section: string; label: string }
@@ -32,6 +43,7 @@ export interface AssistantUi {
   charts?: AssistantChart[];
   proposals?: AssistantProposal[];
   links?: AssistantLink[];
+  choices?: AssistantChoice[];
   /** De qué herramientas salieron los datos (para los chips de «fuente»). */
   sources?: string[];
   error?: boolean;
@@ -42,6 +54,7 @@ export interface AssistantMessageView { id: number; role: 'user' | 'assistant'; 
 /** Nombre legible de cada herramienta (chips de fuente y «Revisando…»). */
 export const TOOL_LABELS: Record<string, string> = {
   abrir_seccion: 'el panel',
+  elegir_opciones: 'opciones por elegir',
   listar_eventos: 'eventos',
   productos_evento: 'entradas y carta',
   resultados_evento: 'ventas del evento',
