@@ -1355,6 +1355,8 @@ export function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
     ? ordersOutsideFilter(matchingOrders ?? [], { channel, eventId: listEventId, status: listStatus })
     : [];
   const { data: stats, refetch: refetchStats } = trpc.orders.getStats.useQuery({ channel, eventId }, { enabled: eventReady });
+  // Ventas Web: lo que de verdad llega a la cuenta, descontando la comisión de Mercado Pago.
+  const { data: webNet } = trpc.orders.getWebNet.useQuery({ eventId }, { enabled: eventReady && channel === 'web' });
   const { data: orderTickets, isFetching: loadingTickets } = trpc.orders.getTickets.useQuery(
     { orderId: expandedOrderId ?? 0 },
     { enabled: expandedOrderId !== null }
@@ -1600,6 +1602,25 @@ export function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
         <BentoTile>
           <StatTile icon={Users} tone="success" value={stats?.approvedOrders ?? 0} label="Pagos Aprobados" />
         </BentoTile>
+        {channel === 'web' && webNet && webNet.gross > 0 && (
+          <BentoTile span={2}>
+            <div className="admin-clay flex flex-col gap-3 p-5">
+              <p className="text-sm text-[var(--admin-muted)]">Llega a tu cuenta</p>
+              <p className="font-heading text-4xl leading-none tabular-nums">${webNet.net.toLocaleString('es-CL')}</p>
+              <p className="text-base">
+                Mercado Pago se queda <strong>${webNet.fee.toLocaleString('es-CL')}</strong>
+                {webNet.fee > 0 && <> <span className="text-[var(--admin-muted)]">({String(webNet.feePercent).replace('.', ',')} %)</span></>}
+                {' '}de ${webNet.gross.toLocaleString('es-CL')} cobrados.
+              </p>
+              <p className="text-sm text-[var(--admin-muted)]">
+                {webNet.estimatedCount === 0 && webNet.realCount > 0 && 'Cifra real: la comisión de cada pago viene de Mercado Pago.'}
+                {webNet.estimatedCount > 0 && webNet.realCount > 0 && `${webNet.realCount} pago${webNet.realCount === 1 ? '' : 's'} con la comisión real y ${webNet.estimatedCount} estimado${webNet.estimatedCount === 1 ? '' : 's'}${webNet.estimateSource === 'real' ? ' con el % que Mercado Pago viene cobrando' : ` con el ${String(webNet.configuredPercent).replace('.', ',')} % de Ajustes`}.`}
+                {webNet.estimatedCount > 0 && webNet.realCount === 0 && `Estimado con el ${String(webNet.configuredPercent).replace('.', ',')} % de Ajustes: Mercado Pago todavía no informó estos pagos.`}
+                {webNet.notMercadoPago > 0 && ` $${webNet.notMercadoPago.toLocaleString('es-CL')} no pasaron por Mercado Pago (invitaciones o transferencias) y no pagan comisión.`}
+              </p>
+            </div>
+          </BentoTile>
+        )}
       </BentoGrid>
 
       {!ordersLoading && ordersList.length > 0 && (
