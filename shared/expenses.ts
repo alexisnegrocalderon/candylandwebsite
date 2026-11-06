@@ -214,6 +214,8 @@ export type PnlInput = {
   cardFeeBase?: number;
   /** % de comisión de tarjeta configurado en Ajustes (siteSettings.cardFeePercent). */
   cardFeePercent?: number;
+  /** Comisión de tarjeta ya calculada (con la comisión REAL de Mercado Pago, shared/mpNet.ts). Si viene, manda sobre `base × %`. */
+  cardFeeAmountOverride?: number;
   /** Gastos imputados directamente a este evento. */
   directExpenses: PnlExpense[];
   /** Gastos generales prorrateables del mes (los del mes COMPLETO, no la
@@ -260,11 +262,13 @@ export type PnlResult = {
 export function computePnl(input: PnlInput): PnlResult {
   const { ivaApplies, grossIncome, cogs, ambassadorCommissions, prorationWeight } = input;
   const cardFeeBase = input.cardFeeBase ?? 0;
-  const cardFeePercent = input.cardFeePercent ?? 0;
+  const cardFeePercentConfigured = input.cardFeePercent ?? 0;
 
   // Comisión de Mercado Pago: costo real sobre lo efectivamente cobrado con
   // tarjeta (web completo + caja con débito/crédito/QR), no lleva IVA propio.
-  const cardFeeAmount = Math.round(cardFeeBase * cardFeePercent / 100);
+  const cardFeeAmount = input.cardFeeAmountOverride != null ? Math.round(input.cardFeeAmountOverride) : Math.round(cardFeeBase * cardFeePercentConfigured / 100);
+  // Con la comisión real, el % que se muestra es el efectivo (lo que de verdad se llevó Mercado Pago sobre lo cobrado).
+  const cardFeePercent = input.cardFeeAmountOverride != null && cardFeeBase > 0 ? Math.round((cardFeeAmount / cardFeeBase) * 10000) / 100 : cardFeePercentConfigured;
 
   // Gastos directos, al costo que corresponde según si el evento declara.
   let directExpensesTotal = 0;
