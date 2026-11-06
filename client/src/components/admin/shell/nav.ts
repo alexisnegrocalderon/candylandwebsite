@@ -1,5 +1,5 @@
 import {
-  Home, Radio, Ticket, Users, Megaphone, ClipboardList, CircleCheckBig, Banknote, Handshake, Smartphone, Sparkles, Palette,
+  Home, Radio, Ticket, Users, Megaphone, ClipboardList, CircleCheckBig, Banknote, Handshake, Smartphone, Sparkles, Palette, MessageCircle,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -9,7 +9,7 @@ import {
  * OPEN_SECTION_EVENT, burbujas y localStorage los siguen usando tal cual). */
 
 export type AdminHubId =
-  | 'inicio' | 'preparar' | 'coproduccion' | 'vender' | 'contenido' | 'marketing' | 'envivo' | 'cierre'
+  | 'inicio' | 'preparar' | 'coproduccion' | 'vender' | 'contenido' | 'marketing' | 'mensajes' | 'envivo' | 'cierre'
   | 'clientes' | 'app' | 'asistente' | 'finanzas' | 'ajustes';
 
 export interface AdminHub {
@@ -26,22 +26,25 @@ export interface AdminHub {
  * es de una fiesta sola. "ajustes" va aparte, abajo del separador. */
 export const ADMIN_HUBS: AdminHub[] = [
   { id: 'inicio', label: 'Inicio', icon: Home, mobile: true },
-  { id: 'coproduccion', label: 'Playroom × Dalmore', icon: Handshake },
   { id: 'preparar', label: '1 · Preparar', icon: ClipboardList, perEvent: true },
   { id: 'vender', label: '2 · Vender', icon: Ticket, mobile: true, perEvent: true },
-  // Contenido: lo que se publica (plan, estudio de diseño, revisión del perfil).
-  { id: 'contenido', label: 'Contenido', icon: Palette },
-  // Marketing: lo que llega a la gente (mailing, avisos a la app, Instagram, WhatsApp y el agente que contesta los mensajes).
-  { id: 'marketing', label: 'Marketing', icon: Megaphone },
   { id: 'envivo', label: '3 · En vivo', icon: Radio, mobile: true, perEvent: true },
   { id: 'cierre', label: '4 · Cierre', icon: CircleCheckBig, perEvent: true },
-  { id: 'clientes', label: 'Clientes', icon: Users, mobile: true },
+  // Mensajes: las conversaciones (Instagram, WhatsApp) y el agente que las contesta. Va en la barra del celular porque es lo que más se revisa.
+  { id: 'mensajes', label: 'Mensajes', icon: MessageCircle, mobile: true },
+  // Marketing: lo que sale hacia la gente (mailing, avisos a la app) y lo que trae gente nueva (concursos, embajadores, referidos).
+  { id: 'marketing', label: 'Marketing', icon: Megaphone },
+  // Contenido: lo que se publica (plan, estudio de diseño, revisión del perfil).
+  { id: 'contenido', label: 'Contenido', icon: Palette },
+  { id: 'clientes', label: 'Clientes', icon: Users },
   // La app Playroom y Playmatch: el resumen de la app y las herramientas para probarla.
   { id: 'app', label: 'App y Playmatch', icon: Smartphone },
-  // El asistente al que se le pregunta cualquier cosa de la productora (ventas, clientes, stock, finanzas…) con datos en vivo.
-  { id: 'asistente', label: 'Asistente IA', icon: Sparkles },
   // Finanzas de la empresa, el SII y la terminal para cargar gastos (también en /gastos).
   { id: 'finanzas', label: 'Finanzas', icon: Banknote },
+  // El Asistente IA vive en el botón flotante de todas las pantallas; este hub solo existe para abrirlo a pantalla completa (buscador).
+  { id: 'asistente', label: 'Asistente IA', icon: Sparkles },
+  // Socio de coproducción: al final, porque no es del día a día.
+  { id: 'coproduccion', label: 'Playroom × Dalmore', icon: Handshake },
 ];
 
 /** Lo que necesita el shell de cada sección (sin su `render`). */

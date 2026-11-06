@@ -7,6 +7,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { useIsSupervisor } from '@/lib/demoMode';
 import { EventSwitcher } from './EventSwitcher';
 import { useTonightEvent } from '@/hooks/useTonightEvent';
+import { pickCurrentEvent } from '@shared/currentEvent';
 import { ADMIN_HUBS, hubBadgeCount, type AdminHub, type AdminHubId, type ShellSection } from './nav';
 import { CommandPalette } from './CommandPalette';
 import { GiftHost } from '@/components/gifts/GiftHost';
@@ -76,6 +77,19 @@ export interface AdminQuickAction {
   /** La sección que abre; sin ella el atajo solo ejecuta `onSelect` (abre una hoja encima de donde estés). */
   section?: string;
   onSelect?: () => void;
+  /** Cuándo es más útil: antes de la fiesta, el día de la fiesta o después. Los de la etapa actual van primero en el «+». */
+  stages?: EventStage[];
+}
+
+export type EventStage = 'antes' | 'hoy' | 'despues';
+
+/** En qué etapa está el evento de trabajo: «hoy» desde 6 horas antes hasta 12 horas después de su hora de inicio. */
+export function eventStage(eventDate: string | Date | null | undefined, now: Date = new Date()): EventStage {
+  if (!eventDate) return 'antes';
+  const diffH = (new Date(eventDate).getTime() - now.getTime()) / 3600_000;
+  if (diffH > 6) return 'antes';
+  if (diffH >= -12) return 'hoy';
+  return 'despues';
 }
 
 /** Chrome del panel: sidebar de vidrio (desktop), pestañas del hub, barra
@@ -120,7 +134,13 @@ export function AdminShell({ sections: allSections, activeSection, onOpenSection
   );
   const hubMeta = allHubs.find((h) => h.id === activeHub) ?? allHubs[0];
   // Los atajos de la hoja del «+»: los que abren una sección que este usuario ve, y los que abren una hoja encima de donde estés.
-  const visibleQuickActions = (quickActions ?? []).filter((q) => !q.section || sections.some((s) => s.id === q.section));
+  // Los de la etapa del evento (antes / hoy / después) van primero: el «+» del celular muestra lo que toca ahora.
+  const stage = eventStage(pickCurrentEvent((shellEvents ?? []) as any[]).event?.eventDate);
+  const visibleQuickActions = (quickActions ?? [])
+    .filter((q) => !q.section || sections.some((s) => s.id === q.section))
+    .map((q, i) => ({ q, i, rank: q.stages?.includes(stage) ? 0 : 1 }))
+    .sort((a, b) => a.rank - b.rank || a.i - b.i)
+    .map((x) => x.q);
   const runQuickAction = (q: AdminQuickAction) => { q.onSelect?.(); if (q.section) onOpenSection(q.section); };
 
   // Última pestaña usada en cada hub: volver al hub vuelve a esa pestaña.
@@ -288,12 +308,12 @@ export function AdminShell({ sections: allSections, activeSection, onOpenSection
               </span>
             )}
             {giftAccess?.can && (
-              <button type="button" onClick={() => setTransferOpen(true)} className="admin-search-btn flex h-10 shrink-0 items-center gap-2 rounded-xl px-3 text-sm font-medium" aria-label="Vender por transferencia y enviar la entrada">
+              <button type="button" onClick={() => setTransferOpen(true)} className="admin-search-btn flex h-10 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:min-w-11 shrink-0 items-center gap-2 rounded-xl px-3 text-sm font-medium" aria-label="Vender por transferencia y enviar la entrada">
                 <span aria-hidden>💸</span><span className="hidden sm:inline">Transferencia</span>
               </button>
             )}
             {canOpenGift && (
-              <button type="button" onClick={() => setGiftOpen(true)} className="admin-search-btn flex h-10 shrink-0 items-center gap-2 rounded-xl px-3 text-sm font-medium" aria-label={isSupervisor ? 'Invitar una entrada' : 'Regalar una entrada o un trago'}>
+              <button type="button" onClick={() => setGiftOpen(true)} className="admin-search-btn flex h-10 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:min-w-11 shrink-0 items-center gap-2 rounded-xl px-3 text-sm font-medium" aria-label={isSupervisor ? 'Invitar una entrada' : 'Regalar una entrada o un trago'}>
                 <span aria-hidden>🎁</span><span className="hidden sm:inline">{isSupervisor ? 'Invitar' : 'Regalar'}</span>
               </button>
             )}
@@ -317,7 +337,7 @@ export function AdminShell({ sections: allSections, activeSection, onOpenSection
             <button
               type="button"
               onClick={() => setSearchOpen(true)}
-              className="admin-search-btn flex h-10 shrink-0 items-center gap-2 rounded-xl px-3 text-sm text-muted-foreground"
+              className="admin-search-btn flex h-10 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:min-w-11 shrink-0 items-center gap-2 rounded-xl px-3 text-sm text-muted-foreground"
               aria-label="Buscar en el panel"
             >
               <Search className="h-4 w-4" />
@@ -342,7 +362,7 @@ export function AdminShell({ sections: allSections, activeSection, onOpenSection
                       role="tab"
                       aria-selected={isActive}
                       onClick={() => onOpenSection(s.id)}
-                      className={`admin-tab flex h-9 shrink-0 items-center gap-2 rounded-full px-3.5 text-sm font-medium ${isActive ? 'admin-tab-active' : ''}`}
+                      className={`admin-tab flex h-9 shrink-0 items-center gap-2 rounded-full px-3.5 text-sm font-medium [@media(pointer:coarse)]:h-11 ${isActive ? 'admin-tab-active' : ''}`}
                     >
                       <s.icon className="h-4 w-4" />
                       {s.label}
