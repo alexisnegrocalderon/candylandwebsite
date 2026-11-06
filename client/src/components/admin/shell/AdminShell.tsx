@@ -7,7 +7,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { useIsSupervisor } from '@/lib/demoMode';
 import { EventSwitcher } from './EventSwitcher';
 import { useTonightEvent } from '@/hooks/useTonightEvent';
-import { pickCurrentEvent } from '@shared/currentEvent';
+import { eventStage, pickCurrentEvent, type EventStage } from '@shared/currentEvent';
 import { ADMIN_HUBS, hubBadgeCount, type AdminHub, type AdminHubId, type ShellSection } from './nav';
 import { CommandPalette } from './CommandPalette';
 import { GiftHost } from '@/components/gifts/GiftHost';
@@ -81,16 +81,6 @@ export interface AdminQuickAction {
   stages?: EventStage[];
 }
 
-export type EventStage = 'antes' | 'hoy' | 'despues';
-
-/** En qué etapa está el evento de trabajo: «hoy» desde 6 horas antes hasta 12 horas después de su hora de inicio. */
-export function eventStage(eventDate: string | Date | null | undefined, now: Date = new Date()): EventStage {
-  if (!eventDate) return 'antes';
-  const diffH = (new Date(eventDate).getTime() - now.getTime()) / 3600_000;
-  if (diffH > 6) return 'antes';
-  if (diffH >= -12) return 'hoy';
-  return 'despues';
-}
 
 /** Chrome del panel: sidebar de vidrio (desktop), pestañas del hub, barra
  * inferior + "Más" (celular) y buscador Ctrl+K. No sabe nada de lo que

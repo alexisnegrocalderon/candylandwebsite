@@ -20,3 +20,14 @@ export function pickCurrentEvent<T extends EventLike>(events: readonly T[] | nul
   const last = list[list.length - 1] ?? null;
   return { event: last, past: !!last };
 }
+
+export type EventStage = 'antes' | 'hoy' | 'despues';
+
+/** En qué etapa está el evento de trabajo: «hoy» desde 6 horas antes hasta 12 horas después de su hora de inicio. */
+export function eventStage(eventDate: string | Date | null | undefined, now: Date = new Date()): EventStage {
+  if (!eventDate) return 'antes';
+  const diffH = (new Date(eventDate).getTime() - now.getTime()) / 3600_000;
+  if (diffH > 6) return 'antes';
+  if (diffH >= -12) return 'hoy';
+  return 'despues';
+}

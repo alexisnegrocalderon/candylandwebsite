@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EVENT_WRAPUP_HOURS, pickCurrentEvent } from './currentEvent';
+import { EVENT_WRAPUP_HOURS, eventStage, pickCurrentEvent } from './currentEvent';
 
 const now = new Date('2026-10-25T19:00:00Z');
 const day = 86_400_000;
@@ -28,4 +28,15 @@ describe('pickCurrentEvent', () => {
     expect(pickCurrentEvent([], now)).toEqual({ event: null, past: false });
     expect(pickCurrentEvent(undefined, now)).toEqual({ event: null, past: false });
   });
+});
+
+describe('eventStage', () => {
+  const at = (hours: number) => new Date(now.getTime() + hours * 3600_000);
+  it('antes: falta más de 6 horas', () => { expect(eventStage(at(30), now)).toBe('antes'); });
+  it('hoy: desde 6 horas antes hasta 12 horas después', () => {
+    expect(eventStage(at(5), now)).toBe('hoy');
+    expect(eventStage(at(-11), now)).toBe('hoy');
+  });
+  it('después: pasaron más de 12 horas', () => { expect(eventStage(at(-13), now)).toBe('despues'); });
+  it('sin evento cuenta como antes', () => { expect(eventStage(null, now)).toBe('antes'); });
 });
