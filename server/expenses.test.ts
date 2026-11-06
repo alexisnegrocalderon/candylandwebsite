@@ -335,3 +335,19 @@ describe("PlayCard: el saldo gastado en caja no es plata nueva", () => {
     ])).toBe(25000);
   });
 });
+
+
+describe('computePnl: comisión de tarjeta real', () => {
+  const base = { ivaApplies: false, grossIncome: 100000, cogs: 0, ambassadorCommissions: 0, directExpenses: [], generalExpenses: [], prorationWeight: 0 } as any;
+  it('sin comisión calculada usa base × % de Ajustes, como siempre', () => {
+    const r = computePnl({ ...base, cardFeeBase: 44000, cardFeePercent: 3.5 });
+    expect(r.cardFeeAmount).toBe(1540);
+    expect(r.cardFeePercent).toBe(3.5);
+  });
+  it('con la comisión real manda esa cifra y el % que se muestra es el efectivo', () => {
+    const r = computePnl({ ...base, cardFeeBase: 44000, cardFeePercent: 3.5, cardFeeAmountOverride: 1672 });
+    expect(r.cardFeeAmount).toBe(1672);
+    expect(r.cardFeePercent).toBe(3.8);
+    expect(r.netProfit).toBeLessThan(computePnl({ ...base, cardFeeBase: 44000, cardFeePercent: 3.5 }).netProfit);
+  });
+});

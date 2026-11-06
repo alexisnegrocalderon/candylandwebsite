@@ -63,3 +63,43 @@ describe('lo que llega a la cuenta (Ventas Web)', () => {
     expect(paidThroughMercadoPago({ channel: 'caja', paymentMethod: 'debito' })).toBe(false);
   });
 });
+
+import { cardFeeBaseFromOrders, cardFeeForOrders, type CardFeeOrder } from './mpNet';
+
+describe('comisión de tarjeta del evento (resultado)', () => {
+  const caja = (total: number, paymentMethod: string): CardFeeOrder => ({ total, channel: 'caja', paymentMethod, paymentId: null });
+
+  it('la base es la misma de siempre: web por Mercado Pago + caja con tarjeta; sin manuales ni efectivo; con el copago de Misión 300', () => {
+    const rows: CardFeeOrder[] = [
+      web(44000, '1'),
+      { ...web(10000, '2'), missionTopupStatus: 'paid', missionTopupAmount: 5000 },
+      { total: 20000, channel: 'web', paymentMethod: 'Manual: Invitación especial', paymentId: null },
+      caja(8000, 'debito'), caja(2000, 'qr'), caja(5000, 'efectivo'),
+    ];
+    expect(cardFeeBaseFromOrders(rows)).toBe(44000 + 15000 + 8000 + 2000);
+  });
+
+  it('la web usa la comisión REAL de Mercado Pago; la caja con tarjeta, el % de Ajustes', () => {
+    const rows = [web(44000, '188046742156'), caja(10000, 'debito')];
+    const r = cardFeeForOrders(rows, new Map([['188046742156', 1672]]), 3.5);
+    expect(r.base).toBe(54000);
+    expect(r.amount).toBe(1672 + 350); // real en la web + 3,5 % de $10.000 en la caja
+  });
+
+  it('con la comisión real el resultado difiere del estimado fijo (3,5 %): es más exacto', () => {
+    const rows = [web(44000, '188046742156')];
+    expect(cardFeeForOrders(rows, new Map([['188046742156', 1672]]), 3.5).amount).toBe(1672);
+    expect(Math.round(44000 * 3.5 / 100)).toBe(1540); // la estimación de antes se quedaba corta por $132
+  });
+
+  it('sin datos reales todo se estima con el % de Ajustes, como antes', () => {
+    const rows = [web(44000, 'x'), caja(10000, 'credito')];
+    expect(cardFeeForOrders(rows, new Map(), 3.5).amount).toBe(Math.round(54000 * 3.5 / 100));
+  });
+
+  it('el copago de Misión 300 se estima al % que Mercado Pago viene cobrando', () => {
+    const rows: CardFeeOrder[] = [{ ...web(44000, '1'), missionTopupStatus: 'paid', missionTopupAmount: 10000 }];
+    const r = cardFeeForOrders(rows, new Map([['1', 1672]]), 3.5);
+    expect(r.amount).toBe(1672 + 380); // 3,8 % de $10.000
+  });
+});

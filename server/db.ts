@@ -16,7 +16,8 @@ import { ambassadorBuyerDiscount, bestBuyerDiscount, effectiveBuyerDiscountPerce
 import { normalizeIgHandle, saysAlreadyBought, type BuyerCandidate } from "../shared/igCustomerLink";
 import { computeFans, FAN_WINDOW_DAYS } from "../shared/igEngagement";
 import { reservedCouponUses } from '../shared/couponReservation';
-import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, memberCoupons, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyCharges, partyEventConfig, partyConnections, partyMessages, partyBlocks, partyReports, partyPhotos, partySwipes, partyCostumeVotes, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog, emailEvents, eventSurveys, eventSurveySettings, accessCredits, type AccessCredit, igComments, type IgComment, igReferrals, type IgReferralRow, igLinkClicks, staffMembers, staffShifts, aiUsage, igFollowUps, attendeeContacts, coproductions, solteroApprovals, birthdayApplications, coproductionExpenses } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, memberCoupons, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyCharges, partyEventConfig, partyConnections, partyMessages, partyBlocks, partyReports, partyPhotos, partySwipes, partyCostumeVotes, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog, emailEvents, eventSurveys, eventSurveySettings, accessCredits, type AccessCredit, igComments, type IgComment, igReferrals, type IgReferralRow, igLinkClicks, staffMembers, staffShifts, aiUsage, igFollowUps, attendeeContacts, coproductions, solteroApprovals, birthdayApplications, coproductionExpenses, accountMovements } from "../drizzle/schema";
+import { cardFeeForOrders } from "../shared/mpNet";
 import { discountOrigin } from "../shared/discountOrigin";
 import { presaleAllows } from "../shared/presaleExtras";
 import { buildProductRows, buildWhoRows, columnOf, registerColumn, NO_REGISTER_COLUMN, WEB_COLUMN, type ResultLine, type WhoOrder } from "../shared/eventResults";
@@ -4495,28 +4496,28 @@ const CASH_COLLECTED_COLUMNS = {
   missionTopupAmount: orders.missionTopupAmount,
   channel: orders.channel,
   paymentMethod: orders.paymentMethod,
+  paymentId: orders.paymentId,
   refundAmount: orders.refundAmount,
 };
 
-// Métodos de pago de caja que sí pagan comisión de tarjeta (efectivo no).
-const CARD_LIKE_CAJA_METHODS = new Set(['debito', 'credito', 'qr']);
-
-/** Base sobre la que se calcula la comisión de Mercado Pago de un evento: el
- * total de las órdenes aprobadas pagadas con tarjeta -- toda la web (se
- * asume pagada vía Mercado Pago Checkout) más las de caja con
- * débito/crédito/QR. El efectivo en caja no paga comisión. */
-function cardFeeBaseFromOrders(rows: { channel: string | null; paymentMethod: string | null; total: string | number; missionTopupStatus?: string | null; missionTopupAmount?: string | number | null }[]): number {
-  return rows.reduce((sum, r) => {
-    // Las órdenes manuales (invitaciones, consumo staff, transferencias) no
-    // pasan por Mercado Pago, así que no pagan comisión.
-    const isManual = (r.paymentMethod ?? '').startsWith('Manual') || r.paymentMethod === 'Prueba';
-    const isWeb = r.channel === 'web' && !isManual;
-    const isCajaCard = r.channel === 'caja' && r.paymentMethod != null && CARD_LIKE_CAJA_METHODS.has(r.paymentMethod);
-    if (!isWeb && !isCajaCard) return sum;
-    // El copago de Misión 300 también se cobró con tarjeta.
-    const topup = isWeb && r.missionTopupStatus === 'paid' ? Number(r.missionTopupAmount ?? 0) : 0;
-    return sum + Number(r.total) + topup;
-  }, 0);
+/** Comisión real que Mercado Pago cobró por cada pago (la sincronización guarda `pay:<id>` con bruto, neto y comisión). */
+export async function loadRealMpFees(db: any, paymentIds: (string | null | undefined)[]): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  const ids = Array.from(new Set(paymentIds.filter((x): x is string => !!x)));
+  try {
+    for (let i = 0; i < ids.length; i += 500) {
+      const rows = await db.select({ externalId: accountMovements.externalId, raw: accountMovements.raw }).from(accountMovements)
+        .where(and(eq(accountMovements.source, 'mercadopago'), inArray(accountMovements.externalId, ids.slice(i, i + 500).map((id) => `pay:${id}`))));
+      for (const m of rows as any[]) {
+        const fee = Number((m.raw as { fee?: unknown } | null)?.fee);
+        if (Number.isFinite(fee) && fee >= 0) out.set(String(m.externalId).slice(4), fee);
+      }
+    }
+  } catch (err) {
+    // Sin la tabla o sin sincronización, todo se estima con el % de Ajustes.
+    console.error('[MP] No se pudieron leer las comisiones reales:', err instanceof Error ? err.message : err);
+  }
+  return out;
 }
 
 /** Materializa las copias del mes de los gastos recurrentes (suscripciones).
@@ -4851,8 +4852,11 @@ export async function getEventPnl(eventId: number, opts: { excludeGeneral?: bool
   }));
   const grossIncome = monthIncomes.find((i) => i.eventId === eventId)?.grossIncome ?? 0;
   const prorationWeight = prorationWeights(monthIncomes).get(eventId) ?? 0;
-  const cardFeeBase = cardFeeBaseFromOrders((incomeByEvent.get(eventId) ?? []) as any);
   const cardFeePercent = Number((await getSiteSettings()).cardFeePercent ?? 3.5);
+  const eventOrders = (incomeByEvent.get(eventId) ?? []) as any[];
+  // La comisión de la web sale de lo que Mercado Pago realmente cobró en cada pago; lo demás se estima con el % de Ajustes.
+  const cardFee = cardFeeForOrders(eventOrders, await loadRealMpFees(db, eventOrders.map((o) => o.paymentId)), cardFeePercent);
+  const cardFeeBase = cardFee.base;
 
   // Costo de mercadería vendida. `cogsCoverage` dice qué porcentaje de las
   // unidades tenía costo cargado: sin ese dato el margen mentiría en silencio.
@@ -4922,6 +4926,7 @@ export async function getEventPnl(eventId: number, opts: { excludeGeneral?: bool
     staffCostsTotal,
     cardFeeBase,
     cardFeePercent,
+    cardFeeAmountOverride: cardFee.amount,
     directExpenses: (directRows as any[]).map(toPnlExpense),
     generalExpenses: (generalRows as any[]).map(toPnlExpense),
     prorationWeight,
@@ -5098,6 +5103,7 @@ export async function getPnlComparison(eventIds?: number[]) {
   }
 
   const cardFeePercent = Number((await getSiteSettings()).cardFeePercent ?? 3.5);
+  const realFees = await loadRealMpFees(db, (incomeRows as any[]).map((o) => o.paymentId));
   const eventIdSet = eventIds?.length ? new Set(eventIds) : null;
   const shownEvents = (allEvents as any[]).filter((e) => !eventIdSet || eventIdSet.has(e.id));
   const staffRows = await db.select({ eventId: staffShifts.eventId, amountClp: staffShifts.amountClp, paymentType: staffShifts.paymentType, amountMode: staffShifts.amountMode }).from(staffShifts);
@@ -5122,7 +5128,7 @@ export async function getPnlComparison(eventIds?: number[]) {
         grossIncome: incomeOf(e.id),
         cogs: cogsByEvent.get(e.id) ?? 0,
         ambassadorCommissions: commissionsByEvent.get(e.id) ?? 0,
-        cardFeeBase: cardFeeBaseFromOrders((incomeByEvent.get(e.id) ?? []) as any),
+        ...(() => { const f = cardFeeForOrders((incomeByEvent.get(e.id) ?? []) as any[], realFees, cardFeePercent); return { cardFeeBase: f.base, cardFeeAmountOverride: f.amount }; })(),
         cardFeePercent,
         directExpenses: (directByEvent.get(e.id) ?? []).map(toPnlExpense),
         generalExpenses: (generalByMonth.get(monthKey) ?? []).map(toPnlExpense),

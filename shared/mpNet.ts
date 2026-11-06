@@ -65,3 +65,40 @@ export function computeWebNet(orders: NetOrder[], realFees: Map<string, number>,
     notMercadoPago: Math.round(notMercadoPago),
   };
 }
+
+// ── Comisión de tarjeta de un evento (resultado del evento) ──
+
+/** Métodos de pago de caja que sí pagan comisión de tarjeta (efectivo no). */
+export const CARD_LIKE_CAJA_METHODS = new Set(['debito', 'credito', 'qr']);
+
+export interface CardFeeOrder extends NetOrder {
+  missionTopupStatus?: string | null;
+  missionTopupAmount?: string | number | null;
+}
+
+/** Base sobre la que se calcula la comisión: el total de las órdenes aprobadas pagadas con tarjeta (toda la web que pasó por
+ * Mercado Pago, más las de caja con débito/crédito/QR). Las manuales (invitaciones, consumo staff, transferencias) y el
+ * efectivo no pagan comisión. */
+export function cardFeeBaseFromOrders(rows: CardFeeOrder[]): number {
+  return rows.reduce((sum, r) => {
+    const isWeb = paidThroughMercadoPago(r);
+    const isCajaCard = r.channel === 'caja' && r.paymentMethod != null && CARD_LIKE_CAJA_METHODS.has(r.paymentMethod);
+    if (!isWeb && !isCajaCard) return sum;
+    // El copago de Misión 300 también se cobró con tarjeta.
+    const topup = isWeb && r.missionTopupStatus === 'paid' ? Number(r.missionTopupAmount ?? 0) : 0;
+    return sum + Number(r.total) + topup;
+  }, 0);
+}
+
+/** Comisión de tarjeta de un evento. La web que pasó por Mercado Pago usa la comisión REAL de cada pago que Mercado Pago ya
+ * informó (y una estimación para los que todavía no); la caja con tarjeta y el copago de Misión 300 se estiman con el % de
+ * Ajustes (la terminal de caja no informa su comisión). */
+export function cardFeeForOrders(rows: CardFeeOrder[], realFees: Map<string, number>, configuredPercent: number): { base: number; amount: number } {
+  const base = cardFeeBaseFromOrders(rows);
+  const web = computeWebNet(rows.filter(paidThroughMercadoPago).map((r) => ({ ...r, total: Number(r.total) })), realFees, configuredPercent);
+  const webPercent = web.feePercent > 0 ? web.feePercent : configuredPercent;
+  const topup = rows.reduce((s, r) => s + (paidThroughMercadoPago(r) && r.missionTopupStatus === 'paid' ? Number(r.missionTopupAmount ?? 0) : 0), 0);
+  const cajaBase = cardFeeBaseFromOrders(rows.filter((r) => r.channel === 'caja'));
+  const amount = web.fee + Math.round((topup * webPercent) / 100) + Math.round((cajaBase * configuredPercent) / 100);
+  return { base, amount };
+}
