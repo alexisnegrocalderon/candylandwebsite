@@ -807,3 +807,20 @@ html {
   /* Botones de acción: a la derecha, en una sola línea que puede partirse. */
   table[data-stack] > tbody > tr > td[data-label] > * { min-width: 0; }
 }
+
+/* Avisos (sonner): texto completo y legible, sin recortar, siempre por encima del encabezado. */
+.app-toast {
+  font-size: 15px;
+  line-height: 1.45;
+  padding: 14px 16px !important;
+  box-shadow: 0 18px 50px -12px rgba(0, 0, 0, 0.6) !important;
+}
+.app-toast [data-title] {
+  font-weight: 700;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.app-toast [data-description] {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
