@@ -2125,6 +2125,8 @@ export const appRouter = router({
     }).optional()).query(async ({ input }) => {
       return db.getOrderStats(input?.channel, input?.eventId);
     }),
+    // «Llega a tu cuenta»: lo cobrado en línea menos lo que Mercado Pago se queda (Ventas Web).
+    getWebNet: adminReadProcedure.input(z.object({ eventId: z.number().optional() }).optional()).query(async ({ input }) => (await import("./webNet")).getWebNet(input?.eventId)),
     // "Ventas por origen" (atribución UTM, agujero 2 del plan de ventas).
     salesByOrigin: adminReadProcedure.input(z.object({ eventId: z.number().optional() }).optional()).query(async ({ input }) => {
       return db.getSalesByUtmOrigin(input?.eventId);
