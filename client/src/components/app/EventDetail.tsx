@@ -10,6 +10,8 @@ import { eventImage } from '@shared/eventImage';
 import { addToCalendar, eventWhen, shareEvent, type AppEvent } from '@/components/app/AppEventCard';
 import { posterLayoutId } from '@/components/app/EventHero';
 import type { InfoKind } from '@/components/app/InfoSheets';
+import { usePlaymore } from '@/components/playmore/AppBanner';
+import { COLAB_FINDS, COLAB_MIN_AGE } from '@shared/coproduction';
 
 /* «La fiesta» a pantalla completa: crece desde el póster de la portada (mismo
  * `layoutId`, como las tarjetas del App Store) y se cierra con la X o
@@ -37,6 +39,10 @@ export function EventDetail({ event, open, from, onClose, onMore }: {
   const soldOut = event.status === 'soldout';
   const drag = useDragControls();
   useBackLayer(open, onClose);
+  // Evento de la colaboración (PLAYMORE): sus textos, no los de la fiesta de Playroom (pistas, mansión, disfraz).
+  const pm = usePlaymore();
+  const colab = pm.data?.event && pm.data.event.slug === event.slug ? pm.data.landing : null;
+  const amenities = colab ? COLAB_FINDS.map((f) => ({ icono: f.icono, texto: f.texto })) : CANDYLAND.amenities;
   const pistas = CANDYLAND.pistas.map((p) => ({ ...p, djs: CANDYLAND.lineup.filter((d) => d.pista === p.genero) }));
 
   // Mientras está abierta, la página de atrás no se desliza; Escape cierra.
@@ -101,8 +107,22 @@ export function EventDetail({ event, open, from, onClose, onMore }: {
               <motion.p {...reveal(1)} className="mt-6 text-center text-body leading-relaxed text-white/80">{event.shortDescription}</motion.p>
             )}
 
+            {colab && (
+              <motion.section {...reveal(2)} className="mt-8">
+                <h3 className="mb-3 px-1 text-title3 font-bold">Line-up</h3>
+                <article className="account-glass relative overflow-hidden rounded-[26px] p-5">
+                  <div aria-hidden className="pointer-events-none absolute inset-0 bg-gradient-to-br from-pink-500/45 via-fuchsia-500/25 to-transparent" />
+                  <div className="relative">
+                    <p className="text-caption1 font-semibold uppercase tracking-[0.18em] text-white/70">{colab.eventName}</p>
+                    <p className="mt-1 text-title2 font-black leading-tight">Un line up de DJs pensado especialmente para esta fusión</p>
+                    <p className="mt-2 text-subhead text-white/70">{colab.fusionText}</p>
+                  </div>
+                </article>
+              </motion.section>
+            )}
+
             {/* Line-up: una tarjeta por pista, deslizables de lado. */}
-            <motion.section {...reveal(2)} className="mt-8">
+            {!colab && <motion.section {...reveal(2)} className="mt-8">
               <h3 className="mb-3 px-1 text-title3 font-bold">Line-up</h3>
               <div className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                 {pistas.map((p, i) => (
@@ -122,13 +142,13 @@ export function EventDetail({ event, open, from, onClose, onMore }: {
                   </article>
                 ))}
               </div>
-            </motion.section>
+            </motion.section>}
 
             {/* Lo que hay en la mansión, como mosaico de íconos. */}
             <motion.section {...reveal(3)} className="mt-8">
-              <h3 className="mb-3 px-1 text-title3 font-bold">En la mansión</h3>
+              <h3 className="mb-3 px-1 text-title3 font-bold">{colab ? 'En el nuevo spot' : 'En la mansión'}</h3>
               <div className="grid grid-cols-3 gap-2.5">
-                {CANDYLAND.amenities.map((a, i, all) => {
+                {amenities.map((a, i, all) => {
                   const Icon = AMENITY_ICON[a.icono] ?? ShieldCheck;
                   // La última tarjeta llena lo que queda de su fila (sin huecos con 4, 5, 7… ítems).
                   const left = all.length % 3;
@@ -149,7 +169,7 @@ export function EventDetail({ event, open, from, onClose, onMore }: {
 
             <motion.section {...reveal(4)} className="account-glass mt-8 rounded-[26px] p-5">
               <p className="text-caption1 font-semibold uppercase tracking-[0.18em] text-pink-300">Dress code</p>
-              <p className="mt-2 text-body leading-relaxed text-white/85">{EVENT_BRAND.dressCode}</p>
+              <p className="mt-2 text-body leading-relaxed text-white/85">{colab ? colab.dressCode : EVENT_BRAND.dressCode}</p>
               <p className="mt-3 text-footnote text-white/55">Trae tu carnet o pasaporte: lo piden en la puerta junto al QR de tu entrada.</p>
             </motion.section>
 
@@ -163,7 +183,7 @@ export function EventDetail({ event, open, from, onClose, onMore }: {
               </motion.div>
             )}
 
-            <p className="mt-6 text-center text-footnote text-white/45">{BRAND.valores.join(' · ')} · Evento +{BRAND.edadMinima}</p>
+            <p className="mt-6 text-center text-footnote text-white/45">{BRAND.valores.join(' · ')} · Evento +{colab ? COLAB_MIN_AGE : BRAND.edadMinima}</p>
           </div>
           </div>
 

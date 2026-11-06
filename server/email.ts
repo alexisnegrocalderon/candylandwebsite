@@ -1,7 +1,7 @@
 import { formatChileDate, formatChileDateTime } from '../shared/chileDate';
 import { AMBASSADOR_TIERS, tierForCount, nextTierForCount } from '../shared/ambassadorTiers';
 import { BRAND, EVENT_BRAND } from '../shared/eventBrand';
-import { COLAB_MIN_AGE } from '../shared/coproduction';
+import { COLAB_FINDS, COLAB_MIN_AGE } from '../shared/coproduction';
 import { type OrderEmailConfig, DEFAULT_ORDER_EMAIL_CONFIG, fillPlaceholders } from '../shared/emailTemplateConfig';
 import {
   ACCENT, HALLOWEEN, INK, MUTED, FAINT, BORDER, CARD_BG, DISCO_BG, DISCO_HERO_BG, EMAIL_BASE_URL, LOGO_URL,
@@ -370,14 +370,7 @@ export function buildOrderEmail(data: {
   const mapsLink = data.mapsUrl || (colab && data.address ? `https://www.google.com/maps/search/?api=1&query=${placeQuery}` : '');
   const wazeLink = colab && data.address ? `https://waze.com/ul?q=${placeQuery}&navigate=yes` : '';
   // Lo que hay en el nuevo spot (confirmado por el dueño); no es la lista del recinto de siempre.
-  const encontrarasItems = colab
-    ? [
-        { emoji: '🎧', label: 'Line up de DJs especial para esta fusión' },
-        { emoji: '🛝', label: 'Nuevos playgrounds' },
-        { emoji: '🍸', label: 'Bar con barra de tragos' },
-        { emoji: '🧥', label: 'Guardarropía' },
-      ]
-    : CONTENT.encontraras;
+  const encontrarasItems = colab ? COLAB_FINDS.map((f) => ({ emoji: f.emoji, label: f.texto })) : CONTENT.encontraras;
   const antesDeVenirItems = colab
     ? [
         { emoji: '🪪', titulo: 'Documento', texto: `Carnet o pasaporte vigente. Evento exclusivo para mayores de ${COLAB_MIN_AGE} años.` },
