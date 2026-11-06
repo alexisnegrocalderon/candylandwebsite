@@ -4,7 +4,7 @@ import { ArrowRight, ArrowUp, Check, Sparkles, X } from 'lucide-react';
 import { OPEN_SECTION_EVENT } from '@/components/admin/studio/handoff';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
-import { ASSISTANT_QUESTION_MAX, TOOL_LABELS, type AssistantMessageView, type AssistantProposal } from '@shared/assistant';
+import { ASSISTANT_QUESTION_MAX, TOOL_LABELS, type AssistantChoice, type AssistantMessageView, type AssistantProposal } from '@shared/assistant';
 import { Markdown } from './Markdown';
 import { AssistantChart } from './AssistantChart';
 import { VoiceNoteButton } from './VoiceNoteButton';
@@ -42,6 +42,17 @@ function ProposalCard({ p, messageId, onDone }: { p: AssistantProposal; messageI
     <div className={`rounded-2xl border-2 p-3 ${done ? 'border-border bg-muted/30' : 'border-primary/60 bg-primary/5'}`}>
       <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Acción por confirmar</p>
       <p className="mt-1 text-sm font-semibold">{p.resumen}</p>
+      {/* A quién va: nombre y correo del contacto, solo para corroborar. */}
+      {!!p.para?.length && (
+        <ul className="mt-2 space-y-1">
+          {p.para.map((r) => (
+            <li key={r.correo} className="rounded-xl bg-muted/50 px-3 py-2 text-sm">
+              <span className="font-semibold">{r.nombre ?? 'Sin nombre en clientes'}</span>
+              <span className="block break-all text-muted-foreground">{r.correo}</span>
+            </li>
+          ))}
+        </ul>
+      )}
       {done ? (
         <p className={`mt-2 text-sm ${p.estado === 'hecha' ? 'text-emerald-500' : p.estado === 'fallida' ? 'text-red-500' : 'text-muted-foreground'}`}>
           {p.estado === 'hecha' ? '✓ ' : p.estado === 'fallida' ? '✗ ' : ''}{p.resultado ?? (p.estado === 'cancelada' ? 'Cancelada' : '')}
@@ -56,7 +67,26 @@ function ProposalCard({ p, messageId, onDone }: { p: AssistantProposal; messageI
   );
 }
 
-function Bubble({ m, onChanged }: { m: AssistantMessageView; onChanged: () => void }) {
+/** «¿Cuál Cata es?»: un botón grande por candidato (nombre y, debajo, el correo como información). Al tocar uno se manda
+ * «Elijo: …» y el asistente sigue con esa persona o ese trago. Quedan apagados cuando ya hubo otra respuesta. */
+function ChoiceCard({ choice, answered, onPick }: { choice: AssistantChoice; answered: boolean; onPick: (valor: string) => void }) {
+  return (
+    <div className="rounded-2xl border-2 border-primary/40 bg-primary/5 p-3">
+      <p className="text-base font-semibold">{choice.pregunta}</p>
+      <div className="mt-2 space-y-2">
+        {choice.opciones.map((o) => (
+          <button key={o.valor} type="button" disabled={answered} onClick={() => onPick(o.valor)}
+            className="flex min-h-14 w-full flex-col items-start justify-center rounded-2xl border border-border bg-card/70 px-4 py-2 text-left transition active:scale-[0.98] enabled:hover:bg-muted disabled:opacity-50">
+            <span className="text-base font-semibold">{o.titulo}</span>
+            {o.detalle && <span className="break-all text-sm text-muted-foreground">{o.detalle}</span>}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Bubble({ m, onChanged, answered, onPick }: { m: AssistantMessageView; onChanged: () => void; answered: boolean; onPick: (valor: string) => void }) {
   if (m.role === 'user') {
     return <div className="ml-auto max-w-[85%] whitespace-pre-wrap rounded-3xl rounded-br-md bg-primary px-4 py-2.5 text-[15px] text-primary-foreground">{m.ui.text}</div>;
   }
@@ -64,6 +94,7 @@ function Bubble({ m, onChanged }: { m: AssistantMessageView; onChanged: () => vo
     <div className="max-w-full space-y-3">
       <div className={`rounded-3xl rounded-bl-md px-4 py-3 ${m.ui.error ? 'bg-amber-500/10 text-amber-200' : 'bg-muted/60'}`}><Markdown text={m.ui.text} /></div>
       {(m.ui.charts ?? []).map((c, i) => <AssistantChart key={i} chart={c} />)}
+      {(m.ui.choices ?? []).map((c, i) => <ChoiceCard key={i} choice={c} answered={answered} onPick={onPick} />)}
       {(m.ui.proposals ?? []).map((p) => <ProposalCard key={p.id} p={p} messageId={m.id} onDone={onChanged} />)}
       {/* «Llévame a…»: un botón grande por pantalla; abre la sección y cierra la hoja del asistente. */}
       {(m.ui.links ?? []).map((l) => (
@@ -136,7 +167,10 @@ export function AssistantChat({ threadId, onThread, context, autoFocus = true }:
           </div>
         )}
         {threadId && thread.isLoading && <p className="text-sm text-muted-foreground">Cargando la conversación…</p>}
-        {messages.map((m) => <Bubble key={m.id} m={m} onChanged={() => threadId && utils.assistant.thread.invalidate({ id: threadId })} />)}
+        {messages.map((m, i) => (
+          <Bubble key={m.id} m={m} onChanged={() => threadId && utils.assistant.thread.invalidate({ id: threadId })}
+            answered={i < messages.length - 1 || ask.isPending} onPick={(valor) => send(`Elijo: ${valor}`)} />
+        ))}
         {pending && (
           <>
             <div className="ml-auto max-w-[85%] whitespace-pre-wrap rounded-3xl rounded-br-md bg-primary px-4 py-2.5 text-[15px] text-primary-foreground">{pending}</div>

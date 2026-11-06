@@ -24,7 +24,7 @@ vi.mock("../staff", () => ({ listStaff: vi.fn(async () => []) }));
 vi.mock("../staffGiftQuota", () => ({ getQuotas: vi.fn(async () => ({})) }));
 vi.mock("../accessCredit", () => ({ listGiftPasses: vi.fn(async () => []) }));
 
-const ctx = () => ({ now: new Date("2026-11-04T12:00:00Z"), charts: [] as any[], proposals: [] as any[], links: [] as any[] });
+const ctx = () => ({ now: new Date("2026-11-04T12:00:00Z"), charts: [] as any[], proposals: [] as any[], links: [] as any[], choices: [] as any[] });
 
 beforeEach(() => vi.clearAllMocks());
 
@@ -39,6 +39,33 @@ describe("herramientas del asistente", () => {
       expect(d.input_schema).not.toHaveProperty("$schema");
       expect(d.description.length).toBeGreaterThan(30);
     }
+  });
+
+  it("elegir_opciones deja los botones con nombre y correo, y exige al menos dos candidatos", async () => {
+    const { runTool } = await import("./tools");
+    const c = ctx();
+    await runTool("elegir_opciones", {
+      pregunta: "¿Cuál Cata es?",
+      opciones: [
+        { valor: "Ana (a@x.cl)", titulo: "Ana", detalle: "a@x.cl · tiene la app" },
+        { valor: "Caro (c@x.cl)", titulo: "Caro", detalle: "c@x.cl" },
+      ],
+    }, c);
+    expect(c.choices).toHaveLength(1);
+    expect(c.choices[0].opciones.map((o: any) => o.valor)).toEqual(["Ana (a@x.cl)", "Caro (c@x.cl)"]);
+    const bad = await runTool("elegir_opciones", { pregunta: "¿Cuál?", opciones: [{ valor: "x", titulo: "x", detalle: null }] }, c);
+    expect(JSON.stringify(bad)).toMatch(/error|inválid|invalid|too_small/i);
+    expect(c.choices).toHaveLength(1);
+  });
+
+  it("proponer_accion agrega a quién va (nombre y correo del cliente) para corroborar en la tarjeta", async () => {
+    const { runTool } = await import("./tools");
+    const c = ctx();
+    await runTool("proponer_accion", {
+      resumen: "Regalar 1 Tropical Gin a Ana",
+      accion: { tipo: "regalar", evento_id: 4, correos: ["a@x.cl", "nadie@x.cl"], items: [{ ticket_type_id: 11, cantidad: 1 }], modo: "directo", cualquier_evento: false, mensaje: null },
+    }, c);
+    expect(c.proposals[0].para).toEqual([{ nombre: "Ana", correo: "a@x.cl" }, { nombre: null, correo: "nadie@x.cl" }]);
   });
 
   it("abrir_seccion deja un solo botón por pantalla y rechaza pantallas que no existen", async () => {
