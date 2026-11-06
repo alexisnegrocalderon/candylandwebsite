@@ -2,7 +2,6 @@ import '@/admin.css';
 import { Suspense, lazy, useContext, useEffect, useState, type ReactNode } from 'react';
 import { HomeView } from '@/components/admin/HomeView';
 import { ExpensesToday } from '@/components/admin/expenses/ExpensesToday';
-import { motion } from 'framer-motion';
 import { useAuth } from '@/_core/hooks/useAuth';
 import { canOpenAdmin, isPartnerRole, isSupervisorRole } from '@/lib/demoMode';
 import { SUPERVISOR_SECTION_IDS } from '@shared/panelSupervisor';
@@ -367,14 +366,10 @@ export default function AdminDashboard() {
     >
       <AdminNavContext.Provider value={navContext}>
         {!isSupervisor && <SchemaUpdateBanner />}
-        <motion.div
-          key={activeSection}
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.35 }}
-        >
+        {/* Al entrar a una sección: una estela de luz cruza arriba y las tarjetas suben una tras otra (admin.css). */}
+        <div key={activeSection} className="admin-enter">
           <Suspense fallback={<SectionLoading />}>{active.render()}</Suspense>
-        </motion.div>
+        </div>
       </AdminNavContext.Provider>
     </AdminShell>
   );

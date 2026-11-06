@@ -1,7 +1,7 @@
 import { ArrowRight, Cake, Crown, Handshake, Instagram, UserCheck, type LucideIcon } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 
-/** «Por aprobar»: todo lo que espera un sí o un no, junto en Inicio. Cada fila abre la pantalla donde se decide
+/** «Cross check»: todo lo que espera un sí o un no, junto en Inicio. Cada fila abre la pantalla donde se decide
  * (el botón de aprobar vive ahí; esto solo evita ir a buscarlo). Si no hay nada, no ocupa espacio. */
 const ROWS: { key: 'igComments' | 'ambassadors' | 'birthdays' | 'solteros' | 'coproExpenses'; section: string; icon: LucideIcon; label: (n: number) => string }[] = [
   { key: 'igComments', section: 'instagram', icon: Instagram, label: (n) => `${n} respuesta${n === 1 ? '' : 's'} a comentarios de Instagram por aprobar` },
@@ -17,9 +17,9 @@ export function ApprovalsCard({ enabled, onOpen }: { enabled: boolean; onOpen: (
   if (rows.length === 0) return null;
   const total = rows.reduce((sum, r) => sum + (data?.[r.key] ?? 0), 0);
   return (
-    <section aria-label="Por aprobar" className="admin-clay p-3 md:p-4">
+    <section aria-label="Cross check" className="admin-clay p-3 md:p-4">
       <div className="mb-2 flex items-baseline justify-between px-1">
-        <h3 className="font-heading text-base">Por aprobar</h3>
+        <h3 className="font-heading text-base">Cross check</h3>
         <span className="admin-badge">{total > 99 ? '99+' : total}</span>
       </div>
       <ul className="space-y-1.5">
