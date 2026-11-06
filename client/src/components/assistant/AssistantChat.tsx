@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { ASSISTANT_QUESTION_MAX, TOOL_LABELS, type AssistantMessageView, type AssistantProposal } from '@shared/assistant';
 import { Markdown } from './Markdown';
 import { AssistantChart } from './AssistantChart';
+import { VoiceNoteButton } from './VoiceNoteButton';
 
 export const ASSISTANT_SUGGESTIONS = [
   '¿Cómo va la venta del próximo evento?',
@@ -145,13 +146,16 @@ export function AssistantChat({ threadId, onThread, context, autoFocus = true }:
         <div ref={endRef} />
       </div>
 
-      <form className="mt-2 flex items-end gap-2 rounded-3xl border border-border bg-card/70 p-2" onSubmit={(e) => { e.preventDefault(); send(question); }}>
+      <form className="relative mt-2 flex items-end gap-2 rounded-3xl border border-border bg-card/70 p-2" onSubmit={(e) => { e.preventDefault(); send(question); }}>
         <textarea ref={inputRef} value={question} rows={1} maxLength={ASSISTANT_QUESTION_MAX} aria-label="Tu pregunta para el asistente"
           onChange={(e) => setQuestion(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send(question); } }}
-          placeholder="Pregunta sobre tus fiestas, ventas, clientes, stock…"
+          placeholder="Escribe o mantén apretado 🎤 para hablar…"
           className="max-h-40 min-h-[44px] flex-1 resize-none bg-transparent px-3 py-2.5 text-base outline-none placeholder:text-muted-foreground" />
-        <Button type="submit" size="icon" className="h-11 w-11 shrink-0 rounded-full" disabled={!question.trim() || ask.isPending} aria-label="Preguntar"><ArrowUp className="h-5 w-5" /></Button>
+        {/* Como en WhatsApp: sin texto escrito, el botón es el micrófono (mantener apretado para una nota de voz). */}
+        {question.trim()
+          ? <Button type="submit" size="icon" className="h-11 w-11 shrink-0 rounded-full" disabled={ask.isPending} aria-label="Preguntar"><ArrowUp className="h-5 w-5" /></Button>
+          : <VoiceNoteButton disabled={ask.isPending} onText={(text) => send(text)} />}
       </form>
     </div>
   );

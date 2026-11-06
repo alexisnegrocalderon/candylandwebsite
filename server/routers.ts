@@ -51,6 +51,8 @@ import { firmarInventario, inventarioPath, INVENTARIO_TTL } from "./inventarioLi
 import * as staffGiftQuotaSvc from "./staffGiftQuota";
 import * as giftPacksSvc from "./giftPacks";
 import * as assistantSvc from "./assistant/run";
+import { transcribeVoiceNote } from "./voiceNote";
+import { VOICE_NOTE_MAX_BASE64 } from "../shared/voiceNote";
 import * as crossCheckSvc from "./crossCheck";
 import * as pilotSvc from "./eventPilot";
 import { CROSS_CHECK_AUTOMATIONS } from "../shared/crossCheck";
@@ -1112,6 +1114,14 @@ export const appRouter = router({
   // Asistente IA del panel (server/assistant/): preguntas sobre los datos de la productora con consultas en vivo de solo
   // lectura, y acciones que el asistente solo PROPONE y el dueño confirma aquí. Solo el administrador (son finanzas).
   assistant: router({
+    // Nota de voz (como en WhatsApp): WAV 16 kHz mono en base64 → texto (server/voiceNote.ts). La pregunta se manda aparte con `ask`.
+    transcribe: adminProcedure.input(z.object({ audio: z.string().min(100).max(VOICE_NOTE_MAX_BASE64) })).mutation(async ({ input }) => {
+      try {
+        return await transcribeVoiceNote(input.audio);
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo transcribir la nota.' });
+      }
+    }),
     ask: adminProcedure.input(z.object({
       threadId: z.number().int().positive().nullable().optional(),
       question: z.string().trim().min(1).max(ASSISTANT_QUESTION_MAX),
