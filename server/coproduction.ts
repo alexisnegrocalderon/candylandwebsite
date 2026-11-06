@@ -663,6 +663,7 @@ export async function getEventColabBrand(eventId: number, opts: { allowNotLive?:
       eventSlug: ev?.slug ?? '',
       slug: cp.slug, partnerName: cp.partnerName, partnerLogoUrl: landing.partnerLogoUrl, eventName: landing.eventName,
       countdownIso: landing.countdownIso, timeText: landing.timeText, venueText: landing.venueText,
+      dressCode: landing.dressCode, highlights: landing.highlights, about: landing.subheadline,
     };
   }, null);
 }

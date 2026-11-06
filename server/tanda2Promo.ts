@@ -20,6 +20,7 @@
  *
  * ⚠️ Nunca dice "Founders" -- es un nombre interno del admin.
  */
+import { getEventPromoFacts } from './eventPromoFacts';
 import { eq, and, asc } from 'drizzle-orm';
 import {
   getDb, getFeaturedEvent, listCustomers, getSiteSettings, updateSiteSettings,
@@ -87,15 +88,17 @@ export const resolveTanda2Offer = resolveCurrentOffer;
 /** El copy es fijo (no se regenera con IA en cada corrida -- coherencia día a
  * día). El precio de cada acceso va en la tarjeta de precios del mail, no en
  * el texto. */
-export function buildTanda2PromoContent(priceFrom: number, event: { title: string; slug: string }): MailingContent {
+export function buildTanda2PromoContent(priceFrom: number, event: { title: string; slug: string }, facts?: { fechaTexto: string; dressCode: string; colab: boolean }): MailingContent {
+  const fecha = facts?.fechaTexto ?? EVENT_BRAND.fechaTexto;
+  const dressCode = facts?.dressCode ?? EVENT_BRAND.dressCode;
   return {
     subject: `Nuevo precio para ${event.title}: entradas desde ${formatClp(priceFrom)}`,
     preheader: `La primera etapa de venta ya cerró -- mira el precio de cada acceso en la 2ª tanda.`,
-    headline: `Ya está disponible la 2ª tanda 🎃`,
+    headline: `Ya está disponible la 2ª tanda${facts?.colab ? '' : ' 🎃'}`,
     paragraphs: [
-      `Estás en nuestra lista para ${event.title} (${EVENT_BRAND.fechaTexto}) y vimos que todavía no compraste tu entrada.`,
+      `Estás en nuestra lista para ${event.title} (${fecha}) y vimos que todavía no compraste tu entrada.`,
       `La primera etapa de venta ya cerró y abrimos la 2ª tanda con nuevos precios. Es más conveniente que las etapas que vienen: cuando se acabe esta, el valor vuelve a subir.`,
-      `${EVENT_BRAND.dressCode}`,
+      `${dressCode}`,
     ],
     ctaText: 'Comprar mi entrada',
   };
@@ -149,7 +152,7 @@ export async function runTanda2PromoDaily(): Promise<Tanda2PromoRunResult> {
     return { ran: false, reason: 'audience-exhausted' };
   }
 
-  const content = buildTanda2PromoContent(offer.priceFrom, event);
+  const content = buildTanda2PromoContent(offer.priceFrom, event, await getEventPromoFacts(event));
   const ctaUrl = `${EMAIL_BASE_URL}/checkout/${event.slug}`;
   const { results } = await sendMailingBatch(
     batch.map((c) => c.id),

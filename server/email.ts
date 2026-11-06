@@ -351,7 +351,7 @@ export function buildOrderEmail(data: {
   /** Entrada REGALADA: el mensaje que escribió quien regala (va arriba, como una nota). */
   giftMessage?: string | null;
   /** Evento de una co-producción activa: franja con ambos logos arriba y despedida firmada por las dos productoras. */
-  colab?: { partnerName: string; partnerLogoUrl: string; eventName: string };
+  colab?: { partnerName: string; partnerLogoUrl: string; eventName: string; dressCode?: string; highlights?: string[]; about?: string };
 }) {
   const cfg = data.templateConfig ?? DEFAULT_ORDER_EMAIL_CONFIG;
   const ticketNames = data.items.map(i => i.name).join(', ');
@@ -363,6 +363,23 @@ export function buildOrderEmail(data: {
   // en cambio la URL real servida por /api/qr/:ticketCode.png (server/calendar.ts).
   const qrUrl = data.ticketCode ? `${EMAIL_BASE_URL}/api/qr/${data.ticketCode}.png` : data.qrImageUrl;
   const whatsappShareUrl = `https://wa.me/?text=${encodeURIComponent(`Usa mi código ${data.ambassadorCode} para comprar tu entrada en Mansion Playroom 🍭 ${EMAIL_BASE_URL}`)}`;
+  // Evento de una colaboración (PLAYMORE): lugar nuevo en Santiago, así que la dirección va en texto con links para abrirla en el GPS,
+  // y nada del recinto de siempre (estacionamiento, dress code de la fiesta anterior, «qué es Mansion Playroom»).
+  const colab = data.colab;
+  const placeQuery = encodeURIComponent([data.address, data.venue].filter(Boolean).join(', '));
+  const mapsLink = data.mapsUrl || (colab && data.address ? `https://www.google.com/maps/search/?api=1&query=${placeQuery}` : '');
+  const wazeLink = colab && data.address ? `https://waze.com/ul?q=${placeQuery}&navigate=yes` : '';
+  const COLAB_EMOJIS = ['🎧', '🛝', '🤝', '✨', '🪩', '🍸'];
+  const colabFinds = (colab?.highlights ?? []).map((label, i) => ({ emoji: COLAB_EMOJIS[i % COLAB_EMOJIS.length], label: escapeEmailText(label) }));
+  const encontrarasItems = colab ? (colabFinds.length > 0 ? colabFinds : [{ emoji: '🎧', label: 'Line up de DJs especial para esta fusión' }, { emoji: '🛝', label: 'Nuevos playgrounds' }]) : CONTENT.encontraras;
+  const antesDeVenirItems = colab
+    ? [
+        { emoji: '🪪', titulo: 'Documento', texto: `Carnet o pasaporte vigente. Evento exclusivo para mayores de ${COLAB_MIN_AGE} años.` },
+        { emoji: '🎭', titulo: 'Dress Code', texto: escapeEmailText(colab.dressCode || 'Elegante, atrevido y a tu medida.') },
+        { emoji: '🎟', titulo: 'Entrada nominativa', texto: 'Tu entrada es personal: presenta tu QR y tu documento en la puerta.' },
+        { emoji: '🚕', titulo: 'Cómo llegar', texto: 'Fácil en Uber, Didi o taxi.' },
+      ]
+    : CONTENT.antesDeVenir;
 
   return emailShell({
     preheader: `Tu ${ticketNames} ya está reservado para ${data.eventTitle}.`,
@@ -374,8 +391,9 @@ export function buildOrderEmail(data: {
       title: '¡Tu compra fue confirmada!',
       subtitle: `La cuenta regresiva para ${data.eventTitle} ya comenzó.`,
       cta: { href: EMAIL_BASE_URL, label: `Ver ${data.eventTitle}` },
-      anniversary: true,
-      costume: true,
+      // La banda de aniversario y el «disfraz obligatorio» son de la fiesta de Playroom, no de una colaboración.
+      anniversary: !data.colab,
+      costume: !data.colab,
       ctaStyle: 'pastel',
     }),
     body: `
@@ -399,7 +417,7 @@ export function buildOrderEmail(data: {
                no lo soporta), un borde sólido grueso + box-shadow es el
                tratamiento más seguro entre clientes de correo. -->
           <div style="display:inline-block;background:rgba(255,111,184,0.08);border:2px solid rgba(255,111,184,0.55);border-radius:20px;padding:16px;box-shadow:0 0 40px -8px rgba(${ACCENT.pink.glowRgb},0.5);">
-            <p style="color:${ACCENT.pink.text};font-size:11px;font-weight:800;letter-spacing:2px;margin:0 0 10px;">${EVENT_BRAND.ticketLabel}</p>
+            <p style="color:${ACCENT.pink.text};font-size:11px;font-weight:800;letter-spacing:2px;margin:0 0 10px;">${data.colab ? escapeEmailText(data.colab.eventName.toUpperCase()) : EVENT_BRAND.ticketLabel}</p>
             <img src="${qrUrl}" alt="Código QR de tu entrada" style="width:200px;height:200px;border-radius:12px;background:#fff;padding:8px;display:block;" />
           </div>
           <p style="color:${MUTED};font-size:12px;margin:14px 0 20px;">Presenta este código QR y tu carnet en la entrada</p>
@@ -433,7 +451,12 @@ export function buildOrderEmail(data: {
         <p style="color:${INK};font-size:15px;margin:6px 0;">📅 ${data.eventDate}</p>
         ${data.doorsOpenText ? `<p style="color:${INK};font-size:15px;margin:6px 0;">🕘 ${data.doorsOpenText} hrs</p>` : ''}
         <p style="color:${INK};font-size:15px;margin:6px 0;">📍 ${data.venue}${data.address ? ` — ${data.address}` : ''}</p>
-        ${data.ticketReady && data.mapsUrl ? `<a href="${data.mapsUrl}" style="display:inline-block;color:${ACCENT.blue.text};font-size:13px;font-weight:700;text-decoration:none;margin:4px 0 0;">📍 Ver en Google Maps →</a>` : ''}
+        ${data.ticketReady && colab ? `
+        <div style="margin:10px 0 0;">
+          ${mapsLink ? glassButton(mapsLink, '📍 Abrir en Google Maps') : ''}
+          ${wazeLink ? glassButton(wazeLink, '🚗 Abrir en Waze') : ''}
+        </div>
+        ${!data.address ? `<p style="color:${FAINT};font-size:12px;margin:10px 0 0;">Te enviamos la dirección exacta por correo antes del evento.</p>` : ''}` : data.ticketReady && data.mapsUrl ? `<a href="${data.mapsUrl}" style="display:inline-block;color:${ACCENT.blue.text};font-size:13px;font-weight:700;text-decoration:none;margin:4px 0 0;">📍 Ver en Google Maps →</a>` : ''}
         <div style="margin-top:16px;padding-top:16px;border-top:1px solid rgba(255,255,255,0.08);">
           <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 4px;">Código de reserva</p>
           <p style="color:${INK};font-size:15px;font-weight:700;font-family:monospace;margin:0;">${data.orderNumber}</p>
@@ -511,9 +534,9 @@ export function buildOrderEmail(data: {
 
       <!-- QUÉ ES MANSION PLAYROOM -->
       ${cfg.sections.quienesSomos ? `
-      ${sectionTitle('✨', '¿Qué es Mansion Playroom?')}
+      ${sectionTitle('✨', colab ? `¿Qué es ${escapeEmailText(colab.eventName)}?` : '¿Qué es Mansion Playroom?')}
       <p style="color:${MUTED};font-size:14px;line-height:1.6;margin:0 0 16px;">
-        Más que una fiesta, somos un venue y una comunidad para adultos donde cada persona vive la experiencia a su manera.
+        ${colab ? escapeEmailText(colab.about || 'La fusión de dos fiestas liberales en un nuevo spot especial en Santiago.') : 'Más que una fiesta, somos un venue y una comunidad para adultos donde cada persona vive la experiencia a su manera.'}
       </p>
       ${grid(CONTENT.quienesSomos.map(x => `
         <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(95,194,222,0.18);border-radius:16px;padding:16px;text-align:center;">
@@ -527,7 +550,7 @@ export function buildOrderEmail(data: {
       <!-- QUÉ ENCONTRARÁS -->
       ${cfg.sections.encontraras ? `
       ${sectionTitle('🛝', '¿Qué encontrarás?')}
-      ${grid(CONTENT.encontraras.map(x => data.colab && /pistas/i.test(x.label) ? { ...x, label: 'Line up de DJs especial para esta fusión' } : x).map(x => `
+      ${grid(encontrarasItems.map(x => `
         <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(150,110,255,0.18);border-radius:16px;padding:14px;">
           <p style="font-size:22px;margin:0 0 4px;">${x.emoji}</p>
           <p style="color:${INK};font-size:12px;font-weight:700;margin:0;">${x.label}</p>
@@ -539,7 +562,7 @@ export function buildOrderEmail(data: {
       <!-- ANTES DE VENIR -->
       ${cfg.sections.antesDeVenir ? `
       ${sectionTitle('🎒', 'Antes de venir')}
-      ${grid(CONTENT.antesDeVenir.map(x => data.colab ? { ...x, texto: x.texto.replace('mayores de 18 años', `mayores de ${COLAB_MIN_AGE} años`) } : x).map(x => `
+      ${grid(antesDeVenirItems.map(x => `
         <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(212,165,55,0.18);border-radius:16px;padding:16px;">
           <p style="font-size:24px;margin:0 0 6px;">${x.emoji}</p>
           <p style="color:${INK};font-size:13px;font-weight:800;margin:0 0 4px;">${x.titulo}</p>

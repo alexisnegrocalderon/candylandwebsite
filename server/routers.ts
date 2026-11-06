@@ -269,6 +269,7 @@ import { buildShiftClosePdf } from "./caja/shiftReportPdf";
 import { buildKitchenVendorPdf } from "./caja/kitchenVendorPdf";
 import { buildVentasReportPdf, buildGastosReportPdf } from "./caja/reportsPdf";
 import { generateMailingTemplate, sendMailingBatch, getMailingEventInfo, createAutoMailingCampaign, scheduleMailingCampaign, resolveAudienceCustomerIds, getCampaignOffer, AudienceFiltersSchema, MailingContentSchema, MAILING_BATCH_MAX } from "./mailing";
+import { getEventPromoFacts } from "./eventPromoFacts";
 import { getFoundersPromoStatus, runFoundersPromoDaily, buildFoundersPromoContent } from "./foundersPromo";
 import { listDriveMedia } from "./googleDrive";
 import { getSalesDripStatus, runSalesDripDaily, buildSalesDripContent } from "./salesDrip";
@@ -8215,7 +8216,7 @@ export const appRouter = router({
       if (!event) return { html: null, status };
       return {
         html: buildMailingBlastEmail({
-          ...buildFoundersPromoContent(status.remaining, event),
+          ...buildFoundersPromoContent(status.remaining, event, await getEventPromoFacts(event)),
           buyerName: 'Camila',
           ctaUrl: `${EMAIL_BASE_URL}/checkout/${event.slug}`,
           eventInfo: null,
@@ -8241,7 +8242,7 @@ export const appRouter = router({
       if (!event) return { html: null, status };
       return {
         html: buildMailingBlastEmail({
-          ...buildTanda2PromoContent(status.priceFrom, event),
+          ...buildTanda2PromoContent(status.priceFrom, event, await getEventPromoFacts(event)),
           buyerName: 'Camila',
           ctaUrl: `${EMAIL_BASE_URL}/checkout/${event.slug}`,
           eventInfo: null,

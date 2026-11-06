@@ -18,6 +18,8 @@ export interface ColabBrand {
   /** Slug del evento enlazado (para volver a su checkout). */
   eventSlug: string;
   countdownIso: string; timeText: string; venueText: string;
+  /** Textos de la landing que también viajan en los correos de la compra (el código de vestimenta y lo que hay en la noche). */
+  dressCode?: string; highlights?: string[]; about?: string;
 }
 
 /** Un momento de "La noche minuto a minuto" (hora "23:00"). */

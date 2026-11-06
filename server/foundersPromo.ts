@@ -29,6 +29,7 @@
  * consultarle a Resend su cupo restante en vivo, así que esto es un
  * presupuesto conservador, no una garantía matemática.
  */
+import { getEventPromoFacts } from './eventPromoFacts';
 import { eq, and } from 'drizzle-orm';
 import { getDb, getFeaturedEvent, getStockPoolRemaining, listCustomers, getSiteSettings, updateSiteSettings, hasMailingCampaignToday } from './db';
 import { ticketTypes } from '../drizzle/schema';
@@ -70,15 +71,17 @@ async function resolveSharedPoolRemaining(eventId: number): Promise<number | nul
 /** El copy es fijo (no se regenera con IA en cada corrida -- mismo criterio
  * documentado en `buildMailingBlastEmail`: coherencia día a día, solo cambia
  * el número). Sin mencionar nunca la palabra "Founders". */
-export function buildFoundersPromoContent(remaining: number, event: { title: string; slug: string }): MailingContent {
+export function buildFoundersPromoContent(remaining: number, event: { title: string; slug: string }, facts?: { fechaTexto: string; dressCode: string; colab: boolean }): MailingContent {
+  const fecha = facts?.fechaTexto ?? EVENT_BRAND.fechaTexto;
+  const dressCode = facts?.dressCode ?? EVENT_BRAND.dressCode;
   return {
     subject: `Quedan ${remaining} cupos a precio especial para ${event.title}`,
     preheader: `Todavía no compraste tu entrada -- quedan ${remaining} cupos a este valor.`,
     headline: `Quedan ${remaining} cupos a precio especial 🍬`,
     paragraphs: [
-      `Estás en nuestra lista para ${event.title} (${EVENT_BRAND.fechaTexto}) y vimos que todavía no compraste tu entrada.`,
+      `Estás en nuestra lista para ${event.title} (${fecha}) y vimos que todavía no compraste tu entrada.`,
       `Ahora mismo estamos en la primera etapa de venta -- el precio más bajo de toda la campaña. Quedan pocos cupos a este valor; una vez que se agoten, la próxima etapa sube de precio.`,
-      `${EVENT_BRAND.dressCode}`,
+      `${dressCode}`,
     ],
     ctaText: 'Comprar mi entrada',
     highlightLabel: 'Quedan',
@@ -117,7 +120,7 @@ export async function runFoundersPromoDaily(): Promise<FoundersPromoRunResult> {
   }
 
   const batch = eligible.slice(0, FOUNDERS_PROMO_DAILY_TARGET);
-  const content = buildFoundersPromoContent(remaining, event);
+  const content = buildFoundersPromoContent(remaining, event, await getEventPromoFacts(event));
   const ctaUrl = `${EMAIL_BASE_URL}/checkout/${event.slug}`;
   const { results } = await sendMailingBatch(
     batch.map((c: any) => c.id),
