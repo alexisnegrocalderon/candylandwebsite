@@ -15,6 +15,9 @@ function formatEventDateTime(date: Date): string {
   return `${formatChileDate(date)}, ${formatChileTime(date)} hrs`;
 }
 
+/** Secciones del bloque del evento en los avisos de venta: solo fecha, lugar y mapa (sin banner, Misión 300 ni grilla de lugar). */
+export const SALES_EMAIL_SECTIONS: MailingEventSections = { banner: false, details: true, mission300: false, venueGrid: false };
+
 /** Arma la info del "próximo evento destacado" para la tarjeta opcional del
  * mailing masivo (pedido explícito del usuario) -- siempre el mismo evento
  * sin importar el filtro de audiencia de la campaña. Devuelve null si no
@@ -34,7 +37,7 @@ export async function getMailingEventInfo(): Promise<MailingEventInfo | null> {
     title: event.title,
     imageUrl: event.imageUrl ?? undefined,
     dateText: formatEventDateTime(eventDate),
-    venue: event.venue ?? 'Valparaíso, Chile',
+    venue: event.venue ?? event.address ?? 'Lugar por confirmar',
     address: event.address ?? undefined,
     mapsUrl: event.mapsUrl ?? undefined,
     mission300,
@@ -154,7 +157,7 @@ export async function sendMailingBatch(
   // de primeros cupos y el botón manual "Enviar a N clientes".
   source: 'founders-promo' | 'tanda2-promo' | 'sales-drip' | 'manual' = 'manual',
   // Tarjeta de precios por acceso de la tanda vigente (aviso de 2ª tanda).
-  extras?: { priceList?: MailingPriceRow[]; remaining?: number | null; eventId?: number | null }
+  extras?: { priceList?: MailingPriceRow[]; remaining?: number | null; eventId?: number | null; tandaLabel?: string }
 ): Promise<{ batchId: string; results: MailingSendResult[] }> {
   const allRecipients = await db.listCustomersByIds(customerIds);
   const results: MailingSendResult[] = [];
@@ -196,6 +199,8 @@ export async function sendMailingBatch(
         eventSections,
         priceList: extras?.priceList,
         remaining: extras?.remaining,
+        theme: content.theme,
+        tandaLabel: extras?.tandaLabel,
       }),
       marketing: true,
     })));

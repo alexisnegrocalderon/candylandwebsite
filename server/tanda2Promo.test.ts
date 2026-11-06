@@ -120,6 +120,7 @@ describe("runTanda2PromoDaily", () => {
         { label: 'Acceso Dúo', price: 36000, originalPrice: 60000 },
       ],
       remaining: 50,
+      tandaLabel: '2ª tanda',
     });
   });
 

@@ -28,9 +28,10 @@ import {
 } from './db';
 import type { MailingPriceRow } from './email';
 import { ticketTypes } from '../drizzle/schema';
-import { sendMailingBatch, type MailingContent } from './mailing';
+import { getMailingEventInfo, SALES_EMAIL_SECTIONS, sendMailingBatch, type MailingContent } from './mailing';
+import { tandaLabel } from '../shared/tandaLabel';
+import { normalizeTandaSchedule } from '../shared/tandaSchedule';
 import { EMAIL_BASE_URL } from './emailLayout';
-import { EVENT_BRAND } from '../shared/eventBrand';
 
 /** Tag interna para no repetirle este aviso a quien ya lo recibió -- nunca
  * viaja al correo, solo vive en `customers.tags`. */
@@ -88,19 +89,20 @@ export const resolveTanda2Offer = resolveCurrentOffer;
 /** El copy es fijo (no se regenera con IA en cada corrida -- coherencia día a
  * día). El precio de cada acceso va en la tarjeta de precios del mail, no en
  * el texto. */
-export function buildTanda2PromoContent(priceFrom: number, event: { title: string; slug: string }, facts?: { fechaTexto: string; dressCode: string; colab: boolean }): MailingContent {
-  const fecha = facts?.fechaTexto ?? EVENT_BRAND.fechaTexto;
-  const dressCode = facts?.dressCode ?? EVENT_BRAND.dressCode;
+export function buildTanda2PromoContent(priceFrom: number, event: { title: string; slug: string }, facts?: { fechaTexto: string; dressCode: string; colab: boolean; theme?: 'playmore' }): MailingContent {
+  const fecha = facts?.fechaTexto ?? 'próximamente';
+  const dressCode = facts?.dressCode ?? '';
   return {
     subject: `Nuevo precio para ${event.title}: entradas desde ${formatClp(priceFrom)}`,
     preheader: `La primera etapa de venta ya cerró -- mira el precio de cada acceso en la 2ª tanda.`,
-    headline: `Ya está disponible la 2ª tanda${facts?.colab ? '' : ' 🎃'}`,
+    headline: `Ya está disponible la 2ª tanda${facts?.colab ? '' : ' 🍬'}`,
     paragraphs: [
       `Estás en nuestra lista para ${event.title} (${fecha}) y vimos que todavía no compraste tu entrada.`,
       `La primera etapa de venta ya cerró y abrimos la 2ª tanda con nuevos precios. Es más conveniente que las etapas que vienen: cuando se acabe esta, el valor vuelve a subir.`,
-      `${dressCode}`,
+      ...(dressCode ? [dressCode] : []),
     ],
     ctaText: 'Comprar mi entrada',
+    theme: facts?.theme,
   };
 }
 
@@ -159,10 +161,10 @@ export async function runTanda2PromoDaily(): Promise<Tanda2PromoRunResult> {
     content,
     ctaUrl,
     TANDA2_PROMO_TAG,
-    null,
-    undefined,
+    await getMailingEventInfo(),
+    SALES_EMAIL_SECTIONS,
     'tanda2-promo',
-    { priceList: offer.prices, remaining: offer.remaining },
+    { priceList: offer.prices, remaining: offer.remaining, tandaLabel: tandaLabel(event.tandaPhaseIndex, normalizeTandaSchedule(event.tandaDiscountSchedule).length) },
   );
 
   return {

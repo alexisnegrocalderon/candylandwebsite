@@ -27,7 +27,9 @@ import {
   getFeaturedEvent, listCustomers, getSalesDripSettings, hasApprovedOrderForEvent,
   countTandaPromoEmailsSentToday, getEventMailStatsByCustomer, hasMailingCampaignToday,
 } from './db';
-import { sendMailingBatch, type MailingContent } from './mailing';
+import { getMailingEventInfo, SALES_EMAIL_SECTIONS, sendMailingBatch, type MailingContent } from './mailing';
+import { getEventPromoFacts } from './eventPromoFacts';
+import { tandaLabel } from '../shared/tandaLabel';
 import { resolveCurrentOffer, type Tanda2Offer } from './tanda2Promo';
 import { checkAndAdvanceTandaIfNeeded } from './tandaAutoAdvance';
 import { EMAIL_BASE_URL } from './emailLayout';
@@ -197,16 +199,16 @@ export async function runSalesDripDaily(now: Date = new Date()): Promise<SalesDr
   }
   if (batch.length === 0) return { ran: false, reason: 'nobody-due' };
 
-  const content = buildSalesDripContent(fresh as DripEvent, offer, now);
+  const content = { ...buildSalesDripContent(fresh as DripEvent, offer, now), theme: (await getEventPromoFacts(fresh)).theme };
   const { results } = await sendMailingBatch(
     batch.map((c) => c.id),
     content,
     `${EMAIL_BASE_URL}/checkout/${fresh.slug}`,
     undefined,
-    null,
-    undefined,
+    await getMailingEventInfo(),
+    SALES_EMAIL_SECTIONS,
     'sales-drip',
-    { priceList: offer.prices, remaining: offer.remaining, eventId: fresh.id },
+    { priceList: offer.prices, remaining: offer.remaining, eventId: fresh.id, tandaLabel: tandaLabel(fresh.tandaPhaseIndex, normalizeTandaSchedule(fresh.tandaDiscountSchedule).length) },
   );
 
   return {
