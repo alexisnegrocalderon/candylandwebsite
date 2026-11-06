@@ -23,11 +23,15 @@ export interface AssistantProposal {
   resultado?: string;
 }
 
+/** Un botón para ir a una pantalla del panel («llévame a…»). */
+export interface AssistantLink { section: string; label: string }
+
 /** Lo que la pantalla muestra de un mensaje. */
 export interface AssistantUi {
   text: string;
   charts?: AssistantChart[];
   proposals?: AssistantProposal[];
+  links?: AssistantLink[];
   /** De qué herramientas salieron los datos (para los chips de «fuente»). */
   sources?: string[];
   error?: boolean;
@@ -37,6 +41,7 @@ export interface AssistantMessageView { id: number; role: 'user' | 'assistant'; 
 
 /** Nombre legible de cada herramienta (chips de fuente y «Revisando…»). */
 export const TOOL_LABELS: Record<string, string> = {
+  abrir_seccion: 'el panel',
   listar_eventos: 'eventos',
   productos_evento: 'entradas y carta',
   resultados_evento: 'ventas del evento',

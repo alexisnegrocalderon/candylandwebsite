@@ -178,6 +178,10 @@
       "schedule": "*/15 * * * *"
     },
     {
+      "path": "/api/cron/pilot",
+      "schedule": "*/15 * * * *"
+    },
+    {
       "path": "/api/cron/abandoned-cart",
       "schedule": "0 * * * *"
     },

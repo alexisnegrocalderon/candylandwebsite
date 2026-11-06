@@ -51,6 +51,9 @@ import { firmarInventario, inventarioPath, INVENTARIO_TTL } from "./inventarioLi
 import * as staffGiftQuotaSvc from "./staffGiftQuota";
 import * as giftPacksSvc from "./giftPacks";
 import * as assistantSvc from "./assistant/run";
+import * as crossCheckSvc from "./crossCheck";
+import * as pilotSvc from "./eventPilot";
+import { CROSS_CHECK_AUTOMATIONS } from "../shared/crossCheck";
 import { ASSISTANT_QUESTION_MAX } from "../shared/assistant";
 import { puedeVerDosier } from "../shared/staffPortal";
 import { generateCostumeIdeas, fallbackResult as fallbackCostumeResult } from "./costumeOracle";
@@ -3630,6 +3633,27 @@ export const appRouter = router({
   // cliente manda cuándo miró cada sección por última vez (lo guarda en
   // localStorage) y acá se cuenta lo que llegó después -- salvo las secciones
   // de "pendiente de acción", que se cuentan siempre (ver getAdminBadgeCounts).
+  /* Cross check (server/crossCheck.ts): lo que las automatizaciones y el piloto quieren hacer, esperando «Reportar». */
+  crossCheck: router({
+    list: adminReadProcedure.query(async () => crossCheckSvc.listCrossChecks()),
+    config: adminReadProcedure.query(async () => crossCheckSvc.getCrossCheckConfig()),
+    setAuto: adminProcedure.input(z.object({ kind: z.enum(CROSS_CHECK_AUTOMATIONS), auto: z.boolean() }))
+      .mutation(async ({ input }) => { await crossCheckSvc.setCrossCheckAuto(input.kind, input.auto); return { ok: true }; }),
+    report: adminProcedure.input(z.object({ id: z.number().int().positive() }))
+      .mutation(async ({ input }) => crossCheckSvc.reportCrossCheck(input.id)),
+    discard: adminProcedure.input(z.object({ id: z.number().int().positive() }))
+      .mutation(async ({ input }) => { await crossCheckSvc.discardCrossCheck(input.id); return { ok: true }; }),
+  }),
+
+  /* Piloto automático de un evento (server/eventPilot.ts): se prende con un botón y sus pasos piden cross check. */
+  pilot: router({
+    get: adminReadProcedure.input(z.object({ eventId: z.number().int().positive() })).query(async ({ input }) => pilotSvc.getPilotStatus(input.eventId)),
+    start: adminProcedure.input(z.object({ eventId: z.number().int().positive() })).mutation(async ({ input }) => pilotSvc.startPilot(input.eventId)),
+    stop: adminProcedure.input(z.object({ eventId: z.number().int().positive() })).mutation(async ({ input }) => pilotSvc.stopPilot(input.eventId)),
+    // Previsión de la barra para la gente con entrada (tarjeta de Inicio).
+    bar: adminProcedure.input(z.object({ eventId: z.number().int().positive() })).query(async ({ input }) => pilotSvc.barShoppingSummary(input.eventId)),
+  }),
+
   adminBadges: router({
     counts: adminReadProcedure.input(z.object({
       seenAt: z.record(z.string(), z.string().datetime()).default({}),
@@ -3639,7 +3663,7 @@ export const appRouter = router({
         const date = new Date(iso);
         if (!Number.isNaN(date.getTime())) parsed[section as db.AdminBadgeSection] = date;
       }
-      return db.getAdminBadgeCounts(parsed);
+      return { ...(await db.getAdminBadgeCounts(parsed)), 'cross-check': await crossCheckSvc.countPendingCrossChecks() };
     }),
     // «Por aprobar» de Inicio: todo lo que espera un sí o un no del dueño.
     pending: adminReadProcedure.query(async () => db.getPendingApprovals()),

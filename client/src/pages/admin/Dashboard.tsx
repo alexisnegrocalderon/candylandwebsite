@@ -15,7 +15,7 @@ import { requestAssistant } from '@/components/assistant/assistantRequest';
 import { useHideSplashOnMount } from '@/lib/splash';
 import { useSeo } from '@/hooks/useSeo';
 import { useInstallableApp } from '@/hooks/useInstallableApp';
-import { Home, Flame, Calendar, DollarSign, Ticket, Users, Plus, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, Contact, Mail, History, Gift, MessageCircle, Crown, Martini, Instagram, UserPlus, Ban, Receipt, Compass, Sparkles, Car, Send, ShieldAlert, Zap, Cake, Calculator, Star, FlaskConical, Palette, UserCheck, Banknote, Landmark, Headphones, ListChecks, PartyPopper, BellRing, Wine, Smartphone, Bot, TrendingUp, Link2, FileText } from 'lucide-react';
+import { Home, Flame, Calendar, DollarSign, Ticket, Users, Plus, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, Contact, Mail, History, Gift, MessageCircle, Crown, Martini, Instagram, UserPlus, Ban, Receipt, Compass, Sparkles, Car, Send, ShieldAlert, Zap, Cake, Calculator, Star, FlaskConical, Palette, UserCheck, Banknote, Landmark, Headphones, ListChecks, PartyPopper, BellRing, Wine, Smartphone, Bot, TrendingUp, Link2, FileText, ShieldCheck, Plane } from 'lucide-react';
 import { AdminLoginForm } from '@/components/admin/AdminLoginForm';
 import { OPEN_SECTION_EVENT } from '@/components/admin/studio/handoff';
 import { parseAdminDeepLink } from '@shared/adminDeepLink';
@@ -87,6 +87,8 @@ const SettingsManager = lazy(() => import('./sections/ajustes').then((m) => ({ d
 // El Estudio trae sus propias fuentes, html-to-image y jszip: se carga recién
 // cuando se abre, para no sumarle peso al resto del panel.
 const ContentStudio = lazy(() => import('@/components/admin/ContentStudio').then((m) => ({ default: m.ContentStudio })));
+const CrossCheckView = lazy(() => import('@/components/admin/crossCheck/CrossCheckView').then((m) => ({ default: m.CrossCheckView })));
+const PilotView = lazy(() => import('@/components/admin/crossCheck/PilotView').then((m) => ({ default: m.PilotView })));
 const AssistantSection = lazy(() => import('@/components/assistant/AssistantSection').then((m) => ({ default: m.AssistantSection })));
 
 /** Quita el splash de apertura al montar (pantallas que no pasan por AdminShell). */
@@ -140,6 +142,7 @@ const MERGED_SECTIONS: Record<string, string> = { 'mailing-history': 'mailing', 
 
 /** Atajos de la hoja del «+» en el celular (solo los de secciones visibles). */
 const ADMIN_QUICK_ACTIONS: AdminQuickAction[] = [
+  { key: 'cross-check', label: 'Cross check', icon: ShieldCheck, section: 'cross-check', stages: ['antes', 'hoy', 'despues'] },
   { key: 'asistente', label: 'Pregúntale al asistente', icon: Sparkles, onSelect: requestAssistant },
   { key: 'invitar', label: 'Invitar entradas y tragos', icon: Gift, onSelect: requestGift, stages: ['antes', 'hoy'] },
   // Día de la fiesta
@@ -162,8 +165,10 @@ const ADMIN_QUICK_ACTIONS: AdminQuickAction[] = [
 
 const ADMIN_SECTIONS = [
   { id: 'home', label: 'Inicio', hub: 'inicio', icon: Home, render: () => <HomeSection /> },
+  { id: 'cross-check', label: 'Cross check', hub: 'inicio', icon: ShieldCheck, render: () => <CrossCheckView /> },
   // 1 · Preparar: armar el evento antes de vender (ficha, precios, códigos, equipo, cajas, carta y stock).
   { id: 'events', label: 'Eventos', hub: 'preparar', icon: Calendar, render: () => <EventsManager /> },
+  { id: 'piloto', label: 'Piloto automático', hub: 'preparar', icon: Plane, render: () => <PilotView /> },
   { id: 'discounts', label: 'Descuentos', hub: 'preparar', icon: Percent, render: () => <DiscountsManager /> },
   { id: 'community', label: 'Códigos Comunidad', hub: 'preparar', icon: Users, render: () => <CommunityCodesManager /> },
   { id: 'staff', label: 'Staff', hub: 'preparar', icon: Users, render: () => <StaffManager /> },

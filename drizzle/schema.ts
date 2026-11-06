@@ -3550,3 +3550,40 @@ export const assistantMessages = mysqlTable("assistantMessages", {
   ui: json("ui").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (t) => [index("assistant_messages_thread_idx").on(t.threadId, t.id)]);
+
+// Cross check: lo que una automatización (o el piloto del evento) quiere hacer y espera el visto bueno del dueño
+// («Reportar») antes de salir. Una fila por pedido; `dedupeKey` evita pedir dos veces lo mismo (ej. el aviso del día).
+// Se crea sola la primera vez (server/crossCheck.ts, igual que drizzle/0150_cross_checks.sql).
+export const crossChecks = mysqlTable("crossChecks", {
+  id: int("id").autoincrement().primaryKey(),
+  kind: varchar("kind", { length: 40 }).notNull(),
+  dedupeKey: varchar("dedupeKey", { length: 160 }).notNull(),
+  eventId: int("eventId"),
+  title: varchar("title", { length: 200 }).notNull(),
+  summary: varchar("summary", { length: 1000 }).notNull(),
+  payload: json("payload"),
+  // pending | running | done | failed | discarded | expired
+  status: varchar("status", { length: 12 }).default("pending").notNull(),
+  expiresAt: timestamp("expiresAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  decidedAt: timestamp("decidedAt"),
+  result: varchar("result", { length: 1000 }),
+}, (t) => [
+  uniqueIndex("cross_checks_dedupe_idx").on(t.dedupeKey),
+  index("cross_checks_status_idx").on(t.status),
+]);
+
+// Qué automatizaciones salen solas sin pedir cross check (por defecto ninguna: todo pide visto bueno).
+export const crossCheckConfig = mysqlTable("crossCheckConfig", {
+  kind: varchar("kind", { length: 40 }).primaryKey(),
+  auto: int("auto").default(0).notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+// Piloto automático de un evento: lo prende el dueño con un botón; sus pasos piden cross check a su hora.
+export const eventPilots = mysqlTable("eventPilots", {
+  eventId: int("eventId").primaryKey(),
+  status: varchar("status", { length: 8 }).default("on").notNull(),
+  startedAt: timestamp("startedAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});

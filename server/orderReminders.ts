@@ -137,7 +137,7 @@ const ABANDONED_CART_CRON_CAP = Number(process.env.ABANDONED_CART_CRON_CAP) || 1
  * - Si ya recibió un recordatorio, que hayan pasado al menos
  *   `ABANDONED_CART_REMINDER_GAP_MS` desde el último, y que no haya llegado
  *   ya a `ABANDONED_CART_MAX_REMINDERS`. */
-async function getOrdersDueForAbandonedCartReminder(): Promise<{ id: number; createdAt: number; first: boolean }[]> {
+export async function getOrdersDueForAbandonedCartReminder(): Promise<{ id: number; createdAt: number; first: boolean }[]> {
   const db = await getDb();
   if (!db) return [];
   const now = Date.now();

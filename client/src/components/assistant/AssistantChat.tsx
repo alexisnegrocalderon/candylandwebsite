@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { ArrowUp, Check, Sparkles, X } from 'lucide-react';
+import { ArrowRight, ArrowUp, Check, Sparkles, X } from 'lucide-react';
+import { OPEN_SECTION_EVENT } from '@/components/admin/studio/handoff';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
 import { ASSISTANT_QUESTION_MAX, TOOL_LABELS, type AssistantMessageView, type AssistantProposal } from '@shared/assistant';
@@ -63,6 +64,14 @@ function Bubble({ m, onChanged }: { m: AssistantMessageView; onChanged: () => vo
       <div className={`rounded-3xl rounded-bl-md px-4 py-3 ${m.ui.error ? 'bg-amber-500/10 text-amber-200' : 'bg-muted/60'}`}><Markdown text={m.ui.text} /></div>
       {(m.ui.charts ?? []).map((c, i) => <AssistantChart key={i} chart={c} />)}
       {(m.ui.proposals ?? []).map((p) => <ProposalCard key={p.id} p={p} messageId={m.id} onDone={onChanged} />)}
+      {/* «Llévame a…»: un botón grande por pantalla; abre la sección y cierra la hoja del asistente. */}
+      {(m.ui.links ?? []).map((l) => (
+        <button key={l.section} type="button"
+          onClick={() => window.dispatchEvent(new CustomEvent<string>(OPEN_SECTION_EVENT, { detail: l.section }))}
+          className="flex h-12 w-full items-center justify-between gap-2 rounded-2xl bg-primary px-4 text-base font-semibold text-primary-foreground active:scale-[0.98]">
+          Abrir {l.label} <ArrowRight className="h-5 w-5" />
+        </button>
+      ))}
       {!!m.ui.sources?.length && (
         <div className="flex flex-wrap gap-1.5">
           {m.ui.sources.map((s) => <span key={s} className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">📊 {TOOL_LABELS[s] ?? s}</span>)}

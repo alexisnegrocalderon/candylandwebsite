@@ -63,6 +63,8 @@ export interface ShellSection {
  * se llama la pantalla. */
 export const SECTION_KEYWORDS: Record<string, string> = {
   home: 'inicio resumen kpi pendientes',
+  'cross-check': 'cross check aprobar aprobaciones reportar pendientes automatizaciones visto bueno',
+  piloto: 'piloto automatico automatizar evento iniciar pasos recordatorio encuesta anuncio',
   overview: 'evento noche hoy en vivo aforo',
   caja: 'barra tragos turnos cierre',
   staff: 'equipo personal cargos pin operadores bartender seguridad puerta agregar staff',
