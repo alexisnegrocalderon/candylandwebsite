@@ -56,11 +56,13 @@ export interface AnniversaryEmailData {
   remaining?: number | null;
   eventInfo?: { title: string; imageUrl?: string; dateText: string; venue: string; address?: string; mapsUrl?: string } | null;
   eventSections?: { banner?: boolean; details?: boolean };
+  /** Nombre de la tanda en la tarjeta de precios del look PLAYMORE; sin valor = «Primera tanda». */
+  tandaLabel?: string;
 }
 
 const clp = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
 
-function priceCard(p: Palette, rows: AnniversaryPriceRow[], remaining?: number | null, playmore = false): string {
+function priceCard(p: Palette, rows: AnniversaryPriceRow[], remaining?: number | null, playmore = false, tandaLabel?: string): string {
   const hasStrike = rows.some((r) => r.originalPrice && r.originalPrice > r.price);
   const line = (r: AnniversaryPriceRow) => `
     <tr>
@@ -72,7 +74,7 @@ function priceCard(p: Palette, rows: AnniversaryPriceRow[], remaining?: number |
     </tr>`;
   return `
     <div style="background-color:${p.card};border:1px solid ${p.border};border-radius:24px;padding:26px 22px 14px;margin-bottom:22px;">
-      <p style="color:${p.accentText};font-size:11px;font-weight:800;letter-spacing:2.5px;text-transform:uppercase;text-align:center;margin:0 0 6px;">${playmore ? 'Primera tanda' : 'Precio de hoy'}</p>
+      <p style="color:${p.accentText};font-size:11px;font-weight:800;letter-spacing:2.5px;text-transform:uppercase;text-align:center;margin:0 0 6px;">${playmore ? (tandaLabel || 'Primera tanda') : 'Precio de hoy'}</p>
       <h3 style="color:${p.ink};font-size:22px;font-weight:800;text-align:center;margin:0 0 ${(remaining != null && !playmore) || hasStrike ? '6px' : '16px'};">${playmore ? 'Accesos' : 'Último día a este valor'}</h3>
       ${hasStrike ? `<p style="color:${p.muted};font-size:12px;text-align:center;margin:0 0 ${remaining != null && !playmore ? '6px' : '16px'};">${playmore ? 'Tachado: precio de la tanda siguiente.' : 'Tachado: precio general desde mañana.'}</p>` : ''}
       ${remaining != null && !playmore ? `<p style="color:${p.accentText};font-size:13px;font-weight:800;text-align:center;margin:0 0 16px;">Quedan ${remaining} cupos a este precio</p>` : ''}
@@ -130,7 +132,7 @@ export function buildAnniversaryBlastEmail(data: AnniversaryEmailData): string {
 
       ${data.paragraphs.map((t) => `<p style="color:${p.muted};font-size:15px;line-height:1.65;margin:0 0 18px;">${t}</p>`).join('')}
 
-      ${data.priceList && data.priceList.length > 0 ? priceCard(p, data.priceList, data.remaining, isPm) : ''}
+      ${data.priceList && data.priceList.length > 0 ? priceCard(p, data.priceList, data.remaining, isPm, data.tandaLabel) : ''}
 
       <div style="text-align:center;padding:6px 0 ${data.secondaryCtaUrl ? '14px' : '26px'};">
         <a href="${data.ctaUrl}" style="display:inline-block;background-color:${p.ctaBg};color:${p.ctaText};text-decoration:none;padding:17px 40px;border-radius:999px;font-weight:800;font-size:16px;letter-spacing:0.3px;">${data.ctaText || 'Comprar mi entrada'}</a>

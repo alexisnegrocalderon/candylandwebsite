@@ -2080,6 +2080,8 @@ export function buildMailingBlastEmail(data: {
   showOracle?: boolean;
   /** Look del aniversario (ver server/emailAniversario.ts); sin valor = el de siempre. */
   theme?: AnniversaryTheme;
+  /** Nombre de la tanda en la tarjeta de precios del look PLAYMORE («2ª tanda»); sin valor = «Primera tanda». */
+  tandaLabel?: string;
 }) {
   if (data.theme) {
     return buildAnniversaryBlastEmail({
@@ -2087,6 +2089,7 @@ export function buildMailingBlastEmail(data: {
       ctaText: data.ctaText, ctaUrl: data.ctaUrl, secondaryCtaText: data.secondaryCtaText, secondaryCtaUrl: data.secondaryCtaUrl,
       highlightLabel: data.highlightLabel, highlightValue: data.highlightValue,
       priceList: data.priceList, remaining: data.remaining, eventInfo: data.eventInfo, eventSections: data.eventSections,
+      tandaLabel: data.tandaLabel,
     });
   }
   const H = HALLOWEEN;
