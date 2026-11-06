@@ -88,6 +88,7 @@ const SettingsManager = lazy(() => import('./sections/ajustes').then((m) => ({ d
 // cuando se abre, para no sumarle peso al resto del panel.
 const ContentStudio = lazy(() => import('@/components/admin/ContentStudio').then((m) => ({ default: m.ContentStudio })));
 const CrossCheckView = lazy(() => import('@/components/admin/crossCheck/CrossCheckView').then((m) => ({ default: m.CrossCheckView })));
+const AutomationsView = lazy(() => import('@/components/admin/AutomationsView').then((m) => ({ default: m.AutomationsView })));
 const PilotView = lazy(() => import('@/components/admin/crossCheck/PilotView').then((m) => ({ default: m.PilotView })));
 const AssistantSection = lazy(() => import('@/components/assistant/AssistantSection').then((m) => ({ default: m.AssistantSection })));
 
@@ -114,12 +115,13 @@ function SectionLoading() {
 }
 
 /** Mailing, su historial y las plantillas en una sola pantalla (antes eran tres entradas del menú). */
-type MailingTab = 'enviar' | 'historial' | 'plantillas';
+type MailingTab = 'enviar' | 'programados' | 'historial' | 'plantillas';
 const MAILING_TABS: { id: MailingTab; label: string }[] = [
-  { id: 'enviar', label: 'Enviar' }, { id: 'historial', label: 'Historial' }, { id: 'plantillas', label: 'Plantillas' },
+  { id: 'enviar', label: 'Enviar' }, { id: 'programados', label: 'Programados' }, { id: 'historial', label: 'Historial' }, { id: 'plantillas', label: 'Plantillas' },
 ];
 function MailingHub() {
   const [tab, setTab] = useState<MailingTab>('enviar');
+  const { openSection } = useContext(AdminNavContext);
   return (
     <div className="space-y-4">
       <div role="tablist" aria-label="Mailing" className="flex gap-1.5">
@@ -131,6 +133,7 @@ function MailingHub() {
         ))}
       </div>
       {tab === 'enviar' && <MailingSection />}
+      {tab === 'programados' && <AutomationsView onOpenSection={openSection} />}
       {tab === 'historial' && <MailingHistoryView />}
       {tab === 'plantillas' && <EmailTemplatesManager />}
     </div>
