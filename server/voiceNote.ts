@@ -12,16 +12,24 @@ export async function transcribeVoiceNote(base64: string): Promise<{ text: strin
   if (voiceNoteSeconds(wav) > VOICE_NOTE_MAX_SECS + 2) throw new Error(`La nota es muy larga: máximo ${VOICE_NOTE_MAX_SECS} segundos.`);
 
   const url = `https://${ENV.azureSpeechRegion}.stt.speech.microsoft.com/speech/recognition/conversation/cognitiveservices/v1?language=es-CL&format=simple&profanity=raw`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Ocp-Apim-Subscription-Key': ENV.azureSpeechKey,
-      'Content-Type': `audio/wav; codecs=audio/pcm; samplerate=${VOICE_NOTE_RATE}`,
-      Accept: 'application/json',
-      'User-Agent': 'mansion-playroom-assistant',
-    },
-    body: wav,
-  });
+  // Con tiempo límite: si Azure no contesta, se avisa en vez de dejar la nota «escuchando» hasta que la función se corte.
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Ocp-Apim-Subscription-Key': ENV.azureSpeechKey,
+        'Content-Type': `audio/wav; codecs=audio/pcm; samplerate=${VOICE_NOTE_RATE}`,
+        Accept: 'application/json',
+        'User-Agent': 'mansion-playroom-assistant',
+      },
+      body: wav,
+      signal: AbortSignal.timeout(20_000),
+    });
+  } catch (err) {
+    console.error('[VoiceNote] No se pudo hablar con Azure:', err);
+    throw new Error('Azure no contestó a tiempo. Vuelve a intentarlo en un momento.');
+  }
   if (!res.ok) {
     const detail = (await res.text().catch(() => '')).slice(0, 160);
     console.error('[VoiceNote] Azure respondió', res.status, detail);
