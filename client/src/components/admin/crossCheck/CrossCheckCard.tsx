@@ -1,6 +1,8 @@
-import { CheckCircle2, Loader2, X } from 'lucide-react';
+import { useState } from 'react';
+import { CheckCircle2, Eye, Loader2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { trpc } from '@/lib/trpc';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { formatChileDateTime } from '@shared/chileDate';
 import type { CrossCheckItem } from '@shared/crossCheck';
 
@@ -18,13 +20,22 @@ export function CrossCheckCard({ item, compact = false }: { item: CrossCheckItem
   });
   const discard = trpc.crossCheck.discard.useMutation({ onSuccess: () => { toast('Descartado'); refresh(); }, onError: (e) => toast.error(e.message) });
   const busy = report.isPending || discard.isPending;
+  const isMail = item.kind === 'outreach';
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const preview = trpc.crossCheck.preview.useQuery({ id: item.id }, { enabled: isMail && previewOpen, staleTime: 60_000 });
   return (
+    <>
     <article className={`rounded-2xl border border-white/10 bg-white/5 ${compact ? 'p-3.5' : 'p-4 md:p-5'}`}>
       <h4 className={`font-heading leading-snug ${compact ? 'text-base' : 'text-lg'}`}>{item.title}</h4>
       <p className="mt-1.5 text-sm leading-relaxed text-white/80">{item.summary}</p>
       <p className="mt-1.5 text-xs text-muted-foreground">
         Pedido {formatChileDateTime(item.createdAt)}{item.expiresAt ? ` · vale hasta ${formatChileDateTime(item.expiresAt)}` : ''}
       </p>
+      {isMail && (
+        <button type="button" onClick={() => setPreviewOpen(true)} className="admin-tab mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-2xl text-base font-semibold">
+          <Eye className="h-5 w-5" /> Ver el correo completo
+        </button>
+      )}
       <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
         <button type="button" disabled={busy} onClick={() => report.mutate({ id: item.id })}
           className="flex h-12 items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 text-base font-semibold text-white shadow-lg shadow-emerald-500/20 active:scale-[0.98] disabled:opacity-60">
@@ -36,5 +47,21 @@ export function CrossCheckCard({ item, compact = false }: { item: CrossCheckItem
         </button>
       </div>
     </article>
+      {isMail && (
+        <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+          <DialogContent className="flex max-h-[92dvh] w-[calc(100vw-1.5rem)] max-w-xl flex-col gap-3 p-4">
+            <DialogHeader>
+              <DialogTitle className="text-lg">El correo, tal como sale</DialogTitle>
+              <DialogDescription className="text-sm">
+                {preview.data ? <>Para <strong>{preview.data.to}</strong> · las respuestas llegan a <strong>{preview.data.replyTo}</strong><br />Asunto: {preview.data.subject}</> : 'Cargando…'}
+              </DialogDescription>
+            </DialogHeader>
+            {preview.data && <iframe title="Vista previa del correo" sandbox="" srcDoc={preview.data.html} className="h-[62dvh] w-full rounded-xl border border-white/10 bg-black" />}
+            {preview.isError && <p className="text-sm text-red-300">No se pudo cargar el correo.</p>}
+          </DialogContent>
+        </Dialog>
+      )}
+    </>
   );
 }
+
