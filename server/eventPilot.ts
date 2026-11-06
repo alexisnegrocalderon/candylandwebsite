@@ -20,15 +20,23 @@ async function expectedPeople(eventId: number): Promise<number> {
   return (await personasDelEvento(db, eventId)).expected || 300;
 }
 
-/** Resumen de la lista de compras de la barra para la tarjeta del cross check. */
-export async function barShoppingSummary(eventId: number): Promise<{ personas: number; text: string; missingCost: number }> {
-  const personas = await expectedPeople(eventId);
+/** Previsión de la barra para la gente esperada: qué falta comprar y cuánto cuesta (tarjeta de Inicio y paso del piloto). */
+export async function barShoppingSummary(eventId: number): Promise<{
+  personas: number; conEntrada: number; missingCost: number; faltan: { name: string; comprar: number }[]; totalFaltan: number; text: string;
+}> {
+  const db = await crossCheckDb();
+  const conEntrada = (await personasDelEvento(db, eventId)).expected;
+  const personas = conEntrada || 300;
   const p = await proyeccion({ eventId, personas });
-  const faltan = (p.insumos as any[]).filter((i) => Number(i.missing) > 0).sort((a, b) => Number(b.cost ?? 0) - Number(a.cost ?? 0));
-  const missingCost = faltan.reduce((s, i) => s + Number(i.cost ?? 0), 0);
-  if (faltan.length === 0) return { personas, missingCost: 0, text: `Para ${personas} personas alcanza todo lo que hay en stock.` };
-  const top = faltan.slice(0, 5).map((i) => `${i.name}: comprar ${i.containersToBuy ?? Math.ceil(Number(i.missing))}`).join(' · ');
-  return { personas, missingCost, text: `Para ${personas} personas faltan ${faltan.length} insumo${faltan.length === 1 ? '' : 's'} (${clp(missingCost)}). ${top}${faltan.length > 5 ? ' …' : ''}` };
+  const lineas = [...(p.insumos as any[]), ...((p.generales?.lineas ?? []) as any[])].filter((i) => Number(i.containersToBuy) > 0);
+  lineas.sort((a, b) => Number(b.cost ?? 0) - Number(a.cost ?? 0));
+  const missingCost = lineas.reduce((s, i) => s + Number(i.cost ?? 0), 0);
+  const faltan = lineas.slice(0, 5).map((i) => ({ name: String(i.name), comprar: Number(i.containersToBuy) }));
+  const quien = conEntrada ? `${personas} personas con entrada` : `${personas} personas (estimado: todavía no hay entradas)`;
+  const text = lineas.length === 0
+    ? `Para ${quien} alcanza todo lo que hay en stock.`
+    : `Para ${quien} faltan ${lineas.length} insumo${lineas.length === 1 ? '' : 's'} (${clp(missingCost)}). ${faltan.map((f) => `${f.name}: comprar ${f.comprar}`).join(' · ')}${lineas.length > 5 ? ' …' : ''}`;
+  return { personas, conEntrada, missingCost, faltan, totalFaltan: lineas.length, text };
 }
 
 async function summaryFor(key: PilotStepKey, eventId: number, title: string): Promise<string> {

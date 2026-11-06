@@ -19,6 +19,7 @@ import { usePlata } from '@/components/admin/home/PlataBlock';
 import { useGente } from '@/components/admin/home/GenteBlock';
 import { AgentCard } from '@/components/admin/home/AgentCard';
 import { ApprovalsCard } from '@/components/admin/home/ApprovalsCard';
+import { BarForecastCard } from '@/components/admin/home/BarForecastCard';
 import { SummaryTabs } from '@/components/admin/home/SummaryTabs';
 
 /** Pantalla de entrada del panel: cómo va el próximo evento, qué está
@@ -187,6 +188,9 @@ export function HomeView({ badgeCounts, onOpen }: { badgeCounts: Record<string, 
         evento={evento.data} eventoLoading={evento.isLoading} plata={plata.data} plataLoading={plata.isLoading} gente={gente.data} genteLoading={gente.isLoading}
         hasEvent={!!eventId} isDemo={isDemo} badgeCounts={badgeCounts} onOpen={onOpen}
       />
+
+      {/* Barra del próximo evento: qué falta comprar para la gente con entrada. */}
+      {!isDemo && eventId && !currentIsPast && stage !== 'despues' && <BarForecastCard eventId={eventId} onOpen={onOpen} />}
 
       {/* KPIs */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 md:gap-4">

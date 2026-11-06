@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Copy, Download } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
@@ -31,6 +31,13 @@ export function ComprasTab({ eventId, data }: { eventId: number; data: BarraData
     overrides: Object.keys(overrides).length ? overrides : undefined,
   }, { placeholderData: (prev) => prev });
   const p = proyeccion.data;
+  // La primera vez, si ya hay entradas vendidas, la lista parte de esa gente (no de 300 fijo). Después manda lo que escribas.
+  const autoPersonas = useRef(false);
+  useEffect(() => {
+    if (autoPersonas.current || !p) return;
+    autoPersonas.current = true;
+    if (p.personasConEntrada > 0 && personas === DEFAULT_PERSONAS) setPersonas(p.personasConEntrada);
+  }, [p, personas]);
   const insumoById = new Map(data.insumos.map((i) => [i.id, i]));
 
   const copyText = async () => {
@@ -77,12 +84,12 @@ export function ComprasTab({ eventId, data }: { eventId: number; data: BarraData
         </div>
       </div>
       {p && (
-        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
           <span>Con entrada hoy: <strong className="text-foreground">{p.personasConEntrada}</strong> personas</span>
           {p.personasConEntrada > 0 && p.personasConEntrada !== personas && (
-            <button type="button" className="underline" onClick={() => setPersonas(p.personasConEntrada)}>usar ese número</button>
+            <button type="button" className="admin-tab flex h-11 items-center rounded-full px-4 text-sm font-medium" onClick={() => setPersonas(p.personasConEntrada)}>Usar las {p.personasConEntrada} con entrada</button>
           )}
-          {personas !== DEFAULT_PERSONAS && <button type="button" className="underline" onClick={() => setPersonas(DEFAULT_PERSONAS)}>volver a {DEFAULT_PERSONAS}</button>}
+          {personas !== DEFAULT_PERSONAS && <button type="button" className="admin-tab flex h-11 items-center rounded-full px-4 text-sm font-medium" onClick={() => setPersonas(DEFAULT_PERSONAS)}>Volver a {DEFAULT_PERSONAS}</button>}
         </div>
       )}
 

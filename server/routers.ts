@@ -3650,6 +3650,8 @@ export const appRouter = router({
     get: adminReadProcedure.input(z.object({ eventId: z.number().int().positive() })).query(async ({ input }) => pilotSvc.getPilotStatus(input.eventId)),
     start: adminProcedure.input(z.object({ eventId: z.number().int().positive() })).mutation(async ({ input }) => pilotSvc.startPilot(input.eventId)),
     stop: adminProcedure.input(z.object({ eventId: z.number().int().positive() })).mutation(async ({ input }) => pilotSvc.stopPilot(input.eventId)),
+    // Previsión de la barra para la gente con entrada (tarjeta de Inicio).
+    bar: adminProcedure.input(z.object({ eventId: z.number().int().positive() })).query(async ({ input }) => pilotSvc.barShoppingSummary(input.eventId)),
   }),
 
   adminBadges: router({
