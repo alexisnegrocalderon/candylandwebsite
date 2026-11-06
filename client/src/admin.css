@@ -213,7 +213,7 @@
 
   --admin-text: oklch(0.985 0 0);
   --admin-muted: oklch(0.86 0.006 270);
-  --admin-body-size: 16px;
+  --admin-body-size: calc(16px * var(--admin-text-scale, 1));
   --admin-radius: 22px;
   --admin-radius-sm: 14px;
   --admin-shadow-clay: 0 24px 60px -22px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.30), inset 0 -1px 0 rgba(255, 255, 255, 0.06), inset 1px 0 0 rgba(255, 255, 255, 0.05);
@@ -471,4 +471,30 @@ html[data-admin-theme="dark-glass"] body {
     border: 1px solid var(--admin-glass-border);
     box-shadow: var(--admin-shadow-clay);
   }
+}
+
+
+/* ── Letra grande (vista cómoda) ──────────────────────────────────────────
+ * Para leer sin lentes. El tamaño lo elige la persona (client/src/lib/adminTextSize.ts) y se aplica en <html>:
+ * como todo está en rem, crecen juntos letras, botones y espacios. */
+html[data-admin-text="grande"] { font-size: 112.5%; --admin-text-scale: 1.125; }
+html[data-admin-text="muy-grande"] { font-size: 125%; --admin-text-scale: 1.25; }
+
+/* Piso de legibilidad: nada de letra diminuta (antes había textos de 10-12 px) en ningún tamaño. */
+html[data-admin-theme="dark-glass"] .text-xs { font-size: 0.8125rem; line-height: 1.2rem; }
+html[data-admin-theme="dark-glass"] .text-\[10px\],
+html[data-admin-theme="dark-glass"] .text-\[11px\],
+html[data-admin-theme="dark-glass"] .text-\[12px\] { font-size: 0.8125rem; line-height: 1.15rem; }
+html[data-admin-theme="dark-glass"] .text-\[13px\] { font-size: 0.875rem; }
+
+/* Campos de texto: 16 px como mínimo (iOS hace zoom solo al tocar un campo con letra menor) y fáciles de tocar. */
+html[data-admin-theme="dark-glass"] input:not([type="checkbox"]):not([type="radio"]),
+html[data-admin-theme="dark-glass"] select,
+html[data-admin-theme="dark-glass"] textarea { font-size: max(1rem, 16px); }
+
+/* Pantalla táctil: nada que tocar mide menos de 44 px. */
+@media (pointer: coarse) {
+  html[data-admin-theme="dark-glass"] [data-slot="button"],
+  html[data-admin-theme="dark-glass"] [role="tab"],
+  html[data-admin-theme="dark-glass"] [data-slot="select-trigger"] { min-height: 2.75rem; }
 }
