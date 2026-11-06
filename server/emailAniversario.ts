@@ -58,6 +58,10 @@ export interface AnniversaryEmailData {
   eventSections?: { banner?: boolean; details?: boolean };
   /** Nombre de la tanda en la tarjeta de precios del look PLAYMORE; sin valor = «Primera tanda». */
   tandaLabel?: string;
+  /** Pie de marketing (Instagram, web, dirección de la empresa). Por defecto sí; un correo personal lo apaga. */
+  footer?: boolean;
+  /** HTML al final del cuerpo, después de los datos del evento (ej. la firma). */
+  closing?: string;
 }
 
 const clp = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
@@ -94,7 +98,7 @@ export function buildAnniversaryBlastEmail(data: AnniversaryEmailData): string {
   return emailShell({
     preheader: data.preheader,
     pageBg: p.bg,
-    footer: true,
+    footer: data.footer ?? true,
     beforeContainer: !isPm && ev?.imageUrl && showBanner
       ? `<img src="${ev.imageUrl}" alt="${ev.title}" style="display:block;width:100%;height:auto;" />`
       : undefined,
@@ -148,6 +152,8 @@ export function buildAnniversaryBlastEmail(data: AnniversaryEmailData): string {
         <p style="color:${p.ink};font-size:15px;margin:6px 0;">📍 ${ev.venue}${ev.address ? ` — ${ev.address}` : ''}</p>
         ${ev.mapsUrl ? `<a href="${ev.mapsUrl}" style="display:inline-block;color:${p.accentText};font-size:13px;font-weight:700;text-decoration:none;margin-top:4px;">Ver en Google Maps →</a>` : ''}
       </div>` : ''}
+
+      ${data.closing ?? ''}
     `,
   });
 }
