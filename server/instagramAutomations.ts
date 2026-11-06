@@ -65,11 +65,21 @@ function normalizeForMatch(text: string): string {
     .toLowerCase();
 }
 
-/** `true` si el texto entrante contiene la palabra clave, sin importar
+/** Las palabras clave de una automatización: se pueden poner varias separadas por coma (también `;`, `|` o salto de línea),
+ * y calza con cualquiera. Las comillas se ignoran ("PLAYMORE", «dalmore»). */
+export function keywordList(keyword: string): string[] {
+  return keyword
+    .split(/[,;|\n]/)
+    .map((k) => normalizeForMatch(k).replace(/["'“”‘’«»]/g, '').trim())
+    .filter(Boolean);
+}
+
+/** `true` si el texto entrante contiene ALGUNA de las palabras clave, sin importar
  * mayúsculas/tildes. `includes()` a propósito, no palabra exacta -- "me
  * encanta el disfraz!" calza con la palabra clave "disfraz". */
 export function matchesKeyword(text: string, keyword: string): boolean {
-  return normalizeForMatch(text).includes(normalizeForMatch(keyword));
+  const t = normalizeForMatch(text);
+  return keywordList(keyword).some((k) => t.includes(k));
 }
 
 

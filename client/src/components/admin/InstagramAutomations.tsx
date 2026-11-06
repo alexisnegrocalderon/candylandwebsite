@@ -145,6 +145,9 @@ function AutomationGiftEditor({ automation }: { automation: { id: number; giftPe
 
 /** Editar palabra clave, dónde aplica y el mensaje de una automatización ya
  * creada. El regalo/código no se toca: ya está creado y vinculado. */
+const KEYWORD_HELP = 'Puedes poner varias separadas por coma (disfraz, outfit, quiero): responde si el comentario trae cualquiera de ellas, en cualquier parte del texto.';
+const keywordChips = (keyword: string) => keyword.split(/[,;|\n]/).map((k) => k.replace(/["'“”‘’«»]/g, '').trim()).filter(Boolean);
+
 function AutomationTextEditor({ automation }: { automation: { id: number; keyword: string; triggerSource: 'comment' | 'story_reply' | 'both'; replyMessage: string } }) {
   const utils = trpc.useUtils();
   const [editing, setEditing] = useState(false);
@@ -170,6 +173,7 @@ function AutomationTextEditor({ automation }: { automation: { id: number; keywor
       <div>
         <Label>Palabra clave</Label>
         <Input value={keyword} onChange={(e) => setKeyword(e.target.value)} className="mt-1" />
+        <p className="text-xs text-muted-foreground mt-1">{KEYWORD_HELP}</p>
       </div>
       <div>
         <Label>¿Dónde aplica?</Label>
@@ -187,7 +191,7 @@ function AutomationTextEditor({ automation }: { automation: { id: number; keywor
         <Textarea rows={6} value={replyMessage} onChange={(e) => setReplyMessage(e.target.value)} className="mt-1" />
         <p className="text-xs text-muted-foreground mt-1">Puedes usar {'{{codigo}}'}, {'{{producto}}'} y {'{{link}}'}. El cambio vale desde el próximo mensaje que llegue.</p>
       </div>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <WriteButton
           size="sm"
           disabled={save.isPending || !keyword.trim() || !replyMessage.trim()}
@@ -223,7 +227,7 @@ function AutomationButtonEditor({ automation }: { automation: { id: number; disc
   return (
     <div className="mt-2 space-y-2 rounded-xl bg-muted/30 p-3">
       <AutomationButtonPicker value={draft} onChange={setDraft} hasReward={Boolean(automation.discountCode)} />
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <WriteButton size="sm" disabled={save.isPending} onClick={() => save.mutate({ id: automation.id, button: toButtonInput(draft) })}>
           {save.isPending ? 'Guardando...' : 'Guardar botón'}
         </WriteButton>
@@ -332,7 +336,7 @@ export function InstagramAutomations() {
   return (
     <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
       <CardHeader><CardTitle className="flex items-center gap-2"><Zap className="w-5 h-5" /> Automatizaciones por palabra clave</CardTitle></CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-4 px-3 sm:px-6">
         <p className="text-muted-foreground text-sm">
           Cuando alguien comenta o responde a una historia con la palabra que definas acá, le llega automático el DM que
           configures -- un link, un mensaje, un código de descuento, o un producto de la Carta regalado (ya listo para
@@ -341,9 +345,11 @@ export function InstagramAutomations() {
         </p>
 
         {(automations ?? []).map((a) => (
-          <div key={a.id} className="flex items-start justify-between gap-4 rounded-2xl border p-3">
-            <div className="text-sm min-w-0">
-              <p className="font-medium">"{a.keyword}"</p>
+          <div key={a.id} className="flex flex-col gap-2 rounded-2xl border p-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+            <div className="min-w-0 flex-1 text-sm">
+              <div className="flex flex-wrap gap-1">
+                {keywordChips(a.keyword).map((k) => <span key={k} className="rounded-full bg-primary/10 px-2.5 py-0.5 text-sm font-semibold break-all">{k}</span>)}
+              </div>
               <p className="text-muted-foreground text-xs">{TRIGGER_LABEL[a.triggerSource]}</p>
               <p className="text-muted-foreground text-xs mt-1 whitespace-pre-wrap break-words">{a.replyMessage}</p>
               {a.discountCode && <p className="text-xs mt-1">Código: <span className="font-mono">{a.discountCode}</span></p>}
@@ -353,7 +359,7 @@ export function InstagramAutomations() {
               <AutomationButtonEditor automation={a} />
               <p className="text-muted-foreground text-xs mt-1">{a.redemptions} persona{a.redemptions === 1 ? '' : 's'} ya lo recibió</p>
             </div>
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="order-first flex shrink-0 items-center justify-between gap-2 sm:order-none sm:justify-end">
               <Switch
                 checked={a.active === 1}
                 onCheckedChange={(on) => setActive.mutate({ id: a.id, active: on })}
@@ -371,10 +377,11 @@ export function InstagramAutomations() {
         {!showForm ? (
           <Button variant="outline" onClick={() => setShowForm(true)}>+ Nueva automatización</Button>
         ) : (
-          <div className="space-y-3 rounded-2xl border p-4">
+          <div className="space-y-3 rounded-2xl border p-3 sm:p-4">
             <div>
               <Label>Palabra clave</Label>
-              <Input value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="Ej: disfraz" className="mt-1" />
+              <Input value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="Ej: disfraz, outfit, quiero" className="mt-1" />
+              <p className="text-xs text-muted-foreground mt-1">{KEYWORD_HELP}</p>
             </div>
             <div>
               <Label>¿Dónde aplica?</Label>
