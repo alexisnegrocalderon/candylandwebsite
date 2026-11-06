@@ -28,6 +28,9 @@ export const ENV = {
   githubRenderRepo: process.env.GITHUB_RENDER_REPO || "alexisnegrocalderon/candylandwebsite",
   githubRenderRef: process.env.GITHUB_RENDER_REF || "main",
   renderCallbackSecret: process.env.RENDER_CALLBACK_SECRET ?? "",
+  // Voz de los reels del Estudio (server/studioVoice.ts): Azure Speech, voces es-CL.
+  azureSpeechKey: process.env.AZURE_SPEECH_KEY ?? "",
+  azureSpeechRegion: process.env.AZURE_SPEECH_REGION ?? "",
   // --- Agente de IA del Instagram (server/instagram.ts) ---
   // Secreto de la app de Meta: firma cada entrega del webhook en la cabecera
   // `X-Hub-Signature-256`. Sin esta variable el webhook RECHAZA todo en

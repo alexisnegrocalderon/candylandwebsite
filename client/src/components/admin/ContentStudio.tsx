@@ -40,7 +40,7 @@ import { EventPack } from './studio/EventPack';
 import { AmbassadorContentAdmin } from './studio/AmbassadorContentAdmin';
 import { VideoStudio, type VideoEditing } from './studio/VideoStudio';
 import { countdownVideo } from '@shared/studioCountdown';
-import { eventVideo, playcardVideo, slidesVideo, starterPointsVideo, VIDEO_FORMAT_LABEL, VIDEO_TEMPLATE_LABEL, type StudioVideo } from '@shared/studioVideo';
+import { eventVideo, playcardVideo, slidesVideo, starterPointsVideo, voiceVideo, VIDEO_FORMAT_LABEL, VIDEO_TEMPLATE_LABEL, type StudioVideo } from '@shared/studioVideo';
 import { AiDesigner } from './studio/AiDesigner';
 import { AiUsageCard } from './studio/AiUsageCard';
 import { SlideFrame } from './studio/SlideFrame';
@@ -198,7 +198,7 @@ function StudioHome({ onOpen, onOpenAi, onOpenPhoto, onOpenVideo, onOpenPack, on
   const newVideo = () => {
     const countdownOf = videoEvent.startsWith('cuenta:') ? upcomingEvents.find((e) => `cuenta:${e.id}` === videoEvent) : undefined;
     const event = upcomingEvents.find((e) => String(e.id) === videoEvent);
-    onOpenVideo({ video: countdownOf ? countdownVideo(countdownOf) : event ? eventVideo(event) : videoEvent === 'playcard' ? playcardVideo() : starterPointsVideo(), dirty: true });
+    onOpenVideo({ video: countdownOf ? countdownVideo(countdownOf) : event ? eventVideo(event) : videoEvent === 'playcard' ? playcardVideo() : videoEvent === 'voz' ? voiceVideo() : starterPointsVideo(), dirty: true });
   };
   const openVideo = async (id: number) => {
     setOpening(id);
@@ -321,6 +321,7 @@ function StudioHome({ onOpen, onOpenAi, onOpenPhoto, onOpenVideo, onOpenPack, on
               <SelectContent>
                 <SelectItem value="none">Gancho + puntos (ejemplo)</SelectItem>
                 <SelectItem value="playcard">PlayCard animada</SelectItem>
+                <SelectItem value="voz">Reel con voz chilena (valores)</SelectItem>
                 {upcomingEvents.map((e) => <SelectItem key={`c${e.id}`} value={`cuenta:${e.id}`}>Cuenta regresiva: {e.title}</SelectItem>)}
                 {upcomingEvents.map((e) => <SelectItem key={e.id} value={String(e.id)}>Anuncio: {e.title}</SelectItem>)}
               </SelectContent>

@@ -24,8 +24,9 @@ import { fitFontSize, STUDIO_THEMES, type StudioDesign, type StudioTheme } from 
 import { beatSheet, type ReelBeatInput } from './reelScript';
 import { formatChileDate, formatChileTime } from './chileDate';
 import { normalizeCountdown, type VideoCountdown } from './studioCountdown';
+import { normalizeVoice, starterVoice, type VideoVoice } from './studioVoice';
 
-export const VIDEO_TEMPLATES = ['puntos', 'anuncio', 'guion', 'laminas', 'cuenta'] as const;
+export const VIDEO_TEMPLATES = ['puntos', 'anuncio', 'guion', 'laminas', 'cuenta', 'voz'] as const;
 export type VideoTemplate = (typeof VIDEO_TEMPLATES)[number];
 
 /** Reel / historia 9:16, post de feed 3:4, cuadrado 1:1 u horizontal 16:9. */
@@ -53,6 +54,7 @@ export const VIDEO_TEMPLATE_LABEL: Record<VideoTemplate, string> = {
   guion: 'Desde un guion de Reel',
   laminas: 'Láminas animadas',
   cuenta: 'Cuenta regresiva',
+  voz: 'Reel con voz',
 };
 export const VIDEO_FORMAT_LABEL: Record<VideoFormat, string> = { reel: 'Reel / historia 9:16', feed: 'Feed 3:4', square: 'Cuadrado 1:1', landscape: 'Horizontal 16:9' };
 
@@ -184,6 +186,8 @@ export interface StudioVideo {
   secsPerSlide: number;
   /** Solo «cuenta»: lo que se ve en pantalla (días, evento, fecha, cierre). */
   countdown?: VideoCountdown;
+  /** Solo «voz»: el guion por escenas y la voz generada (shared/studioVoice.ts). */
+  voice?: VideoVoice;
   /** Diseño de todas las escenas (cada escena puede cambiarlo). */
   style?: VideoStyle;
   watermark?: VideoWatermark;
@@ -355,7 +359,8 @@ export function normalizeStudioVideo(raw: unknown, designNormalizer: (d: unknown
   }
   const design = template === 'laminas' && r.design ? designNormalizer(r.design) : null;
   const countdown = template === 'cuenta' ? normalizeCountdown(r.countdown) : undefined;
-  if (template === 'laminas' ? !design : template === 'cuenta' ? !countdown : scenes.length === 0) return null;
+  const voice = template === 'voz' ? normalizeVoice(r.voice) : undefined;
+  if (template === 'laminas' ? !design : template === 'cuenta' ? !countdown : template === 'voz' ? !voice : scenes.length === 0) return null;
   const eventId = Number(r.eventId);
   return {
     title: str(r.title, LIMITS.title).trim() || 'Video sin título',
@@ -371,6 +376,7 @@ export function normalizeStudioVideo(raw: unknown, designNormalizer: (d: unknown
     design,
     secsPerSlide: clampSecs(r.secsPerSlide, 2.5),
     ...(countdown ? { countdown } : {}),
+    ...(voice ? { voice } : {}),
     ...(normalizeVideoStyle(r.style) ? { style: normalizeVideoStyle(r.style) } : {}),
     ...(normalizeWatermark(r.watermark) ? { watermark: normalizeWatermark(r.watermark) } : {}),
     ...(normalizeMusic(r.music) ? { music: normalizeMusic(r.music) } : {}),
@@ -387,6 +393,11 @@ function base(partial: Partial<StudioVideo> & Pick<StudioVideo, 'template' | 'sc
     title: 'Video sin título', format: 'reel', theme: 'bubble', eventId: null, caption: '', mediaUrl: '',
     cta: 'mansionplayroom.cl', ctaLine: 'Comunidad · Respeto · Libertad', design: null, secsPerSlide: 2.5, ...partial,
   };
+}
+
+/** Reel con voz de partida: los valores de la marca, para editar el guion y generar la voz. */
+export function voiceVideo(): StudioVideo {
+  return base({ title: 'Valores Playroom (reel con voz)', template: 'voz', scenes: [], voice: starterVoice() });
 }
 
 /** El ejemplo de «¿Tu primera vez?»: para partir editando en vez de en blanco. */

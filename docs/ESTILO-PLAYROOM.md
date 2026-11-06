@@ -33,7 +33,7 @@ Estudio: si algo no se parece a esto, se ajusta el formato, no el estilo.
 | Cuenta regresiva | **Hecho** (`shared/studioCountdown*.ts`) |
 | Lista de características (sellos, papelitos, ritmo) | Pendiente |
 | Presentación con gancho de celular (mockup, mensaje falso) | Pendiente |
-| Reels con voz hablada y subtítulos (Whisper) | Pendiente |
+| Reels con voz hablada y subtítulos | **Hecho** (`shared/studioVoice*.ts`, voz chilena de Azure; subtítulos por reparto de palabras, sin Whisper) |
 | Cuenta regresiva diaria automática | Pendiente (`countdownVideo` ya calcula todo desde la fecha del evento) |
 | Publicación programada en Instagram | Pendiente (primero con aprobación) |
 
