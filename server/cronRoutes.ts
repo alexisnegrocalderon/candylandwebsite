@@ -122,7 +122,8 @@ export function registerCronRoutes(app: Express) {
   app.get("/api/cron/pilot", async (req: Request, res: Response) => {
     if (!requireCronSecret(req, res)) return;
     try {
-      res.json({ success: true, ...(await (await import("./eventPilot")).runPilotTick()) });
+      const outreach = await import("./outreach").then((m) => m.ensureOutreachDrafts()).catch((err) => { console.error('[Outreach]', err); return 0; });
+      res.json({ success: true, ...(await (await import("./eventPilot")).runPilotTick()), outreach });
     } catch (err) {
       console.error('[Cron] Error en el piloto de eventos:', err);
       res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Error desconocido' });

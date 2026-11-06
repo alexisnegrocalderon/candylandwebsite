@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { artistBookingSubject, buildArtistBookingEmail } from './artistBookingEmail';
 
 const input = {
-  greetingName: 'Martina y equipo de booking', artistName: 'faedi0r', eventUrl: 'https://playmore.mansionplayroom.cl',
+  greetingName: 'Martina y equipo de booking', artistName: 'FaeDior', replyBy: 'viernes 13 de noviembre', eventUrl: 'https://playmore.mansionplayroom.cl',
   setText: 'de 2:00 a 4:00 AM', setHighlight: '2:00 – 4:00 AM',
   producers: [{ name: 'Alexis Calderon', role: 'Productor de PlayRoom', phone: '+56 9 3313 5140' }, { name: 'Gino Perez', role: 'Productor de Dalmore' }],
 };
@@ -10,6 +10,8 @@ const input = {
 describe('correo de booking a un DJ', () => {
   const html = buildArtistBookingEmail(input);
   it('lleva lo que se acordó: rol, horario de cierre, fecha, lugar, link y la franqueza sobre el evento', () => {
+    expect(html).toContain('Nos gustaría que FaeDior sea parte de nuestro Line Up');
+    expect(html).toContain('antes del viernes 13 de noviembre');
     expect(html).toContain('plato fuerte de Playroom');
     expect(html).toContain('perreo old school');
     expect(html).toContain('de 2:00 a 4:00 AM');

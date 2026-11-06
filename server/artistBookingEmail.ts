@@ -8,6 +8,8 @@ export interface ArtistBookingInput {
   greetingName: string;
   /** Nombre artístico, tal como aparece en su perfil. */
   artistName: string;
+  /** Fecha límite de respuesta, ya escrita («viernes 13 de noviembre»). */
+  replyBy: string;
   /** Link a la página del evento. */
   eventUrl: string;
   /** Su rol y horario, ya escritos («de 2:00 a 4:00 AM»). */
@@ -32,15 +34,15 @@ export function buildArtistBookingEmail(input: ArtistBookingInput): string {
   return buildAnniversaryBlastEmail({
     theme: 'playmore',
     buyerName: input.greetingName,
-    preheader: `Propuesta de booking: cierre de la noche, ${input.setText}. ¿Estás disponible el 4 de diciembre?`,
-    headline: `Queremos a ${esc(input.artistName)} como plato fuerte de PLAYMORE`,
+    preheader: `Propuesta de booking: cierre de la noche, ${input.setText}. ¿Estás disponible el 4 de diciembre? Responde antes del ${input.replyBy}.`,
+    headline: `Nos gustaría que ${esc(input.artistName)} sea parte de nuestro Line Up`,
     highlightLabel: 'Tu set · cierre de la noche',
     highlightValue: input.setHighlight,
     paragraphs: [
       `Somos <strong>${first[0]}</strong> y <strong>${first[1]}</strong>, productores de Playroom y Dalmore. El <strong>viernes 4 de diciembre</strong> juntamos por primera vez a las dos fiestas liberales más grandes de la Región Metropolitana y la V Región en <strong>PLAYMORE</strong>: una sola noche, un line up pensado a medida y un spot nuevo y exclusivo en Providencia, Santiago, pensado solo para esta fecha.`,
       `Queremos que seas el <strong>plato fuerte de Playroom</strong> con un set de <strong>perreo old school</strong>, y que cierres la noche: <strong>${esc(input.setText)}</strong>.`,
       `Para que tengas todo claro desde el inicio: PLAYMORE es una <strong>fiesta liberal para mayores de 21 años</strong>, con código de vestimenta y un ambiente cuidado y de respeto. Es una noche exclusiva, distinta a un evento común.`,
-      `¿Estás <strong>disponible el viernes 4 de diciembre</strong>? Si es así, coordinamos con calma el resto de los detalles. Puedes responder directamente a este correo.`,
+      `¿Estás <strong>disponible el viernes 4 de diciembre</strong>? Si es así, coordinamos con calma el resto de los detalles. Nos ayudaría mucho tu respuesta <strong>antes del ${esc(input.replyBy)}</strong>, porque la fecha se acerca. Puedes responder directamente a este correo.`,
     ],
     ctaText: 'Ver PLAYMORE',
     ctaUrl: input.eventUrl,

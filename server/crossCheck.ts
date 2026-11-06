@@ -20,6 +20,9 @@ async function ensureTables(): Promise<boolean> {
   return true;
 }
 
+/** Un fallo que se puede reintentar: el pedido vuelve a «esperando» con el motivo, en vez de quedar en «falló». */
+export class CrossCheckRetry extends Error {}
+
 /** La base lista (con las tablas del cross check y del piloto) o un error claro. */
 export async function crossCheckDb() {
   if (!(await ensureTables())) throw new Error("Base de datos no disponible");
@@ -141,6 +144,7 @@ async function execute(item: typeof crossChecks.$inferSelect): Promise<string> {
       const r = await survey.sendEventSurveys(item.eventId, await survey.surveyEmailBudget());
       return `${r.sent} encuesta${r.sent === 1 ? '' : 's'} enviada${r.sent === 1 ? '' : 's'}${r.failed ? `, ${r.failed} con error` : ''}${r.pending ? `, ${r.pending} quedan para mañana` : ''}.`;
     }
+    case 'outreach': return (await import('./outreach')).sendOutreach((item.payload as { key?: string } | null)?.key ?? '');
     default:
       if (item.kind.startsWith('pilot:')) return (await import('./eventPilot')).runPilotStep(item.kind.slice(6), item.eventId, item.payload);
       throw new Error(`No sé ejecutar «${item.kind}».`);
@@ -162,7 +166,12 @@ export async function reportCrossCheck(id: number): Promise<CrossCheckItem> {
     await db.update(crossChecks).set({ status: 'done', result: result.slice(0, 1000) }).where(eq(crossChecks.id, id));
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    await db.update(crossChecks).set({ status: 'failed', result: msg.slice(0, 1000) }).where(eq(crossChecks.id, id));
+    if (err instanceof CrossCheckRetry) {
+      // Se puede volver a tocar «Reportar»: queda esperando, con el motivo a la vista.
+      await db.update(crossChecks).set({ status: 'pending', decidedAt: null, result: msg.slice(0, 1000) }).where(eq(crossChecks.id, id));
+    } else {
+      await db.update(crossChecks).set({ status: 'failed', result: msg.slice(0, 1000) }).where(eq(crossChecks.id, id));
+    }
   }
   const [after] = await db.select().from(crossChecks).where(eq(crossChecks.id, id)).limit(1);
   return toItem(after);
@@ -180,4 +189,12 @@ export async function pilotedEventIds(): Promise<Set<number>> {
     const db = await crossCheckDb();
     return new Set((await db.select({ id: eventPilots.eventId }).from(eventPilots).where(eq(eventPilots.status, 'on'))).map((r) => r.id));
   } catch { return new Set(); }
+}
+
+/** El correo completo de un pedido de envío (para revisarlo antes de tocar «Reportar»). */
+export async function previewCrossCheck(id: number): Promise<{ to: string; replyTo: string; subject: string; html: string } | null> {
+  const db = await crossCheckDb();
+  const [row] = await db.select().from(crossChecks).where(eq(crossChecks.id, id)).limit(1);
+  if (!row || row.kind !== 'outreach') return null;
+  return (await import('./outreach')).getOutreachPreview((row.payload as { key?: string } | null)?.key ?? '');
 }

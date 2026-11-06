@@ -3645,7 +3645,15 @@ export const appRouter = router({
   // de "pendiente de acción", que se cuentan siempre (ver getAdminBadgeCounts).
   /* Cross check (server/crossCheck.ts): lo que las automatizaciones y el piloto quieren hacer, esperando «Reportar». */
   crossCheck: router({
-    list: adminReadProcedure.query(async () => crossCheckSvc.listCrossChecks()),
+    // Los borradores de correos a personas externas se dejan listos al abrir la pantalla (una sola vez cada uno).
+    list: adminReadProcedure.query(async ({ ctx }) => {
+      if (ctx.user?.role !== 'viewer') await import("./outreach").then((m) => m.ensureOutreachDrafts()).catch((err) => console.error('[Outreach]', err));
+      const lists = await crossCheckSvc.listCrossChecks();
+      // El invitado de demostración no ve correos a personas externas.
+      return ctx.user?.role === 'viewer' ? { pending: lists.pending.filter((i) => i.kind !== 'outreach'), recent: lists.recent.filter((i) => i.kind !== 'outreach') } : lists;
+    }),
+    // El correo completo de un envío por aprobar, para leerlo antes de «Reportar».
+    preview: adminProcedure.input(z.object({ id: z.number().int().positive() })).query(async ({ input }) => crossCheckSvc.previewCrossCheck(input.id)),
     config: adminReadProcedure.query(async () => crossCheckSvc.getCrossCheckConfig()),
     setAuto: adminProcedure.input(z.object({ kind: z.enum(CROSS_CHECK_AUTOMATIONS), auto: z.boolean() }))
       .mutation(async ({ input }) => { await crossCheckSvc.setCrossCheckAuto(input.kind, input.auto); return { ok: true }; }),
