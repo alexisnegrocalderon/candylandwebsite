@@ -188,6 +188,7 @@ export const ASSISTANT_TOOLS: AssistantTool[] = [
         bebidas: p.insumos.map((i) => ({ insumo: i.name, necesita: i.need, hay: i.stock, falta: i.missing, envases_a_comprar: i.containersToBuy, costo: i.cost })),
         otros: p.generales.lineas.map((g) => ({ insumo: g.name, grupo: g.grupo, necesita: g.need, hay: g.stock, falta: g.missing, envases_a_comprar: g.containersToBuy, costo: g.cost })),
         costo_total: p.costoTotal + p.generales.costoTotal, tragos_sin_receta: p.sinReceta,
+        ...(p.sinStockPlayroom ? { nota: "Este evento no usa el stock de Playroom: «hay» es 0 a propósito y «falta» es todo lo que hay que comprar. El stock de Playroom no se toca." } : {}),
       };
     },
   }),

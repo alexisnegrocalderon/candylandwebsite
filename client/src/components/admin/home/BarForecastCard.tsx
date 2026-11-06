@@ -12,9 +12,10 @@ export function BarForecastCard({ eventId, onOpen }: { eventId: number; onOpen: 
       <div className="flex items-center gap-3">
         <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-amber-400 to-rose-500 text-white"><Wine className="h-5 w-5" /></span>
         <div className="min-w-0 flex-1">
-          <h3 className="font-heading text-lg leading-tight">Barra para la fiesta</h3>
+          <h3 className="font-heading text-lg leading-tight">{data?.sinStockPlayroom ? 'Compra nueva para la fiesta' : 'Barra para la fiesta'}</h3>
           <p className="text-sm text-muted-foreground">
             {isLoading ? 'Calculando…' : data!.conEntrada ? `${data!.conEntrada} personas con entrada` : `Sin entradas todavía: calculado para ${data!.personas}`}
+            {data?.sinStockPlayroom ? ' · sin usar el stock de Playroom' : ''}
           </p>
         </div>
       </div>
@@ -22,7 +23,7 @@ export function BarForecastCard({ eventId, onOpen }: { eventId: number; onOpen: 
         <p className="mt-3 flex items-center gap-2 text-base"><CheckCircle2 className="h-5 w-5 text-emerald-300" /> Alcanza con lo que hay en stock.</p>
       ) : (
         <>
-          <p className="mt-3 text-base">Faltan <strong>{data.totalFaltan} insumo{data.totalFaltan === 1 ? '' : 's'}</strong> · {clp(data.missingCost)}</p>
+          <p className="mt-3 text-base">{data.sinStockPlayroom ? 'Hay que comprar' : 'Faltan'} <strong>{data.totalFaltan} insumo{data.totalFaltan === 1 ? '' : 's'}</strong>{data.missingCost > 0 ? ` · ${clp(data.missingCost)}` : ''}</p>
           <ul className="mt-2 space-y-1.5">
             {data.faltan.map((f) => (
               <li key={f.name} className="flex items-center justify-between gap-3 rounded-xl bg-white/5 px-3 py-2.5 text-sm">
@@ -33,8 +34,8 @@ export function BarForecastCard({ eventId, onOpen }: { eventId: number; onOpen: 
           </ul>
         </>
       ))}
-      <button type="button" onClick={() => onOpen('insumos')} className="admin-tab mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-2xl text-sm font-semibold">
-        Ver la lista de compras completa <ArrowRight className="h-4 w-4" />
+      <button type="button" onClick={() => onOpen(data?.sinStockPlayroom ? 'compra-fiesta' : 'insumos')} className="admin-tab mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-2xl text-sm font-semibold">
+        {data?.sinStockPlayroom ? 'Ver la lista de compras de la fiesta' : 'Ver la lista de compras completa'} <ArrowRight className="h-4 w-4" />
       </button>
     </section>
   );

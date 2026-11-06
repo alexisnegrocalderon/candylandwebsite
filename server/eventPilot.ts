@@ -22,7 +22,7 @@ async function expectedPeople(eventId: number): Promise<number> {
 
 /** Previsión de la barra para la gente esperada: qué falta comprar y cuánto cuesta (tarjeta de Inicio y paso del piloto). */
 export async function barShoppingSummary(eventId: number): Promise<{
-  personas: number; conEntrada: number; missingCost: number; faltan: { name: string; comprar: number }[]; totalFaltan: number; text: string;
+  personas: number; conEntrada: number; missingCost: number; faltan: { name: string; comprar: number }[]; totalFaltan: number; sinStockPlayroom: boolean; text: string;
 }> {
   const db = await crossCheckDb();
   const conEntrada = (await personasDelEvento(db, eventId)).expected;
@@ -33,10 +33,11 @@ export async function barShoppingSummary(eventId: number): Promise<{
   const missingCost = lineas.reduce((s, i) => s + Number(i.cost ?? 0), 0);
   const faltan = lineas.slice(0, 5).map((i) => ({ name: String(i.name), comprar: Number(i.containersToBuy) }));
   const quien = conEntrada ? `${personas} personas con entrada` : `${personas} personas (estimado: todavía no hay entradas)`;
+  const compra = p.sinStockPlayroom ? 'hay que comprar' : 'faltan';
   const text = lineas.length === 0
     ? `Para ${quien} alcanza todo lo que hay en stock.`
-    : `Para ${quien} faltan ${lineas.length} insumo${lineas.length === 1 ? '' : 's'} (${clp(missingCost)}). ${faltan.map((f) => `${f.name}: comprar ${f.comprar}`).join(' · ')}${lineas.length > 5 ? ' …' : ''}`;
-  return { personas, conEntrada, missingCost, faltan, totalFaltan: lineas.length, text };
+    : `Para ${quien} ${compra} ${lineas.length} insumo${lineas.length === 1 ? '' : 's'}${missingCost > 0 ? ` (${clp(missingCost)})` : ''}${p.sinStockPlayroom ? ', sin usar el stock de Playroom' : ''}. ${faltan.map((f) => `${f.name}: comprar ${f.comprar}`).join(' · ')}${lineas.length > 5 ? ' …' : ''}`;
+  return { personas, conEntrada, missingCost, faltan, totalFaltan: lineas.length, sinStockPlayroom: !!p.sinStockPlayroom, text };
 }
 
 async function summaryFor(key: PilotStepKey, eventId: number, title: string): Promise<string> {
