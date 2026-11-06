@@ -43,4 +43,9 @@ describe('remainingMailsNeeded', () => {
     // 1 → 2 más, 2 → 0, 3 (sin envíos) → 3
     expect(remainingMailsNeeded([1, 2, 3], stats)).toBe(5);
   });
+
+  it('sin espera (0 días) le toca a todos los que no llegaron al tope, aunque hayan recibido uno hace un rato', () => {
+    const stats = new Map([[1, { count: 1, last: new Date(NOW.getTime() - 60_000) }], [2, { count: 3, last: null }]]);
+    expect(ids(pickDueForRotation(people(1, 2, 3), stats, { intervalDays: 0, now: NOW }))).toEqual([3, 1]);
+  });
 });

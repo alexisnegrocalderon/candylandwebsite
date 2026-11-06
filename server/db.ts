@@ -1238,7 +1238,9 @@ export async function getSalesDripSettings(): Promise<{ enabled: boolean; interv
       intervalDays: siteSettings.salesDripIntervalDays,
     }).from(siteSettings).limit(1);
     if (!row) return { enabled: true, intervalDays: 4 };
-    return { enabled: !!row.enabled, intervalDays: Math.max(1, Number(row.intervalDays) || 4) };
+    // 0 = sin espera entre correos (para un barrido a toda la base en pocos días); cualquier valor raro vuelve a 4.
+    const interval = Number(row.intervalDays);
+    return { enabled: !!row.enabled, intervalDays: Number.isFinite(interval) && interval >= 0 ? Math.floor(interval) : 4 };
   } catch {
     return { enabled: false, intervalDays: 4 };
   }

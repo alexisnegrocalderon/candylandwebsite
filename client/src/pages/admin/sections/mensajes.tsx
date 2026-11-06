@@ -195,15 +195,15 @@ export function SalesDripCard() {
           <label className="text-sm text-muted-foreground flex items-center gap-2">
             Esperar
             <input
-              type="number" min={1} max={30}
+              type="number" min={0} max={30}
               className="w-16 rounded-lg border border-border/50 bg-white/70 dark:bg-black/30 px-2 py-1 text-sm text-foreground"
               value={days !== '' ? days : String(status?.intervalDays ?? 4)}
               onChange={(e) => setDays(e.target.value)}
             />
-            días entre correos a la misma persona
+            días entre correos a la misma persona <span className="text-xs">(0 = sin espera: a todos los que faltan, hasta el tope diario)</span>
           </label>
           <WriteButton
-            onClick={() => { toggle.mutate({ salesDripIntervalDays: Math.min(30, Math.max(1, Number(days) || 4)) }); setDays(''); }}
+            onClick={() => { toggle.mutate({ salesDripIntervalDays: Math.min(30, Math.max(0, Number.isFinite(Number(days)) ? Math.floor(Number(days)) : 4)) }); setDays(''); }}
             disabled={toggle.isPending || days === ''}
             className="bg-white/70 dark:bg-black/30 text-foreground border border-border/50 hover:bg-white"
           >
