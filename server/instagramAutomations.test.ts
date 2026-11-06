@@ -2,6 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { buildAutomationReplyText, matchesKeyword, splitAutomationLink } from './instagramAutomations';
 
 describe('matchesKeyword', () => {
+  it('calza con cualquiera de varias palabras separadas por coma, con o sin comillas', () => {
+    expect(matchesKeyword('Quiero ir a DALMORE!!', '"PLAYMORE, PLAYROOM, DALMORE"')).toBe(true);
+    expect(matchesKeyword('playroom porfa', 'PLAYMORE, PLAYROOM')).toBe(true);
+    expect(matchesKeyword('hola', 'PLAYMORE, PLAYROOM')).toBe(false);
+    expect(matchesKeyword('cualquier cosa', ' , ')).toBe(false);
+  });
+
   it('calza sin importar mayúsculas ni tildes', () => {
     expect(matchesKeyword('me encanta el Disfraz!', 'disfraz')).toBe(true);
     expect(matchesKeyword('DISFRAZ ya llego', 'disfraz')).toBe(true);

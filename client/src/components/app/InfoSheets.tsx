@@ -4,6 +4,8 @@ import { Car, ChevronDown, Cigarette, FileText, Gamepad2, Martini, Music, Shield
 import { BottomSheet } from '@/components/site/AccountPayments';
 import { CANDYLAND } from '@/config/candyland';
 import { BRAND, EVENT_BRAND } from '@shared/eventBrand';
+import { usePlaymore } from '@/components/playmore/AppBanner';
+import { COLAB_FINDS, COLAB_MIN_AGE, type CoproductionLanding } from '@shared/coproduction';
 
 /* Lo que antes había que ir a buscar a la portada del sitio, en hojas de la app:
  * la fiesta (pistas, line-up, lo que hay), el dress code, las preguntas
@@ -19,6 +21,33 @@ export const INFO_TITLES: Record<InfoKind, string> = {
 };
 
 const AMENITY_ICON: Record<string, typeof Music> = { Music, Car, Shirt, Gamepad2, Martini, Cigarette, ShieldCheck };
+
+function FiestaColab({ landing }: { landing: CoproductionLanding }) {
+  return (
+    <div className="space-y-5 pb-2">
+      <div className="account-glass rounded-[22px] p-4">
+        <p className="text-caption1 font-semibold uppercase tracking-wide text-pink-300">{landing.eventName}</p>
+        <p className="mt-1 text-title3 font-bold">Un line up de DJs pensado especialmente para esta fusión</p>
+        <p className="mt-1 text-footnote text-white/60">{landing.fusionText}</p>
+      </div>
+      <div>
+        <p className="mb-2 px-1 text-footnote font-semibold uppercase tracking-wide text-white/55">En el nuevo spot</p>
+        <div className="account-glass divide-y divide-white/[0.08] overflow-hidden rounded-[22px]">
+          {COLAB_FINDS.map((a) => {
+            const Icon = AMENITY_ICON[a.icono] ?? ShieldCheck;
+            return (
+              <div key={a.texto} className="flex items-center gap-3 px-4 py-3">
+                <span className="lg-pill grid h-9 w-9 shrink-0 place-items-center rounded-[11px]"><Icon className="h-[18px] w-[18px] text-pink-300" /></span>
+                <span className="text-body">{a.texto}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <p className="px-1 text-footnote text-white/55">{BRAND.valores.join(' · ')} · Evento +{COLAB_MIN_AGE}</p>
+    </div>
+  );
+}
 
 function Fiesta() {
   const byPista = CANDYLAND.pistas.map((p) => ({ ...p, djs: CANDYLAND.lineup.filter((d) => d.pista === p.genero) }));
@@ -57,23 +86,24 @@ function Fiesta() {
   );
 }
 
-function DressCode() {
+function DressCode({ colab }: { colab: CoproductionLanding | null }) {
   return (
     <div className="space-y-3 pb-2">
       <div className="account-glass rounded-[22px] p-5">
-        <p className="text-title2 font-bold">🎃 Disfraz obligatorio</p>
-        <p className="mt-2 text-body leading-relaxed text-white/80">{EVENT_BRAND.dressCode}</p>
+        <p className="text-title2 font-bold">{colab ? 'Dress code' : '🎃 Disfraz obligatorio'}</p>
+        <p className="mt-2 text-body leading-relaxed text-white/80">{colab ? colab.dressCode : EVENT_BRAND.dressCode}</p>
       </div>
       <p className="px-1 text-footnote text-white/55">Trae tu carnet o pasaporte: lo piden en la puerta junto al QR de tu entrada.</p>
     </div>
   );
 }
 
-function Faq() {
+function Faq({ colab }: { colab: CoproductionLanding | null }) {
   const [open, setOpen] = useState<number | null>(0);
+  const faqs = colab ? colab.faq : CANDYLAND.faqs;
   return (
     <div className="account-glass mb-2 divide-y divide-white/[0.08] overflow-hidden rounded-[22px]">
-      {CANDYLAND.faqs.map((f, i) => (
+      {faqs.map((f, i) => (
         <div key={f.q}>
           <button type="button" onClick={() => setOpen(open === i ? null : i)} aria-expanded={open === i} className="flex w-full items-center gap-3 px-4 py-3.5 text-left">
             <span className="flex-1 text-body font-semibold">{f.q}</span>
@@ -102,12 +132,14 @@ function Legal({ onNavigate }: { onNavigate: () => void }) {
   );
 }
 
-export function InfoSheet({ kind, onClose }: { kind: InfoKind | null; onClose: () => void }) {
+export function InfoSheet({ kind, onClose, eventSlug = null }: { kind: InfoKind | null; onClose: () => void; /** El evento del que se pregunta: si es el de la colaboración (PLAYMORE), las hojas muestran sus textos. */ eventSlug?: string | null }) {
+  const pm = usePlaymore();
+  const colab = pm.data?.event && eventSlug && pm.data.event.slug === eventSlug ? pm.data.landing : null;
   return (
     <BottomSheet open={!!kind} onClose={onClose} title={kind ? INFO_TITLES[kind] : ''}>
-      {kind === 'fiesta' && <Fiesta />}
-      {kind === 'dresscode' && <DressCode />}
-      {kind === 'faq' && <Faq />}
+      {kind === 'fiesta' && (colab ? <FiestaColab landing={colab} /> : <Fiesta />)}
+      {kind === 'dresscode' && <DressCode colab={colab} />}
+      {kind === 'faq' && <Faq colab={colab} />}
       {kind === 'legal' && <Legal onNavigate={onClose} />}
     </BottomSheet>
   );

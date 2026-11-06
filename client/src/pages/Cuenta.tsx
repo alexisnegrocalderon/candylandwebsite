@@ -1092,7 +1092,7 @@ function AccountApp({ me, welcome, onLogout, offlineAt }: { me: Me; welcome: Log
         {avisosNotice(push.state) === 'loading' && <p className="account-glass rounded-2xl p-4 text-subhead text-white/65">Revisando tus avisos…</p>}
       </BottomSheet>
       <PasskeySheet open={sheet === 'faceid'} offer={faceIdOffer} onClose={() => setSheet(null)} />
-      <InfoSheet kind={info} onClose={() => setInfo(null)} />
+      <InfoSheet kind={info} onClose={() => setInfo(null)} eventSlug={upcoming[0]?.eventSlug ?? me.nextEvent?.slug ?? null} />
       <BottomSheet open={sheet === 'tarjetas'} onClose={() => setSheet(null)} title="Mis tarjetas"><SavedCardsSection /></BottomSheet>
       {dosier && <AppScreen open={sheet === 'dosier'} title="Dosier de barra" onClose={() => setSheet(null)}><StaffDosier dosier={dosier} /></AppScreen>}
       {animador && <AppScreen open={sheet === 'animador'} title="Pauta del animador" onClose={() => setSheet(null)}><StaffAnimador /></AppScreen>}

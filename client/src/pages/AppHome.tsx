@@ -113,7 +113,7 @@ export default function AppHome() {
           <FileText className="h-3.5 w-3.5" /> Políticas · Evento +18
         </button>
       </div>
-      <InfoSheet kind={sheet} onClose={() => setSheet(null)} />
+      <InfoSheet kind={sheet} onClose={() => setSheet(null)} eventSlug={next?.slug ?? null} />
       {next && <EventDetail event={next} open={detail} from={from} onClose={() => setDetail(false)} onMore={(kind) => { setDetail(false); setSheet(kind); }} />}
     </div>
   );

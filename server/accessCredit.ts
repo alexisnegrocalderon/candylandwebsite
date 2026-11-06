@@ -202,12 +202,13 @@ export async function issueGiftPass(params: {
   const db = await getDb();
   if (!db) throw new Error('Base de datos no disponible');
   const anyEvent = params.eventId === null;
-  if (anyEvent && params.accesoSlug !== ANY_ACCESS_SLUG) throw new Error('Un pase para cualquier evento tiene que ser «a elección»: cada evento tiene sus propios accesos.');
+  // Sin evento no hay dónde buscar el nombre del acceso: quien regala lo trae (el acceso se reconoce por su slug, que se repite en todos los eventos).
+  if (anyEvent && params.accesoSlug !== ANY_ACCESS_SLUG && !params.accesoName) throw new Error('Falta el nombre del acceso del pase.');
   const [event] = anyEvent ? [null] : await db.select().from(events).where(eq(events.id, params.eventId!)).limit(1);
   if (!anyEvent && !event) throw new Error('Evento no encontrado');
   const email = params.email.trim().toLowerCase();
 
-  let accesoName = 'Acceso a tu elección';
+  let accesoName = anyEvent && params.accesoSlug !== ANY_ACCESS_SLUG ? params.accesoName! : 'Acceso a tu elección';
   if (event && params.accesoSlug !== ANY_ACCESS_SLUG) {
     const [tt] = await db.select({ name: ticketTypes.name }).from(ticketTypes)
       .where(and(eq(ticketTypes.eventId, event.id), eq(ticketTypes.category, 'acceso'), eq(ticketTypes.accesoSlug, params.accesoSlug))).limit(1);

@@ -6,6 +6,14 @@ import { formatChileDate, formatChileTime } from './chileDate';
 /** Edad mínima de los eventos de co-producción (PLAYMORE). */
 export const COLAB_MIN_AGE = 21;
 
+/** Lo que hay en el nuevo spot de PLAYMORE (confirmado por el dueño). Lo leen el correo de compra y la app. */
+export const COLAB_FINDS = [
+  { icono: 'Music', emoji: '🎧', texto: 'Line up de DJs especial para esta fusión' },
+  { icono: 'Gamepad2', emoji: '🛝', texto: 'Nuevos playgrounds' },
+  { icono: 'Martini', emoji: '🍸', texto: 'Bar con barra de tragos' },
+  { icono: 'Shirt', emoji: '🧥', texto: 'Guardarropía' },
+] as const;
+
 export interface CoproductionFaq {
   q: string;
   a: string;
@@ -18,6 +26,8 @@ export interface ColabBrand {
   /** Slug del evento enlazado (para volver a su checkout). */
   eventSlug: string;
   countdownIso: string; timeText: string; venueText: string;
+  /** Textos de la landing que también viajan en los correos de la compra (el código de vestimenta y lo que hay en la noche). */
+  dressCode?: string; highlights?: string[]; about?: string;
 }
 
 /** Un momento de "La noche minuto a minuto" (hora "23:00"). */

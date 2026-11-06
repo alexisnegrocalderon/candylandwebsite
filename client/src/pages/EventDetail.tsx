@@ -1,5 +1,7 @@
 import { motion } from 'framer-motion';
+import { useEffect } from 'react';
 import { useRoute, Link } from 'wouter';
+import { COLAB_HOSTS } from '@shared/colabHosts';
 import { Calendar, MapPin, Clock, ArrowRight } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
@@ -12,6 +14,14 @@ export default function EventDetail() {
   const [, params] = useRoute('/eventos/:slug');
   const slug = params?.slug ?? '';
   const { data: event, isLoading } = trpc.events.getBySlug.useQuery({ slug });
+  // El evento de una colaboración (PLAYMORE) se vende desde su propia dirección: esta ficha es la de Playroom (Viña del Mar, +18,
+  // pistas) y no le corresponde. Se lleva a quien llegue acá a la landing, con lo que traiga el link (?embajador=, utm…).
+  const { data: colabBrand } = trpc.coproduction.brandForEvent.useQuery({ eventSlug: slug }, { enabled: !!slug, retry: false, staleTime: 5 * 60_000 });
+  useEffect(() => {
+    if (!colabBrand) return;
+    const host = Object.keys(COLAB_HOSTS).find((h) => COLAB_HOSTS[h] === colabBrand.slug);
+    if (host && window.location.hostname !== host) window.location.replace(`https://${host}/${window.location.search}`);
+  }, [colabBrand]);
 
   // Precio más bajo real del evento: Google exige un `price` concreto en la
   // oferta, y antes el schema del evento vivía fijo en index.html sin precio
@@ -54,6 +64,8 @@ export default function EventDetail() {
         ]
       : undefined,
   });
+
+  if (colabBrand) return <div className="min-h-dvh" style={{ background: '#0c0908' }} />;
 
   if (isLoading) {
     return (

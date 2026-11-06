@@ -34,9 +34,15 @@ describe("pase para cualquier evento", () => {
     expect(emails[0].subject).toMatch(/evento que quieras/);
   });
 
-  it("solo puede ser «a elección»: un acceso fijo es de un evento", async () => {
+  it("puede ser de un acceso fijo (se reconoce por su slug en cualquier evento)", async () => {
     const { issueGiftPass } = await import("./accessCredit");
-    await expect(issueGiftPass({ email: "a@b.cl", eventId: null, accesoSlug: "duo", validUntil: null, actor: "x" })).rejects.toThrow(/a elección/);
+    await issueGiftPass({ email: "a@b.cl", eventId: null, accesoSlug: "vip", accesoName: "VIP", validUntil: null, actor: "x" });
+    expect(inserted[0]).toMatchObject({ accesoSlug: "vip", accesoName: "VIP", originEventId: 0 });
+  });
+
+  it("un acceso fijo sin evento necesita su nombre", async () => {
+    const { issueGiftPass } = await import("./accessCredit");
+    await expect(issueGiftPass({ email: "a@b.cl", eventId: null, accesoSlug: "duo", validUntil: null, actor: "x" })).rejects.toThrow(/nombre del acceso/);
     expect(inserted).toHaveLength(0);
   });
 });
