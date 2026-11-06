@@ -1,83 +1,109 @@
-/* ─── Intro de neón (client/src/lib/neonIntro.ts) ─────────────────────────
- * Fuera de admin.css porque también la usa el sitio instalado como app.
- * Convierte el splash oscuro en un letrero de neón que se enciende. Los
- * tiempos van en `--u` (1 = panel, ~0,5 = terminales) para que la versión
- * corta sea la misma coreografía, más rápida. */
+/* ─── Intro de neón (scripts/neon-intro.mjs + client/src/lib/neonIntro.ts) ───────────────────────────────────────────────
+ * El escenario ya viene en el HTML del splash y la animación corre desde el primer cuadro: no se reemplaza nada, así el
+ * isotipo no desaparece, no cambia de tamaño y no titila. Un solo movimiento continuo, de la imagen de arranque de iOS a la app:
+ *
+ *   0,05 – 0,95 s  la luz sube por el isotipo, de abajo hacia arriba, y se enciende con brillo rosa y azul (sin estroboscopio)
+ *   0,15 – 1,40 s  el resplandor del fondo se abre
+ *   0,80 – 1,50 s  PLAYROOM aparece letra por letra
+ *   0 – 2,00 s     la cámara se acerca despacio (un 5 %)
+ *   1,70 s         la intro termina sola y se abre la app (0,3 s de salida): 2 segundos en total
+ *
+ * Todos los tiempos van en `--u` (1 = panel y sitio, 0,6 = terminales): la versión corta es la misma coreografía, más rápida.
+ * El primer cuadro es idéntico a la imagen de arranque de iOS (isotipo a color, 64 px, 15 px sobre el centro). */
+
+/* Sin intro: el isotipo plano de siempre; con intro, el escenario ocupa su lugar. */
+#initial-loader .neon-intro-camera { display: none; }
+#initial-loader.neon-intro .neon-intro-camera { display: block; }
+#initial-loader.neon-intro .neon-intro-plain,
+#initial-loader.neon-intro img,
+#initial-loader.neon-intro .splash-bar { display: none; }
+
 #initial-loader.neon-intro {
   --u: 1;
-  background: radial-gradient(ellipse 60% 40% at 50% 44%, rgba(255, 79, 195, 0.10), transparent 70%), #05030a;
-  transition: opacity 0.32s ease, background 0.6s ease;
-  cursor: pointer;
+  transition: opacity 0.32s ease;
   -webkit-tap-highlight-color: transparent;
+  /* Reloj de la intro (no se ve): dura lo que la luz; client/src/lib/neonIntro.ts espera a que termine para abrir la app. */
+  animation: neon-clock calc(1.7s * var(--u)) linear;
 }
-#initial-loader.neon-intro--short { --u: 0.5; }
-#initial-loader.neon-intro--out { opacity: 0; }
-#initial-loader.neon-intro--out .neon-intro-stage { translate: 0 -28px; scale: 0.94; }
+#initial-loader.neon-intro--short { --u: 0.6; }
+#initial-loader.neon-intro--out { opacity: 0; pointer-events: none; }
 
+/* La cámara: un acercamiento lento y parejo durante toda la intro. */
+#initial-loader.neon-intro .neon-intro-camera { animation: neon-dolly calc(2s * var(--u)) cubic-bezier(0.25, 0.6, 0.3, 1) forwards; }
+/* El escenario: el isotipo en el mismo lugar que la imagen de arranque (15 px sobre el centro). La salida se acerca un poco más. */
 #initial-loader.neon-intro .neon-intro-stage {
-  display: flex; flex-direction: column; align-items: center; gap: 26px;
-  transition: translate 0.32s cubic-bezier(0.4, 0, 0.2, 1), scale 0.32s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative; width: 64px; translate: 0 -15px;
+  transition: transform 0.32s cubic-bezier(0.4, 0, 0.2, 1);
+}
+#initial-loader.neon-intro--out .neon-intro-stage { transform: scale(1.08); }
+
+/* Resplandor del fondo, detrás del isotipo. */
+#initial-loader.neon-intro .neon-intro-bloom {
+  position: absolute; left: 50%; top: 44%; width: 280px; height: 280px; translate: -50% -50%;
+  background: radial-gradient(closest-side, rgba(255, 79, 195, 0.28), rgba(59, 130, 246, 0.13) 52%, transparent 100%);
+  opacity: 0; scale: 0.6;
+  animation: neon-bloom calc(1.3s * var(--u)) cubic-bezier(0.3, 0.6, 0.3, 1) calc(0.15s * var(--u)) forwards;
 }
 
-#initial-loader.neon-intro .neon-intro-logo { position: relative; width: 88px; }
-#initial-loader.neon-intro .neon-intro-logo img { display: block; width: 100%; height: auto; }
-/* Tubo apagado que se "dibuja" de abajo hacia arriba. */
-#initial-loader.neon-intro .neon-intro-tube {
-  filter: grayscale(1) brightness(0.45);
-  clip-path: inset(100% 0 0 0);
-  animation: neon-draw calc(0.75s * var(--u)) cubic-bezier(0.65, 0, 0.35, 1) calc(0.1s * var(--u)) forwards;
+/* El isotipo: la base es el logo a color tal cual (primer cuadro); encima, la luz. */
+#initial-loader.neon-intro .neon-intro-logo { position: relative; width: 64px; aspect-ratio: 192 / 265; }
+#initial-loader.neon-intro .neon-intro-base { position: absolute; inset: 0; }
+#initial-loader.neon-intro .neon-intro-base,
+#initial-loader.neon-intro .neon-intro-light { background: var(--ni-logo) center / contain no-repeat; }
+/* La luz sube de abajo hacia arriba con un borde DIFUSO (una máscara en degradé que se desplaza), no con un recorte duro.
+ * El contenedor es 40 px más grande que el isotipo por cada lado, para que el resplandor no se corte en el borde. */
+#initial-loader.neon-intro .neon-intro-reveal {
+  position: absolute; inset: -40px;
+  -webkit-mask-image: linear-gradient(to top, #000 0%, #000 33.33%, transparent 66.66%, transparent 100%);
+  mask-image: linear-gradient(to top, #000 0%, #000 33.33%, transparent 66.66%, transparent 100%);
+  -webkit-mask-size: 100% 300%; mask-size: 100% 300%;
+  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+  -webkit-mask-position: 0 0%; mask-position: 0 0%;
+  animation: neon-charge calc(0.9s * var(--u)) cubic-bezier(0.45, 0, 0.25, 1) calc(0.05s * var(--u)) forwards;
 }
-/* La luz: titila y queda encendida con brillo rosa y azul. */
 #initial-loader.neon-intro .neon-intro-light {
-  position: absolute; inset: 0;
-  opacity: 0;
-  filter: drop-shadow(0 0 6px rgba(255, 79, 195, 0.9)) drop-shadow(0 0 18px rgba(255, 79, 195, 0.55)) drop-shadow(0 0 30px rgba(59, 130, 246, 0.5));
+  position: absolute; inset: 40px;
+  opacity: 0.4;
+  filter: drop-shadow(0 0 5px rgba(255, 79, 195, 0.9)) drop-shadow(0 0 16px rgba(255, 79, 195, 0.55)) drop-shadow(0 0 28px rgba(59, 130, 246, 0.5));
   animation:
-    neon-flicker calc(0.45s * var(--u)) steps(1, end) calc(0.9s * var(--u)) forwards,
-    neon-hum 2.4s ease-in-out calc(1.6s * var(--u)) infinite;
+    neon-ignite calc(0.85s * var(--u)) ease-out calc(0.1s * var(--u)) forwards,
+    neon-hum 2.4s ease-in-out calc(1.2s * var(--u)) infinite;
 }
 
-#initial-loader.neon-intro .neon-intro-word { display: flex; flex-direction: column; align-items: center; line-height: 1; }
-#initial-loader.neon-intro .neon-intro-bottom {
-  font-size: 32px; letter-spacing: 0.1em; margin-right: -0.1em;
+/* PLAYROOM, debajo del isotipo (fuera del flujo: el isotipo nunca se mueve de su lugar). */
+#initial-loader.neon-intro .neon-intro-word {
+  position: absolute; top: calc(100% + 20px); left: 50%; translate: -50% 0;
+  display: flex; white-space: nowrap; line-height: 1;
+  font-size: 30px; letter-spacing: 0.1em; margin-right: -0.1em;
   filter: drop-shadow(0 0 10px rgba(255, 79, 195, 0.35));
 }
 /* Cada letra lleva su tramo del degradado de la palabra (rosa → violeta → celeste). */
-#initial-loader.neon-intro .neon-intro-bottom .neon-intro-letter {
+#initial-loader.neon-intro .neon-intro-letter {
+  display: inline-block; opacity: 0; transform: translateY(10px); filter: blur(6px);
   background: linear-gradient(90deg, oklch(0.8 0.17 340), oklch(0.75 0.15 280), oklch(0.78 0.12 230));
   background-size: calc(var(--n) * 100%) 100%;
   background-position: calc(var(--j) / (var(--n) - 1) * 100%) 0;
   -webkit-background-clip: text; background-clip: text; color: transparent;
-}
-#initial-loader.neon-intro .neon-intro-letter {
-  display: inline-block; opacity: 0; transform: translateY(8px); filter: blur(4px);
-  animation: neon-letter calc(0.4s * var(--u)) cubic-bezier(0.2, 0.7, 0.2, 1) calc((1.3s + var(--i) * 0.06s) * var(--u)) forwards;
+  animation: neon-letter calc(0.4s * var(--u)) cubic-bezier(0.2, 0.7, 0.2, 1) calc((0.8s + var(--i) * 0.045s) * var(--u)) forwards;
 }
 
-#initial-loader.neon-intro .neon-intro-skip {
-  position: absolute; bottom: max(28px, env(safe-area-inset-bottom)); left: 0; right: 0; text-align: center;
-  font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; color: rgba(255, 255, 255, 0.6);
-  opacity: 0;
-  animation:
-    neon-fade 0.4s ease-out calc(1.6s * var(--u)) forwards,
-    neon-wait 2.2s ease-in-out calc(2.2s * var(--u)) infinite;
-}
-#initial-loader.neon-intro--short .neon-intro-skip { display: none; }
-
-@keyframes neon-draw { to { clip-path: inset(0 0 0 0); } }
-@keyframes neon-flicker {
-  0% { opacity: 0.9; } 12% { opacity: 0.1; } 24% { opacity: 1; } 38% { opacity: 0.25; } 50% { opacity: 0.95; } 62% { opacity: 0.4; } 76%, 100% { opacity: 1; }
-}
-@keyframes neon-fade { to { opacity: 1; } }
-/* Mientras espera el toque, el aviso respira suave. */
-@keyframes neon-wait { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
-@keyframes neon-hum { 0%, 100% { opacity: 1; } 50% { opacity: 0.88; } }
+@keyframes neon-clock { from { opacity: 1; } to { opacity: 1; } }
+@keyframes neon-dolly { from { scale: 1; } to { scale: 1.05; } }
+@keyframes neon-bloom { 0% { opacity: 0; scale: 0.6; } 60% { opacity: 0.8; scale: 1; } 100% { opacity: 0.55; scale: 1.06; } }
+@keyframes neon-charge { to { -webkit-mask-position: 0 100%; mask-position: 0 100%; } }
+/* Se enciende con dos latidos suaves, no con un estroboscopio. */
+@keyframes neon-ignite { 0% { opacity: 0.4; } 45% { opacity: 1; } 62% { opacity: 0.86; } 82%, 100% { opacity: 1; } }
+@keyframes neon-hum { 0%, 100% { opacity: 1; } 50% { opacity: 0.9; } }
 @keyframes neon-letter { to { opacity: 1; transform: none; filter: blur(0); } }
 
-/* Reducir movimiento: el letrero ya encendido, quieto, y se va. */
-#initial-loader.neon-intro--still .neon-intro-tube,
+/* Reducir movimiento: el letrero ya encendido, quieto, y se abre la app. */
+#initial-loader.neon-intro--still,
+#initial-loader.neon-intro--still .neon-intro-camera,
+#initial-loader.neon-intro--still .neon-intro-bloom,
+#initial-loader.neon-intro--still .neon-intro-reveal,
 #initial-loader.neon-intro--still .neon-intro-light,
-#initial-loader.neon-intro--still .neon-intro-letter,
-#initial-loader.neon-intro--still .neon-intro-stage { animation: none; opacity: 1; transform: none; clip-path: none; }
-#initial-loader.neon-intro--still .neon-intro-letter { filter: none; }
-#initial-loader.neon-intro--still.neon-intro--short .neon-intro-skip { display: none; }
+#initial-loader.neon-intro--still .neon-intro-letter { animation: none; }
+#initial-loader.neon-intro--still .neon-intro-bloom { opacity: 0.55; scale: 1; }
+#initial-loader.neon-intro--still .neon-intro-reveal { -webkit-mask-image: none; mask-image: none; }
+#initial-loader.neon-intro--still .neon-intro-light { opacity: 1; }
+#initial-loader.neon-intro--still .neon-intro-letter { opacity: 1; transform: none; filter: none; }
