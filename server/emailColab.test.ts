@@ -24,6 +24,8 @@ describe('correo de compra de una colaboración', () => {
   it('usa el dress code, lo que hay y la edad de la colaboración', () => {
     expect(html).toContain('Elegante, atrevido y a tu medida.');
     expect(html).toContain('Nuevos playgrounds');
+    expect(html).toContain('Bar con barra de tragos');
+    expect(html).toContain('Guardarropía');
     expect(html).toContain('mayores de 21');
     expect(html).toContain('Qué es PLAYMORE');
   });

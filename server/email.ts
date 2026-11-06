@@ -369,9 +369,15 @@ export function buildOrderEmail(data: {
   const placeQuery = encodeURIComponent([data.address, data.venue].filter(Boolean).join(', '));
   const mapsLink = data.mapsUrl || (colab && data.address ? `https://www.google.com/maps/search/?api=1&query=${placeQuery}` : '');
   const wazeLink = colab && data.address ? `https://waze.com/ul?q=${placeQuery}&navigate=yes` : '';
-  const COLAB_EMOJIS = ['🎧', '🛝', '🤝', '✨', '🪩', '🍸'];
-  const colabFinds = (colab?.highlights ?? []).map((label, i) => ({ emoji: COLAB_EMOJIS[i % COLAB_EMOJIS.length], label: escapeEmailText(label) }));
-  const encontrarasItems = colab ? (colabFinds.length > 0 ? colabFinds : [{ emoji: '🎧', label: 'Line up de DJs especial para esta fusión' }, { emoji: '🛝', label: 'Nuevos playgrounds' }]) : CONTENT.encontraras;
+  // Lo que hay en el nuevo spot (confirmado por el dueño); no es la lista del recinto de siempre.
+  const encontrarasItems = colab
+    ? [
+        { emoji: '🎧', label: 'Line up de DJs especial para esta fusión' },
+        { emoji: '🛝', label: 'Nuevos playgrounds' },
+        { emoji: '🍸', label: 'Bar con barra de tragos' },
+        { emoji: '🧥', label: 'Guardarropía' },
+      ]
+    : CONTENT.encontraras;
   const antesDeVenirItems = colab
     ? [
         { emoji: '🪪', titulo: 'Documento', texto: `Carnet o pasaporte vigente. Evento exclusivo para mayores de ${COLAB_MIN_AGE} años.` },
