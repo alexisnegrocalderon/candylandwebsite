@@ -80,7 +80,7 @@ export async function getAutomationsOverview(now: Date = new Date()): Promise<Au
     how: `Hasta ${founders?.dailyTarget ?? 50} correos al día a quienes no han comprado. Cada persona lo recibe una sola vez. Se apaga solo cuando se acaban los cupos.`,
     state: stateOf('founders-promo', !!founders?.enabled), enabled: !!founders?.enabled, crossCheckKind: 'founders-promo',
     audience: founders?.audienceSize ?? null, sentToday: stats.today.get('founders-promo') ?? 0,
-    lastRun: newest(runs.get('founders-promo'), stats.last.get('founders-promo')), section: 'mailing', upcoming: [],
+    lastRun: newest(runs.get('founders-promo'), stats.last.get('founders-promo')), section: null, enableKey: 'foundersPromoEnabled', upcoming: [],
   });
   const tanda2 = await safe(getTanda2PromoStatus, null);
   items.push({
@@ -90,7 +90,7 @@ export async function getAutomationsOverview(now: Date = new Date()): Promise<Au
     how: `Hasta ${tanda2?.dailyTarget ?? 50} correos al día a quienes no han comprado; comparte tope con el aviso de primeros cupos.`,
     state: stateOf('tanda2-promo', !!tanda2?.enabled), enabled: !!tanda2?.enabled, crossCheckKind: 'tanda2-promo',
     audience: tanda2?.audienceSize ?? null, sentToday: stats.today.get('tanda2-promo') ?? 0,
-    lastRun: newest(runs.get('tanda2-promo'), stats.last.get('tanda2-promo')), section: 'mailing', upcoming: [],
+    lastRun: newest(runs.get('tanda2-promo'), stats.last.get('tanda2-promo')), section: null, enableKey: 'tanda2PromoEnabled', upcoming: [],
   });
   const drip = await safe(() => getSalesDripStatus(now), null);
   items.push({
@@ -100,7 +100,7 @@ export async function getAutomationsOverview(now: Date = new Date()): Promise<Au
     how: `Hasta ${drip?.dailyTarget ?? 50} correos al día a quienes no han comprado, esperando ${drip?.intervalDays ?? 4} días entre correos a la misma persona (máximo ${drip?.maxPerPerson ?? '—'} por evento). Se pausa el día que hay una campaña programada.`,
     state: stateOf('sales-drip', !!drip?.enabled), enabled: !!drip?.enabled, crossCheckKind: 'sales-drip',
     audience: drip?.dueToday ?? null, sentToday: stats.today.get('sales-drip') ?? 0,
-    lastRun: newest(runs.get('sales-drip'), stats.last.get('sales-drip')), section: 'mailing', upcoming: [],
+    lastRun: newest(runs.get('sales-drip'), stats.last.get('sales-drip')), section: null, enableKey: 'salesDripEnabled', upcoming: [],
   });
 
   // Carritos abandonados (siempre prendido: lo configuras en el pedido).
@@ -111,7 +111,7 @@ export async function getAutomationsOverview(now: Date = new Date()): Promise<Au
     when: 'Se revisa cada hora',
     how: `Una vez por pedido. Comparte el cupo diario de correos automáticos (${AUTOMATED_EMAIL_DAILY_CAP}) con el mailing y las encuestas, y deja siempre cupo para las confirmaciones de compra.`,
     state: stateOf('abandoned-cart', true), enabled: true, crossCheckKind: 'abandoned-cart',
-    audience: due, sentToday: null, lastRun: runs.get('abandoned-cart') ?? null, section: null, upcoming: [],
+    audience: due, sentToday: null, lastRun: runs.get('abandoned-cart') ?? null, section: null, enableKey: null, upcoming: [],
   });
 
   // Correo semanal a embajadores.
@@ -122,7 +122,7 @@ export async function getAutomationsOverview(now: Date = new Date()): Promise<Au
     when: program ? `Cada ${weekdayName(program.weeklyEmailWeekday)} a las ${String(program.weeklyEmailHourChile).padStart(2, '0')}:00 (hora de Chile)` : 'Una vez por semana',
     how: 'Les llega a los embajadores VIP activos. Se configura en Embajadores VIP.',
     state: stateOf('ambassador-weekly', !!program?.weeklyEmailEnabled), enabled: !!program?.weeklyEmailEnabled, crossCheckKind: 'ambassador-weekly',
-    audience: null, sentToday: null, lastRun: runs.get('ambassador-weekly') ?? null, section: 'ambassadors', upcoming: [],
+    audience: null, sentToday: null, lastRun: runs.get('ambassador-weekly') ?? null, section: 'ambassadors', enableKey: null, upcoming: [],
   });
 
   // Encuestas post-fiesta: una línea por fiesta con envío automático.
@@ -143,7 +143,7 @@ export async function getAutomationsOverview(now: Date = new Date()): Promise<Au
     when: 'Entre 12:00 y 20:00 (hora de Chile), desde el día siguiente a la fiesta',
     how: 'Solo en las fiestas que tienen el envío automático prendido (se activa en Encuestas, dentro de Cierre). Cada persona la recibe una vez, hasta el cupo de correos del día.',
     state: stateOf('survey', surveyEvents.length > 0), enabled: surveyEvents.length > 0, crossCheckKind: 'survey',
-    audience: null, sentToday: null, lastRun: runs.get('survey') ?? null, section: 'event-survey', upcoming: surveyEvents,
+    audience: null, sentToday: null, lastRun: runs.get('survey') ?? null, section: 'event-survey', enableKey: null, upcoming: surveyEvents,
   });
 
   // Piloto de cada evento prendido: sus próximos pasos.
@@ -164,7 +164,7 @@ export async function getAutomationsOverview(now: Date = new Date()): Promise<Au
     when: 'Cada paso a su hora, según la fecha del evento',
     how: 'Cada paso pide su propio cross check. Se prende por evento en Preparar → Piloto automático.',
     state: piloted.length > 0 ? 'cross-check' : 'off', enabled: piloted.length > 0, crossCheckKind: null,
-    audience: null, sentToday: null, lastRun: null, section: 'piloto', upcoming: piloted,
+    audience: null, sentToday: null, lastRun: null, section: 'piloto', enableKey: null, upcoming: piloted,
   });
 
   return { dailyCap: { sent: automatedToday, cap: AUTOMATED_EMAIL_DAILY_CAP }, items };

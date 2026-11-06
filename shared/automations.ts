@@ -9,6 +9,14 @@ export type AutomationState =
   /** Prendido y sale solo (no pide cross check). */
   | 'auto';
 
+/** Los tres avisos de venta son excluyentes: prender uno apaga los otros (server/routers.ts, settings.update). */
+export type SalesSendKey = 'foundersPromoEnabled' | 'tanda2PromoEnabled' | 'salesDripEnabled';
+export const SALES_SEND_LABELS: Record<SalesSendKey, string> = {
+  foundersPromoEnabled: 'Aviso de primeros cupos',
+  tanda2PromoEnabled: 'Aviso de la 2ª tanda',
+  salesDripEnabled: 'Aviso diario de venta',
+};
+
 export interface AutomationLastRun {
   at: string;
   /** «12 enviados», «No salió nada…», etc. */
@@ -38,6 +46,8 @@ export interface AutomationItem {
   lastRun: AutomationLastRun | null;
   /** Dónde se prende o se configura. */
   section: string | null;
+  /** Interruptor de ajustes que prende este envío desde la propia tarjeta (solo los avisos de venta). */
+  enableKey: SalesSendKey | null;
   /** Detalle de lo que viene, una línea por cosa (ej. los pasos próximos del piloto). */
   upcoming: string[];
 }
