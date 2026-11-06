@@ -24,7 +24,7 @@ vi.mock("../staff", () => ({ listStaff: vi.fn(async () => []) }));
 vi.mock("../staffGiftQuota", () => ({ getQuotas: vi.fn(async () => ({})) }));
 vi.mock("../accessCredit", () => ({ listGiftPasses: vi.fn(async () => []) }));
 
-const ctx = () => ({ now: new Date("2026-11-04T12:00:00Z"), charts: [] as any[], proposals: [] as any[] });
+const ctx = () => ({ now: new Date("2026-11-04T12:00:00Z"), charts: [] as any[], proposals: [] as any[], links: [] as any[] });
 
 beforeEach(() => vi.clearAllMocks());
 
@@ -39,6 +39,17 @@ describe("herramientas del asistente", () => {
       expect(d.input_schema).not.toHaveProperty("$schema");
       expect(d.description.length).toBeGreaterThan(30);
     }
+  });
+
+  it("abrir_seccion deja un solo botón por pantalla y rechaza pantallas que no existen", async () => {
+    const { runTool } = await import("./tools");
+    const c = ctx();
+    await runTool("abrir_seccion", { seccion: "insumos" }, c);
+    await runTool("abrir_seccion", { seccion: "insumos" }, c);
+    expect(c.links).toEqual([{ section: "insumos", label: "Stock de barra" }]);
+    const bad = await runTool("abrir_seccion", { seccion: "no-existe" }, c);
+    expect(JSON.stringify(bad)).toMatch(/error|inválid|invalid/i);
+    expect(c.links).toHaveLength(1);
   });
 
   it("listar_eventos trae ids, fecha en Chile y estado, con límite", async () => {

@@ -15,13 +15,15 @@ import { listGiftPasses } from "../accessCredit";
 import { computeCustomerLevel } from "../../shared/customerInsights";
 import { formatCantidad } from "../../shared/insumos";
 import { valorDe } from "../../shared/inventarioReporte";
-import type { AssistantChart, AssistantProposal } from "../../shared/assistant";
+import type { AssistantChart, AssistantLink, AssistantProposal } from "../../shared/assistant";
+import { ADMIN_SECTION_IDS, ADMIN_SECTION_INDEX } from "../../shared/adminSectionsIndex";
 
 /** Lo que una consulta va juntando además de su respuesta: gráficos y acciones por confirmar. */
 export interface ToolContext {
   now: Date;
   charts: AssistantChart[];
   proposals: AssistantProposal[];
+  links: AssistantLink[];
 }
 
 export interface AssistantTool<S extends z.ZodTypeAny = z.ZodTypeAny> {
@@ -234,6 +236,16 @@ export const ASSISTANT_TOOLS: AssistantTool[] = [
     run: async (input, ctx) => {
       ctx.charts.push(input as AssistantChart);
       return { ok: true, nota: "El gráfico se mostrará debajo de tu respuesta." };
+    },
+  }),
+  tool({
+    name: "abrir_seccion",
+    description: `Deja un botón grande para ir a una pantalla del panel. Úsalo cuando el dueño pregunte dónde está algo, pida «llévame a…», «abre…», o cuando la respuesta se termine de hacer en una pantalla. Pantallas: ${ADMIN_SECTION_INDEX.map((s) => `${s.id} (${s.label}: ${s.what})`).join('; ')}.`,
+    schema: z.object({ seccion: z.enum(ADMIN_SECTION_IDS) }),
+    run: async ({ seccion }, ctx) => {
+      const s = ADMIN_SECTION_INDEX.find((x) => x.id === seccion)!;
+      if (!ctx.links.some((l) => l.section === s.id)) ctx.links.push({ section: s.id, label: s.label });
+      return { ok: true, nota: `Quedó un botón «Abrir ${s.label}» debajo de tu respuesta. Dile en una frase qué va a encontrar ahí.` };
     },
   }),
   tool({

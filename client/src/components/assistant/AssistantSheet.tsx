@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { MessageSquarePlus, Sparkles, X } from 'lucide-react';
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet';
 import { AssistantChat } from './AssistantChat';
+import { OPEN_SECTION_EVENT } from '@/components/admin/studio/handoff';
 import { readLastThread, saveLastThread } from './AssistantSection';
 
 /** El chat del asistente encima de la pantalla donde estés (botón flotante y atajo del «+»). Sigue la última conversación;
@@ -10,6 +11,13 @@ export function AssistantSheet({ open, onClose, context }: { open: boolean; onCl
   const [threadId, setThreadId] = useState<number | null>(null);
   useEffect(() => { if (open) setThreadId(readLastThread()); }, [open]);
   const pick = (id: number | null) => { setThreadId(id); saveLastThread(id); };
+  // Un botón «Abrir…» del asistente lleva a otra pantalla: la hoja se cierra para que se vea.
+  useEffect(() => {
+    if (!open) return;
+    const onOpenSection = () => onClose();
+    window.addEventListener(OPEN_SECTION_EVENT, onOpenSection);
+    return () => window.removeEventListener(OPEN_SECTION_EVENT, onOpenSection);
+  }, [open, onClose]);
   return (
     <Sheet open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
       <SheetContent side="right" hideClose overlayClassName="z-[100]" className="z-[100] flex h-[100dvh] w-full flex-col gap-0 p-0 sm:max-w-lg">
