@@ -1043,7 +1043,8 @@ async function runGift(params: {
   for (const it of params.items) if (!presaleAllows(event, byId.get(it.ticketTypeId))) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Este producto no está a la venta por la web para este evento.' });
   const message = cleanGiftMessage(params.message);
   const asPass = params.mode === 'pase';
-  if (params.anyEvent && !(asPass && params.anyAccess)) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Un pase para cualquier evento tiene que ser «Pase para canjear» con acceso «A elección».' });
+  if (params.anyEvent && !asPass) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Un cupón para cualquier evento tiene que ser «Pase para canjear».' });
+  if (params.anyEvent && !params.anyAccess) for (const it of params.items) if (byId.get(it.ticketTypeId).category === 'acceso' && !byId.get(it.ticketTypeId).accesoSlug) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Ese acceso no sirve para un cupón de cualquier evento: elige «A elección».' });
   const passItems = asPass ? params.items.filter((it) => byId.get(it.ticketTypeId).category === 'acceso') : [];
   const toOrder = params.items.filter((it) => ['acceso', 'extra'].includes(byId.get(it.ticketTypeId).category) && !passItems.includes(it));
   const comps = params.items.filter((it) => !['acceso', 'extra'].includes(byId.get(it.ticketTypeId).category));
@@ -1066,6 +1067,7 @@ async function runGift(params: {
         for (let i = 0; i < it.quantity; i++) {
           const pass = await issueGiftPass({
             email, name, eventId: params.anyEvent ? null : event.id, accesoSlug: params.anyAccess ? ANY_ACCESS_SLUG : (byId.get(it.ticketTypeId).accesoSlug ?? ANY_ACCESS_SLUG),
+            accesoName: params.anyEvent && !params.anyAccess ? byId.get(it.ticketTypeId).name : undefined,
             validUntil, reason: params.reason ?? null, actor: params.actor, ip: params.ip ?? null, message,
           });
           codes.push(pass.code);

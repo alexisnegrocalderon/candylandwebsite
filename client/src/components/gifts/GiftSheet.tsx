@@ -109,6 +109,8 @@ export function GiftSheet({ open, onClose, team = [], initialIds = [], initialRe
   const [mode, setMode] = useState<'directo' | 'pase'>('directo');
   const [anyAccess, setAnyAccess] = useState(false);
   const [anyQty, setAnyQty] = useState(1);
+  /** Cupón para cualquier evento: el acceso fijo elegido (id del acceso) o `null` = «a elección». */
+  const [libreAccessId, setLibreAccessId] = useState<number | null>(null);
   const [validDays, setValidDays] = useState<number | null>(null);
   const [result, setResult] = useState<{ ok: number; bad: { email: string; error?: string }[]; resumen: string; passes: { email: string; codes: string[] }[] } | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -117,7 +119,7 @@ export function GiftSheet({ open, onClose, team = [], initialIds = [], initialRe
   const reset = (keepRecipients: Recipient[] = [], keepIds: number[] = []) => {
     setStep('form');
     setRecipients(keepRecipients); setStaffIds(keepIds); setAudienceId(null); setQ(''); setQty({}); setMessage(''); setReason('');
-    setVigencia('evento'); setLimiteDias(30); setMode('directo'); setAnyAccess(false); setAnyQty(1); setValidDays(null); setResult(null); setPickedEventId(null); setTeamOpen(false);
+    setVigencia('evento'); setLimiteDias(30); setMode('directo'); setAnyAccess(false); setAnyQty(1); setLibreAccessId(null); setValidDays(null); setResult(null); setPickedEventId(null); setTeamOpen(false);
   };
   /** «Regalar a otra persona»: vuelve a la pantalla con lo mismo elegido para regalar (cambia solo a quién y el mensaje). */
   const anotherPerson = () => { setRecipients([]); setStaffIds([]); setAudienceId(null); setQ(''); setMessage(''); setResult(null); setStep('form'); window.setTimeout(() => searchRef.current?.focus(), 150); };
@@ -159,10 +161,11 @@ export function GiftSheet({ open, onClose, team = [], initialIds = [], initialRe
   const allProducts = [...products.entradas, ...products.tragos];
   const accesos = products.entradas.filter((t) => t.category === 'acceso');
   // Un cupón para cualquier evento es siempre un pase «a elección»; en un evento puede serlo si lo eliges.
-  const passAny = libre || (mode === 'pase' && anyAccess && accesos.length > 0);
+  const libreAcceso = libre ? accesos.find((a) => a.id === libreAccessId) ?? null : null;
+  const passAny = libre ? !libreAcceso : (mode === 'pase' && anyAccess && accesos.length > 0);
   const passDays = vigencia === 'limite' ? limiteDias : vigencia === 'libre' ? null : validDays;
   const items = libre
-    ? (accesos[0] && anyQty > 0 ? [{ ticketTypeId: accesos[0].id as number, quantity: anyQty }] : [])
+    ? ((libreAcceso ?? accesos[0]) && anyQty > 0 ? [{ ticketTypeId: (libreAcceso ?? accesos[0]).id as number, quantity: anyQty }] : [])
     : [
       ...Object.entries(qty).filter(([id, n]) => n > 0 && !(passAny && accesos.some((a) => String(a.id) === id))).map(([id, n]) => ({ ticketTypeId: Number(id), quantity: n })),
       ...(passAny && anyQty > 0 && accesos[0] ? [{ ticketTypeId: accesos[0].id as number, quantity: anyQty }] : []),
@@ -404,7 +407,16 @@ export function GiftSheet({ open, onClose, team = [], initialIds = [], initialRe
 
       {libre ? (
         <div className="space-y-2">
-          <ul><Stepper label="Cupón de acceso a elección" value={anyQty} onChange={setAnyQty} /></ul>
+          <div>
+            <p className="mb-1 text-xs font-semibold text-muted-foreground">Tipo de acceso</p>
+            <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Tipo de acceso del cupón">
+              <button type="button" role="radio" aria-checked={!libreAcceso} onClick={() => setLibreAccessId(null)} className={chip(!libreAcceso)}>✨ A elección</button>
+              {accesos.map((a) => (
+                <button key={a.id} type="button" role="radio" aria-checked={libreAcceso?.id === a.id} onClick={() => setLibreAccessId(a.id as number)} className={chip(libreAcceso?.id === a.id)}>{a.emoji ? `${a.emoji} ` : ''}{a.name}</button>
+              ))}
+            </div>
+          </div>
+          <ul><Stepper label={libreAcceso ? `Cupón de ${libreAcceso.name}` : 'Cupón de acceso a elección'} value={anyQty} onChange={setAnyQty} /></ul>
           {vigencia === 'limite' && (
             <div>
               <p className="mb-1 text-xs font-semibold text-muted-foreground">Vale por</p>
@@ -413,7 +425,7 @@ export function GiftSheet({ open, onClose, team = [], initialIds = [], initialRe
               </div>
             </div>
           )}
-          <p className="text-xs text-muted-foreground">Queda en sus Cupones y lo usa en el evento que quiera{vigencia === 'limite' ? `, hasta ${limiteDias} días desde hoy` : ', sin vencimiento'}. Es personal y se canjea en el checkout con todos sus pasos.</p>
+          <p className="text-xs text-muted-foreground">Queda en sus Cupones y lo usa en el evento que quiera{vigencia === 'limite' ? `, hasta ${limiteDias} días desde hoy` : ', sin vencimiento'}. Es personal y se canjea en el checkout con todos sus pasos.{libreAcceso ? ` Sirve en los eventos que tengan el acceso «${libreAcceso.name}»; si quieres que elija entre todos, usa «A elección».` : ' La persona elige el acceso que quiera al canjearlo.'}</p>
           {!accesos[0] && types && <p className="text-xs text-amber-500">Este evento no tiene accesos para armar el cupón: elige otro evento arriba en «Para un evento».</p>}
         </div>
       ) : (
