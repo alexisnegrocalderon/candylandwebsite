@@ -3,7 +3,7 @@
  * El total lo suma el código. No cambia nada en Instagram. */
 import { invokeLLM, extractContent, NO_THINKING } from './_core/llm';
 import { ENV } from './_core/env';
-import { getFeaturedEvent } from './db';
+import { getNextEvent, getPlaymoreFor, PLAYMORE_CONTENT_RULES } from './nextEvent';
 import { buildEventFacts } from './winback';
 import { buildPlayroomKnowledge } from './contentPlanner';
 import { EVENT_BRAND } from '../shared/eventBrand';
@@ -79,7 +79,9 @@ export interface ProfileAuditResult {
 const clip = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 
 export async function generateProfileAudit(input: ProfileInput, now: Date = new Date()): Promise<ProfileAuditResult> {
-  const event = await getFeaturedEvent();
+  // El siguiente evento (PLAYMORE mientras está activa), con sus propios datos y reglas (ver server/nextEvent.ts).
+  const event = await getNextEvent(now);
+  const playmore = event ? await getPlaymoreFor(event) : null;
   const facts = event ? await buildEventFacts(event) : '(no hay un evento destacado publicado)';
   const insightsSummary = insightsPromptSummary(await getInstagramInsights());
   const lines = [
@@ -95,11 +97,12 @@ export async function generateProfileAudit(input: ProfileInput, now: Date = new 
     '',
     'PRÓXIMO EVENTO (datos reales para las bios):',
     facts,
-    `- Dress code: ${EVENT_BRAND.dressCode}`,
+    ...(playmore ? [] : [`- Dress code: ${EVENT_BRAND.dressCode}`]),
     '',
     ...(insightsSummary ? [insightsSummary, ''] : []),
     'LO QUE PLAYROOM EXPLICA EN SU SITIO (el perfil debe ser coherente con esto):',
     buildPlayroomKnowledge(),
+    ...(playmore ? ['', 'PLAYMORE ES EL EVENTO ACTIVO: las bios y los arreglos deben calzar con él.', PLAYMORE_CONTENT_RULES] : []),
   ];
   const userContent = input.screenshotUrl
     ? [{ type: 'text' as const, text: lines.join('\n') }, { type: 'image_url' as const, image_url: { url: input.screenshotUrl } }]

@@ -3,7 +3,8 @@ import { insightsPromptSummary } from '../shared/instagramInsights';
 import { invokeLLM, extractContent, NO_THINKING } from './_core/llm';
 import { ENV } from './_core/env';
 import { AI_PHRASES_PROMPT_LINE } from '../shared/aiPhrasesEs';
-import { getEventById, getFeaturedEvent, getSiteSettings, listActiveIgKeywordAutomations } from './db';
+import { getSiteSettings, listActiveIgKeywordAutomations } from './db';
+import { getPlaymoreFor, playmoreFacts, resolveEvent, PLAYMORE_CONTENT_BRAND, PLAYMORE_CONTENT_RULES } from './nextEvent';
 import { buildEventFacts } from './winback';
 import { ALL_ARTICLES } from '../client/src/content';
 import { normalizeInstagramAgentConfig } from '../shared/instagramAgentConfig';
@@ -55,7 +56,7 @@ const PLAN_SCHEMA = {
             visual: { type: 'string', description: 'Qué grabar o fotografiar, concreto y posible de hacer con un celular.' },
             slides: { type: 'array', items: { type: 'string' }, description: 'SOLO en carruseles: el texto de cada lámina, en orden, de 3 a 10 láminas (la primera frena el scroll, la última pide la interacción). En cualquier otro formato, lista vacía.' },
             interaction: { type: 'string', description: 'Lo que le pides a la gente que haga: comentar algo concreto, etiquetar a alguien, votar en la encuesta de la historia, responder, guardar... Una frase. Vacío si la pieza no pide nada.' },
-            hashtags: { type: 'array', items: { type: 'string' }, description: 'De 3 a 5 hashtags (Instagram permite máximo 5), incluido #MansionPlayroom.' },
+            hashtags: { type: 'array', items: { type: 'string' }, description: 'De 3 a 5 hashtags (Instagram permite máximo 5), incluido el de la marca (#MansionPlayroom; en PLAYMORE, #PlayMore).' },
             keyword: { type: 'string', description: 'Solo en historias: una palabra clave de la lista entregada para que respondan a la historia, o vacío.' },
           },
           required: ['date', 'time', 'format', 'goal', 'hook', 'caption', 'visual', 'slides', 'interaction', 'hashtags', 'keyword'],
@@ -118,9 +119,13 @@ const LOYALTY_IDEAS = [
   '- Participación que genera comunidad: desafíos, preguntas, votaciones sobre la temática, "etiqueta a quien debería venir contigo".',
 ].join('\n');
 
-const SYSTEM_PROMPT = [
+/** El prompt del sistema. Con PLAYMORE (Santiago, +21, junto a Dalmore) se cambia la presentación de la marca y se agregan sus
+ * reglas al final, que pisan lo que está pensado para las fiestas de Playroom. */
+const buildSystemPrompt = (playmore: boolean) => [
   AI_PHRASES_PROMPT_LINE,
-  'Eres el estratega de contenido de Mansion Playroom, una productora de fiestas liberales en Valparaíso / Viña del Mar, Chile. Le hablas al dueño: directo, en español chileno.',
+  playmore
+    ? 'Eres el estratega de contenido de PLAYMORE, la noche de Mansion Playroom × Dalmore (fiesta liberal en Santiago, Chile, solo +21). Le hablas al dueño: directo, en español chileno.'
+    : 'Eres el estratega de contenido de Mansion Playroom, una productora de fiestas liberales en Valparaíso / Viña del Mar, Chile. Le hablas al dueño: directo, en español chileno.',
   'Armas el calendario de publicaciones de Instagram (@mansionplayroom.cl) hasta el próximo evento. Cada pieza trae el texto listo para copiar, qué grabar y a qué hora publicar. El objetivo no es solo vender: es construir una comunidad que participa, comenta y vuelve.',
   'Reglas de contenido: nada sexual explícito ni doble sentido grueso -- la marca habla de respeto, consentimiento y libertad, y es solo para mayores de 18. Nunca muestres ni insinúes a personas concretas del público. No inventes shows, invitados, premios ni precios: usa SOLO los datos reales entregados. Nunca pidas fotos íntimas ni expongas a nadie; si republicas algo de la comunidad, siempre con permiso.',
   'INTERACCIÓN ES LO MÁS IMPORTANTE: Instagram premia lo que la gente comenta, guarda, comparte y a lo que etiqueta a otros. Al menos la mitad de las piezas tienen que pedir algo concreto en `interaction` (comentar algo específico, etiquetar a alguien, votar, responder la historia, guardar). Pide cosas fáciles y con una razón: "comenta cuántas acertaste" funciona; "comenta" a secas, no. Incluye al menos un carrusel de desafío tipo quiz cada 10 días.',
@@ -128,17 +133,18 @@ const SYSTEM_PROMPT = [
   WINNING_EXAMPLE,
   'CARRUSELES (`format: "carrusel"`): pon el texto de cada lámina en `slides`, de ' + CONTENT_MIN_SLIDES + ' a ' + CONTENT_MAX_SLIDES + ' láminas. La primera frena el scroll y promete algo; cada lámina del medio tiene UNA idea en máximo 25 palabras; la última pide la interacción. `caption` es el texto del post (corto) y `visual` describe el estilo de las láminas. Fuera de los carruseles, `slides` va vacío.',
   COMMUNITY_TOPICS,
-  LOYALTY_IDEAS,
+  ...(playmore ? [] : [LOYALTY_IDEAS]),
   'Urgencia: solo si es real (el precio de la tanda sube en una fecha concreta, quedan cupos limitados) y dicha como un dato útil, una o dos veces en todo el plan -- nunca "última oportunidad" en cada pieza ni desesperación.',
   `Ritmo: unas 4 o 5 piezas por semana, máximo ${CONTENT_PLAN_MAX_PER_DAY} por día y solo en la última semana (cuenta regresiva). Mezcla reels (para que llegue gente nueva), carruseles (para que guarden y compartan), historias (cercanía, encuestas y urgencia) y posts.`,
   'Arco: las primeras semanas, awareness, confianza e interacción (cómo es la fiesta, consentimiento, primera vez, desafíos, ideas de disfraz); la última semana, urgencia y conversión sin dejar de interactuar; el día del evento, la pieza de "es hoy".',
   'Captions: entre 100 y 400 caracteres, sin ninguna URL ni dirección web (si hay que mandar a comprar o a leer algo, di "link en la bio"). Sin markdown. Como mucho un emoji por pieza.',
   'Palabras clave de automatización: SOLO en historias, y SOLO de la lista entregada (se activan cuando la persona RESPONDE a la historia con esa palabra y le llega un DM automático). En posts, reels y carruseles NO uses una palabra clave tipo "comenta ENTRADA y te mando el link": esa automatización por comentarios todavía no funciona. Pedir comentarios para PARTICIPAR ("comenta cuántas acertaste", "etiqueta a alguien") SÍ está bien y es lo que más interacción genera. Si la lista está vacía, deja `keyword` vacío en todas.',
   'Las fechas de cada pieza tienen que estar DENTRO de la ventana indicada y en formato YYYY-MM-DD.',
+  ...(playmore ? [PLAYMORE_CONTENT_RULES] : []),
 ].join('\n');
 
 export async function resolveTargetEvent(targetEventId: number | undefined) {
-  const event = targetEventId ? await getEventById(targetEventId) : await getFeaturedEvent();
+  const event = await resolveEvent(targetEventId);
   if (!event) throw new Error('No hay ningún evento publicado para planificar.');
   return event;
 }
@@ -182,6 +188,8 @@ export async function buildPlanRequest(targetEventId: number | undefined, now: D
 
   const settings = await getSiteSettings();
   const brand = normalizeInstagramAgentConfig((settings as any)?.instagramAgentConfig);
+  // PLAYMORE: sus datos, su contexto de marca y sus reglas reemplazan a los de Playroom (ver server/nextEvent.ts).
+  const playmore = await getPlaymoreFor(event);
   const keywords = (await listActiveIgKeywordAutomations())
     .filter((a) => a.triggerSource !== 'comment') // esta lista es solo para piezas de historia
     .map((a) => a.keyword);
@@ -195,34 +203,32 @@ export async function buildPlanRequest(targetEventId: number | undefined, now: D
     `Ventana para planificar: del ${window.from} (${weekday(window.from)}) al ${window.to} (${weekday(window.to)}), ${window.days} días. El evento es el ${chileIsoDate(new Date(event.eventDate))}.`,
     '',
     'DATOS REALES DEL EVENTO:',
-    await buildEventFacts(event),
-    `- Dress code: ${EVENT_BRAND.dressCode}`,
+    playmore ? await playmoreFacts(playmore) : await buildEventFacts(event),
+    ...(playmore ? (playmore.landing.dressCode ? [`- Dress code: ${playmore.landing.dressCode}`] : []) : [`- Dress code: ${EVENT_BRAND.dressCode}`]),
     '',
-    'CONTEXTO DE LA MARCA (lo escribió el dueño, respétalo):',
-    brand.brandNotes,
+    playmore ? 'CONTEXTO DE LA MARCA DE PLAYMORE:' : 'CONTEXTO DE LA MARCA (lo escribió el dueño, respétalo):',
+    playmore ? PLAYMORE_CONTENT_BRAND : brand.brandNotes,
     ...(brand.styleExamples.trim() ? ['', 'CÓMO ESCRIBE EL DUEÑO (imita este tono):', brand.styleExamples] : []),
     '',
-    'LO QUE PLAYROOM YA EXPLICA EN SU SITIO (alinea el contenido con esto; no lo contradigas):',
-    buildPlayroomKnowledge(),
-    '',
+    ...(playmore ? [] : ['LO QUE PLAYROOM YA EXPLICA EN SU SITIO (alinea el contenido con esto; no lo contradigas):', buildPlayroomKnowledge(), '']),
     ...(insightsSummary ? [insightsSummary, ''] : []),
     `PALABRAS CLAVE ACTIVAS PARA HISTORIAS: ${keywords.length > 0 ? keywords.join(', ') : '(ninguna)'}`,
     // Lo que el dueño pide en ESTA ocasión. Va al final y marcado: tiene
     // prioridad sobre el reparto habitual, pero no sobre las reglas del sistema.
     ...(cleanFocus ? ['', `PEDIDO ESPECIAL DEL DUEÑO PARA ESTE PLAN (tiene prioridad sobre el reparto habitual, pero no sobre las reglas de contenido): ${cleanFocus}`] : []),
   ];
-  return { event, window, keywords, userContent: lines.join('\n') };
+  return { event, window, keywords, playmore: !!playmore, userContent: lines.join('\n') };
 }
 
 /** Genera el plan. Devuelve el plan ya limpio: las piezas con fecha inventada
  * o fuera de ventana se descartan acá. No guarda nada (el panel lo recuerda en
  * el navegador). */
 export async function generateContentPlan(targetEventId: number | undefined, now: Date = new Date(), focus?: string): Promise<ContentPlan> {
-  const { event, window, keywords, userContent } = await buildPlanRequest(targetEventId, now, focus);
+  const { event, window, keywords, playmore, userContent } = await buildPlanRequest(targetEventId, now, focus);
 
   const result = await invokeLLM({ feature: "contentPlanner",
     messages: [
-      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'system', content: buildSystemPrompt(playmore) },
       { role: 'user', content: userContent },
     ],
     responseFormat: { type: 'json_schema', json_schema: PLAN_SCHEMA as any },

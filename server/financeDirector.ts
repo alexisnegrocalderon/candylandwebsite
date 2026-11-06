@@ -9,6 +9,7 @@
 import { and, desc, gte, like } from "drizzle-orm";
 import { emailLog, events } from "../drizzle/schema";
 import * as db from "./db";
+import { getNextEvent } from './nextEvent';
 import { sendEmail, buildFinanceDigestEmail } from "./email";
 import { invokeLLM, extractContent } from "./_core/llm";
 import { getEventFinanceReport } from "./finance";
@@ -145,7 +146,7 @@ export async function buildFinanceDataBlock(now: Date = new Date()): Promise<str
       `- Total ${c.year}: ingreso ${clp(c.totals.grossIncome)}, resultado ${clp(c.totals.result)}`,
     ].join("\n"));
   }
-  const featured = await db.getFeaturedEvent();
+  const featured = await getNextEvent();
   if (featured) {
     const rep = await getEventFinanceReport(featured.id);
     if (rep) {

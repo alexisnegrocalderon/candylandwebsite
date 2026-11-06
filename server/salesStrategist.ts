@@ -11,6 +11,7 @@ import {
   getSalesStrategyState,
   updateSiteSettings,
 } from './db';
+import { resolveEvent } from './nextEvent';
 import { sendEmail } from './email';
 import { ADMIN_NOTIFICATION_EMAIL } from '../shared/const';
 import { formatChileDate, chileHourOf } from '../shared/chileDate';
@@ -94,7 +95,7 @@ type StrategyData = {
 /** Junta todo lo que la IA necesita en un bloque de texto, y los números del
  * reporte. Exportada para probarla con la base simulada. */
 export async function gatherStrategyData(eventId: number | undefined, now: Date): Promise<StrategyData | { error: string }> {
-  const event = eventId ? await getEventById(eventId) : await getFeaturedEvent();
+  const event = await resolveEvent(eventId, now);
   if (!event) return { error: 'No hay ningún evento publicado para analizar.' };
 
   const eventDate = new Date(event.eventDate);

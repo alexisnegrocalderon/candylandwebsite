@@ -7,6 +7,7 @@ import { ENV } from './_core/env';
 import { getSiteSettings } from './db';
 import { buildEventFacts } from './winback';
 import { buildPlayroomKnowledge, resolveTargetEvent } from './contentPlanner';
+import { getPlaymoreFor, playmoreFacts, PLAYMORE_CONTENT_BRAND, PLAYMORE_CONTENT_RULES } from './nextEvent';
 import { normalizeInstagramAgentConfig } from '../shared/instagramAgentConfig';
 import { AI_PHRASES_PROMPT_LINE } from '../shared/aiPhrasesEs';
 import { REEL_HOOK_FORMULAS, REEL_HOOK_IDS } from '../shared/reelHooks';
@@ -55,14 +56,17 @@ const REEL_SCHEMA = {
   },
 } as const;
 
-const SYSTEM_PROMPT = [
+const buildSystemPrompt = (playmore: boolean) => [
   AI_PHRASES_PROMPT_LINE,
-  'Eres el guionista de Reels de Mansion Playroom, productora de fiestas liberales en Valparaíso / Viña del Mar, Chile (+18). Escribes en español chileno, para decirlo en voz alta: frases cortas, naturales, como habla una persona.',
+  playmore
+    ? 'Eres el guionista de Reels de PLAYMORE, la noche de Mansion Playroom × Dalmore (fiesta liberal en Santiago, Chile, solo +21). Escribes en español chileno, para decirlo en voz alta: frases cortas, naturales, como habla una persona.'
+    : 'Eres el guionista de Reels de Mansion Playroom, productora de fiestas liberales en Valparaíso / Viña del Mar, Chile (+18). Escribes en español chileno, para decirlo en voz alta: frases cortas, naturales, como habla una persona.',
   'Un Reel se decide en los primeros 2-3 segundos. El gancho tiene que decir algo concreto (un dato, una pregunta real, una sorpresa) y NUNCA empezar saludando ("hola chicos"), anunciando ("en este video les voy a contar") ni pidiendo atención ("deja de scrollear").',
   'Fórmulas de gancho disponibles (usa una distinta en cada uno de los 3 ganchos):',
   ...REEL_HOOK_FORMULAS.map((f) => `- ${f.id} (${f.name}): ${f.template}. Ej: ${f.example}`),
   'Las líneas del guion: una idea por línea, 15 a 40 segundos en total. La última línea pide UNA sola cosa (comentar algo concreto, guardar, etiquetar) y, si puedes, repite una palabra del gancho para que lo vuelvan a ver.',
   'Reglas de contenido: nada sexual explícito ni doble sentido grueso; la marca habla de respeto, consentimiento y libertad. Nunca muestres ni insinúes a personas concretas del público. No inventes shows, invitados, premios, cifras ni precios: usa SOLO los datos entregados. Si te falta un dato, escribe {{tu dato}} para que el dueño lo complete.',
+  ...(playmore ? [PLAYMORE_CONTENT_RULES] : []),
 ].join('\n');
 
 export interface ReelScriptResult {
@@ -80,21 +84,21 @@ export async function generateReelScript(input: { idea: string; targetEventId?: 
   const event = await resolveTargetEvent(input.targetEventId).catch(() => null);
   const settings = await getSiteSettings();
   const brand = normalizeInstagramAgentConfig((settings as any)?.instagramAgentConfig);
+  // PLAYMORE: sus datos y su contexto de marca reemplazan a los de Playroom (ver server/nextEvent.ts).
+  const playmore = event ? await getPlaymoreFor(event) : null;
   const userContent = [
     `IDEA DEL REEL: ${idea}`,
     '',
-    ...(event ? ['DATOS REALES DEL PRÓXIMO EVENTO:', await buildEventFacts(event), ''] : []),
-    'CONTEXTO DE LA MARCA (lo escribió el dueño, respétalo):',
-    brand.brandNotes,
+    ...(event ? ['DATOS REALES DEL PRÓXIMO EVENTO:', playmore ? await playmoreFacts(playmore) : await buildEventFacts(event), ''] : []),
+    playmore ? 'CONTEXTO DE LA MARCA DE PLAYMORE:' : 'CONTEXTO DE LA MARCA (lo escribió el dueño, respétalo):',
+    playmore ? PLAYMORE_CONTENT_BRAND : brand.brandNotes,
     ...(brand.styleExamples.trim() ? ['', 'CÓMO ESCRIBE EL DUEÑO (imita este tono):', brand.styleExamples] : []),
-    '',
-    'LO QUE PLAYROOM YA EXPLICA EN SU SITIO (no lo contradigas):',
-    buildPlayroomKnowledge(),
+    ...(playmore ? [] : ['', 'LO QUE PLAYROOM YA EXPLICA EN SU SITIO (no lo contradigas):', buildPlayroomKnowledge()]),
   ].join('\n');
 
   const result = await invokeLLM({ feature: "reelScript",
     messages: [
-      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'system', content: buildSystemPrompt(!!playmore) },
       { role: 'user', content: userContent },
     ],
     responseFormat: { type: 'json_schema', json_schema: REEL_SCHEMA as any },

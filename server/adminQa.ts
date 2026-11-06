@@ -1,5 +1,6 @@
 import { invokeLLM, extractContent } from "./_core/llm";
 import * as db from "./db";
+import { getNextEvent } from './nextEvent';
 
 /* Preguntas simples sobre ventas/movimientos (pedido explícito del dueño,
  * 02/09): reusa la misma IA que ya está integrada para mailing, pero acá
@@ -68,7 +69,7 @@ export async function answerSalesQuestion(question: string, eventId?: number): P
     db.getSalesByUtmOrigin(),
   ]);
 
-  const resolvedEventId = eventId ?? (await db.getFeaturedEvent())?.id;
+  const resolvedEventId = eventId ?? (await getNextEvent())?.id;
   const pnl = resolvedEventId ? await db.getEventPnl(resolvedEventId) : null;
 
   const datos = buildDataBlock(stats, utmSales, pnl);

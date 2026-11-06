@@ -6,6 +6,7 @@ import {
   getAccessTicketMix,
   listMailingCampaigns,
 } from './db';
+import { getPlaymoreFor, playmoreFacts, resolveEvent } from './nextEvent';
 import { MailingContentSchema, generateMailingTemplate, createAutoMailingCampaign, AUTOMATED_EMAIL_DAILY_CAP, type MailingContent } from './mailing';
 import { EMAIL_BASE_URL } from './emailLayout';
 import { formatChileDate, formatChileTime } from '../shared/chileDate';
@@ -34,7 +35,7 @@ import {
 const clp = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
 
 async function resolveTargetEvent(targetEventId: number | undefined, now: Date) {
-  const event = targetEventId ? await getEventById(targetEventId) : await getFeaturedEvent();
+  const event = await resolveEvent(targetEventId, now);
   if (!event) throw new Error('No hay ningún evento publicado al que invitar.');
   if (new Date(event.eventDate).getTime() <= now.getTime()) {
     throw new Error(`"${event.title}" ya pasó. Elige un evento que todavía no ocurra.`);
@@ -101,6 +102,9 @@ async function segmentEmails(targetEventId: number, now: Date = new Date()) {
 /** Los datos reales del evento que se le pasan a la IA: ella escribe el
  * correo, pero fecha, lugar y precio salen de la base -- nunca inventados. */
 export async function buildEventFacts(event: NonNullable<Awaited<ReturnType<typeof getEventById>>>): Promise<string> {
+  // PLAYMORE (Santiago, +21, con Dalmore): sus datos propios, no los de una fiesta de Playroom (ver server/nextEvent.ts).
+  const playmore = await getPlaymoreFor(event);
+  if (playmore) return playmoreFacts(playmore);
   const date = new Date(event.eventDate);
   const lines = [
     `- Evento: ${event.title}`,
