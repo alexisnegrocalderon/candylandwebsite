@@ -1,17 +1,19 @@
 import type { Express, Request, Response } from "express";
 import { ENV } from "./_core/env";
 import { processMailingCronBatch } from "./mailing";
-import { runSalesDripDaily } from "./salesDrip";
+import { runSalesDripDaily, getSalesDripStatus } from "./salesDrip";
 import { purgeClosedPartyPhotos, purgeOldPartyMessages, purgeOldPartyProfiles, expireOldGiftInvitations, purgeOldIgThreads, purgeOldWaThreads, getEventHappeningToday, getCajaDashboard, getHomeEvents } from "./db";
 import { sendEmail, buildCheckinSummaryEmail } from "./email";
 import { getProgramConfig, sendWeeklyAmbassadorEmails } from "./ambassadorProgram";
 import { ensureAmbassadorDrafts } from "./ambassadorContent";
-import { runAbandonedCartCron } from "./orderReminders";
+import { runAbandonedCartCron, getOrdersDueForAbandonedCartReminder } from "./orderReminders";
+import { gateAutomation, endOfChileDay } from "./crossCheck";
+import { chileDateKey, chileHourOf } from "../shared/chileDate";
 import { runPushQueue } from "./pushAutomations";
 import { runAgentLearning } from './agentLearning';
 import { checkAndAdvanceTandaIfNeeded } from "./tandaAutoAdvance";
-import { runFoundersPromoDaily } from "./foundersPromo";
-import { runTanda2PromoDaily } from "./tanda2Promo";
+import { runFoundersPromoDaily, getFoundersPromoStatus } from "./foundersPromo";
+import { runTanda2PromoDaily, getTanda2PromoStatus } from "./tanda2Promo";
 import { runAdminDigest } from "./adminDigest";
 import { runFinanceDigest } from "./financeDirector";
 import { runSiiReminders } from "./sii";
@@ -115,9 +117,35 @@ export function registerCronRoutes(app: Express) {
     }
   });
 
+  /* Piloto automático de los eventos (server/eventPilot.ts): cada 15 minutos pide los pasos que ya tocan como
+   * cross check. No manda nada: todo espera «Reportar». */
+  app.get("/api/cron/pilot", async (req: Request, res: Response) => {
+    if (!requireCronSecret(req, res)) return;
+    try {
+      res.json({ success: true, ...(await (await import("./eventPilot")).runPilotTick()) });
+    } catch (err) {
+      console.error('[Cron] Error en el piloto de eventos:', err);
+      res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Error desconocido' });
+    }
+  });
+
   app.get("/api/cron/abandoned-cart", async (req: Request, res: Response) => {
     if (!requireCronSecret(req, res)) return;
     try {
+      // Cross check: en vez de mandar, se pide el visto bueno (un pedido cada 6 horas como mucho).
+      const now = new Date();
+      const gate = await gateAutomation('abandoned-cart', async () => {
+        const due = await getOrdersDueForAbandonedCartReminder();
+        if (due.length === 0) return null;
+        const n = due.length;
+        return {
+          dedupeKey: `abandoned-cart:${chileDateKey(now)}:${Math.floor(chileHourOf(now) / 6)}`,
+          title: `Recordar ${n} carrito${n === 1 ? '' : 's'} abandonado${n === 1 ? '' : 's'}`,
+          summary: `${n} persona${n === 1 ? '' : 's'} empezaron a comprar y no pagaron. Al reportar les llega el recordatorio por correo (y push a quien tiene la app).`,
+          expiresAt: endOfChileDay(now),
+        };
+      });
+      if (gate.gated) { res.json({ success: true, crossCheck: gate }); return; }
       const result = await runAbandonedCartCron();
       res.json({ success: true, ...result });
     } catch (err) {
@@ -283,6 +311,18 @@ export function registerCronRoutes(app: Express) {
   app.get("/api/cron/founders-promo", async (req: Request, res: Response) => {
     if (!requireCronSecret(req, res)) return;
     try {
+      const now = new Date();
+      const gate = await gateAutomation('founders-promo', async () => {
+        const st = await getFoundersPromoStatus();
+        if (!st.enabled || !st.eventTitle || st.audienceSize === 0) return null;
+        const n = Math.min(st.audienceSize, st.dailyTarget);
+        return {
+          dedupeKey: `founders-promo:${chileDateKey(now)}`, title: `Aviso de primeros cupos · ${st.eventTitle}`,
+          summary: `Hasta ${n} correos hoy a quienes no han comprado${st.remaining != null ? `. Quedan ${st.remaining} cupos` : ''}.`,
+          expiresAt: endOfChileDay(now),
+        };
+      });
+      if (gate.gated) { res.json({ success: true, crossCheck: gate }); return; }
       const result = await runFoundersPromoDaily();
       res.json({ success: true, ...result });
     } catch (err) {
@@ -297,6 +337,19 @@ export function registerCronRoutes(app: Express) {
   app.get("/api/cron/tanda2-promo", async (req: Request, res: Response) => {
     if (!requireCronSecret(req, res)) return;
     try {
+      const now = new Date();
+      const gate = await gateAutomation('tanda2-promo', async () => {
+        const st = await getTanda2PromoStatus();
+        if (!st.enabled || !st.eventTitle || st.audienceSize === 0) return null;
+        const n = Math.max(0, Math.min(st.audienceSize, st.dailyTarget - st.sentToday));
+        if (n === 0) return null;
+        return {
+          dedupeKey: `tanda2-promo:${chileDateKey(now)}`, title: `Aviso de la 2ª tanda · ${st.eventTitle}`,
+          summary: `Hasta ${n} correos hoy a quienes no han comprado${st.priceFrom ? `, desde $${Math.round(st.priceFrom).toLocaleString('es-CL')}` : ''}.`,
+          expiresAt: endOfChileDay(now),
+        };
+      });
+      if (gate.gated) { res.json({ success: true, crossCheck: gate }); return; }
       const result = await runTanda2PromoDaily();
       res.json({ success: true, ...result });
     } catch (err) {
@@ -312,6 +365,19 @@ export function registerCronRoutes(app: Express) {
   app.get("/api/cron/sales-drip", async (req: Request, res: Response) => {
     if (!requireCronSecret(req, res)) return;
     try {
+      const now = new Date();
+      const gate = await gateAutomation('sales-drip', async () => {
+        const st = await getSalesDripStatus(now);
+        if (!st.enabled || !st.eventTitle || st.dueToday === 0) return null;
+        const n = Math.max(0, Math.min(st.dueToday, st.dailyTarget - st.sentToday));
+        if (n === 0) return null;
+        return {
+          dedupeKey: `sales-drip:${chileDateKey(now)}`, title: `Aviso diario de venta · ${st.eventTitle}`,
+          summary: `Hasta ${n} correos hoy a quienes no han comprado${st.daysLeft != null ? ` (faltan ${st.daysLeft} días)` : ''}${st.priceFrom ? `, desde $${Math.round(st.priceFrom).toLocaleString('es-CL')}` : ''}.`,
+          expiresAt: endOfChileDay(now),
+        };
+      });
+      if (gate.gated) { res.json({ success: true, crossCheck: gate }); return; }
       const result = await runSalesDripDaily();
       res.json({ success: true, ...result });
     } catch (err) {

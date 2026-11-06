@@ -1,5 +1,6 @@
 import { ArrowRight, Cake, Crown, Handshake, Instagram, UserCheck, type LucideIcon } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
+import { CrossCheckCard } from '@/components/admin/crossCheck/CrossCheckCard';
 
 /** «Cross check»: todo lo que espera un sí o un no, junto en Inicio. Cada fila abre la pantalla donde se decide
  * (el botón de aprobar vive ahí; esto solo evita ir a buscarlo). Si no hay nada, no ocupa espacio. */
@@ -13,15 +14,28 @@ const ROWS: { key: 'igComments' | 'ambassadors' | 'birthdays' | 'solteros' | 'co
 
 export function ApprovalsCard({ enabled, onOpen }: { enabled: boolean; onOpen: (section: string) => void }) {
   const { data } = trpc.adminBadges.pending.useQuery(undefined, { enabled, refetchInterval: 60_000, refetchIntervalInBackground: false });
+  // Lo que las automatizaciones y el piloto quieren mandar: se reporta acá mismo.
+  const { data: checks } = trpc.crossCheck.list.useQuery(undefined, { enabled, refetchInterval: 60_000, refetchIntervalInBackground: false, retry: false });
+  const pendingChecks = checks?.pending ?? [];
   const rows = ROWS.filter((r) => (data?.[r.key] ?? 0) > 0);
-  if (rows.length === 0) return null;
-  const total = rows.reduce((sum, r) => sum + (data?.[r.key] ?? 0), 0);
+  if (rows.length === 0 && pendingChecks.length === 0) return null;
+  const total = rows.reduce((sum, r) => sum + (data?.[r.key] ?? 0), 0) + pendingChecks.length;
   return (
     <section aria-label="Cross check" className="admin-clay p-3 md:p-4">
       <div className="mb-2 flex items-baseline justify-between px-1">
         <h3 className="font-heading text-base">Cross check</h3>
         <span className="admin-badge">{total > 99 ? '99+' : total}</span>
       </div>
+      {pendingChecks.length > 0 && (
+        <div className="mb-2 space-y-2">
+          {pendingChecks.slice(0, 3).map((item) => <CrossCheckCard key={item.id} item={item} compact />)}
+          {pendingChecks.length > 3 && (
+            <button type="button" onClick={() => onOpen('cross-check')} className="admin-tab flex min-h-12 w-full items-center justify-center rounded-2xl text-sm font-medium">
+              Ver los {pendingChecks.length} cross checks
+            </button>
+          )}
+        </div>
+      )}
       <ul className="space-y-1.5">
         {rows.map((r) => (
           <li key={r.key}>
