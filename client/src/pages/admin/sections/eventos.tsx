@@ -1,5 +1,7 @@
 /* Secciones del hub «eventos» del panel (se cargan solas al abrirlas, ver ADMIN_SECTIONS en ../Dashboard.tsx). */
 import { useEffect, useState } from 'react';
+import { isTestEvent } from '@/hooks/useTonightEvent';
+import { EVENT_ONGOING_HOURS } from '@shared/currentEvent';
 import { toast } from 'sonner';
 import { WriteButton } from '@/components/admin/WriteButton';
 import { Switch } from '@/components/ui/switch';
@@ -935,14 +937,23 @@ export function EventCard({ event, onDeleted, expanded, onToggleExpand }: { even
     setShowTicketForm(false);
   };
 
+  // Franja del flyer a la izquierda (solo cerrada): cada evento se reconoce por su diseño. Se funde hacia la tarjeta.
+  const flyer = !expanded && typeof event.imageUrl === 'string' && /^https?:\/\//.test(event.imageUrl) ? event.imageUrl : null;
+
   return (
-    <Card>
-      <CardContent className="pt-6">
+    <Card className="relative overflow-hidden">
+      {flyer && (
+        <div aria-hidden className="pointer-events-none absolute inset-y-0 left-0 w-20 md:w-48">
+          <img src={flyer} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover"
+            style={{ maskImage: 'linear-gradient(to right, black 45%, transparent)', WebkitMaskImage: 'linear-gradient(to right, black 45%, transparent)' }} />
+        </div>
+      )}
+      <CardContent className="relative pt-6">
         {/* Cabecera siempre visible -- el resto de la card (formulario/resumen,
          * entradas, tanda, stock, Misión 300) solo se monta si `expanded` es
          * true, para no disparar todas esas queries de golpe con decenas de
          * eventos en la lista. */}
-        <div className="w-full flex justify-between items-center gap-3">
+        <div className={`w-full flex justify-between items-center gap-3 ${flyer ? 'pl-12 md:pl-36' : ''}`}>
           <button type="button" onClick={onToggleExpand} className="min-w-0 flex-1 text-left">
             <h3 className="font-semibold text-lg truncate">{event.title}</h3>
             <p className="text-muted-foreground text-sm truncate">/{event.slug} | {event.status} | {new Date(event.eventDate).toLocaleDateString('es-CL', { timeZone: 'America/Santiago' })}</p>
@@ -1140,6 +1151,27 @@ export function EventCard({ event, onDeleted, expanded, onToggleExpand }: { even
   );
 }
 
+/** Agrupa los eventos de la lista: próximos (más cercano primero), pasados (más reciente primero) y de prueba. */
+function groupEvents(list: any[], now: Date = new Date()) {
+  const proximos: any[] = [];
+  const pasados: any[] = [];
+  const pruebas: any[] = [];
+  for (const e of list) {
+    if (isTestEvent(e)) pruebas.push(e);
+    else if (e.status === 'past' || e.status === 'cancelled' || new Date(e.eventDate).getTime() < now.getTime() - EVENT_ONGOING_HOURS * 3_600_000) pasados.push(e);
+    else proximos.push(e);
+  }
+  const t = (e: any) => new Date(e.eventDate).getTime();
+  proximos.sort((a, b) => t(a) - t(b));
+  pasados.sort((a, b) => t(b) - t(a));
+  pruebas.sort((a, b) => t(b) - t(a));
+  return [
+    { key: 'proximos', title: 'Próximos', hint: null as string | null, events: proximos, collapsible: false },
+    { key: 'pasados', title: 'Pasados', hint: null, events: pasados, collapsible: true },
+    { key: 'pruebas', title: 'De prueba', hint: 'demo y pruebas de caja', events: pruebas, collapsible: true },
+  ];
+}
+
 export function EventsManager() {
   const { data: eventsData, refetch, isLoading: eventsLoading } = trpc.events.listAll.useQuery();
   const createEvent = trpc.events.create.useMutation({ onSuccess: () => { refetch(); toast.success('Evento creado'); }, onError: onMutationError });
@@ -1156,6 +1188,9 @@ export function EventsManager() {
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
   const events = eventsData ?? [];
+  // Lista en grupos: los próximos arriba, los pasados abajo y los de prueba (demo, pruebas de caja) plegados al final.
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({ proximos: true, pasados: true, pruebas: false });
+  const groups = groupEvents(events as any[]).map((g) => ({ ...g, open: g.collapsible ? !!openGroups[g.key] || g.events.some((e) => e.id === expandedId) : true }));
 
   const handleCreateEvent = async () => {
     if (!newEvent.title || !newEvent.slug || !newEvent.eventDate) return;
@@ -1259,14 +1294,25 @@ export function EventsManager() {
       <div className="space-y-4">
         {eventsLoading && <TableSkeleton rows={4} />}
         {!eventsLoading && events.length === 0 && <p className="text-sm text-muted-foreground">Todavía no hay eventos: crea el primero con «Nuevo Evento».</p>}
-        {events.map((event: any) => (
-          <EventCard
-            key={event.id}
-            event={event}
-            onDeleted={handleDeleteEvent}
-            expanded={expandedId === event.id}
-            onToggleExpand={() => setExpandedId(expandedId === event.id ? null : event.id)}
-          />
+        {groups.map((g) => g.events.length > 0 && (
+          <section key={g.key} aria-label={g.title} className="space-y-4">
+            <button type="button" onClick={() => g.collapsible && setOpenGroups((o) => ({ ...o, [g.key]: !o[g.key] }))}
+              className={`flex min-h-11 w-full items-center gap-2 text-left ${g.collapsible ? '' : 'cursor-default'}`}>
+              <h3 className="font-heading text-xl">{g.title}</h3>
+              <span className="admin-badge">{g.events.length}</span>
+              {g.hint && <span className="text-sm text-muted-foreground">{g.hint}</span>}
+              {g.collapsible && <span className="ml-auto flex items-center gap-1 text-sm text-muted-foreground">{g.open ? 'Ocultar' : 'Mostrar'} {g.open ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}</span>}
+            </button>
+            {g.open && g.events.map((event: any) => (
+              <EventCard
+                key={event.id}
+                event={event}
+                onDeleted={handleDeleteEvent}
+                expanded={expandedId === event.id}
+                onToggleExpand={() => setExpandedId(expandedId === event.id ? null : event.id)}
+              />
+            ))}
+          </section>
         ))}
       </div>
     </div>
