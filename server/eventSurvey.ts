@@ -141,6 +141,22 @@ export async function runSurveyDispatch(now: Date = new Date()): Promise<{ ran: 
   return { ran: true, events: results };
 }
 
+/** Las fiestas con envío automático a las que hoy les toca encuesta, SIN mandar nada (para pedir el cross check).
+ * `audience`: a cuánta gente falta mandarle (asistentes sin encuesta enviada). */
+export async function listSurveysDueNow(now: Date = new Date()): Promise<{ eventId: number; title: string; audience: number; eventDate: Date }[]> {
+  if (!isSurveySendHour(chileHourOf(now))) return [];
+  const out: { eventId: number; title: string; audience: number; eventDate: Date }[] = [];
+  for (const eventId of await listAutoSurveyEventIds()) {
+    const event = await getEventById(eventId);
+    if (!event || event.status === 'cancelled' || event.status === 'draft') continue;
+    if (!isInSurveyWindow(new Date(event.eventDate), now)) continue;
+    const [attendees, overview] = await Promise.all([getSurveyAttendees(eventId), getSurveyOverview(eventId)]);
+    const audience = Math.max(0, attendees.length - overview.sent);
+    if (audience > 0) out.push({ eventId, title: event.title, audience, eventDate: new Date(event.eventDate) });
+  }
+  return out;
+}
+
 const ANALYSIS_SCHEMA = {
   name: 'analisis_encuesta',
   strict: true,
