@@ -7,6 +7,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { useIsSupervisor } from '@/lib/demoMode';
 import { EventSwitcher } from './EventSwitcher';
 import { useTonightEvent } from '@/hooks/useTonightEvent';
+import { eventStage, pickCurrentEvent, type EventStage } from '@shared/currentEvent';
 import { ADMIN_HUBS, hubBadgeCount, type AdminHub, type AdminHubId, type ShellSection } from './nav';
 import { CommandPalette } from './CommandPalette';
 import { GiftHost } from '@/components/gifts/GiftHost';
@@ -19,6 +20,7 @@ import { TransferSaleDialog } from '@/components/admin/gifts/TransferSaleDialog'
 import { trpc } from '@/lib/trpc';
 import { hideSplash } from '@/lib/splash';
 import { useStackTables } from '@/lib/stackTables';
+import { ADMIN_TEXT_SIZES, useAdminTextSize, type AdminTextSize } from '@/lib/adminTextSize';
 
 const COLLAPSED_KEY = 'admin-sidebar-collapsed';
 
@@ -76,7 +78,10 @@ export interface AdminQuickAction {
   /** La sección que abre; sin ella el atajo solo ejecuta `onSelect` (abre una hoja encima de donde estés). */
   section?: string;
   onSelect?: () => void;
+  /** Cuándo es más útil: antes de la fiesta, el día de la fiesta o después. Los de la etapa actual van primero en el «+». */
+  stages?: EventStage[];
 }
+
 
 /** Chrome del panel: sidebar de vidrio (desktop), pestañas del hub, barra
  * inferior + "Más" (celular) y buscador Ctrl+K. No sabe nada de lo que
@@ -85,6 +90,7 @@ export function AdminShell({ sections: allSections, activeSection, onOpenSection
   const mainRef = useRef<HTMLElement>(null);
   useStackTables(mainRef);
   useDarkGlassDocument();
+  const [textSize, setTextSize] = useAdminTextSize();
   // El panel ya está listo: se va el splash de apertura (client/src/lib/splash.ts).
   useEffect(() => { hideSplash(); }, []);
   const [collapsed, setCollapsed] = useState(readCollapsed);
@@ -120,7 +126,13 @@ export function AdminShell({ sections: allSections, activeSection, onOpenSection
   );
   const hubMeta = allHubs.find((h) => h.id === activeHub) ?? allHubs[0];
   // Los atajos de la hoja del «+»: los que abren una sección que este usuario ve, y los que abren una hoja encima de donde estés.
-  const visibleQuickActions = (quickActions ?? []).filter((q) => !q.section || sections.some((s) => s.id === q.section));
+  // Los de la etapa del evento (antes / hoy / después) van primero: el «+» del celular muestra lo que toca ahora.
+  const stage = eventStage(pickCurrentEvent((shellEvents ?? []) as any[]).event?.eventDate);
+  const visibleQuickActions = (quickActions ?? [])
+    .filter((q) => !q.section || sections.some((s) => s.id === q.section))
+    .map((q, i) => ({ q, i, rank: q.stages?.includes(stage) ? 0 : 1 }))
+    .sort((a, b) => a.rank - b.rank || a.i - b.i)
+    .map((x) => x.q);
   const runQuickAction = (q: AdminQuickAction) => { q.onSelect?.(); if (q.section) onOpenSection(q.section); };
 
   // Última pestaña usada en cada hub: volver al hub vuelve a esa pestaña.
@@ -248,6 +260,7 @@ export function AdminShell({ sections: allSections, activeSection, onOpenSection
           </nav>
 
           <div className="admin-divider mx-4" />
+          {!collapsed && <div className="px-3 pt-3"><TextSizePicker value={textSize} onChange={setTextSize} compact /></div>}
           <div className="space-y-1 px-3 py-3">
             {hasSettings && (
               <HubButton
@@ -288,12 +301,12 @@ export function AdminShell({ sections: allSections, activeSection, onOpenSection
               </span>
             )}
             {giftAccess?.can && (
-              <button type="button" onClick={() => setTransferOpen(true)} className="admin-search-btn flex h-10 shrink-0 items-center gap-2 rounded-xl px-3 text-sm font-medium" aria-label="Vender por transferencia y enviar la entrada">
+              <button type="button" onClick={() => setTransferOpen(true)} className="admin-search-btn flex h-10 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:min-w-11 shrink-0 items-center gap-2 rounded-xl px-3 text-sm font-medium" aria-label="Vender por transferencia y enviar la entrada">
                 <span aria-hidden>💸</span><span className="hidden sm:inline">Transferencia</span>
               </button>
             )}
             {canOpenGift && (
-              <button type="button" onClick={() => setGiftOpen(true)} className="admin-search-btn flex h-10 shrink-0 items-center gap-2 rounded-xl px-3 text-sm font-medium" aria-label={isSupervisor ? 'Invitar una entrada' : 'Regalar una entrada o un trago'}>
+              <button type="button" onClick={() => setGiftOpen(true)} className="admin-search-btn flex h-10 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:min-w-11 shrink-0 items-center gap-2 rounded-xl px-3 text-sm font-medium" aria-label={isSupervisor ? 'Invitar una entrada' : 'Regalar una entrada o un trago'}>
                 <span aria-hidden>🎁</span><span className="hidden sm:inline">{isSupervisor ? 'Invitar' : 'Regalar'}</span>
               </button>
             )}
@@ -317,7 +330,7 @@ export function AdminShell({ sections: allSections, activeSection, onOpenSection
             <button
               type="button"
               onClick={() => setSearchOpen(true)}
-              className="admin-search-btn flex h-10 shrink-0 items-center gap-2 rounded-xl px-3 text-sm text-muted-foreground"
+              className="admin-search-btn flex h-10 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:min-w-11 shrink-0 items-center gap-2 rounded-xl px-3 text-sm text-muted-foreground"
               aria-label="Buscar en el panel"
             >
               <Search className="h-4 w-4" />
@@ -342,7 +355,7 @@ export function AdminShell({ sections: allSections, activeSection, onOpenSection
                       role="tab"
                       aria-selected={isActive}
                       onClick={() => onOpenSection(s.id)}
-                      className={`admin-tab flex h-9 shrink-0 items-center gap-2 rounded-full px-3.5 text-sm font-medium ${isActive ? 'admin-tab-active' : ''}`}
+                      className={`admin-tab flex h-9 shrink-0 items-center gap-2 rounded-full px-3.5 text-sm font-medium [@media(pointer:coarse)]:h-11 ${isActive ? 'admin-tab-active' : ''}`}
                     >
                       <s.icon className="h-4 w-4" />
                       {s.label}
@@ -415,6 +428,7 @@ export function AdminShell({ sections: allSections, activeSection, onOpenSection
               );
             })}
           </div>
+          <TextSizePicker value={textSize} onChange={setTextSize} />
           <button
             type="button"
             onClick={onLogout}
@@ -441,6 +455,8 @@ export function AdminShell({ sections: allSections, activeSection, onOpenSection
           userName={userName}
           roleLabel={roleLabel}
           onLogout={onLogout}
+          textSize={textSize}
+          onTextSize={setTextSize}
         />
       )}
 
@@ -465,6 +481,24 @@ export function AdminShell({ sections: allSections, activeSection, onOpenSection
         hubs={allHubs}
         onSelect={(id) => { onOpenSection(id); setSearchOpen(false); }}
       />
+    </div>
+  );
+}
+
+/** Tamaño de letra del panel: tres botones grandes (A, A+, A++). Se queda guardado en el dispositivo. */
+function TextSizePicker({ value, onChange, compact = false }: { value: AdminTextSize; onChange: (size: AdminTextSize) => void; compact?: boolean }) {
+  return (
+    <div role="radiogroup" aria-label="Tamaño de letra" className="space-y-1.5">
+      {!compact && <p className="px-1 text-sm font-semibold text-white/80">Tamaño de letra</p>}
+      <div className="grid grid-cols-3 gap-2">
+        {ADMIN_TEXT_SIZES.map((t) => (
+          <button key={t.id} type="button" role="radio" aria-checked={value === t.id} onClick={() => onChange(t.id)}
+            className={`admin-tab flex h-12 flex-col items-center justify-center rounded-2xl font-semibold leading-none ${value === t.id ? 'admin-tab-active' : ''}`}>
+            <span className={t.id === 'normal' ? 'text-base' : t.id === 'grande' ? 'text-xl' : 'text-2xl'}>{t.sample}</span>
+            {!compact && <span className="mt-1 text-[11px] font-medium opacity-80">{t.label}</span>}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -523,7 +557,7 @@ function TabBarButton({ icon: Icon, label, active, badge, onClick }: {
 
 /** La barra del celular igual a la de la app («Mi cuenta», client/src/pages/Cuenta.tsx): dos píldoras
  * de vidrio con lo más usado a los lados y el «+» al centro, que abre los atajos y el resto de los hubs. */
-function AppTabBar({ left, right, activeHub, badgeFor, moreBadge, moreHubs, quickActions, open, onOpenChange, onOpenHub, onQuickAction, userName, roleLabel, onLogout }: {
+function AppTabBar({ left, right, activeHub, badgeFor, moreBadge, moreHubs, quickActions, open, onOpenChange, onOpenHub, onQuickAction, userName, roleLabel, onLogout, textSize, onTextSize }: {
   left: AdminHub[];
   right: AdminHub[];
   activeHub: AdminHubId;
@@ -538,6 +572,8 @@ function AppTabBar({ left, right, activeHub, badgeFor, moreBadge, moreHubs, quic
   userName: string;
   roleLabel: string;
   onLogout: () => void;
+  textSize: AdminTextSize;
+  onTextSize: (size: AdminTextSize) => void;
 }) {
   const sheetDrag = useDragControls();
   const moreActive = moreHubs.some((h) => h.id === activeHub);
@@ -625,6 +661,7 @@ function AppTabBar({ left, right, activeHub, badgeFor, moreBadge, moreHubs, quic
                     );
                   })}
                 </div>
+                <TextSizePicker value={textSize} onChange={onTextSize} />
                 <button type="button" onClick={onLogout} className="account-glass flex h-12 w-full items-center justify-center gap-2 rounded-[22px] text-sm font-semibold text-rose-400">
                   <LogOut className="h-4 w-4" /> Cerrar sesión
                 </button>

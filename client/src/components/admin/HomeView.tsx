@@ -4,7 +4,7 @@ import {
 } from 'recharts';
 import {
   ArrowRight, ArrowUpRight, ArrowDownRight, CalendarClock, CheckCircle2, DollarSign, Gift, Instagram, Mail,
-  MessageCircle, Plus, ShieldAlert, ShoppingBag, Store, Ticket, Trophy, UserPlus, Crown, Zap, Martini, Compass,
+  MessageCircle, Plus, ShieldAlert, BellRing, Flame, ListChecks, Receipt, Star, ShoppingBag, Store, Ticket, Trophy, UserPlus, Crown, Zap, Martini, Compass,
   type LucideIcon,
 } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
@@ -12,12 +12,13 @@ import { formatChileDate } from '@shared/chileDate';
 import { EmptyState } from '@/components/admin/EmptyState';
 import { useIsDemo } from '@/lib/demoMode';
 import { buildHomeAlerts } from '@shared/homeAlerts';
-import { pickCurrentEvent } from '@shared/currentEvent';
+import { eventStage, pickCurrentEvent, type EventStage } from '@shared/currentEvent';
 import { AlertsStrip } from '@/components/admin/home/AlertsStrip';
 import { useEvento } from '@/components/admin/home/EventoBlock';
 import { usePlata } from '@/components/admin/home/PlataBlock';
 import { useGente } from '@/components/admin/home/GenteBlock';
 import { AgentCard } from '@/components/admin/home/AgentCard';
+import { ApprovalsCard } from '@/components/admin/home/ApprovalsCard';
 import { SummaryTabs } from '@/components/admin/home/SummaryTabs';
 
 /** Pantalla de entrada del panel: cómo va el próximo evento, qué está
@@ -41,13 +42,35 @@ const PENDING: { id: string; label: (n: number) => string; icon: LucideIcon }[] 
   { id: 'referrals', label: (n) => `${n} referido${n === 1 ? '' : 's'} nuevo${n === 1 ? '' : 's'}`, icon: Trophy },
 ];
 
-const QUICK_ACTIONS: { label: string; icon: LucideIcon; section?: string; href?: string }[] = [
-  { label: 'Crear evento', icon: Plus, section: 'events' },
-  { label: 'Acceso manual', icon: Gift, section: 'manual-access' },
-  { label: 'Promo Flash', icon: Zap, section: 'flash-promo' },
-  { label: 'Abrir caja', icon: Store, href: '/caja' },
-  { label: 'Nuevo mailing', icon: Mail, section: 'mailing' },
-];
+type NowAction = { label: string; icon: LucideIcon; section?: string; href?: string };
+
+/** «Ahora toca»: los botones grandes de Inicio cambian según la etapa del evento (antes, el día, después). */
+const NOW_ACTIONS: Record<EventStage, { title: string; actions: NowAction[] }> = {
+  antes: { title: 'Preparando la fiesta', actions: [
+    { label: 'Nuevo mailing', icon: Mail, section: 'mailing' },
+    { label: 'Enviar push', icon: BellRing, section: 'push-clientes' },
+    { label: 'Acceso manual', icon: Gift, section: 'manual-access' },
+    { label: 'Crear evento', icon: Plus, section: 'events' },
+    { label: 'Plan de contenido', icon: CalendarClock, section: 'content-plan' },
+    { label: 'Cargar gasto', icon: Receipt, section: 'cargar-gasto' },
+  ] },
+  hoy: { title: 'Es la noche', actions: [
+    { label: 'Resumen en vivo', icon: Zap, section: 'overview' },
+    { label: 'Promo Flash', icon: Zap, section: 'flash-promo' },
+    { label: 'Playmatch', icon: Flame, section: 'playmatch-control' },
+    { label: 'Acceso manual', icon: Gift, section: 'manual-access' },
+    { label: 'Abrir caja', icon: Store, href: '/caja' },
+    { label: 'Mensajes', icon: MessageCircle, section: 'instagram' },
+  ] },
+  despues: { title: 'Cerrando la fiesta', actions: [
+    { label: 'Resultados', icon: ListChecks, section: 'cierre-resultados' },
+    { label: 'Cargar gasto', icon: Receipt, section: 'cargar-gasto' },
+    { label: 'Gastos y P&L', icon: DollarSign, section: 'gastos' },
+    { label: 'Encuestas', icon: Star, section: 'event-survey' },
+    { label: 'Mailing de gracias', icon: Mail, section: 'mailing' },
+    { label: 'Regalar cupón', icon: Gift, section: 'members' },
+  ] },
+};
 
 export function HomeView({ badgeCounts, onOpen }: { badgeCounts: Record<string, number>; onOpen: (sectionId: string) => void }) {
   const { data: events } = trpc.events.listAll.useQuery();
@@ -96,6 +119,7 @@ export function HomeView({ badgeCounts, onOpen }: { badgeCounts: Record<string, 
   const cajaRevenue = Number(caja?.totalRevenue ?? 0);
   const prevRevenue = previous ? Number(prevWeb?.totalRevenue ?? 0) : null;
   const delta = prevRevenue && prevRevenue > 0 ? Math.round(((webRevenue - prevRevenue) / prevRevenue) * 100) : null;
+  const stage = eventStage(current?.eventDate);
   const daysLeft = current ? Math.ceil((new Date(current.eventDate).getTime() - Date.now()) / 86_400_000) : null;
   const profit = pnl?.netProfit ?? null;
 
@@ -133,6 +157,30 @@ export function HomeView({ badgeCounts, onOpen }: { badgeCounts: Record<string, 
       </section>
 
       <AlertsStrip alerts={alerts} onOpen={onOpen} />
+
+      {/* Todo lo que espera un sí o un no, junto. */}
+      {!isDemo && <ApprovalsCard enabled onOpen={onOpen} />}
+
+      {/* Ahora toca: botones grandes que cambian con la etapa del evento. */}
+      <section aria-label="Ahora toca" className="admin-clay p-4 md:p-5">
+        <h3 className="mb-3 font-heading text-lg">{NOW_ACTIONS[stage].title}</h3>
+        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6">
+          {NOW_ACTIONS[stage].actions.map((a) => {
+            const inner = (
+              <>
+                <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-[oklch(0.6_0.2_290)] text-white">
+                  <a.icon className="h-5 w-5" />
+                </span>
+                <span className="text-sm font-medium leading-tight">{a.label}</span>
+              </>
+            );
+            const cls = 'admin-tile flex min-h-[96px] flex-col items-center justify-center gap-2 rounded-2xl px-2 py-3 text-center active:scale-[0.97] transition-transform';
+            return a.href
+              ? <a key={a.label} href={a.href} className={cls}>{inner}</a>
+              : <button key={a.label} type="button" onClick={() => onOpen(a.section!)} className={cls}>{inner}</button>;
+          })}
+        </div>
+      </section>
 
       {/* Resumen de todas las secciones: tarjetas cerradas, se abre una a la vez */}
       <SummaryTabs
@@ -222,29 +270,8 @@ export function HomeView({ badgeCounts, onOpen }: { badgeCounts: Record<string, 
       </div>
 
       <div className="grid gap-5 lg:grid-cols-3">
-        {/* Accesos rápidos */}
-        <section className="admin-clay p-5 lg:col-span-2">
-          <h3 className="mb-3 font-heading text-lg">Accesos rápidos</h3>
-          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-5">
-            {QUICK_ACTIONS.map((a) => {
-              const inner = (
-                <>
-                  <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-[oklch(0.6_0.2_290)] text-white">
-                    <a.icon className="h-5 w-5" />
-                  </span>
-                  <span className="text-sm font-medium">{a.label}</span>
-                </>
-              );
-              const cls = 'admin-tile flex flex-col items-center gap-2 rounded-2xl px-2 py-4 text-center';
-              return a.href
-                ? <a key={a.label} href={a.href} className={cls}>{inner}</a>
-                : <button key={a.label} type="button" onClick={() => onOpen(a.section!)} className={cls}>{inner}</button>;
-            })}
-          </div>
-        </section>
-
         {/* Ventas por origen */}
-        <section className="admin-clay p-5">
+        <section className="admin-clay p-5 lg:col-span-3">
           <div className="mb-3 flex items-baseline justify-between gap-3">
             <h3 className="font-heading text-lg">De dónde vienen</h3>
             <button type="button" onClick={() => onOpen('sales-origin')} className="text-sm text-muted-foreground hover:text-foreground">Detalle →</button>

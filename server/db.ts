@@ -16,7 +16,7 @@ import { ambassadorBuyerDiscount, bestBuyerDiscount, effectiveBuyerDiscountPerce
 import { normalizeIgHandle, saysAlreadyBought, type BuyerCandidate } from "../shared/igCustomerLink";
 import { computeFans, FAN_WINDOW_DAYS } from "../shared/igEngagement";
 import { reservedCouponUses } from '../shared/couponReservation';
-import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, memberCoupons, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyCharges, partyEventConfig, partyConnections, partyMessages, partyBlocks, partyReports, partyPhotos, partySwipes, partyCostumeVotes, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog, emailEvents, eventSurveys, eventSurveySettings, accessCredits, type AccessCredit, igComments, type IgComment, igReferrals, type IgReferralRow, igLinkClicks, staffMembers, staffShifts, aiUsage, igFollowUps, attendeeContacts, coproductions } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, memberCoupons, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyCharges, partyEventConfig, partyConnections, partyMessages, partyBlocks, partyReports, partyPhotos, partySwipes, partyCostumeVotes, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog, emailEvents, eventSurveys, eventSurveySettings, accessCredits, type AccessCredit, igComments, type IgComment, igReferrals, type IgReferralRow, igLinkClicks, staffMembers, staffShifts, aiUsage, igFollowUps, attendeeContacts, coproductions, solteroApprovals, birthdayApplications, coproductionExpenses } from "../drizzle/schema";
 import { discountOrigin } from "../shared/discountOrigin";
 import { presaleAllows } from "../shared/presaleExtras";
 import { buildProductRows, buildWhoRows, columnOf, registerColumn, NO_REGISTER_COLUMN, WEB_COLUMN, type ResultLine, type WhoOrder } from "../shared/eventResults";
@@ -2864,6 +2864,33 @@ export async function getAdminBadgeCounts(seenAt: Partial<Record<AdminBadgeSecti
     'instagram': igUnread,
     'whatsapp': waUnread,
   };
+}
+
+/** Lo que está esperando que el dueño apruebe o rechace, en una sola mirada (tarjeta «Por aprobar» de Inicio).
+ * Cada conteo falla por separado: una tabla que todavía no se actualizó no tumba a las demás. */
+export interface PendingApprovals {
+  igComments: number;
+  ambassadors: number;
+  birthdays: number;
+  solteros: number;
+  coproExpenses: number;
+}
+
+export async function getPendingApprovals(): Promise<PendingApprovals> {
+  const db = await getDb();
+  const zero: PendingApprovals = { igComments: 0, ambassadors: 0, birthdays: 0, solteros: 0, coproExpenses: 0 };
+  if (!db) return zero;
+  const count = async (rows: Promise<{ n: number }[]>) => {
+    try { const [row] = await rows; return Number(row?.n ?? 0); } catch { return 0; }
+  };
+  const [igCommentsN, ambassadorsN, birthdaysN, solterosN, coproExpensesN] = await Promise.all([
+    count(db.select({ n: sql<number>`COUNT(*)` }).from(igComments).where(eq(igComments.status, 'pending'))),
+    count(db.select({ n: sql<number>`COUNT(*)` }).from(ambassadorApplications).where(eq(ambassadorApplications.status, 'pendiente'))),
+    count(db.select({ n: sql<number>`COUNT(*)` }).from(birthdayApplications).where(eq(birthdayApplications.status, 'pendiente'))),
+    count(db.select({ n: sql<number>`COUNT(*)` }).from(solteroApprovals).where(eq(solteroApprovals.status, 'pendiente'))),
+    count(db.select({ n: sql<number>`COUNT(*)` }).from(coproductionExpenses).where(eq(coproductionExpenses.status, 'pending'))),
+  ]);
+  return { igComments: igCommentsN, ambassadors: ambassadorsN, birthdays: birthdaysN, solteros: solterosN, coproExpenses: coproExpensesN };
 }
 
 /** Ventas web aprobadas por día de Chile (gráfico de Inicio del admin).

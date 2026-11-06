@@ -3641,6 +3641,8 @@ export const appRouter = router({
       }
       return db.getAdminBadgeCounts(parsed);
     }),
+    // «Por aprobar» de Inicio: todo lo que espera un sí o un no del dueño.
+    pending: adminReadProcedure.query(async () => db.getPendingApprovals()),
   }),
 
   // Push al /admin instalado + correo resumen diario (server/push.ts,

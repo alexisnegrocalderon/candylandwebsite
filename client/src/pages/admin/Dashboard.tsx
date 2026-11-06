@@ -112,18 +112,53 @@ function SectionLoading() {
   return <div className="py-12 flex justify-center"><div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" /></div>;
 }
 
+/** Mailing, su historial y las plantillas en una sola pantalla (antes eran tres entradas del menú). */
+type MailingTab = 'enviar' | 'historial' | 'plantillas';
+const MAILING_TABS: { id: MailingTab; label: string }[] = [
+  { id: 'enviar', label: 'Enviar' }, { id: 'historial', label: 'Historial' }, { id: 'plantillas', label: 'Plantillas' },
+];
+function MailingHub() {
+  const [tab, setTab] = useState<MailingTab>('enviar');
+  return (
+    <div className="space-y-4">
+      <div role="tablist" aria-label="Mailing" className="flex gap-1.5">
+        {MAILING_TABS.map((t) => (
+          <button key={t.id} type="button" role="tab" aria-selected={tab === t.id} onClick={() => setTab(t.id)}
+            className={`admin-tab flex h-9 items-center rounded-full px-4 text-sm font-medium [@media(pointer:coarse)]:h-11 ${tab === t.id ? 'admin-tab-active' : ''}`}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {tab === 'enviar' && <MailingSection />}
+      {tab === 'historial' && <MailingHistoryView />}
+      {tab === 'plantillas' && <EmailTemplatesManager />}
+    </div>
+  );
+}
+
+/** Pantallas que se juntaron en otra: los avisos y atajos viejos que las nombran siguen funcionando. */
+const MERGED_SECTIONS: Record<string, string> = { 'mailing-history': 'mailing', 'email-templates': 'mailing' };
+
 /** Atajos de la hoja del «+» en el celular (solo los de secciones visibles). */
 const ADMIN_QUICK_ACTIONS: AdminQuickAction[] = [
   { key: 'asistente', label: 'Pregúntale al asistente', icon: Sparkles, onSelect: requestAssistant },
-  { key: 'invitar', label: 'Invitar entradas y tragos', icon: Gift, onSelect: requestGift },
-  { key: 'staff', label: 'Agregar staff', icon: UserPlus, section: 'staff', onSelect: requestNewStaff },
-  { key: 'inventario', label: 'Inventario PDF', icon: FileText, section: 'insumos', onSelect: requestInventarioPdf },
-  { key: 'gasto', label: 'Cargar gasto', icon: Receipt, section: 'cargar-gasto' },
-  { key: 'evento', label: 'Crear evento', icon: Calendar, section: 'events' },
-  { key: 'cupon', label: 'Regalar cupón', icon: Gift, section: 'members', onSelect: requestGiftCoupon },
-  { key: 'push', label: 'Enviar push', icon: BellRing, section: 'push-clientes' },
+  { key: 'invitar', label: 'Invitar entradas y tragos', icon: Gift, onSelect: requestGift, stages: ['antes', 'hoy'] },
+  // Día de la fiesta
+  { key: 'en-vivo', label: 'Resumen de la noche', icon: LayoutDashboard, section: 'overview', stages: ['hoy'] },
+  { key: 'flash', label: 'Promo Flash', icon: Zap, section: 'flash-promo', stages: ['hoy'] },
+  { key: 'playmatch', label: 'Playmatch en vivo', icon: Flame, section: 'playmatch-control', stages: ['hoy'] },
+  { key: 'esperando', label: 'Conversaciones esperando', icon: MessageCircle, section: 'instagram', stages: ['hoy', 'despues'] },
+  // Antes de la fiesta
+  { key: 'evento', label: 'Crear evento', icon: Calendar, section: 'events', stages: ['antes'] },
+  { key: 'mailing', label: 'Nuevo mailing', icon: Mail, section: 'mailing', stages: ['antes'] },
+  { key: 'push', label: 'Enviar push', icon: BellRing, section: 'push-clientes', stages: ['antes'] },
+  { key: 'staff', label: 'Agregar staff', icon: UserPlus, section: 'staff', onSelect: requestNewStaff, stages: ['antes'] },
+  { key: 'inventario', label: 'Inventario PDF', icon: FileText, section: 'insumos', onSelect: requestInventarioPdf, stages: ['antes'] },
+  // Después de la fiesta
+  { key: 'resultados', label: 'Resultados del evento', icon: ListChecks, section: 'cierre-resultados', stages: ['despues'] },
+  { key: 'gasto', label: 'Cargar gasto', icon: Receipt, section: 'cargar-gasto', stages: ['hoy', 'despues'] },
+  { key: 'cupon', label: 'Regalar cupón', icon: Gift, section: 'members', onSelect: requestGiftCoupon, stages: ['despues'] },
   { key: 'agente', label: 'Agente de mensajes', icon: Bot, section: 'agente-conocimiento' },
-  { key: 'esperando', label: 'Conversaciones esperando', icon: MessageCircle, section: 'instagram' },
 ];
 
 const ADMIN_SECTIONS = [
@@ -152,26 +187,24 @@ const ADMIN_SECTIONS = [
   { id: 'manual-access', label: 'Accesos Manuales', hub: 'vender', icon: Gift, hidden: true, render: () => <ManualAccessSection /> },
   { id: 'parking', label: 'Estacionamiento', hub: 'vender', icon: Car, render: () => <ParkingReportView /> },
   { id: 'sales-origin', label: 'Ventas por Origen', hub: 'vender', icon: Compass, render: () => <SalesByOriginView /> },
-  { id: 'contests', label: 'Concursos', hub: 'vender', icon: PartyPopper, render: () => <ContestsView /> },
-  { id: 'ambassadors', label: 'Embajadores VIP', hub: 'vender', icon: Crown, render: () => <AmbassadorsView /> },
-  { id: 'referrals', label: 'Referidos', hub: 'vender', icon: Trophy, render: () => <ReferralsView /> },
+  { id: 'contests', label: 'Concursos', hub: 'marketing', icon: PartyPopper, render: () => <ContestsView /> },
+  { id: 'ambassadors', label: 'Embajadores VIP', hub: 'marketing', icon: Crown, render: () => <AmbassadorsView /> },
+  { id: 'referrals', label: 'Referidos', hub: 'marketing', icon: Trophy, render: () => <ReferralsView /> },
   { id: 'partner-electronica', label: 'Comunidad Electrónica', hub: 'vender', hidden: true, icon: Headphones, render: () => <PartnerCampaignView /> },
   { id: 'sales-strategy', label: 'Director comercial', hub: 'vender', hidden: true, icon: Sparkles, render: () => <SalesStrategyView /> },
   // Marketing: lo que llega a la gente (mailing, avisos a la app, Instagram, WhatsApp y el agente que contesta los mensajes).
-  { id: 'mailing', label: 'Mailing', hub: 'marketing', icon: Mail, render: () => <MailingSection /> },
+  { id: 'mailing', label: 'Mailing', hub: 'marketing', icon: Mail, render: () => <MailingHub /> },
   { id: 'push-clientes', label: 'Notificaciones', hub: 'marketing', icon: BellRing, render: () => <CustomerPushView /> },
-  { id: 'instagram', label: 'Instagram', hub: 'marketing', icon: Instagram, render: () => <InstagramInbox /> },
-  { id: 'whatsapp', label: 'WhatsApp', hub: 'marketing', icon: MessageCircle, render: () => <WhatsAppInbox /> },
+  { id: 'instagram', label: 'Instagram', hub: 'mensajes', icon: Instagram, render: () => <InstagramInbox /> },
+  { id: 'whatsapp', label: 'WhatsApp', hub: 'mensajes', icon: MessageCircle, render: () => <WhatsAppInbox /> },
   // El agente de mensajes es UNA pestaña del menú; sus partes (ajustes, ventas, automatizaciones, links, WhatsApp) siguen siendo
   // secciones con su id de siempre (avisos y enlaces viejos), escondidas del menú y con su propio selector adentro.
-  { id: 'agente-conocimiento', label: 'Agente de mensajes', hub: 'marketing', icon: Bot, render: () => <AgentSection tab="conocimiento" /> },
-  { id: 'agente-ajustes', label: 'Agente · Ajustes', hub: 'marketing', hidden: true, icon: SettingsIcon, render: () => <AgentSection tab="ajustes" /> },
-  { id: 'agente-ventas', label: 'Agente · Ventas', hub: 'marketing', hidden: true, icon: TrendingUp, render: () => <AgentSection tab="ventas" /> },
-  { id: 'agente-automatizaciones', label: 'Agente · Automatizaciones', hub: 'marketing', hidden: true, icon: Zap, render: () => <AgentSection tab="automatizaciones" /> },
-  { id: 'agente-links', label: 'Agente · Links', hub: 'marketing', hidden: true, icon: Link2, render: () => <AgentSection tab="links" /> },
-  { id: 'agente-whatsapp', label: 'Agente · WhatsApp', hub: 'marketing', hidden: true, icon: MessageCircle, render: () => <AgentSection tab="whatsapp" /> },
-  { id: 'mailing-history', label: 'Historial de Mailing', hub: 'marketing', icon: History, render: () => <MailingHistoryView /> },
-  { id: 'email-templates', label: 'Plantillas de correo', hub: 'marketing', icon: Send, render: () => <EmailTemplatesManager /> },
+  { id: 'agente-conocimiento', label: 'Agente de mensajes', hub: 'mensajes', icon: Bot, render: () => <AgentSection tab="conocimiento" /> },
+  { id: 'agente-ajustes', label: 'Agente · Ajustes', hub: 'mensajes', hidden: true, icon: SettingsIcon, render: () => <AgentSection tab="ajustes" /> },
+  { id: 'agente-ventas', label: 'Agente · Ventas', hub: 'mensajes', hidden: true, icon: TrendingUp, render: () => <AgentSection tab="ventas" /> },
+  { id: 'agente-automatizaciones', label: 'Agente · Automatizaciones', hub: 'mensajes', hidden: true, icon: Zap, render: () => <AgentSection tab="automatizaciones" /> },
+  { id: 'agente-links', label: 'Agente · Links', hub: 'mensajes', hidden: true, icon: Link2, render: () => <AgentSection tab="links" /> },
+  { id: 'agente-whatsapp', label: 'Agente · WhatsApp', hub: 'mensajes', hidden: true, icon: MessageCircle, render: () => <AgentSection tab="whatsapp" /> },
   // Contenido: lo que se publica.
   { id: 'content-plan', label: 'Plan de contenido', hub: 'contenido', icon: Calendar, render: () => <ContentPlanView /> },
   { id: 'studio', label: 'Estudio', hub: 'contenido', icon: Palette, render: () => (
@@ -207,7 +240,7 @@ const ADMIN_SECTIONS = [
   { id: 'playmatch-test', label: 'Probar Playmatch', hub: 'app', icon: FlaskConical, render: () => <PlaymatchTestView /> },
   { id: 'cuenta-demo', label: 'Cuenta de prueba', hub: 'app', icon: UserCheck, render: () => <CuentaDemoView /> },
   // Asistente IA: preguntarle cualquier cosa de la productora con los datos en vivo (server/assistant/).
-  { id: 'asistente', label: 'Asistente IA', hub: 'asistente', icon: Sparkles, render: () => <AssistantSection /> },
+  { id: 'asistente', label: 'Asistente IA', hub: 'asistente', hidden: true, icon: Sparkles, render: () => <AssistantSection /> },
   // Finanzas de la empresa: el mes, el SII y la terminal para cargar gastos.
   { id: 'finanzas', label: 'Finanzas', hub: 'finanzas', icon: Banknote, render: () => <FinanzasView /> },
   { id: 'sii', label: 'SII', hub: 'finanzas', icon: Landmark, render: () => <SiiView /> },
@@ -241,7 +274,8 @@ export default function AdminDashboard() {
   const [activeSection, setActiveSection] = useState<typeof ADMIN_SECTIONS[number]['id']>('home');
   const { counts: badgeCounts, markSeen } = useAdminBadges(!!user && !isPartner && !isSupervisor);
 
-  const openSection = (id: typeof ADMIN_SECTIONS[number]['id']) => {
+  const openSection = (rawId: typeof ADMIN_SECTIONS[number]['id']) => {
+    const id = (MERGED_SECTIONS[rawId] ?? rawId) as typeof ADMIN_SECTIONS[number]['id'];
     setActiveSection(id);
     markSeen(id);
   };
@@ -251,7 +285,7 @@ export default function AdminDashboard() {
   useEffect(() => {
     const onOpen = (e: Event) => {
       const id = (e as CustomEvent<string>).detail;
-      if (ADMIN_SECTIONS.some((s) => s.id === id)) openSection(id as typeof ADMIN_SECTIONS[number]['id']);
+      if (ADMIN_SECTIONS.some((s) => s.id === (MERGED_SECTIONS[id] ?? id))) openSection(id as typeof ADMIN_SECTIONS[number]['id']);
     };
     window.addEventListener(OPEN_SECTION_EVENT, onOpen);
     return () => window.removeEventListener(OPEN_SECTION_EVENT, onOpen);
@@ -269,7 +303,7 @@ export default function AdminDashboard() {
         openSection(`agente-${link.tab}` as typeof ADMIN_SECTIONS[number]['id']);
         return;
       }
-      if (!ADMIN_SECTIONS.some((s) => s.id === link.section)) return;
+      if (!ADMIN_SECTIONS.some((s) => s.id === (MERGED_SECTIONS[link.section] ?? link.section))) return;
       openSection(link.section as typeof ADMIN_SECTIONS[number]['id']);
       deliverAdminDeepLink(link);
     };
@@ -314,7 +348,7 @@ export default function AdminDashboard() {
   const navContext = {
     badgeCounts,
     openSection: (id: string) => {
-      if (sections.some((s) => s.id === id)) openSection(id as typeof ADMIN_SECTIONS[number]['id']);
+      if (sections.some((s) => s.id === (MERGED_SECTIONS[id] ?? id))) openSection(id as typeof ADMIN_SECTIONS[number]['id']);
     },
   };
 
