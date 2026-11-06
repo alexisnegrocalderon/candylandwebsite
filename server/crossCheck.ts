@@ -2,7 +2,7 @@
  * los pasos del piloto del evento ya no mandan nada por su cuenta: dejan un pedido acá, le llega un push al dueño y
  * recién cuando toca «Reportar» se ejecuta. Si la tabla no se puede crear, la automatización NO sale (el lado seguro). */
 import { and, desc, eq, inArray, lt, sql } from "drizzle-orm";
-import { crossCheckConfig, crossChecks } from "../drizzle/schema";
+import { crossCheckConfig, crossChecks, eventPilots } from "../drizzle/schema";
 import { getDb } from "./db";
 import { sendPushToAdminsAlways } from "./push";
 import { startOfChileDay } from "../shared/chileDate";
@@ -131,6 +131,16 @@ async function execute(item: typeof crossChecks.$inferSelect): Promise<string> {
     case 'tanda2-promo': return describeRunResult(await (await import('./tanda2Promo')).runTanda2PromoDaily());
     case 'sales-drip': return describeRunResult(await (await import('./salesDrip')).runSalesDripDaily());
     case 'abandoned-cart': return describeRunResult(await (await import('./orderReminders')).runAbandonedCartCron());
+    case 'ambassador-weekly': {
+      const r = await (await import('./ambassadorProgram')).sendWeeklyAmbassadorEmails();
+      return `${r.sent} correo${r.sent === 1 ? '' : 's'} enviado${r.sent === 1 ? '' : 's'}${r.failed ? `, ${r.failed} con error` : ''}${r.skipped ? `, ${r.skipped} omitido${r.skipped === 1 ? '' : 's'}` : ''}.`;
+    }
+    case 'survey': {
+      if (!item.eventId) throw new Error('La encuesta no tiene evento.');
+      const survey = await import('./eventSurvey');
+      const r = await survey.sendEventSurveys(item.eventId, await survey.surveyEmailBudget());
+      return `${r.sent} encuesta${r.sent === 1 ? '' : 's'} enviada${r.sent === 1 ? '' : 's'}${r.failed ? `, ${r.failed} con error` : ''}${r.pending ? `, ${r.pending} quedan para mañana` : ''}.`;
+    }
     default:
       if (item.kind.startsWith('pilot:')) return (await import('./eventPilot')).runPilotStep(item.kind.slice(6), item.eventId, item.payload);
       throw new Error(`No sé ejecutar «${item.kind}».`);
@@ -162,4 +172,12 @@ export async function discardCrossCheck(id: number): Promise<void> {
   const db = await crossCheckDb();
   await db.update(crossChecks).set({ status: 'discarded', decidedAt: new Date() })
     .where(and(eq(crossChecks.id, id), eq(crossChecks.status, 'pending')));
+}
+
+/** Eventos con el piloto prendido: sus pasos (como la encuesta) ya piden su propio cross check. */
+export async function pilotedEventIds(): Promise<Set<number>> {
+  try {
+    const db = await crossCheckDb();
+    return new Set((await db.select({ id: eventPilots.eventId }).from(eventPilots).where(eq(eventPilots.status, 'on'))).map((r) => r.id));
+  } catch { return new Set(); }
 }

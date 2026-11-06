@@ -7,7 +7,7 @@ import { sendEmail, buildCheckinSummaryEmail } from "./email";
 import { getProgramConfig, sendWeeklyAmbassadorEmails } from "./ambassadorProgram";
 import { ensureAmbassadorDrafts } from "./ambassadorContent";
 import { runAbandonedCartCron, getOrdersDueForAbandonedCartReminder } from "./orderReminders";
-import { gateAutomation, endOfChileDay } from "./crossCheck";
+import { gateAutomation, endOfChileDay, getCrossCheckConfig, pilotedEventIds } from "./crossCheck";
 import { chileDateKey, chileHourOf } from "../shared/chileDate";
 import { runPushQueue } from "./pushAutomations";
 import { runAgentLearning } from './agentLearning';
@@ -26,7 +26,7 @@ import { runWhatsAppFollowUps } from "./whatsappFollowUp";
 import { runAgentAutoResume } from "./agentAutoResume";
 import { runAgentCoach, shouldRunAgentCoachNow } from "./agentCoach";
 import { runSalesStrategist, shouldRunSalesStrategyNow } from "./salesStrategist";
-import { runSurveyDispatch } from "./eventSurvey";
+import { listSurveysDueNow, runSurveyDispatch } from "./eventSurvey";
 import { shouldSendWeeklyAmbassadorEmailNow } from "../shared/ambassadorProgram";
 import { ADMIN_NOTIFICATION_EMAIL } from "@shared/const";
 import { suggestOwnCommentsForNewPosts } from './instagramComments';
@@ -259,7 +259,16 @@ export function registerCronRoutes(app: Express) {
     let ambassadorWeekly: { sent: number; skipped: number; failed: number } | null = null;
     try {
       const config = await getProgramConfig();
-      if (config.weeklyEmailEnabled && shouldSendWeeklyAmbassadorEmailNow(new Date(), config.weeklyEmailWeekday, config.weeklyEmailHourChile)) {
+      const now = new Date();
+      if (config.weeklyEmailEnabled && shouldSendWeeklyAmbassadorEmailNow(now, config.weeklyEmailWeekday, config.weeklyEmailHourChile)) {
+        // Cross check: se pide el visto bueno (uno por día) y el correo sale al reportar.
+        const gate = await gateAutomation('ambassador-weekly', async () => ({
+          dedupeKey: `ambassador-weekly:${chileDateKey(now)}`,
+          title: 'Correo semanal a embajadores',
+          summary: 'Les llega a los embajadores su resumen de la semana con el material y sus links del evento destacado.',
+          expiresAt: endOfChileDay(now),
+        }));
+        if (gate.gated) { res.json({ success: true, crossCheck: gate }); return; }
         ambassadorWeekly = await sendWeeklyAmbassadorEmails();
       }
       res.json({ success: true, ambassadorWeekly });
@@ -512,7 +521,26 @@ export function registerCronRoutes(app: Express) {
     // correr), queda en el log y NO tumba el cron del coach.
     let survey: Awaited<ReturnType<typeof runSurveyDispatch>> | { error: string };
     try {
-      survey = await runSurveyDispatch(now);
+      // Cross check por fiesta (uno al día mientras queden encuestas por mandar). Las fiestas con piloto prendido
+      // piden la encuesta como paso del piloto, no acá.
+      const config = await getCrossCheckConfig();
+      if (config.survey.auto) {
+        survey = await runSurveyDispatch(now);
+      } else {
+        const piloted = await pilotedEventIds();
+        const requested: { eventId: number; created: boolean }[] = [];
+        for (const due of await listSurveysDueNow(now)) {
+          if (piloted.has(due.eventId)) continue;
+          const gate = await gateAutomation('survey', async () => ({
+            dedupeKey: `survey:${due.eventId}:${chileDateKey(now)}`, eventId: due.eventId,
+            title: `Encuesta de ${due.title}`,
+            summary: `Correo con la encuesta a ${due.audience} persona${due.audience === 1 ? '' : 's'} que fueron a la fiesta (hasta el cupo de correos de hoy).`,
+            expiresAt: endOfChileDay(now),
+          }));
+          requested.push({ eventId: due.eventId, created: !!gate.requested });
+        }
+        survey = { ran: false, reason: 'cross check', events: [], requested } as any;
+      }
     } catch (err) {
       console.error("[Cron] Error mandando las encuestas post-fiesta:", err);
       survey = { error: err instanceof Error ? err.message : "Error desconocido" };

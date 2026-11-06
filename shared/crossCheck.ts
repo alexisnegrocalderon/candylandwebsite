@@ -2,7 +2,7 @@
  * servidor (server/crossCheck.ts) y el panel (client/src/components/admin/crossCheck/). */
 
 /** Automatizaciones que pueden pedir cross check (el dueño elige cuáles salen solas). */
-export const CROSS_CHECK_AUTOMATIONS = ['founders-promo', 'tanda2-promo', 'sales-drip', 'abandoned-cart'] as const;
+export const CROSS_CHECK_AUTOMATIONS = ['founders-promo', 'tanda2-promo', 'sales-drip', 'abandoned-cart', 'ambassador-weekly', 'survey'] as const;
 export type CrossCheckAutomation = (typeof CROSS_CHECK_AUTOMATIONS)[number];
 
 export const CROSS_CHECK_LABELS: Record<CrossCheckAutomation, { title: string; detail: string }> = {
@@ -10,6 +10,8 @@ export const CROSS_CHECK_LABELS: Record<CrossCheckAutomation, { title: string; d
   'tanda2-promo': { title: 'Aviso de la 2ª tanda', detail: 'Correo diario a quienes no han comprado con el precio de la 2ª tanda.' },
   'sales-drip': { title: 'Aviso diario de venta', detail: 'Correo diario a quienes no han comprado el próximo evento, con días de espera entre correos.' },
   'abandoned-cart': { title: 'Carritos abandonados', detail: 'Recordatorio (correo y push) a quien empezó a comprar y no pagó.' },
+  'ambassador-weekly': { title: 'Correo semanal a embajadores', detail: 'Resumen de la semana con su material y sus links, el día y la hora que tengas configurados.' },
+  survey: { title: 'Encuesta después de la fiesta', detail: 'Correo con la encuesta a quienes fueron, en los eventos que tienen el envío automático prendido.' },
 };
 
 export type CrossCheckStatus = 'pending' | 'running' | 'done' | 'failed' | 'discarded' | 'expired';
