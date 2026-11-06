@@ -1,6 +1,6 @@
 import { formatChileDate, formatChileDateTime } from '../shared/chileDate';
 import { AMBASSADOR_TIERS, tierForCount, nextTierForCount } from '../shared/ambassadorTiers';
-import { BRAND, EVENT_BRAND } from '../shared/eventBrand';
+import { BRAND, EVENT_BRAND, eventBrandActive, currentDressCode } from '../shared/eventBrand';
 import { COLAB_FINDS, COLAB_MIN_AGE } from '../shared/coproduction';
 import { type OrderEmailConfig, DEFAULT_ORDER_EMAIL_CONFIG, fillPlaceholders } from '../shared/emailTemplateConfig';
 import {
@@ -268,7 +268,7 @@ const CONTENT = {
   ],
   antesDeVenir: [
     { emoji: '🪪', titulo: 'Documento', texto: 'Carnet o pasaporte vigente. Evento exclusivo para mayores de 18 años.' },
-    { emoji: '🎭', titulo: 'Dress Code', texto: EVENT_BRAND.dressCode },
+    { emoji: '🎭', titulo: 'Dress Code', get texto() { return currentDressCode(); } },
     { emoji: '🚗', titulo: 'Estacionamiento', texto: 'Contamos con estacionamiento privado dentro del recinto.' },
     { emoji: '🚕', titulo: 'Cómo llegar', texto: 'En tu vehículo, o fácil en Uber, Didi o taxi.' },
   ],
@@ -391,8 +391,8 @@ export function buildOrderEmail(data: {
       subtitle: `La cuenta regresiva para ${data.eventTitle} ya comenzó.`,
       cta: { href: EMAIL_BASE_URL, label: `Ver ${data.eventTitle}` },
       // La banda de aniversario y el «disfraz obligatorio» son de la fiesta de Playroom, no de una colaboración.
-      anniversary: !data.colab,
-      costume: !data.colab,
+      anniversary: !data.colab && eventBrandActive(),
+      costume: !data.colab && eventBrandActive(),
       ctaStyle: 'pastel',
     }),
     body: `
@@ -416,7 +416,7 @@ export function buildOrderEmail(data: {
                no lo soporta), un borde sólido grueso + box-shadow es el
                tratamiento más seguro entre clientes de correo. -->
           <div style="display:inline-block;background:rgba(255,111,184,0.08);border:2px solid rgba(255,111,184,0.55);border-radius:20px;padding:16px;box-shadow:0 0 40px -8px rgba(${ACCENT.pink.glowRgb},0.5);">
-            <p style="color:${ACCENT.pink.text};font-size:11px;font-weight:800;letter-spacing:2px;margin:0 0 10px;">${data.colab ? escapeEmailText(data.colab.eventName.toUpperCase()) : EVENT_BRAND.ticketLabel}</p>
+            <p style="color:${ACCENT.pink.text};font-size:11px;font-weight:800;letter-spacing:2px;margin:0 0 10px;">${data.colab ? escapeEmailText(data.colab.eventName.toUpperCase()) : eventBrandActive() ? EVENT_BRAND.ticketLabel : '🎟 TU ENTRADA'}</p>
             <img src="${qrUrl}" alt="Código QR de tu entrada" style="width:200px;height:200px;border-radius:12px;background:#fff;padding:8px;display:block;" />
           </div>
           <p style="color:${MUTED};font-size:12px;margin:14px 0 20px;">Presenta este código QR y tu carnet en la entrada</p>
@@ -2113,15 +2113,15 @@ export function buildMailingBlastEmail(data: {
     // en el encabezado -- el CTA de la campaña va más abajo, después de los
     // párrafos) -- no usa `emailHero`, que asume ese otro orden.
     hero: `
-      <div style="background-color:${H.violet};padding:11px 20px;text-align:center;">
+      ${eventBrandActive() ? `<div style="background-color:${H.violet};padding:11px 20px;text-align:center;">
         <p style="color:${H.bg};font-size:11px;font-weight:800;letter-spacing:3px;margin:0;">${EVENT_BRAND.kicker}</p>
-      </div>
+      </div>` : ''}
       <div style="background-color:${H.card};padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;border-bottom:1px solid ${H.border};">
         <img src="${LOGO_URL}" alt="${BRAND.nombre}" style="height:64px;width:auto;margin-bottom:24px;" />
-        <p style="font-size:52px;margin:0 0 12px;">🎃</p>
+        ${eventBrandActive() ? '<p style="font-size:52px;margin:0 0 12px;">🎃</p>' : ''}
         <p style="color:${H.muted};font-size:14px;margin:0 0 4px;">${greeting}</p>
         <h1 style="color:${H.lime};font-size:26px;font-weight:800;margin:0 0 16px;">${data.headline}</h1>
-        <span style="display:inline-block;background:${H.violet};color:${H.bg};font-size:12px;font-weight:800;letter-spacing:0.6px;padding:7px 16px;border-radius:999px;">${EVENT_BRAND.costumeBadge}</span>
+        ${eventBrandActive() ? `<span style="display:inline-block;background:${H.violet};color:${H.bg};font-size:12px;font-weight:800;letter-spacing:0.6px;padding:7px 16px;border-radius:999px;">${EVENT_BRAND.costumeBadge}</span>` : ''}
       </div>
     `,
     body: `
@@ -2169,7 +2169,7 @@ export function buildMailingBlastEmail(data: {
         <a href="${data.ctaUrl}" style="display:inline-block;background:${H.lime};color:${H.bg};text-decoration:none;padding:14px 32px;border-radius:999px;font-weight:800;font-size:14px;box-shadow:0 8px 20px rgba(196,255,77,0.25);">${data.ctaText || 'Ver más'}</a>
       </div>
 
-      ${data.showOracle ?? true ? oracleCard() : ''}
+      ${data.showOracle ?? eventBrandActive() ? oracleCard() : ''}
     `,
   });
 }
@@ -2265,8 +2265,8 @@ export function buildPendingReminderEmail(data: {
       emoji: '🎟️🪩',
       title: `${primerNombre}, quedó pendiente tu acceso`,
       subtitle: fechaTexto ? `${data.eventTitle} · ${fechaTexto}` : undefined,
-      anniversary: true,
-      costume: true,
+      anniversary: eventBrandActive(),
+      costume: eventBrandActive(),
     }),
     body: `
       ${cuerpo.map((p) => `<p style="color:${INK};font-size:15px;line-height:1.6;margin:0 0 16px;">${p}</p>`).join('')}
@@ -2386,8 +2386,8 @@ export function buildPartnerReminderEmail(data: {
       title: `Ya casi, ${esc(data.buyerName)}`,
       subtitle: `${esc(data.eventTitle)} · ${esc(data.eventDate)}`,
       cta: { href: ticketUrl, label: 'Ver mi entrada' },
-      anniversary: true,
-      costume: true,
+      anniversary: eventBrandActive(),
+      costume: eventBrandActive(),
       ctaStyle: 'pastel',
     }),
     body: `

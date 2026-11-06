@@ -35,3 +35,19 @@ describe('correo de compra de una colaboración', () => {
     expect(plain).not.toContain('waze.com');
   });
 });
+
+import { buildMailingBlastEmail } from './email';
+import { withEventTheme } from './eventPromoFacts';
+
+describe('correos automáticos', () => {
+  it('sin tema de colaboración, el correo ya no lleva la banda, el 🎃 ni el disfraz de la fiesta pasada', () => {
+    const html = buildMailingBlastEmail({ buyerName: 'Ana', headline: 'Hola', paragraphs: ['x'], ctaUrl: 'https://x.cl' });
+    expect(html).not.toMatch(/2 AÑOS|🎃|Disfraz obligatorio|Oráculo/);
+  });
+  it('con tema PLAYMORE sale con su gráfica', () => {
+    const html = buildMailingBlastEmail({ buyerName: 'Ana', headline: 'Hola', paragraphs: ['x'], ctaUrl: 'https://x.cl', theme: 'playmore' });
+    expect(html).toContain('PLAYMORE');
+    expect(html).not.toMatch(/2 AÑOS|🎃/);
+  });
+});
+void withEventTheme;

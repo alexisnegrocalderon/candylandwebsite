@@ -36,7 +36,7 @@ import { CANDYLAND, EVENTO, formatCLP } from '@/config/candyland';
 import CandyIntro from '@/components/CandyIntro';
 import CrystalBall from '@/components/CrystalBall';
 import { ORACLE_TEASER_CARDS } from '@shared/costumeOracle';
-import { EVENT_BRAND } from '@shared/eventBrand';
+import { EVENT_BRAND, eventBrandActive, currentDressCode } from '@shared/eventBrand';
 import ScrollStory from '@/components/home/ScrollStory';
 import FeaturedEventPanel from '@/components/home/FeaturedEventPanel';
 import InstagramShowcase from '@/components/InstagramShowcase';
@@ -1643,7 +1643,8 @@ function OracleTeaserCard({ card }: { card: (typeof ORACLE_TEASER_CARDS)[number]
  * porque esta sección vive fuera del contenedor `.halloween`. */
 function HalloweenTeaserSection() {
   const { dias, horas, minutos, segundos } = useCountdown(CANDYLAND.eventDate);
-  if (!EVENTO.fechaConfirmada) return null;
+  // Pasada la fiesta del disfraz, esta sección (Oráculo, 🎃, fecha) no se muestra más: no se arrastra a la siguiente.
+  if (!EVENTO.fechaConfirmada || !eventBrandActive()) return null;
 
   return (
     // `z-10` para quedar por encima de `ScrollCandies` (capa `fixed z-[5]`

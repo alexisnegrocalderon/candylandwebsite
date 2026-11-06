@@ -3,7 +3,7 @@ import { Link } from 'wouter';
 import { Car, ChevronDown, Cigarette, FileText, Gamepad2, Martini, Music, ShieldCheck, Shirt } from 'lucide-react';
 import { BottomSheet } from '@/components/site/AccountPayments';
 import { CANDYLAND } from '@/config/candyland';
-import { BRAND, EVENT_BRAND } from '@shared/eventBrand';
+import { BRAND, EVENT_BRAND, eventBrandActive, currentDressCode } from '@shared/eventBrand';
 import { usePlaymore } from '@/components/playmore/AppBanner';
 import { COLAB_FINDS, COLAB_MIN_AGE, type CoproductionLanding } from '@shared/coproduction';
 
@@ -90,8 +90,8 @@ function DressCode({ colab }: { colab: CoproductionLanding | null }) {
   return (
     <div className="space-y-3 pb-2">
       <div className="account-glass rounded-[22px] p-5">
-        <p className="text-title2 font-bold">{colab ? 'Dress code' : '🎃 Disfraz obligatorio'}</p>
-        <p className="mt-2 text-body leading-relaxed text-white/80">{colab ? colab.dressCode : EVENT_BRAND.dressCode}</p>
+        <p className="text-title2 font-bold">{colab || !eventBrandActive() ? 'Dress code' : '🎃 Disfraz obligatorio'}</p>
+        <p className="mt-2 text-body leading-relaxed text-white/80">{colab ? colab.dressCode : currentDressCode()}</p>
       </div>
       <p className="px-1 text-footnote text-white/55">Trae tu carnet o pasaporte: lo piden en la puerta junto al QR de tu entrada.</p>
     </div>

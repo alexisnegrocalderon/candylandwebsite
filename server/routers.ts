@@ -8326,7 +8326,7 @@ export const appRouter = router({
       if (!offer) return { html: null, status };
       return {
         html: buildMailingBlastEmail({
-          ...buildSalesDripContent(event as any, offer),
+          ...buildSalesDripContent(event as any, offer), theme: (await getEventPromoFacts(event)).theme,
           buyerName: 'Camila',
           ctaUrl: `${EMAIL_BASE_URL}/checkout/${event.slug}`,
           eventInfo: null,

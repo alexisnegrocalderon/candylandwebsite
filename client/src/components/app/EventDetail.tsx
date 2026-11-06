@@ -5,7 +5,7 @@ import { Link } from 'wouter';
 import { AnimatePresence, motion, useDragControls } from 'framer-motion';
 import { ArrowRight, CalendarDays, CalendarPlus, Car, ChevronRight, Cigarette, CircleHelp, FileText, Gamepad2, MapPin, Martini, Music, Share, ShieldCheck, Shirt, X } from 'lucide-react';
 import { CANDYLAND } from '@/config/candyland';
-import { BRAND, EVENT_BRAND } from '@shared/eventBrand';
+import { BRAND, EVENT_BRAND, eventBrandActive, currentDressCode } from '@shared/eventBrand';
 import { eventImage } from '@shared/eventImage';
 import { addToCalendar, eventWhen, shareEvent, type AppEvent } from '@/components/app/AppEventCard';
 import { posterLayoutId } from '@/components/app/EventHero';
@@ -169,7 +169,7 @@ export function EventDetail({ event, open, from, onClose, onMore }: {
 
             <motion.section {...reveal(4)} className="account-glass mt-8 rounded-[26px] p-5">
               <p className="text-caption1 font-semibold uppercase tracking-[0.18em] text-pink-300">Dress code</p>
-              <p className="mt-2 text-body leading-relaxed text-white/85">{colab ? colab.dressCode : EVENT_BRAND.dressCode}</p>
+              <p className="mt-2 text-body leading-relaxed text-white/85">{colab ? colab.dressCode : currentDressCode()}</p>
               <p className="mt-3 text-footnote text-white/55">Trae tu carnet o pasaporte: lo piden en la puerta junto al QR de tu entrada.</p>
             </motion.section>
 

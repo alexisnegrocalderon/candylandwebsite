@@ -195,6 +195,8 @@ export async function sendMailingBatch(
         ctaUrl,
         highlightLabel: content.highlightLabel,
         highlightValue: content.highlightValue,
+        secondaryCtaText: content.secondaryCtaText,
+        secondaryCtaUrl: content.secondaryCtaUrl,
         eventInfo,
         eventSections,
         priceList: extras?.priceList,

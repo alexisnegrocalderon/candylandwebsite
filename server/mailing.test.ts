@@ -135,6 +135,7 @@ describe("buildMailingBlastEmail", () => {
       headline: "Título",
       paragraphs: ["Párrafo."],
       ctaUrl: "https://candylandwebsite.vercel.app",
+      showOracle: true,
     });
     expect(html).toContain("¿No sabes de qué disfrazarte?");
     expect(html).toContain("Consultar al Oráculo");

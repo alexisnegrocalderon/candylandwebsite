@@ -11,7 +11,7 @@
  *
  * Ahora el aspecto vive acá una sola vez y los 16 correos lo heredan.
  */
-import { BRAND, EVENT_BRAND } from '../shared/eventBrand';
+import { BRAND, EVENT_BRAND, eventBrandActive } from '../shared/eventBrand';
 
 /** El dominio de los links y de las imágenes de los correos (logo, QR, botones): siempre el propio, `mansionplayroom.cl`, para que
  * quien toca un botón del correo llegue a la misma dirección y a la misma sesión que usa en la app. Antes se forzaba el dominio de
@@ -153,6 +153,7 @@ export function glassButton(href: string, label: string) {
  * (compra, recordatorio, campaña), NO en todos los correos -- en un aviso de
  * "subiste de nivel" o en un regalo de trago no viene al caso. */
 export function costumeBadge() {
+  if (!eventBrandActive()) return '';
   return `<span style="display:inline-block;background:${PLUM};color:${ACCENT.gold.solid};font-size:12px;font-weight:800;letter-spacing:0.6px;padding:7px 16px;border-radius:999px;">${EVENT_BRAND.costumeBadge}</span>`;
 }
 
@@ -162,6 +163,7 @@ export function costumeBadge() {
  * hero a medida (con un banner de imagen opcional antes) y la necesita
  * suelta. */
 export function anniversaryBand() {
+  if (!eventBrandActive()) return '';
   return `<div style="background-color:${PLUM};padding:11px 20px;text-align:center;">
       <p style="color:${ACCENT.gold.solid};font-size:11px;font-weight:800;letter-spacing:3px;margin:0;">${EVENT_BRAND.kicker}</p>
     </div>`;

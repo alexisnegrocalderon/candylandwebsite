@@ -30,6 +30,16 @@ export const BRAND = {
   web: 'https://www.mansionplayroom.cl',
 } as const;
 
+/** Hasta cuándo valen los textos y el diseño de EVENT_BRAND (la fiesta que se montó: fecha, disfraz, banda de aniversario).
+ * Pasada la fiesta, ningún correo ni pantalla debe seguir mostrándolos: es la regla del dueño, sin depender de que alguien
+ * se acuerde de editar este archivo para la siguiente. Hora de Chile, el día después de la fiesta. */
+export const EVENT_BRAND_UNTIL = '2026-10-31T12:00:00-03:00';
+
+export const eventBrandActive = (now: Date = new Date()): boolean => now.getTime() < Date.parse(EVENT_BRAND_UNTIL);
+
+/** Dress code neutro para cuando el de la fiesta anterior ya no vale. */
+export const NEUTRAL_DRESS_CODE = 'Ven con tu mejor look: elegante, atrevido y a tu medida. Nada de tenida deportiva.';
+
 /** Lo que cambia con cada fiesta y que además viaja en los correos. */
 export const EVENT_BRAND = {
   /** Nombre corto del evento (título grande del Hero y asuntos de correo). */
@@ -50,3 +60,6 @@ export const EVENT_BRAND = {
    * hardcodeado, o sea el nombre de la fiesta ANTERIOR. */
   ticketLabel: '🎭 2º ANIVERSARIO',
 } as const;
+
+/** El dress code que corresponde hoy: el de la fiesta montada mientras vale, y uno neutro después. */
+export const currentDressCode = (now: Date = new Date()): string => (eventBrandActive(now) ? EVENT_BRAND.dressCode : NEUTRAL_DRESS_CODE);
