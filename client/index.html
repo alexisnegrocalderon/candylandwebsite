@@ -162,9 +162,26 @@
     </script>
   </head>
   <body>
-    <div id="initial-loader"><img src="/candyland/favicon-112.png?v=2" alt="" width="56" height="56" /></div>
+    <!--initial-loader--><div id="initial-loader" style="--ni-logo:url(/app-icons/splash/logo-192.webp)"><img src="/candyland/favicon-112.png?v=2" alt="" width="56" height="56" /><div class="neon-intro-camera" aria-hidden="true"><div class="neon-intro-stage"><div class="neon-intro-bloom"></div><div class="neon-intro-logo"><div class="neon-intro-base"></div><div class="neon-intro-reveal"><div class="neon-intro-light"></div></div></div><div class="neon-intro-word font-heading"><span class="neon-intro-letter" style="--i:0;--j:0;--n:8">P</span><span class="neon-intro-letter" style="--i:1;--j:1;--n:8">L</span><span class="neon-intro-letter" style="--i:2;--j:2;--n:8">A</span><span class="neon-intro-letter" style="--i:3;--j:3;--n:8">Y</span><span class="neon-intro-letter" style="--i:4;--j:4;--n:8">R</span><span class="neon-intro-letter" style="--i:5;--j:5;--n:8">O</span><span class="neon-intro-letter" style="--i:6;--j:6;--n:8">O</span><span class="neon-intro-letter" style="--i:7;--j:7;--n:8">M</span></div></div></div></div><!--/initial-loader-->
     <script>
-      // Intro de neón («Toca para entrar») al abrir la HOME en cada visita, y siempre
+      // neonIntroStart: copia exacta de scripts/neon-intro.mjs (decide, antes del primer cuadro, si toca la intro y la enciende).
+function neonIntroStart(env) {
+  var el = env.doc.getElementById('initial-loader');
+  if (!el) return false;
+  var site = env.kind === 'site';
+  // El sitio solo la muestra en la home; las pruebas automáticas entran directo.
+  if (site && (env.path !== '/' || env.webdriver)) return false;
+  var key = site ? 'site' : (env.path.split('/')[1] || 'app');
+  var mark = 'neon-intro.seen.' + key;
+  try { if (env.storage.getItem(mark) === '1') return false; } catch (e) { return false; }
+  try { env.storage.setItem(mark, '1'); } catch (e) { /* sin storage: se verá de nuevo, no pasa nada */ }
+  // Las terminales (caja, puerta…) la ven corta para no frenar la noche; el panel y el sitio, completa.
+  var classes = ' neon-intro' + (!site && key !== 'admin' ? ' neon-intro--short' : '') + (env.reducedMotion ? ' neon-intro--still' : '');
+  el.className = (el.className + classes).replace(/^\s+/, '');
+  el.setAttribute('data-ni-t0', String(env.now));
+  return true;
+}
+      // Intro de neón (se abre sola a los 2 s) al abrir la HOME en cada visita, y siempre
       // que se abre el sitio instalado como app: loader oscuro desde el primer cuadro
       // (App.tsx lo convierte en la intro). Cualquier otra página carga directo, sin
       // loader. Las pantallas del panel/terminales ya traen su propio splash.
@@ -192,6 +209,7 @@
           if (m && standalone) { m.setAttribute('data-site-color', m.getAttribute('content') || ''); m.setAttribute('content', '#0b0612'); }
           var i = document.querySelector('#initial-loader img');
           if (i) { i.src = '/app-icons/splash/logo-192.webp'; i.removeAttribute('height'); }
+          neonIntroStart({ doc: document, storage: sessionStorage, path: location.pathname, kind: 'site', webdriver: navigator.webdriver, reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches, now: Date.now() });
         } catch (e) {}
       })();
     </script>

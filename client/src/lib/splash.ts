@@ -8,7 +8,7 @@
  * principio a fin, sin círculos girando entre medio. */
 
 import { useEffect, type RefObject } from 'react';
-import { introDue, playNeonIntro } from './neonIntro';
+import { finishNeonIntro } from './neonIntro';
 
 const FADE_MS = 260;
 /** Respaldo: pase lo que pase, a los 5 s el splash se va solo (si la sesión no resuelve, la pantalla sigue con lo que tenga). */
@@ -38,17 +38,16 @@ function endSiteSplash(): void {
   if (meta && original) { meta.setAttribute('content', original); meta.removeAttribute('data-site-color'); }
 }
 
-/** Quita el splash. Si es la primera apertura del día, antes pasa la intro
- * de neón (client/src/lib/neonIntro.ts); si no, un fundido corto. `intro:
- * false` para salir sin intro (error, respaldo de tiempo). Se puede llamar
- * las veces que sea. */
+/** Quita el splash. Si el HTML encendió la intro de neón (primera apertura de la app; ver scripts/neon-intro.mjs), espera a que
+ * termine su luz y abre la app sola (client/src/lib/neonIntro.ts); si no, un fundido corto. `intro: false` para salir sin
+ * esperar la intro (error, respaldo de tiempo). Se puede llamar las veces que sea. */
 export function hideSplash(opts: { intro?: boolean } = {}): void {
   if (hidden || typeof document === 'undefined') return;
   const el = document.getElementById('initial-loader');
   hidden = true;
   if (!el) { endSiteSplash(); return; }
-  if (opts.intro !== false && (hasDarkSplash() || isSiteApp()) && introDue()) {
-    playNeonIntro(el, endSiteSplash);
+  if (opts.intro !== false && el.classList.contains('neon-intro')) {
+    finishNeonIntro(el, endSiteSplash);
     return;
   }
   el.classList.add('splash-out');

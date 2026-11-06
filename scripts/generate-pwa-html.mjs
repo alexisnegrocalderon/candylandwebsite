@@ -21,6 +21,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { SPLASH_BG, SPLASH_GLOW, SPLASH_LOGO_CSS, splashVariants } from './splash-devices.mjs';
+import { neonIntroInlineScript, neonIntroStageHtml } from './neon-intro.mjs';
 
 const outDir = join(import.meta.dirname, '..', 'dist', 'public');
 const baseHtml = readFileSync(join(outDir, 'index.html'), 'utf-8');
@@ -60,27 +61,29 @@ const DARK_SPLASH_STYLE = `<style>
         transition: opacity 0.26s ease;
       }
       #initial-loader.splash-out { opacity: 0; pointer-events: none; }
-      #initial-loader img { width: ${SPLASH_LOGO_CSS}px; height: auto; opacity: 0; transform: scale(0.96); animation: splash-in 0.45s ease-out 0.05s forwards; }
+      /* El isotipo se ve desde el primer cuadro, igual que en la imagen de arranque de iOS (sin fundido de entrada: antes
+         desaparecía y volvía a aparecer encima de esa imagen). La intro de neón (client/src/neonIntro.css) sigue desde acá. */
+      #initial-loader .neon-intro-plain { width: ${SPLASH_LOGO_CSS}px; aspect-ratio: 192 / 265; background: var(--ni-logo) center / contain no-repeat; }
       #initial-loader .splash-bar { width: 112px; height: 2px; border-radius: 2px; overflow: hidden; background: rgba(255, 255, 255, 0.1); opacity: 0; animation: splash-fade 0.3s ease-out 1.5s forwards; }
       #initial-loader .splash-bar::after { content: ''; display: block; width: 40%; height: 100%; border-radius: 2px; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.7), transparent); animation: splash-run 1.1s ease-in-out infinite; }
-      @keyframes splash-in { to { opacity: 1; transform: none; } }
       @keyframes splash-fade { to { opacity: 1; } }
       @keyframes splash-run { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
       @media (prefers-reduced-motion: reduce) {
-        #initial-loader img { animation: none; opacity: 1; transform: none; }
         #initial-loader .splash-bar { animation: none; opacity: 0.6; }
         #initial-loader .splash-bar::after { animation: none; }
       }
     </style>`;
 
-const DARK_SPLASH_MARKUP = `<div id="initial-loader" role="progressbar" aria-label="Cargando"><img src="${splashLogo}" alt="" width="${SPLASH_LOGO_CSS}" height="${Math.round(SPLASH_LOGO_CSS * 265 / 192)}" /><div class="splash-bar"></div></div>`;
+// El isotipo va una sola vez en el HTML (variable --ni-logo), y la intro de neón (client/src/neonIntro.css) ya viene dentro del splash.
+const DARK_SPLASH_MARKUP = `<div id="initial-loader" role="progressbar" aria-label="Cargando" style="--ni-logo:url(${splashLogo})"><div class="neon-intro-plain"></div><div class="splash-bar"></div>${neonIntroStageHtml()}</div>\n${neonIntroInlineScript('dark')}`;
 
 const STARTUP_IMAGE_TAGS = splashVariants().map((v) => `<link rel="apple-touch-startup-image" media="${v.media}" href="${v.file}" />`);
 
 /** El `<style>` y el `<div>` del loader del sitio, reemplazados por el splash oscuro. */
 function applyDarkSplash(html) {
   const style = html.match(/<style>\s*#initial-loader[\s\S]*?<\/style>/);
-  const markup = html.match(/<div id="initial-loader">[\s\S]*?<\/div>/);
+  // El loader del sitio lleva <div> anidados (la intro de neón): se busca entre sus marcas, no hasta el primer </div>.
+  const markup = html.match(/<!--initial-loader-->[\s\S]*?<!--\/initial-loader-->/);
   if (!style || !markup) throw new Error('No encontré el loader inicial en dist/public/index.html -- revisa client/index.html');
   return html
     .replace(style[0], DARK_SPLASH_STYLE)
