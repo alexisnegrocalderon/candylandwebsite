@@ -498,3 +498,49 @@ html[data-admin-theme="dark-glass"] textarea { font-size: max(1rem, 16px); }
   html[data-admin-theme="dark-glass"] [role="tab"],
   html[data-admin-theme="dark-glass"] [data-slot="select-trigger"] { min-height: 2.75rem; }
 }
+
+
+/* ── Entrada a una sección ────────────────────────────────────────────────
+ * Al abrir una pantalla: una estela de luz cruza por arriba y sus tarjetas se levantan una tras otra con un
+ * leve giro en perspectiva, como cartas que se enderezan. Solo mueve opacidad y transformación (barato en iPhone
+ * y iPad, sin desenfoques sobre el vidrio). `backwards` y no `both`: al terminar no queda ninguna transformación
+ * puesta, así los elementos fijos de adentro no cambian de referencia. */
+.admin-enter { position: relative; }
+.admin-enter::before {
+  content: ''; position: absolute; left: 0; right: 0; top: -0.6rem; height: 3px; border-radius: 3px; pointer-events: none;
+  background: linear-gradient(90deg, transparent, oklch(0.78 0.18 342), oklch(0.72 0.16 290), transparent) no-repeat;
+  background-size: 38% 100%;
+  animation: admin-sweep 0.95s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.admin-enter > :only-child > *,
+.admin-enter > :not(:only-child) {
+  animation: admin-rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  transform-origin: 50% 0;
+}
+.admin-enter > :only-child > :nth-child(2), .admin-enter > :not(:only-child):nth-child(2) { animation-delay: 0.06s; }
+.admin-enter > :only-child > :nth-child(3), .admin-enter > :not(:only-child):nth-child(3) { animation-delay: 0.12s; }
+.admin-enter > :only-child > :nth-child(4), .admin-enter > :not(:only-child):nth-child(4) { animation-delay: 0.18s; }
+.admin-enter > :only-child > :nth-child(5), .admin-enter > :not(:only-child):nth-child(5) { animation-delay: 0.24s; }
+.admin-enter > :only-child > :nth-child(6), .admin-enter > :not(:only-child):nth-child(6) { animation-delay: 0.3s; }
+.admin-enter > :only-child > :nth-child(7), .admin-enter > :not(:only-child):nth-child(7) { animation-delay: 0.36s; }
+.admin-enter > :only-child > :nth-child(n+8), .admin-enter > :not(:only-child):nth-child(n+8) { animation-delay: 0.42s; }
+
+@keyframes admin-rise {
+  from { opacity: 0; transform: perspective(900px) translateY(22px) rotateX(7deg) scale(0.985); }
+  to { opacity: 1; transform: perspective(900px) translateY(0) rotateX(0) scale(1); }
+}
+@keyframes admin-sweep {
+  0% { background-position: -60% 0; opacity: 0; }
+  15% { opacity: 1; }
+  100% { background-position: 160% 0; opacity: 0; }
+}
+/* El título de la cabecera se desliza al cambiar de sección. */
+.admin-title-in { animation: admin-title-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) backwards; }
+@keyframes admin-title-in {
+  from { opacity: 0; transform: translateX(-10px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+/* Quien pidió menos movimiento en su iPhone o iPad no ve nada de esto. */
+@media (prefers-reduced-motion: reduce) {
+  .admin-enter::before, .admin-enter > :only-child > *, .admin-enter > :not(:only-child), .admin-title-in { animation: none !important; }
+}

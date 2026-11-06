@@ -292,7 +292,7 @@ export function AdminShell({ sections: allSections, activeSection, onOpenSection
         <header className="admin-topbar sticky top-0 z-30 px-3 pt-[max(env(safe-area-inset-top),0.75rem)] md:px-4 md:pt-3">
           <div className="admin-glass-panel admin-glass-panel-sm flex items-center gap-3 px-4 py-3 md:px-5">
             <img src="/candyland/logo-isotipo-transparent.png" alt="" className="h-7 w-7 shrink-0 object-contain md:hidden" />
-            <h1 className="min-w-0 flex-1 truncate font-heading text-xl md:text-2xl">{hubMeta.label}</h1>
+            <h1 key={hubMeta.label} className="admin-title-in min-w-0 flex-1 truncate font-heading text-xl md:text-2xl">{hubMeta.label}</h1>
             {isDemo && (
               <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-amber-400/15 px-3 py-1 text-xs font-semibold text-amber-300">
                 <Eye className="h-3.5 w-3.5" />
