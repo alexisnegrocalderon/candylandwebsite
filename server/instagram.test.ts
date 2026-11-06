@@ -51,8 +51,9 @@ const getFeaturedEventMock = vi.mocked(db.getFeaturedEvent);
 
 vi.mock('./instagramSend', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./instagramSend')>();
-  return { ...actual, sendInstagramMessage: vi.fn(), sendPrivateReply: vi.fn(), sendButtonMessage: vi.fn(), sendImageMessage: vi.fn() };
+  return { ...actual, sendInstagramMessage: vi.fn(), sendPrivateReply: vi.fn(), sendButtonMessage: vi.fn(), sendImageMessage: vi.fn(), fetchInstagramProfile: vi.fn() };
 });
+const fetchProfileMock = vi.mocked(instagramSend.fetchInstagramProfile);
 const sendInstagramMessageMock = vi.mocked(instagramSend.sendInstagramMessage);
 const sendPrivateReplyMock = vi.mocked(instagramSend.sendPrivateReply);
 const sendButtonMessageMock = vi.mocked(instagramSend.sendButtonMessage);
@@ -389,6 +390,58 @@ describe('tryHandleKeywordTrigger', () => {
     );
     expect(appendIgMessageMock).toHaveBeenCalledTimes(1);
     expect(appendIgMessageMock).toHaveBeenCalledWith({ threadId: 7, mid: 'mid-btn-4', direction: 'out', source: 'bot', text: '[botón] Ver más' });
+  });
+  describe('invitar a seguirnos', () => {
+    const automation = { id: 5, keyword: 'disfraz', triggerSource: 'story_reply', replyMessage: 'Tu código es {{codigo}} 💜', discountCode: 'AUTOAB12', active: 1, followersOnly: 1, createdAt: new Date() } as any;
+    const invite = '💜 Síguenos en @mansionplayroom.cl para no perderte ningún detalle de las próximas fiestas.';
+
+    it('a quien no nos sigue le llega igual el regalo, con el aviso para que nos siga, y se registra', async () => {
+      findMatchingIgKeywordAutomationMock.mockResolvedValueOnce(automation);
+      hasRedeemedIgKeywordAutomationMock.mockResolvedValueOnce(false);
+      fetchProfileMock.mockResolvedValueOnce({ isFollower: false });
+      sendInstagramMessageMock.mockResolvedValueOnce({ mid: 'm1' } as any);
+      await tryHandleKeywordTrigger({ threadId: 7, igUserId: 'u1', text: 'disfraz', source: 'story_reply' });
+      expect(sendInstagramMessageMock).toHaveBeenCalledWith({ recipientId: 'u1', text: `Tu código es AUTOAB12 💜\n\n${invite}` });
+      expect(recordIgKeywordRedemptionMock).toHaveBeenCalledWith({ automationId: 5, igUserId: 'u1', source: 'story_reply' });
+    });
+
+    it('a quien ya nos sigue no se le pide seguir', async () => {
+      findMatchingIgKeywordAutomationMock.mockResolvedValueOnce(automation);
+      hasRedeemedIgKeywordAutomationMock.mockResolvedValueOnce(false);
+      fetchProfileMock.mockResolvedValueOnce({ isFollower: true });
+      sendInstagramMessageMock.mockResolvedValueOnce({ mid: 'm1' } as any);
+      await tryHandleKeywordTrigger({ threadId: 7, igUserId: 'u1', text: 'disfraz', source: 'story_reply' });
+      expect(sendInstagramMessageMock).toHaveBeenCalledWith({ recipientId: 'u1', text: 'Tu código es AUTOAB12 💜' });
+    });
+
+    it('si Meta no dice si sigue, no se pide nada', async () => {
+      findMatchingIgKeywordAutomationMock.mockResolvedValueOnce(automation);
+      hasRedeemedIgKeywordAutomationMock.mockResolvedValueOnce(false);
+      fetchProfileMock.mockResolvedValueOnce({});
+      sendInstagramMessageMock.mockResolvedValueOnce({ mid: 'm1' } as any);
+      await tryHandleKeywordTrigger({ threadId: 7, igUserId: 'u1', text: 'disfraz', source: 'story_reply' });
+      expect(sendInstagramMessageMock).toHaveBeenCalledWith({ recipientId: 'u1', text: 'Tu código es AUTOAB12 💜' });
+    });
+
+    it('con el interruptor apagado no se consulta ni se agrega aviso', async () => {
+      findMatchingIgKeywordAutomationMock.mockResolvedValueOnce({ ...automation, followersOnly: 0 });
+      hasRedeemedIgKeywordAutomationMock.mockResolvedValueOnce(false);
+      sendInstagramMessageMock.mockResolvedValueOnce({ mid: 'm1' } as any);
+      await tryHandleKeywordTrigger({ threadId: 7, igUserId: 'u1', text: 'disfraz', source: 'story_reply' });
+      expect(fetchProfileMock).not.toHaveBeenCalled();
+      expect(sendInstagramMessageMock).toHaveBeenCalledWith({ recipientId: 'u1', text: 'Tu código es AUTOAB12 💜' });
+    });
+
+    it('en un comentario va un solo mensaje privado con el aviso', async () => {
+      findMatchingIgKeywordAutomationMock.mockResolvedValueOnce({ ...automation, triggerSource: 'comment', discountCode: null, replyMessage: 'Acá tienes el link' });
+      hasRedeemedIgKeywordAutomationMock.mockResolvedValueOnce(false);
+      fetchProfileMock.mockResolvedValueOnce({ isFollower: false });
+      sendPrivateReplyMock.mockResolvedValueOnce({ mid: 'p1' } as any);
+      await handleCommentChange({ id: 'c1', text: 'disfraz', from: { id: 'u2' } });
+      expect(sendPrivateReplyMock).toHaveBeenCalledTimes(1);
+      expect(sendPrivateReplyMock).toHaveBeenCalledWith('c1', `Acá tienes el link\n\n${invite}`);
+      expect(recordIgKeywordRedemptionMock).toHaveBeenCalledWith({ automationId: 5, igUserId: 'u2', source: 'comment' });
+    });
   });
 });
 
