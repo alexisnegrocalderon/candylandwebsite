@@ -7,7 +7,6 @@
  * client/src/components/admin/studio/VariantGallery.tsx. */
 
 import { formatChileDate, formatChileTime } from './chileDate';
-import { cleanAmbassadorCode } from './studioVideo';
 import {
   emptySlide,
   normalizeStudioDesign,
@@ -146,4 +145,11 @@ export function eventPhotoBrief(event: EventForBrief, opts: { code?: string } = 
       '#MansionPlayroom #FiestaLiberal #VinaDelMar',
     ].filter(Boolean).join('\n\n'),
   };
+}
+
+/** El código de un embajador tal como se escribe al comprar: letras, números,
+ * guion y guion bajo (2 a 32), en mayúsculas. Cualquier otra cosa = sin código. */
+export function cleanAmbassadorCode(value: unknown): string {
+  const code = typeof value === 'string' ? value.trim().toUpperCase() : '';
+  return /^[A-Z0-9_-]{2,32}$/.test(code) ? code : '';
 }

@@ -3,14 +3,16 @@ import type { Express, Request, Response } from 'express';
 import { generateClientTokenFromReadWriteToken } from '@vercel/blob/client';
 import { ENV } from './_core/env';
 import { safeCompare } from './adminSecurity';
-import { readVideoRender, writeVideoRender } from './contentStudio';
-import { cleanRenderProject, contentHash, summarizeRender, type RenderProject, type RenderState, type RenderSummary } from '../shared/studioRender';
+import { readVideoRender, writeVideoRender } from './motionStudio';
+import { cleanRenderProject, specHash, summarizeRender, type RenderState, type RenderSummary } from '../shared/studioRender';
 
-/* Grabar un video del Estudio a MP4 con GitHub Actions (shared/studioRender.ts).
+/* Grabar un video del Estudio Motion a MP4 con GitHub Actions y Remotion
+ * (shared/studioRender.ts).
  *
- * 1. El panel manda el proyecto (index.html + archivos) → `requestVideoRender`
- *    lo guarda en el video y dispara .github/workflows/render-video.yml con
- *    solo el id del video, el id de la grabación y la dirección del sitio.
+ * 1. `requestVideoRender` toma la receta GUARDADA del video, la deja lista
+ *    para grabar (URLs completas, solo archivos del sitio o de Vercel Blob) y
+ *    dispara .github/workflows/render-video.yml con solo el id del video, el
+ *    id de la grabación y la dirección del sitio.
  * 2. El repo es público: los datos con que se dispara un workflow los ve
  *    cualquiera. Por eso ninguna clave va ahí. La máquina de GitHub pide el
  *    proyecto y el permiso de subida a estas rutas con RENDER_CALLBACK_SECRET
@@ -59,21 +61,21 @@ async function dispatchWorkflow(videoId: number, jobId: string): Promise<void> {
   }
 }
 
-/** Pide grabar un video ya guardado. */
-export async function requestVideoRender(videoId: number, raw: RenderProject): Promise<RenderSummary> {
+/** Pide grabar un video ya guardado (lo que está guardado es lo que se graba). */
+export async function requestVideoRender(videoId: number): Promise<RenderSummary> {
   const missing = renderMissingConfig();
   if (missing.length) throw new Error(`Falta configurar la grabación: ${missing.join(', ')}.`);
-  const { exists, render } = await readVideoRender(videoId);
-  if (!exists) throw new Error('Guarda el video antes de exportarlo.');
+  const { exists, render, spec } = await readVideoRender(videoId);
+  if (!exists || !spec) throw new Error('Guarda el video antes de exportarlo.');
   const now = Date.now();
   if (render && summarizeRender(render, now).status === 'grabando') throw new Error('Este video ya se está grabando. Espera a que termine.');
-  const job = cleanRenderProject(raw, SITE);
+  const job = cleanRenderProject(spec, SITE);
   const state: RenderState = {
     status: 'grabando',
     jobId: randomUUID(),
     requestedAt: now,
     finishedAt: null,
-    contentHash: contentHash(job.html),
+    contentHash: specHash(spec),
     url: render?.url ?? null,
     error: null,
     job,

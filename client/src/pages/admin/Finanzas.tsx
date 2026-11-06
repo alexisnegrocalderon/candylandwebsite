@@ -21,7 +21,7 @@ import { CameraCaptureField } from '@/components/admin/CameraCaptureField';
 import { EXPENSE_CATEGORIES } from '@shared/expenses';
 import { roleKey } from '@shared/staffPortal';
 import { cargoTitle } from '@shared/staffCargos';
-import { OPEN_SECTION_EVENT } from '@/components/admin/studio/handoff';
+import { OPEN_SECTION_EVENT } from '@/components/admin/shell/nav';
 import { StatementUpload } from '@/components/admin/finanzas/StatementUpload';
 import { MercadoPagoTab } from '@/components/admin/finanzas/MercadoPagoTab';
 

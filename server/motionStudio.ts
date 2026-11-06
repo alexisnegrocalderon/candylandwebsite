@@ -1,0 +1,142 @@
+import { and, desc, eq, inArray } from 'drizzle-orm';
+import { getDb } from './db';
+import { contentDesignMessages, contentDesigns } from '../drizzle/schema';
+import { normalizeMotionSpec, type MotionFormat, type MotionSpec, type MotionStyle, type MotionTemplate } from '../shared/motionSpec';
+import { normalizeContentPlan, type ContentPlan } from '../shared/contentPlan';
+import { normalizeRenderState, specHash, summarizeRender, type RenderState, type RenderSummary } from '../shared/studioRender';
+
+/* Estudio Motion (admin → Contenido → Estudio): guarda los videos (la receta,
+ * shared/motionSpec.ts) y el plan de contenido de cada evento. Van en la
+ * tabla de siempre (contentDesigns), sin tablas nuevas:
+ *   - kind 'motion': un video. `data` = { spec, render }.
+ *   - kind 'plan':   el último plan de contenido de un evento. `data` = el plan.
+ * Todo lo que entra y sale pasa por normalizeMotionSpec / normalizeContentPlan. */
+
+const MOTION_KIND = 'motion';
+const PLAN_KIND = 'plan';
+const MAX_LISTED = 120;
+
+async function requireDb() {
+  const db = await getDb();
+  if (!db) throw new Error('La base de datos no está disponible.');
+  return db;
+}
+
+export interface MotionListItem {
+  id: number;
+  title: string;
+  eventId: number | null;
+  template: MotionTemplate;
+  style: MotionStyle;
+  format: MotionFormat;
+  updatedAt: Date;
+  render: RenderSummary;
+  /** El MP4 corresponde a la versión guardada (si no, quedó viejo). */
+  renderFresh: boolean;
+}
+
+export interface StoredMotion {
+  id: number;
+  spec: MotionSpec;
+  updatedAt: Date;
+  render: RenderSummary;
+  renderFresh: boolean;
+}
+
+function fromRow(row: typeof contentDesigns.$inferSelect): StoredMotion {
+  const data = (row.data ?? {}) as Record<string, unknown>;
+  const spec = normalizeMotionSpec({ ...(data.spec as object), title: row.title, eventId: row.eventId });
+  const render = normalizeRenderState(data.render);
+  const summary = summarizeRender(render, Date.now());
+  return { id: row.id, spec, updatedAt: row.updatedAt, render: summary, renderFresh: !!summary.contentHash && summary.contentHash === specHash(spec) };
+}
+
+export async function listMotionVideos(): Promise<MotionListItem[]> {
+  const db = await requireDb();
+  const rows = await db.select().from(contentDesigns).where(eq(contentDesigns.kind, MOTION_KIND)).orderBy(desc(contentDesigns.updatedAt)).limit(MAX_LISTED);
+  return rows.map((row) => {
+    const m = fromRow(row);
+    return { id: m.id, title: m.spec.title, eventId: m.spec.eventId, template: m.spec.template, style: m.spec.style, format: m.spec.format, updatedAt: m.updatedAt, render: m.render, renderFresh: m.renderFresh };
+  });
+}
+
+export async function getMotionVideo(id: number): Promise<StoredMotion | null> {
+  const db = await requireDb();
+  const [row] = await db.select().from(contentDesigns).where(and(eq(contentDesigns.id, id), eq(contentDesigns.kind, MOTION_KIND))).limit(1);
+  return row ? fromRow(row) : null;
+}
+
+/** Crea (sin `id`) o reemplaza un video. Guardar no borra la última grabación (el panel avisa si quedó vieja). */
+export async function saveMotionVideo(id: number | undefined, raw: unknown): Promise<number> {
+  const spec = normalizeMotionSpec(raw);
+  const db = await requireDb();
+  const values = {
+    kind: MOTION_KIND,
+    eventId: spec.eventId,
+    title: spec.title,
+    theme: spec.style,
+    // La columna solo conoce historia/post/carrusel: 9:16 es historia, el resto post.
+    format: spec.format === 'reel' ? ('historia' as const) : ('post' as const),
+  };
+  if (id != null) {
+    const [existing] = await db.select({ kind: contentDesigns.kind, data: contentDesigns.data }).from(contentDesigns).where(eq(contentDesigns.id, id)).limit(1);
+    if (!existing) throw new Error('Ese video ya no existe.');
+    if (existing.kind !== MOTION_KIND) throw new Error('Eso no es un video del Estudio.');
+    const render = (existing.data as Record<string, unknown> | null)?.render;
+    await db.update(contentDesigns).set({ ...values, data: render ? { spec, render } : { spec } }).where(eq(contentDesigns.id, id));
+    return id;
+  }
+  const [result] = await db.insert(contentDesigns).values({ ...values, data: { spec } });
+  return result.insertId;
+}
+
+export async function deleteMotionVideo(id: number): Promise<void> {
+  const db = await requireDb();
+  await db.delete(contentDesignMessages).where(eq(contentDesignMessages.designId, id));
+  await db.delete(contentDesigns).where(and(eq(contentDesigns.id, id), inArray(contentDesigns.kind, [MOTION_KIND, 'video', 'ia', 'plantilla'])));
+}
+
+/* --- Grabación (server/studioRender.ts) ------------------------------------
+ * También lee los videos viejos (kind 'video', de HyperFrames) para que los
+ * MP4 ya grabados se sigan pudiendo mandar a los embajadores. */
+
+export async function readVideoRender(id: number): Promise<{ exists: boolean; render: RenderState | null; title: string; spec: MotionSpec | null }> {
+  const db = await requireDb();
+  const [row] = await db.select().from(contentDesigns).where(eq(contentDesigns.id, id)).limit(1);
+  if (!row || (row.kind !== MOTION_KIND && row.kind !== 'video')) return { exists: false, render: null, title: '', spec: null };
+  const data = (row.data ?? {}) as Record<string, unknown>;
+  return {
+    exists: true,
+    render: normalizeRenderState(data.render),
+    title: row.title,
+    spec: row.kind === MOTION_KIND ? normalizeMotionSpec({ ...(data.spec as object), title: row.title, eventId: row.eventId }) : null,
+  };
+}
+
+/** Reemplaza solo el estado de grabación, sin tocar el contenido del video. */
+export async function writeVideoRender(id: number, render: RenderState): Promise<void> {
+  const db = await requireDb();
+  const [row] = await db.select({ data: contentDesigns.data, kind: contentDesigns.kind, updatedAt: contentDesigns.updatedAt }).from(contentDesigns).where(eq(contentDesigns.id, id)).limit(1);
+  if (!row || (row.kind !== MOTION_KIND && row.kind !== 'video')) throw new Error('Ese video ya no existe.');
+  // Se repite `updatedAt` a propósito: grabar no es editar, y la lista se ordena por la última edición.
+  await db.update(contentDesigns).set({ data: { ...(row.data as object), render }, updatedAt: row.updatedAt }).where(eq(contentDesigns.id, id));
+}
+
+/* --- Plan de contenido -------------------------------------------------- */
+
+export async function savePlan(plan: ContentPlan): Promise<void> {
+  const db = await requireDb();
+  const values = { kind: PLAN_KIND, eventId: plan.eventId, title: plan.eventTitle.slice(0, 200), theme: 'plan', format: 'post' as const, data: plan };
+  const [existing] = await db.select({ id: contentDesigns.id }).from(contentDesigns)
+    .where(and(eq(contentDesigns.kind, PLAN_KIND), eq(contentDesigns.eventId, plan.eventId))).limit(1);
+  if (existing) await db.update(contentDesigns).set(values).where(eq(contentDesigns.id, existing.id));
+  else await db.insert(contentDesigns).values(values);
+}
+
+/** El plan guardado de ese evento (o el más reciente de cualquiera). */
+export async function loadPlan(eventId?: number | null): Promise<ContentPlan | null> {
+  const db = await requireDb();
+  const where = eventId ? and(eq(contentDesigns.kind, PLAN_KIND), eq(contentDesigns.eventId, eventId)) : eq(contentDesigns.kind, PLAN_KIND);
+  const [row] = await db.select({ data: contentDesigns.data }).from(contentDesigns).where(where).orderBy(desc(contentDesigns.updatedAt)).limit(1);
+  return row ? normalizeContentPlan(row.data) : null;
+}

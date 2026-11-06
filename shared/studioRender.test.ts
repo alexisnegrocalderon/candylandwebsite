@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { cleanRenderProject, contentHash, isAllowedAssetUrl, normalizeRenderState, RENDER_TIMEOUT_MS, summarizeRender } from './studioRender';
+import { cleanRenderProject, contentHash, isAllowedAssetUrl, normalizeRenderState, RENDER_TIMEOUT_MS, specHash, summarizeRender } from './studioRender';
+import { normalizeMotionSpec } from './motionSpec';
 
 const SITE = 'https://mansionplayroom.cl';
-const html = '<script>window.__timelines["main"] = tl;</script>';
 
 describe('isAllowedAssetUrl', () => {
   it('solo el sitio y Vercel Blob, por https', () => {
@@ -17,25 +17,37 @@ describe('isAllowedAssetUrl', () => {
 });
 
 describe('cleanRenderProject', () => {
+  const spec = (media: string, voice?: string) => normalizeMotionSpec({
+    template: 'montaje',
+    scenes: [{ text: 'Hola', media: { url: media, kind: 'image' }, say: 'hola' }],
+    voice: voice ? { url: voice, hash: 'h', voice: 'catalina', rate: 0, pitch: 0, secs: [1] } : null,
+  });
+
   it('completa las rutas del sitio con la dirección oficial', () => {
-    const p = cleanRenderProject({ html, assets: [['assets/logo.png', '/studio/logo.png'], ['assets/f.jpg', 'https://x.public.blob.vercel-storage.com/f.jpg']] }, SITE);
-    expect(p.assets).toEqual([['assets/logo.png', 'https://mansionplayroom.cl/studio/logo.png'], ['assets/f.jpg', 'https://x.public.blob.vercel-storage.com/f.jpg']]);
+    const p = cleanRenderProject(spec('/candyland/foto.jpg', 'https://x.public.blob.vercel-storage.com/voz.wav'), SITE);
+    expect(p.spec.scenes[0].media?.url).toBe('https://mansionplayroom.cl/candyland/foto.jpg');
+    expect(p.spec.voice?.url).toBe('https://x.public.blob.vercel-storage.com/voz.wav');
   });
 
-  it('rechaza rutas locales que se escapan de assets/ y archivos de otros sitios', () => {
-    expect(() => cleanRenderProject({ html, assets: [['../etc/passwd', '/x']] }, SITE)).toThrow();
-    expect(() => cleanRenderProject({ html, assets: [['assets/a/../../b', '/x']] }, SITE)).toThrow();
-    expect(() => cleanRenderProject({ html, assets: [['assets/x.png', '//otro.test/x.png']] }, SITE)).toThrow();
-    expect(() => cleanRenderProject({ html, assets: [['assets/x.png', 'https://otro.test/x.png']] }, SITE)).toThrow();
+  it('rechaza fotos o voz de otros sitios', () => {
+    expect(() => cleanRenderProject(spec('https://otro.test/x.png'), SITE)).toThrow();
+    expect(() => cleanRenderProject(spec('/x.png', 'https://otro.test/voz.wav'), SITE)).toThrow();
   });
 
-  it('rechaza un HTML que no es una composición', () => {
-    expect(() => cleanRenderProject({ html: '<p>hola</p>', assets: [] }, SITE)).toThrow();
+  it('una URL que no es https ni del sitio se descarta antes de llegar', () => {
+    const p = cleanRenderProject(spec('javascript:alert(1)'), SITE);
+    expect(p.spec.scenes[0].media).toBeNull();
+  });
+
+  it('la huella no cambia con el caption ni el nombre, sí con lo que se ve', () => {
+    const a = spec('/x.png');
+    expect(specHash(a)).toBe(specHash({ ...a, caption: 'otro', title: 'otro' }));
+    expect(specHash(a)).not.toBe(specHash({ ...a, style: 'glitch' }));
   });
 });
 
 describe('estado de la grabación', () => {
-  const base = { status: 'grabando', jobId: 'j1', requestedAt: 1000, finishedAt: null, contentHash: 'abc', url: null, error: null, job: { html, assets: [] } };
+  const base = { status: 'grabando', jobId: 'j1', requestedAt: 1000, finishedAt: null, contentHash: 'abc', url: null, error: null, job: { spec: normalizeMotionSpec({}) } };
 
   it('una grabación que no responde a tiempo se muestra como error', () => {
     const state = normalizeRenderState(base)!;

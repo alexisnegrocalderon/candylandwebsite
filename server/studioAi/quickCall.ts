@@ -1,9 +1,8 @@
 import { getAnthropicClient } from '../_core/llm';
 import { addUsage, EMPTY_USAGE, usageCostUsd, type AiModel, type AiUsage } from '../../shared/studioAi';
 
-/* La llamada corta a Claude de los modos «Rápido» del Estudio: la IA SOLO
- * escribe (textos, escenas, qué ícono va) y las plantillas y HyperFrames
- * dibujan. Una sola llamada con salida JSON y sin streaming, con el mismo
+/* La llamada corta a Claude del Estudio: la IA SOLO escribe (textos,
+ * escenas, qué plantilla y estilo) y Remotion dibuja (motion/). Una sola llamada con salida JSON y sin streaming, con el mismo
  * conteo de gasto que el resto del panel (usa la conexión de Claude que ya
  * está configurada; no hay ningún otro servicio de imágenes). */
 
@@ -25,6 +24,8 @@ export async function quickJson<T>(opts: {
   content: QuickContent;
   schema: Record<string, unknown>;
   maxTokens: number;
+  /** Esfuerzo de razonamiento (solo Sonnet/Opus); bajo = más barato y rápido. */
+  effort?: 'low' | 'medium' | 'high';
   /** Qué decir si la IA no quiere hacerlo y qué pedir si se queda sin espacio. */
   refusal: string;
   tooLong: string;
@@ -37,7 +38,7 @@ export async function quickJson<T>(opts: {
       ...(opts.facts ? [{ type: 'text', text: opts.facts }] : []),
     ],
     messages: [{ role: 'user', content: opts.content }],
-    output_config: { format: { type: 'json_schema', schema: opts.schema } },
+    output_config: { ...(opts.effort ? { effort: opts.effort } : {}), format: { type: 'json_schema', schema: opts.schema } },
   } as never);
   const msg = message as unknown as {
     stop_reason: string; model: string; content: { type: string; text?: string }[];

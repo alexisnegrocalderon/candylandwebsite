@@ -1,0 +1,14 @@
+{
+  "name": "mansion-playroom-motion-render",
+  "private": true,
+  "description": "Solo para la grabación en GitHub Actions (scripts/render-studio-video.mjs). En el sitio, motion/ usa las dependencias de la raíz.",
+  "type": "module",
+  "dependencies": {
+    "@remotion/bundler": "4.0.536",
+    "@remotion/renderer": "4.0.536",
+    "@vercel/blob": "2.8.0",
+    "react": "19.2.1",
+    "react-dom": "19.2.1",
+    "remotion": "4.0.536"
+  }
+}

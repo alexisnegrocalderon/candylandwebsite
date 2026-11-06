@@ -28,13 +28,16 @@ Estudio: si algo no se parece a esto, se ajusta el formato, no el estilo.
 - Música fuerte (volumen medio de −12 a −13 dB, picos a 0 dB). Para publicar conviene estandarizar a −14 LUFS.
 
 ## Formatos
+Desde el Estudio Motion (Remotion, ver `docs/ESTUDIO-VIDEOS.md`):
+
 | Formato | Estado |
 |---|---|
-| Cuenta regresiva | **Hecho** (`shared/studioCountdown*.ts`) |
-| Lista de características (sellos, papelitos, ritmo) | Pendiente |
+| Anuncio (texto cinético) | **Hecho**: plantilla `anuncio` |
+| Cuenta regresiva | **Hecho**: plantilla `countdown` |
+| Montaje de fotos/clips a ritmo | **Hecho**: plantilla `montaje` (cortes en el pulso) |
+| Intro / outro de marca | **Hecho**: plantilla `sting` y firma al final de cada video |
+| Reels con voz hablada y subtítulos | **Hecho**: voz chilena de Azure + subtítulos palabra por palabra |
 | Presentación con gancho de celular (mockup, mensaje falso) | Pendiente |
-| Reels con voz hablada y subtítulos | **Hecho** (`shared/studioVoice*.ts`, voz chilena de Azure; subtítulos por reparto de palabras, sin Whisper) |
-| Cuenta regresiva diaria automática | Pendiente (`countdownVideo` ya calcula todo desde la fecha del evento) |
 | Publicación programada en Instagram | Pendiente (primero con aprobación) |
 
 ## Cómo se compara

@@ -1,16 +1,20 @@
-/* Corre en GitHub Actions (.github/workflows/render-video.yml): baja el
- * proyecto de HyperFrames de un video del Estudio, lo graba a MP4 y lo sube a
- * Vercel Blob con un permiso de subida que da el sitio solo para ese archivo.
- * Pase lo que pase, al final avisa al sitio (listo con la URL, o el error).
- * Ver server/studioRender.ts. */
-import { execFileSync } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve, sep } from 'node:path';
+/* Corre en GitHub Actions (.github/workflows/render-video.yml): baja la receta
+ * de un video del Estudio Motion, lo graba a MP4 con Remotion (la misma
+ * composición de motion/ que se ve en el panel) y lo sube a Vercel Blob con un
+ * permiso de subida que da el sitio solo para ese archivo. Pase lo que pase,
+ * al final avisa al sitio (listo con la URL, o el error). Ver server/studioRender.ts.
+ *
+ * Las dependencias salen de motion/node_modules (`npm ci --prefix motion`). */
+import { createRequire } from 'node:module';
+import { mkdirSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const HYPERFRAMES = 'hyperframes@0.8.185';
-const BLOB = '@vercel/blob@2.8.0';
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+const MOTION = join(ROOT, 'motion');
+const requireMotion = createRequire(join(MOTION, 'package.json'));
+const load = async (name) => import(pathToFileURL(requireMotion.resolve(name)).href);
 
 const { VIDEO_ID, JOB_ID, SITE, RENDER_CALLBACK_SECRET } = process.env;
 
@@ -50,35 +54,41 @@ async function done(body) {
   }
 }
 
-const run = (args, cwd) => execFileSync('npx', ['--yes', ...args], { cwd, stdio: 'inherit', env: process.env });
-
 try {
-  // 1. El proyecto: index.html y cada archivo en assets/.
-  const project = await call(`/job?jobId=${encodeURIComponent(JOB_ID)}`);
-  const dir = join(tmpdir(), `video-${VIDEO_ID}`);
-  mkdirSync(join(dir, 'assets'), { recursive: true });
-  writeFileSync(join(dir, 'index.html'), project.html);
-  for (const [local, url] of project.assets) {
-    const target = resolve(dir, local);
-    if (!target.startsWith(join(dir, 'assets') + sep)) throw new Error(`Ruta inválida: ${local}`);
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`No se pudo bajar ${url} (${res.status})`);
-    mkdirSync(dirname(target), { recursive: true });
-    writeFileSync(target, Buffer.from(await res.arrayBuffer()));
-  }
-  console.log(`Proyecto listo: ${project.assets.length} archivo(s).`);
+  // 1. La receta (ya limpia: URLs completas del sitio o de Vercel Blob).
+  const { spec } = await call(`/job?jobId=${encodeURIComponent(JOB_ID)}`);
+  if (!spec || typeof spec !== 'object') throw new Error('El sitio no entregó la receta del video.');
+  console.log(`Receta: ${spec.template} / ${spec.style} / ${spec.format}, ${spec.scenes?.length ?? 0} escena(s).`);
 
-  // 2. Grabar.
-  run([HYPERFRAMES, 'browser', 'ensure'], dir);
-  run([HYPERFRAMES, 'render', '-o', 'video.mp4'], dir);
-  const mp4 = readFileSync(join(dir, 'video.mp4'));
-  console.log(`MP4: ${(mp4.length / 1024 / 1024).toFixed(1)} MB`);
+  // 2. Grabar con Remotion.
+  const { bundle } = await load('@remotion/bundler');
+  const { ensureBrowser, renderMedia, selectComposition } = await load('@remotion/renderer');
+  await ensureBrowser();
+  const serveUrl = await bundle({ entryPoint: join(MOTION, 'index.ts'), publicDir: join(ROOT, 'client/public') });
+  const inputProps = { spec };
+  const composition = await selectComposition({ serveUrl, id: 'Motion', inputProps });
+  const outDir = join(tmpdir(), `video-${VIDEO_ID}`);
+  mkdirSync(outDir, { recursive: true });
+  const output = join(outDir, 'video.mp4');
+  let lastPct = -10;
+  await renderMedia({
+    composition,
+    serveUrl,
+    codec: 'h264',
+    crf: 17,
+    outputLocation: output,
+    inputProps,
+    onProgress: ({ progress }) => {
+      const pct = Math.floor(progress * 100);
+      if (pct >= lastPct + 10) { lastPct = pct; console.log(`Grabando… ${pct} %`); }
+    },
+  });
+  const mp4 = readFileSync(output);
+  console.log(`MP4: ${(mp4.length / 1024 / 1024).toFixed(1)} MB, ${composition.durationInFrames} cuadros.`);
 
   // 3. Subir con el permiso que da el sitio (solo para este archivo, 30 min).
   const { pathname, clientToken } = await call('/upload-token', { method: 'POST', body: JSON.stringify({ jobId: JOB_ID }) });
-  const blobDir = join(tmpdir(), 'blob-client');
-  execFileSync('npm', ['install', '--no-save', '--no-audit', '--no-fund', '--prefix', blobDir, BLOB], { stdio: 'inherit' });
-  const { put } = await import(pathToFileURL(join(blobDir, 'node_modules/@vercel/blob/dist/client.js')).href);
+  const { put } = await import(pathToFileURL(join(MOTION, 'node_modules/@vercel/blob/dist/client.js')).href);
   const blob = await put(pathname, mp4, { access: 'public', token: clientToken, contentType: 'video/mp4', multipart: mp4.length > 20 * 1024 * 1024 });
   console.log(`Subido: ${blob.url}`);
 

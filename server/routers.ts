@@ -209,7 +209,6 @@ import { canReplyWithinWindow, fetchOwnProfile } from "./instagramSend";
 import { runInstagramAgent, buildInstagramContext } from "./instagramAgent";
 import { getIgCustomerLinkState } from "./igCustomerLink";
 import { AGENT_SITE_PAGES } from "./agentLinks";
-import { generateReelScript } from "./reelScript";
 import { generateProfileAudit } from "./profileAudit";
 import { syncInstagramStats } from "./instagramStats";
 import { getInstagramShowcase } from "./instagramFeed";
@@ -252,19 +251,16 @@ import { ANY_ACCESS_SLUG, giftPassError } from "../shared/accessCredit";
 import { previewCustomerMerge, mergeCustomers } from "./customerMerge";
 import { getMemberHistory } from "./memberHistory";
 import { hasSalesLink } from "../shared/staffSales";
-import { autoPackFromDesign, deleteAmbassadorItem, ensureAmbassadorDrafts, getUpcomingContentEvents, listAmbassadorItems, notifyAmbassadorsNewContent, saveAmbassadorItem, sendStudioToAmbassadors, setAmbassadorItemStatus } from "./ambassadorContent";
-import { listContentDesigns, getContentDesign, saveContentDesign, deleteContentDesign, getContentVideo, saveContentVideo, listVideoStyles, saveVideoStyle, deleteVideoStyle } from "./contentStudio";
+import { deleteAmbassadorItem, ensureAmbassadorDrafts, getUpcomingContentEvents, listAmbassadorItems, notifyAmbassadorsNewContent, saveAmbassadorItem, sendStudioToAmbassadors, setAmbassadorItemStatus } from "./ambassadorContent";
+import { deleteMotionVideo, getMotionVideo, listMotionVideos, loadPlan, saveMotionVideo, savePlan } from "./motionStudio";
+import { motionVariantsFromIdea } from "./motionAi";
 import { renderMissingConfig, requestVideoRender } from "./studioRender";
 import { generateVoice, voiceMissingConfig } from "./studioVoice";
 import { TTS_VOICE_KEYS, VOICE_MAX_BEATS, VOICE_MAX_SAY } from "../shared/studioVoice";
-import { quickPhotoTexts, quickVideoFromIdea } from "./studioAi/quickIdea";
+import { MOTION_FORMATS, MOTION_TEMPLATES } from "../shared/motionSpec";
 import { recordAiUsage, listAiUsageSince } from "./db";
 import { summarizeAiUsage } from "../shared/aiUsage";
 import { loadAiBudget, saveAiBudget } from "./aiBudget";
-import { quickBubbleDesign } from "./studioAi/quick";
-import { AI_MODELS } from "../shared/studioAi";
-import { STUDIO_FORMATS } from "../shared/contentStudio";
-import { listAiMessages, loadAiDesign, restoreAiVersion, saveSlideEdit, updateAiDesignMeta } from "./studioAi/store";
 import { normalizeSalesStrategyState } from "../shared/salesStrategy";
 import { normalizeAgentCoachReport } from "../shared/agentCoach";
 import { normalizeWhatsAppAgentConfig, DEFAULT_WHATSAPP_AGENT_CONFIG, WA_MAX_REPLY_CHARS } from "../shared/whatsappAgentConfig";
@@ -3834,9 +3830,6 @@ export const appRouter = router({
     }),
   }),
 
-  // Plan de contenido para Instagram (server/contentPlanner.ts): calendario de
-  // publicaciones hasta el próximo evento. adminProcedure: llama a la IA con
-  // costo. No guarda nada en el servidor; el panel recuerda el último plan.
   /* "Ventana a Instagram" de la portada: perfil y últimas publicaciones públicas
    * (lo mismo que ve cualquiera en el perfil), con caché de 1 hora. */
   instagramShowcase: router({
@@ -3874,18 +3867,10 @@ export const appRouter = router({
     }),
   }),
 
+  // Plan de contenido (server/contentPlanner.ts), dentro del Estudio: queda
+  // guardado en el servidor por evento y cada pieza trae su video sugerido.
   contentPlan: router({
-    /* Guion de Reel (3 ganchos + líneas + qué grabar) desde una idea o una pieza del plan. */
-    reelScript: adminProcedure.input(z.object({
-      idea: z.string().min(3).max(1200),
-      targetEventId: z.number().optional(),
-    })).mutation(async ({ input }) => {
-      try {
-        return await generateReelScript(input);
-      } catch (err) {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo escribir el guion.' });
-      }
-    }),
+    get: adminReadProcedure.input(z.object({ eventId: z.number().int().positive().nullable().optional() }).optional()).query(async ({ input }) => loadPlan(input?.eventId ?? null)),
     generate: adminProcedure.input(z.object({
       targetEventId: z.number().optional(),
       // Lo que el dueño quiere en ESTE plan ("2 desafíos tipo quiz", "algo para
@@ -3893,7 +3878,9 @@ export const appRouter = router({
       focus: z.string().max(500).optional(),
     }).optional()).mutation(async ({ input }) => {
       try {
-        return await generateContentPlan(input?.targetEventId, new Date(), input?.focus);
+        const plan = await generateContentPlan(input?.targetEventId, new Date(), input?.focus);
+        await savePlan(plan);
+        return plan;
       } catch (err) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo generar el plan.' });
       }
@@ -3956,117 +3943,57 @@ export const appRouter = router({
     }),
   }),
 
-  contentStudio: router({
-    list: adminReadProcedure.query(async () => listContentDesigns()),
+  // Estudio Motion (server/motionStudio.ts): videos de motion graphics con
+  // Remotion (motion/). La IA escribe el guion y elige la dirección de arte
+  // (server/motionAi.ts, una llamada por 3 variantes); el resto no gasta IA.
+  motionStudio: router({
+    list: adminReadProcedure.query(async () => listMotionVideos()),
     get: adminReadProcedure.input(z.object({ id: z.number().int().positive() })).query(async ({ input }) => {
-      const design = await getContentDesign(input.id);
-      if (!design) throw new TRPCError({ code: 'NOT_FOUND', message: 'Ese diseño ya no existe.' });
-      return design;
-    }),
-    save: adminProcedure.input(z.object({
-      id: z.number().int().positive().optional(),
-      // La forma fina la valida y recorta normalizeStudioDesign (shared/contentStudio.ts).
-      design: z.object({
-        title: z.string().max(300),
-        format: z.string().max(20),
-        theme: z.string().max(30),
-        eventId: z.number().int().nullable().optional(),
-        caption: z.string().max(5000),
-        slides: z.array(z.unknown()).min(1).max(40),
-      }),
-    })).mutation(async ({ input }) => {
-      try {
-        const id = await saveContentDesign(input.id, input.design);
-        // Pack del evento automático: con un evento elegido, queda en «Por aprobar» para los embajadores.
-        if (input.design.eventId != null) void autoPackFromDesign(id).catch((e) => console.error('[estudio] Pack para embajadores:', e));
-        return { id };
-      } catch (err) {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo guardar el diseño.' });
-      }
-    }),
-    // Videos del Estudio (shared/studioVideo.ts): se guardan igual que los diseños.
-    getVideo: adminReadProcedure.input(z.object({ id: z.number().int().positive() })).query(async ({ input }) => {
-      const video = await getContentVideo(input.id);
+      const video = await getMotionVideo(input.id);
       if (!video) throw new TRPCError({ code: 'NOT_FOUND', message: 'Ese video ya no existe.' });
       return video;
     }),
-    saveVideo: adminProcedure.input(z.object({
+    // La forma fina la valida y recorta normalizeMotionSpec (shared/motionSpec.ts).
+    save: adminProcedure.input(z.object({
       id: z.number().int().positive().optional(),
-      // La forma fina la valida y recorta normalizeStudioVideo.
-      video: z.object({
-        title: z.string().max(300),
-        template: z.string().max(20),
-        format: z.string().max(20),
-        theme: z.string().max(30),
-        eventId: z.number().int().nullable().optional(),
-        caption: z.string().max(5000),
-        scenes: z.array(z.unknown()).max(40),
-        design: z.unknown().optional(),
-        mediaUrl: z.string().max(2000).optional(),
-        cta: z.string().max(200).optional(),
-        ctaLine: z.string().max(300).optional(),
-        secsPerSlide: z.number().optional(),
-        style: z.unknown().optional(),
-        watermark: z.unknown().optional(),
-        music: z.unknown().optional(),
-      }),
+      spec: z.record(z.string(), z.unknown()),
     })).mutation(async ({ input }) => {
       try {
-        return { id: await saveContentVideo(input.id, input.video) };
+        return { id: await saveMotionVideo(input.id, input.spec) };
       } catch (err) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo guardar el video.' });
       }
     }),
-    // «Desde una idea»: Claude solo escribe (escenas de un video, o los textos de una
-    // foto); las plantillas y HyperFrames dibujan y graban (server/studioAi/quickIdea.ts).
-    quickVideo: adminProcedure.input(z.object({
-      brief: z.string().trim().min(1, 'Escribe qué quieres').max(2000),
-      format: z.enum(['reel', 'feed']).default('reel'),
+    delete: adminPasswordProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => {
+      await deleteMotionVideo(input.id);
+      return { success: true } as const;
+    }),
+    // Desde una idea (o una pieza del plan): 3 variantes, una por estilo. No guarda: el dueño elige.
+    generate: adminProcedure.input(z.object({
+      brief: z.string().trim().min(3, 'Escribe qué quieres contar').max(2000),
+      format: z.enum(MOTION_FORMATS).default('reel'),
+      template: z.enum(MOTION_TEMPLATES).nullable().optional(),
       eventId: z.number().int().positive().nullable().optional(),
-      model: z.enum(AI_MODELS).default('claude-haiku-4-5'),
-      sceneCount: z.number().int().min(2).max(8).default(4),
+      media: z.array(z.object({ url: z.string().max(1000), kind: z.enum(['image', 'video']) })).max(12).default([]),
     })).mutation(async ({ input }) => {
       try {
-        const result = await quickVideoFromIdea({ ...input, eventId: input.eventId ?? null });
-        const id = await saveContentVideo(undefined, result.video);
-        await recordAiUsage({ feature: 'studio-video', model: result.model, ...result.usage, costUsd: result.costUsd });
-        return { id, costUsd: result.costUsd };
+        const result = await motionVariantsFromIdea(input);
+        await recordAiUsage({ feature: 'studio-motion', model: result.model, ...result.usage, costUsd: result.costUsd });
+        return { variants: result.variants, costUsd: result.costUsd };
       } catch (err) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo crear el video.' });
       }
     }),
-    quickPhoto: adminProcedure.input(z.object({
-      brief: z.string().trim().min(1, 'Escribe de qué trata').max(2000),
-      imageUrl: z.string().max(1000).default(''),
-      eventId: z.number().int().positive().nullable().optional(),
-      model: z.enum(AI_MODELS).default('claude-haiku-4-5'),
-    })).mutation(async ({ input }) => {
+    // Grabar a MP4 con GitHub Actions + Remotion (server/studioRender.ts): graba lo guardado.
+    render: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => {
       try {
-        const result = await quickPhotoTexts({ ...input, eventId: input.eventId ?? null });
-        await recordAiUsage({ feature: 'studio-foto', model: result.model, ...result.usage, costUsd: result.costUsd });
-        return { texts: result.texts, costUsd: result.costUsd };
-      } catch (err) {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudieron escribir los textos.' });
-      }
-    }),
-    // Grabar a MP4 con GitHub Actions (server/studioRender.ts). El panel manda el
-    // proyecto ya armado; el estado se lee con getVideo (campo `render`).
-    renderVideo: adminProcedure.input(z.object({
-      id: z.number().int().positive(),
-      project: z.object({
-        html: z.string().max(3_000_000),
-        assets: z.array(z.tuple([z.string().max(200), z.string().max(2000)])).max(80),
-      }),
-    })).mutation(async ({ input }) => {
-      try {
-        return await requestVideoRender(input.id, input.project);
+        return await requestVideoRender(input.id);
       } catch (err) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo empezar la grabación.' });
       }
     }),
     renderConfig: adminReadProcedure.query(() => ({ missing: renderMissingConfig() })),
-    // Voz de los reels con voz (server/studioVoice.ts): Azure es-CL. Devuelve el WAV con
-    // las pausas y lo que dura cada frase; el panel lo guarda en el video.
+    // Voz en off (server/studioVoice.ts): Azure es-CL. Devuelve el WAV y lo que dura cada frase.
     voiceConfig: adminReadProcedure.query(() => ({ missing: voiceMissingConfig() })),
     generateVoice: adminProcedure.input(z.object({
       says: z.array(z.string().min(1).max(VOICE_MAX_SAY)).min(1).max(VOICE_MAX_BEATS),
@@ -4078,80 +4005,6 @@ export const appRouter = router({
         return await generateVoice({ ...input, voice: input.voice as (typeof TTS_VOICE_KEYS)[number] });
       } catch (err) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo generar la voz.' });
-      }
-    }),
-    // Modo «Rápido»: la IA escribe los textos y la plantilla Bubble dibuja (server/studioAi/quick.ts).
-    quick: adminProcedure.input(z.object({
-      brief: z.string().trim().min(1, 'Escribe qué quieres').max(2000),
-      format: z.enum(STUDIO_FORMATS).default('carrusel'),
-      eventId: z.number().int().positive().nullable().optional(),
-      model: z.enum(AI_MODELS).default('claude-haiku-4-5'),
-      slideCount: z.number().int().min(1).max(10).default(6),
-    })).mutation(async ({ input }) => {
-      try {
-        const result = await quickBubbleDesign({ ...input, eventId: input.eventId ?? null });
-        const id = await saveContentDesign(undefined, result.design);
-        await recordAiUsage({ feature: 'studio-rapido', model: result.model, ...result.usage, costUsd: result.costUsd });
-        return { id, costUsd: result.costUsd };
-      } catch (err) {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo crear el diseño.' });
-      }
-    }),
-    delete: adminPasswordProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => {
-      await deleteContentDesign(input.id);
-      return { success: true } as const;
-    }),
-    // «Mi estilo» de los videos (plantilla, diseño, logo y música con un nombre).
-    videoStyles: adminReadProcedure.query(() => listVideoStyles()),
-    saveVideoStyle: adminProcedure.input(z.object({ style: z.record(z.string(), z.unknown()) })).mutation(async ({ input }) => {
-      try {
-        return { id: await saveVideoStyle(input.style) };
-      } catch (err) {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo guardar el estilo.' });
-      }
-    }),
-    deleteVideoStyle: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => {
-      await deleteVideoStyle(input.id);
-      return { success: true } as const;
-    }),
-  }),
-
-  // Diseñador IA del Estudio (server/studioAi/): el chat que diseña va por SSE
-  // (/api/admin/studio/ai); acá queda leer el diseño con su conversación,
-  // volver a una versión y los cambios a mano (nombre, caption).
-  studioAi: router({
-    get: adminReadProcedure.input(z.object({ id: z.number().int().positive() })).query(async ({ input }) => {
-      const design = await loadAiDesign(input.id);
-      if (!design) throw new TRPCError({ code: 'NOT_FOUND', message: 'Ese diseño ya no existe.' });
-      return { id: input.id, design, messages: await listAiMessages(input.id) };
-    }),
-    restore: adminProcedure.input(z.object({ id: z.number().int().positive(), messageId: z.number().int().positive() })).mutation(async ({ input }) => {
-      try {
-        return await restoreAiVersion(input.id, input.messageId);
-      } catch (err) {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo volver a esa versión.' });
-      }
-    }),
-    saveSlide: adminProcedure.input(z.object({
-      id: z.number().int().positive(),
-      index: z.number().int().min(0).max(40),
-      html: z.string().min(1).max(60_000),
-    })).mutation(async ({ input }) => {
-      try {
-        return await saveSlideEdit(input.id, input.index, input.html);
-      } catch (err) {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo guardar la lámina.' });
-      }
-    }),
-    updateMeta: adminProcedure.input(z.object({
-      id: z.number().int().positive(),
-      title: z.string().trim().min(1).max(200).optional(),
-      caption: z.string().max(3000).optional(),
-    })).mutation(async ({ input }) => {
-      try {
-        return await updateAiDesignMeta(input.id, { title: input.title, caption: input.caption });
-      } catch (err) {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo guardar.' });
       }
     }),
   }),

@@ -2,7 +2,8 @@ import { and, asc, eq, gte, inArray, isNull, or } from 'drizzle-orm';
 import { getDb } from './db';
 import { contentDesigns, events } from '../drizzle/schema';
 import { pushToEmail } from './customerPush';
-import { getContentDesign, readVideoRender } from './contentStudio';
+import { getContentDesign } from './contentStudio';
+import { readVideoRender } from './motionStudio';
 import { exclusiveAmbassadors } from '../drizzle/schema';
 import {
   designToAmbassadorItem,
@@ -171,7 +172,7 @@ async function existingByAutoKey(db: Awaited<ReturnType<typeof requireDb>>) {
   return map;
 }
 
-/** Manda diseños del Estudio (plantillas y videos ya grabados) a «Por aprobar». Si ya estaban, se
+/** Manda diseños del Estudio (videos ya grabados, y plantillas viejas) a «Por aprobar». Si ya estaban, se
  * actualiza su contenido: lo aprobado sigue aprobado, lo descartado vuelve a «Por aprobar» porque
  * el dueño lo pidió a propósito. Los del Diseñador IA se envían desde dentro del diseño. */
 export async function sendStudioToAmbassadors(ids: number[]): Promise<StudioSendResult> {
@@ -182,12 +183,12 @@ export async function sendStudioToAmbassadors(ids: number[]): Promise<StudioSend
     const [row] = await db.select({ kind: contentDesigns.kind }).from(contentDesigns).where(eq(contentDesigns.id, id)).limit(1);
     if (!row) { out.skipped.push({ id, reason: 'Ya no existe.' }); continue; }
     let item: AmbassadorItem | null = null;
-    if (row.kind === 'video') {
-      const { render, title } = await readVideoRender(id);
+    if (row.kind === 'video' || row.kind === 'motion') {
+      const { render, title, spec } = await readVideoRender(id);
       const url = render?.status === 'listo' ? render.url : null;
       if (!url) { out.skipped.push({ id, reason: 'Falta grabar el video a MP4.' }); continue; }
       const [full] = await db.select({ eventId: contentDesigns.eventId, format: contentDesigns.format, data: contentDesigns.data }).from(contentDesigns).where(eq(contentDesigns.id, id)).limit(1);
-      const caption = (full?.data as { caption?: unknown } | null)?.caption;
+      const caption = spec ? spec.caption : (full?.data as { caption?: unknown } | null)?.caption;
       item = uploadedItem({ mediaUrl: url, eventId: full?.eventId ?? null, mediaFormat: full?.format === 'post' ? 'post' : 'historia', label: title, caption: typeof caption === 'string' ? caption : '' });
       if (item) item = { ...item, autoKey: studioAutoKey(id) };
     } else if (row.kind === 'ia') {

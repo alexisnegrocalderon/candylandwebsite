@@ -1,94 +1,76 @@
-# Videos del Estudio: grabar a MP4
+# Estudio Motion: videos de motion graphics con la marca
 
-El Estudio (admin → Marketing → Estudio) arma reels 9:16 y posts animados 3:4
-con HyperFrames. «Exportar MP4» los graba en GitHub Actions y deja el video
-para descargar en el mismo editor. No usa IA ni gasta créditos. Como el repo es
-público, GitHub Actions no cobra los minutos.
+El Estudio (admin → Contenido → Estudio) hace reels 9:16, posts 4:5 y
+cuadrados 1:1 con **Remotion** (React para video). La misma composición
+(`motion/`) se ve en vivo en el panel (`@remotion/player`) y se graba a MP4 en
+GitHub Actions. Las reglas de movimiento salen de la skill
+`.claude/skills/remotion-motion-graphics` (nada lineal, entradas escalonadas,
+salidas más rápidas, 5 capas por escena, Ken Burns, grano, sonido en cada corte).
 
-## Cómo funciona
+## Qué hay
 
-1. El panel arma el proyecto (la composición HTML y qué archivo va en cada
-   `assets/...`) y lo manda a `contentStudio.renderVideo`.
-2. `server/studioRender.ts` lo guarda en el video (`data.render`) y dispara
-   `.github/workflows/render-video.yml` con solo tres datos públicos: el id del
-   video, el id de la grabación y la dirección del sitio.
-3. La máquina de GitHub (`scripts/render-studio-video.mjs`) pide el proyecto
-   al sitio con `RENDER_CALLBACK_SECRET`, baja los archivos (solo del sitio o de
-   Vercel Blob), graba con `hyperframes render`, pide un permiso de subida que
-   vale solo para ese MP4 durante 30 minutos, lo sube a Vercel Blob y avisa al
-   sitio.
-4. El panel pregunta cada 5 segundos cómo va. Si en 25 minutos no hay
-   respuesta, la grabación se da por fallida.
+- **Plantillas** (`motion/MotionVideo.tsx`, `motion/scenes.tsx`):
+  - **Anuncio**: texto cinético; la escena 1 es el gancho, la última la acción.
+  - **Countdown**: número grande que corre, frena con estallido y tic-tac.
+  - **Montaje**: fotos/clips con Ken Burns y tinte de marca; los cortes caen en el pulso de la música.
+  - **Intro / outro**: la firma animada (isotipo + wordmark + frase). Los demás videos la llevan al final (se puede apagar).
+- **Estilos** (`motion/kits.tsx`): **Liquid** (manchas líquidas, burbujas, letra «candy bubble» que rebota),
+  **Glitch** (señal rota, separación de color, cortes secos) y **Editorial** (revista premium, revelado con máscara, aros finos).
+- **Fondos**: solo de marca — celeste `#00A3FF`, rosa `#EF8DFF` o azul tinta `#0010DF`
+  (`motionPalette` en `shared/motionSpec.ts`; un test revisa que no entre ningún otro color).
+- **Música y efectos**: sintetizados en el repo, sin licencias ni descargas
+  (`node scripts/motion/gen-audio.mjs` → `client/public/motion/`). Pulse 120 BPM, Drive 124 BPM, Dream 96 BPM.
+- **Voz en off y subtítulos**: voz chilena de Azure (Catalina o Lorenzo). Cada escena dura lo que su frase y los
+  subtítulos salen palabra por palabra (repartidas por largo dentro de la frase; Azure no entrega el tiempo de cada palabra).
 
-## Configuración (una sola vez)
+## La IA, sin gastar de más
 
-1. **Clave compartida:** inventa una clave larga (por ejemplo, la salida de
-   `openssl rand -hex 32`) y guárdala con el nombre `RENDER_CALLBACK_SECRET` en
-   dos lugares:
-   - Vercel → proyecto → Settings → Environment Variables.
-   - GitHub → repo → Settings → Secrets and variables → Actions → New repository secret.
-2. **Token de GitHub:** en GitHub → Settings → Developer settings →
-   Fine-grained tokens, crea un token solo para este repo con el permiso
-   **Actions: Read and write**. Guárdalo en Vercel como `GITHUB_RENDER_TOKEN`.
-3. **Vercel Blob:** ya está configurado (`BLOB_READ_WRITE_TOKEN`); no hay que hacer nada.
-4. Vuelve a desplegar en Vercel para que tome las variables nuevas.
+- **«Crear 3 variantes»**: UNA llamada a Claude Sonnet 5.5 (`server/motionAi.ts`, esfuerzo bajo, salida JSON)
+  devuelve las tres direcciones (liquid, glitch, editorial) con guion, ritmo, fondo y música. Las reglas y la
+  biblioteca van en un system fijo con caché; los datos del evento van aparte. Cuesta ≈ US$ 0,01–0,02 y queda
+  registrado en el gasto de IA (`studio-motion`).
+- Elegir, editar textos, cambiar estilo, fotos o música **no llama a la IA**: la vista previa se rehace sola.
+- **Plan de contenido** (pestaña «Plan»): el calendario hasta el evento (`server/contentPlanner.ts`), ahora
+  guardado en el servidor por evento y con su system en caché. Cada pieza sugiere plantilla y estilo, y
+  «Crear video» la manda directo a las 3 variantes.
 
-Opcionales: `GITHUB_RENDER_REPO` (por defecto `alexisnegrocalderon/candylandwebsite`)
-y `GITHUB_RENDER_REF` (rama del workflow, por defecto `main`).
+## Grabar a MP4
 
-Si falta algo, el editor de video lo dice y deja usar «Descargar proyecto (ZIP)»,
-que se graba a mano con `npx hyperframes render` o pidiéndoselo a Claude Code.
+1. «Grabar MP4» graba lo **guardado**. `server/studioRender.ts` limpia la receta (URLs completas, solo del sitio o
+   de Vercel Blob) y dispara `.github/workflows/render-video.yml` con tres datos públicos: id del video, id de
+   la grabación y dirección del sitio.
+2. La máquina de GitHub (`scripts/render-studio-video.mjs`) instala `motion/package.json` (solo Remotion, React y
+   Blob), pide la receta al sitio con `RENDER_CALLBACK_SECRET`, graba con `renderMedia` (h264, CRF 17), pide un
+   permiso de subida para ese MP4 y lo sube a Vercel Blob.
+3. El panel pregunta cada 5 s. A los 25 min sin respuesta se da por fallida. Si el video cambia después, el panel
+   avisa que el MP4 quedó viejo.
+4. Con el MP4 listo, «Mandar a embajadores» lo deja en «Por aprobar» (admin → Contenido → Contenido embajadores).
 
-## Cuenta regresiva («Faltan sólo 8 días para…»)
+### Configuración (una sola vez)
 
-Primer formato del **estilo Playroom** (ver `docs/ESTILO-PLAYROOM.md`). En el
-Estudio → Video → «Partir de» → **Cuenta regresiva: <evento>**. Arma el reel
-9:16 de 6,5 s con los datos reales del evento (hora de Chile): los días que
-faltan, el nombre del evento, «SÁB|06 21HRS», la palabra que se comenta y la ciudad. Nunca
-lleva la dirección.
+1. **Clave compartida:** inventa una clave larga (`openssl rand -hex 32`) y guárdala como `RENDER_CALLBACK_SECRET`
+   en Vercel (Environment Variables) y en GitHub (Settings → Secrets and variables → Actions).
+2. **Token de GitHub:** un fine-grained token solo para este repo con **Actions: Read and write**, en Vercel como
+   `GITHUB_RENDER_TOKEN`.
+3. **Vercel Blob:** `BLOB_READ_WRITE_TOKEN` (ya está).
+4. **Voz (opcional):** recurso Speech de Azure (plan F0 gratis, 500.000 letras al mes) → `AZURE_SPEECH_KEY` y
+   `AZURE_SPEECH_REGION` en Vercel.
+5. Vuelve a desplegar. El panel dice qué falta.
 
-- **Cambiar los días** rehace el número, el sello y la etiqueta («FALTA SÓLO... 1 DÍA»,
-  «ES... HOY»). Cada texto se puede corregir a mano.
-- **Colores:** los de la marca, en un fondo liso (sin degradados): **Celeste** `#00A3FF` o
-  **Rosa** `#EF8DFF`, con blanco, magenta `#FF008E` y azul `#0010DF`. Los colores de ediciones
-  pasadas (REDROOM rojo, Dark Candy) ya no se usan. Para sumar otro fondo de la marca se agrega
-  una entrada en `COUNTDOWN_LOOKS` (`shared/studioCountdown.ts`).
-- **Fondo:** sin foto queda el degradado del evento; con una foto o un clip (por
-  ejemplo, uno hecho con Nano Banana o Flow) va debajo con un velo del color.
-- **Música:** se agrega en el video igual que en los otros formatos, o se deja sin
-  audio y se pone la canción al publicar desde Instagram.
-- Se graba igual que los demás: «Exportar MP4» (HyperFrames en GitHub Actions). Las
-  letras nuevas (Anton y Barlow Condensed, licencia OFL) salen de
-  `client/public/studio/fonts/`.
+Opcionales: `GITHUB_RENDER_REPO` y `GITHUB_RENDER_REF` (rama del workflow, por defecto `main`).
 
-Código: `shared/studioCountdown.ts` (datos, días que faltan, texto) y
-`shared/studioCountdownHtml.ts` (la composición). Panel: `CountdownControls.tsx`.
+**Licencia de Remotion:** gratis para personas y empresas de hasta 3 personas; con más, Remotion pide una
+licencia de empresa (remotion.pro).
 
-## Reel con voz chilena («Reel con voz chilena (valores)»)
+## Revisar a mano
 
-Estudio → Video → «Partir de» → **Reel con voz chilena**. Un guion por escenas: cada escena
-dice una frase y el texto, los movimientos y el subtítulo (palabra por palabra) caen en el
-ritmo de esa voz. Tipos de escena: gancho de celular (mensaje que llega), palabra grande
-(con etiqueta, frase en cursiva y píldoras), sello grande (+18) y tarjeta final (logo, ciudad
-y @usuario). Cada escena acepta una foto o un clip de fondo, que se pueden ir sumando.
+```bash
+pnpm tsx scripts/motion/preview.mts stills ./stills        # cuadros de todas las plantillas × estilos
+ONLY=countdown-glitch pnpm tsx scripts/motion/preview.mts stills ./stills
+pnpm tsx scripts/motion/preview.mts video receta.json out.mp4
+npx remotion studio motion/index.ts                         # Remotion Studio con la receta de partida
+```
 
-- **La voz se genera en el servidor** con Azure Speech, voces `es-CL` (Catalina y Lorenzo).
-  Se pide una frase por vez (así se sabe cuánto dura cada una), se unen en un WAV con
-  pausas y se sube a Vercel Blob. Velocidad y tono se ajustan con las barras.
-  «Playroom» se dice «Pleirrum» (ver `pronounce` en `server/studioVoice.ts`).
-- **Si cambias una frase, la voz hay que generarla de nuevo**: el panel lo avisa. Mientras
-  no haya voz al día, la vista previa va muda con tiempos estimados.
-- **Acabado:** cámara que empuja despacio, grano de película, viñeta, desenfoque de
-  movimiento y destello en los cortes, separación de color en cada golpe. Todo con los
-  colores de la marca (`shared/studioVoiceReel.ts`).
-- Se graba igual que los demás: «Exportar MP4».
-
-### Configuración de la voz (una sola vez)
-
-1. En portal.azure.com crea un recurso **Speech** (plan **F0**, gratis: 500.000 letras al mes).
-2. Copia su **clave** y su **región** (por ejemplo `brazilsouth`).
-3. En Vercel → Settings → Environment Variables: `AZURE_SPEECH_KEY` y `AZURE_SPEECH_REGION`.
-4. Vuelve a desplegar. El panel dice qué falta si algo no está.
-
-Código: `shared/studioVoice.ts` (datos y guion de partida), `shared/studioVoiceReel.ts`
-(composición), `server/studioVoice.ts` (voz), `VoiceControls.tsx` (panel).
+Código: `shared/motionSpec.ts` (la receta, su limpieza, la línea de tiempo y los subtítulos), `motion/`
+(la composición), `server/motionStudio.ts` (guardar, kind `motion` y `plan` en `contentDesigns`),
+`server/motionAi.ts` (IA), `client/src/components/admin/motion/` (panel).

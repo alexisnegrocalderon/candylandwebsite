@@ -6,6 +6,7 @@
  * con una fecha inventada, fuera de la ventana o repetida de más se descarta
  * en vez de llegar al calendario del dueño. */
 import { cleanAiMarks, INSTAGRAM_HASHTAG_LIMIT } from './captionCheck';
+import { MOTION_STYLES, MOTION_TEMPLATES, type MotionStyle, type MotionTemplate } from './motionSpec';
 
 export const CONTENT_FORMATS = ['post', 'reel', 'historia', 'carrusel'] as const;
 export type ContentFormat = (typeof CONTENT_FORMATS)[number];
@@ -47,6 +48,9 @@ export interface ContentPiece {
   /** Palabra clave (de una automatización real) para que respondan a la
    * historia, o vacío. */
   keyword: string;
+  /** Video de motion graphics sugerido para la pieza (Estudio Motion), o null
+   * si la pieza no es un video (carruseles, o un post de foto). */
+  motion: { template: MotionTemplate; style: MotionStyle } | null;
 }
 
 export interface ContentPlan {
@@ -107,6 +111,16 @@ const str = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice
 /** Texto de la IA sin marcas de IA seguras de quitar (invisibles, rayas largas). */
 const human = (v: unknown, max: number) => cleanAiMarks(str(v, max));
 
+/** La sugerencia de video solo vale en piezas que pueden ser video. Acepta
+ * `motionTemplate`/`motionStyle` (lo que devuelve la IA) o `motion` (un plan guardado). */
+function cleanMotion(r: Record<string, unknown>, format: ContentFormat): ContentPiece['motion'] {
+  if (format === 'carrusel') return null;
+  const m = (r.motion && typeof r.motion === 'object' ? r.motion : {}) as Record<string, unknown>;
+  const template = MOTION_TEMPLATES.find((t) => t === (r.motionTemplate ?? m.template));
+  const style = MOTION_STYLES.find((t) => t === (r.motionStyle ?? m.style));
+  return template && style ? { template, style } : null;
+}
+
 /** Deja pasar solo lo que sirve: fecha real DENTRO de la ventana, formato y
  * objetivo conocidos, y texto no vacío. Máximo `CONTENT_PLAN_MAX_PER_DAY` por
  * día, ordenado por fecha y hora. */
@@ -142,6 +156,7 @@ export function cleanContentPieces(raw: unknown, window: { from: string; to: str
         ? r.hashtags.filter((h): h is string => typeof h === 'string' && h.trim().length > 0).map((h) => (h.trim().startsWith('#') ? h.trim() : `#${h.trim()}`)).slice(0, INSTAGRAM_HASHTAG_LIMIT)
         : [],
       keyword: str(r.keyword, 60),
+      motion: cleanMotion(r, format),
     });
   }
   pieces.sort((a, b) => (a.date === b.date ? a.time.localeCompare(b.time) : a.date.localeCompare(b.date)));
@@ -157,7 +172,7 @@ export function cleanContentPieces(raw: unknown, window: { from: string; to: str
   return kept.slice(0, CONTENT_PLAN_MAX_PIECES);
 }
 
-/** `null` si el plan guardado (en el navegador) está roto o es de otra forma. */
+/** `null` si el plan guardado está roto o es de otra forma. */
 export function normalizeContentPlan(raw: unknown): ContentPlan | null {
   if (!raw || typeof raw !== 'object') return null;
   const r = raw as Record<string, unknown>;

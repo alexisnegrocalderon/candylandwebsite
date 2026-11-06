@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { MessageSquarePlus, Sparkles, X } from 'lucide-react';
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet';
 import { AssistantChat } from './AssistantChat';
-import { OPEN_SECTION_EVENT } from '@/components/admin/studio/handoff';
+import { OPEN_SECTION_EVENT } from '@/components/admin/shell/nav';
 import { readLastThread, saveLastThread } from './AssistantSection';
 
 /** El chat del asistente encima de la pantalla donde estés (botón flotante y atajo del «+»). Sigue la última conversación;
