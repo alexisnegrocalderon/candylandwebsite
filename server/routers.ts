@@ -3601,7 +3601,7 @@ export const appRouter = router({
       foundersPromoEnabled: z.boolean().optional(),
       tanda2PromoEnabled: z.boolean().optional(),
       salesDripEnabled: z.boolean().optional(),
-      salesDripIntervalDays: z.number().int().min(1).max(30).optional(),
+      salesDripIntervalDays: z.number().int().min(0).max(30).optional(),
       halloweenModeEnabled: z.boolean().optional(),
     })).mutation(async ({ input }) => {
       // Los avisos de 1ª y 2ª tanda son excluyentes: juntos sumarían 100
