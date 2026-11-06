@@ -112,6 +112,33 @@ function SectionLoading() {
   return <div className="py-12 flex justify-center"><div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" /></div>;
 }
 
+/** Mailing, su historial y las plantillas en una sola pantalla (antes eran tres entradas del menú). */
+type MailingTab = 'enviar' | 'historial' | 'plantillas';
+const MAILING_TABS: { id: MailingTab; label: string }[] = [
+  { id: 'enviar', label: 'Enviar' }, { id: 'historial', label: 'Historial' }, { id: 'plantillas', label: 'Plantillas' },
+];
+function MailingHub() {
+  const [tab, setTab] = useState<MailingTab>('enviar');
+  return (
+    <div className="space-y-4">
+      <div role="tablist" aria-label="Mailing" className="flex gap-1.5">
+        {MAILING_TABS.map((t) => (
+          <button key={t.id} type="button" role="tab" aria-selected={tab === t.id} onClick={() => setTab(t.id)}
+            className={`admin-tab flex h-9 items-center rounded-full px-4 text-sm font-medium [@media(pointer:coarse)]:h-11 ${tab === t.id ? 'admin-tab-active' : ''}`}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {tab === 'enviar' && <MailingSection />}
+      {tab === 'historial' && <MailingHistoryView />}
+      {tab === 'plantillas' && <EmailTemplatesManager />}
+    </div>
+  );
+}
+
+/** Pantallas que se juntaron en otra: los avisos y atajos viejos que las nombran siguen funcionando. */
+const MERGED_SECTIONS: Record<string, string> = { 'mailing-history': 'mailing', 'email-templates': 'mailing' };
+
 /** Atajos de la hoja del «+» en el celular (solo los de secciones visibles). */
 const ADMIN_QUICK_ACTIONS: AdminQuickAction[] = [
   { key: 'asistente', label: 'Pregúntale al asistente', icon: Sparkles, onSelect: requestAssistant },
@@ -166,7 +193,7 @@ const ADMIN_SECTIONS = [
   { id: 'partner-electronica', label: 'Comunidad Electrónica', hub: 'vender', hidden: true, icon: Headphones, render: () => <PartnerCampaignView /> },
   { id: 'sales-strategy', label: 'Director comercial', hub: 'vender', hidden: true, icon: Sparkles, render: () => <SalesStrategyView /> },
   // Marketing: lo que llega a la gente (mailing, avisos a la app, Instagram, WhatsApp y el agente que contesta los mensajes).
-  { id: 'mailing', label: 'Mailing', hub: 'marketing', icon: Mail, render: () => <MailingSection /> },
+  { id: 'mailing', label: 'Mailing', hub: 'marketing', icon: Mail, render: () => <MailingHub /> },
   { id: 'push-clientes', label: 'Notificaciones', hub: 'marketing', icon: BellRing, render: () => <CustomerPushView /> },
   { id: 'instagram', label: 'Instagram', hub: 'mensajes', icon: Instagram, render: () => <InstagramInbox /> },
   { id: 'whatsapp', label: 'WhatsApp', hub: 'mensajes', icon: MessageCircle, render: () => <WhatsAppInbox /> },
@@ -178,8 +205,6 @@ const ADMIN_SECTIONS = [
   { id: 'agente-automatizaciones', label: 'Agente · Automatizaciones', hub: 'mensajes', hidden: true, icon: Zap, render: () => <AgentSection tab="automatizaciones" /> },
   { id: 'agente-links', label: 'Agente · Links', hub: 'mensajes', hidden: true, icon: Link2, render: () => <AgentSection tab="links" /> },
   { id: 'agente-whatsapp', label: 'Agente · WhatsApp', hub: 'mensajes', hidden: true, icon: MessageCircle, render: () => <AgentSection tab="whatsapp" /> },
-  { id: 'mailing-history', label: 'Historial de Mailing', hub: 'marketing', icon: History, render: () => <MailingHistoryView /> },
-  { id: 'email-templates', label: 'Plantillas de correo', hub: 'marketing', icon: Send, render: () => <EmailTemplatesManager /> },
   // Contenido: lo que se publica.
   { id: 'content-plan', label: 'Plan de contenido', hub: 'contenido', icon: Calendar, render: () => <ContentPlanView /> },
   { id: 'studio', label: 'Estudio', hub: 'contenido', icon: Palette, render: () => (
@@ -249,7 +274,8 @@ export default function AdminDashboard() {
   const [activeSection, setActiveSection] = useState<typeof ADMIN_SECTIONS[number]['id']>('home');
   const { counts: badgeCounts, markSeen } = useAdminBadges(!!user && !isPartner && !isSupervisor);
 
-  const openSection = (id: typeof ADMIN_SECTIONS[number]['id']) => {
+  const openSection = (rawId: typeof ADMIN_SECTIONS[number]['id']) => {
+    const id = (MERGED_SECTIONS[rawId] ?? rawId) as typeof ADMIN_SECTIONS[number]['id'];
     setActiveSection(id);
     markSeen(id);
   };
@@ -259,7 +285,7 @@ export default function AdminDashboard() {
   useEffect(() => {
     const onOpen = (e: Event) => {
       const id = (e as CustomEvent<string>).detail;
-      if (ADMIN_SECTIONS.some((s) => s.id === id)) openSection(id as typeof ADMIN_SECTIONS[number]['id']);
+      if (ADMIN_SECTIONS.some((s) => s.id === (MERGED_SECTIONS[id] ?? id))) openSection(id as typeof ADMIN_SECTIONS[number]['id']);
     };
     window.addEventListener(OPEN_SECTION_EVENT, onOpen);
     return () => window.removeEventListener(OPEN_SECTION_EVENT, onOpen);
@@ -277,7 +303,7 @@ export default function AdminDashboard() {
         openSection(`agente-${link.tab}` as typeof ADMIN_SECTIONS[number]['id']);
         return;
       }
-      if (!ADMIN_SECTIONS.some((s) => s.id === link.section)) return;
+      if (!ADMIN_SECTIONS.some((s) => s.id === (MERGED_SECTIONS[link.section] ?? link.section))) return;
       openSection(link.section as typeof ADMIN_SECTIONS[number]['id']);
       deliverAdminDeepLink(link);
     };
@@ -322,7 +348,7 @@ export default function AdminDashboard() {
   const navContext = {
     badgeCounts,
     openSection: (id: string) => {
-      if (sections.some((s) => s.id === id)) openSection(id as typeof ADMIN_SECTIONS[number]['id']);
+      if (sections.some((s) => s.id === (MERGED_SECTIONS[id] ?? id))) openSection(id as typeof ADMIN_SECTIONS[number]['id']);
     },
   };
 

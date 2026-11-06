@@ -15,6 +15,7 @@ import { ImageUploadField } from '@/components/admin/ImageUploadField';
 import { AdminLoginForm } from '@/components/admin/AdminLoginForm';
 import { formatChileDateTime, formatChileShortDate } from '@shared/chileDate';
 import { onMutationError } from './shared';
+import { IphoneShortcutsCard } from '@/components/admin/IphoneShortcutsCard';
 
 /** Tarjeta de "Ajustes" para administrar passkeys (Face ID/Touch ID) -- camino
  * adicional al login con contraseña+TOTP, no lo reemplaza. Registrar un
@@ -221,6 +222,7 @@ export function SettingsManager() {
   return (
     <div className="space-y-6">
       <h2 className="font-heading text-2xl">Ajustes</h2>
+      <IphoneShortcutsCard />
       <Card className="rounded-2xl border-0 shadow-md shadow-black/5 bg-gradient-to-br from-[#241432]/10 to-transparent">
         <CardContent className="pt-6">
           <div className="flex items-start justify-between gap-4">
