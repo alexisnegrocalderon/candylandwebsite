@@ -101,6 +101,25 @@ export function reportAppOpen(ticketCode?: string, force = false): void {
 
 /** Estado del aviso en este dispositivo + activar/desactivar. `ticketCode` u
  * `orderNumber` ligan el dispositivo al correo de esa compra. */
+const MEMBER_LINK_KEY = 'push-member-linked';
+const MEMBER_LINK_RETRY_MS = 2 * 60_000;
+
+/** ¿Toca intentar ligar la suscripción al correo de «Mi cuenta»? Una vez ligada no se repite; si no había
+ * sesión se reintenta pasados 2 minutos (así no se llama en cada pantalla, pero sí después de entrar). */
+function shouldLinkMember(): boolean {
+  try {
+    const raw = window.sessionStorage.getItem(MEMBER_LINK_KEY);
+    if (raw === 'done') return false;
+    if (raw && Date.now() - Number(raw) < MEMBER_LINK_RETRY_MS) return false;
+    window.sessionStorage.setItem(MEMBER_LINK_KEY, String(Date.now()));
+  } catch { /* sin sessionStorage: se intenta igual */ }
+  return true;
+}
+
+function markMemberLinked(): void {
+  try { window.sessionStorage.setItem(MEMBER_LINK_KEY, 'done'); } catch { /* nada */ }
+}
+
 export function useCustomerPush(opts: { source: PushSource; ticketCode?: string; orderNumber?: string }) {
   const [state, setState] = useState<PushState>('loading');
   const [busy, setBusy] = useState(false);
@@ -108,6 +127,7 @@ export function useCustomerPush(opts: { source: PushSource; ticketCode?: string;
   const { data: key } = trpc.customerPush.publicKey.useQuery(undefined, { staleTime: Infinity, enabled: pushSupported() });
   const subscribe = trpc.customerPush.subscribe.useMutation();
   const link = trpc.customerPush.link.useMutation();
+  const linkMember = trpc.customerPush.linkMember.useMutation();
   const unsubscribe = trpc.customerPush.unsubscribe.useMutation();
   const ticketCode = opts.ticketCode ?? lastTicketCode() ?? undefined;
 
@@ -130,6 +150,8 @@ export function useCustomerPush(opts: { source: PushSource; ticketCode?: string;
       setState(sub && Notification.permission === 'granted' ? 'enabled' : 'ask');
       // Ya activado desde la home (anónimo) y ahora abre su entrada: se liga a su correo.
       if (sub && opts.ticketCode) link.mutate({ endpoint: sub.endpoint, ticketCode: opts.ticketCode });
+      // Sin entrada a mano: si hay sesión de «Mi cuenta», la suscripción se liga a ese correo (una vez por sesión del navegador).
+      else if (sub && Notification.permission === 'granted' && shouldLinkMember()) linkMember.mutate({ endpoint: sub.endpoint }, { onSuccess: (r) => { if (r.linked) markMemberLinked(); } });
       // Abrió su entrada dentro de la app: esa app queda ligada a su compra.
       if (opts.ticketCode) reportAppOpen(opts.ticketCode);
     })();

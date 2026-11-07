@@ -6613,6 +6613,7 @@ __export(customerPush_exports, {
   finalizeCampaigns: () => finalizeCampaigns,
   getCustomerPushConfig: () => getCustomerPushConfig,
   linkCustomerSubscription: () => linkCustomerSubscription,
+  linkMemberSubscription: () => linkMemberSubscription,
   listPresets: () => listPresets,
   listPushCampaigns: () => listPushCampaigns,
   nextEvent: () => nextEvent,
@@ -6701,10 +6702,10 @@ async function awardIncentive(email, config) {
   await adjustPlaycoinsManually(cust.id, amount, "Regalo por activar los avisos de la app");
   return amount;
 }
-async function subscribeCustomer(input) {
+async function subscribeCustomer(input, memberEmail) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const who3 = await resolveEmail(input);
+  const who3 = await resolveEmail(input) ?? (memberEmail ? { email: memberEmail, orderId: null } : null);
   const keys = { p256dh: input.subscription.keys.p256dh, auth: input.subscription.keys.auth };
   const [existing] = await db.select({ id: customerPushSubscriptions.id, optedOutAt: customerPushSubscriptions.optedOutAt, hourHist: customerPushSubscriptions.hourHist }).from(customerPushSubscriptions).where(eq3(customerPushSubscriptions.endpoint, input.subscription.endpoint)).limit(1);
   const update = {
@@ -6712,7 +6713,7 @@ async function subscribeCustomer(input) {
     optedOutAt: null,
     platform: input.platform,
     standalone: input.standalone ? 1 : 0,
-    ...who3 ? { email: who3.email, emailNorm: emailKey(who3.email) || null, orderId: who3.orderId } : {}
+    ...who3 ? { email: who3.email, emailNorm: emailKey(who3.email) || null, ...who3.orderId != null ? { orderId: who3.orderId } : {} } : {}
   };
   await db.insert(customerPushSubscriptions).values({
     endpoint: input.subscription.endpoint,
@@ -6748,6 +6749,19 @@ async function linkCustomerSubscription(endpoint, ticketCode) {
   await db.update(customerPushSubscriptions).set({ email: who3.email, emailNorm: emailKey(who3.email) || null, orderId: who3.orderId }).where(eq3(customerPushSubscriptions.endpoint, endpoint));
   try {
     await awardIncentive(who3.email, await getCustomerPushConfig());
+  } catch (err) {
+    console.error("[CustomerPush] Regalo:", err);
+  }
+  return { linked: true };
+}
+async function linkMemberSubscription(endpoint, memberEmail) {
+  const db = await getDb();
+  const key = memberEmail ? emailKey(memberEmail) : "";
+  if (!db || !memberEmail || !key) return { linked: false };
+  const [res] = await db.update(customerPushSubscriptions).set({ email: memberEmail, emailNorm: key }).where(and2(eq3(customerPushSubscriptions.endpoint, endpoint), isNull2(customerPushSubscriptions.emailNorm)));
+  if (!Number(res?.affectedRows)) return { linked: false };
+  try {
+    await awardIncentive(memberEmail, await getCustomerPushConfig());
   } catch (err) {
     console.error("[CustomerPush] Regalo:", err);
   }
@@ -59424,7 +59438,11 @@ var appRouter = router({
       const ipKey = `customer-push:${clientIp(ctx)}`;
       if (!await checkIpRateLimit(ipKey)) throw new TRPCError3({ code: "TOO_MANY_REQUESTS", message: "Demasiados intentos. Prueba de nuevo en un rato." });
       await recordIpAttempt(ipKey, 2e3, 30 * 60 * 1e3);
-      return subscribeCustomer(input);
+      return subscribeCustomer(input, getMemberEmail(ctx.req));
+    }),
+    // Avisos activados antes de entrar a «Mi cuenta»: se ligan al correo de la sesión (sin sesión, no hace nada).
+    linkMember: publicProcedure.input(z10.object({ endpoint: z10.string().url().max(512) })).mutation(async ({ input, ctx }) => {
+      return linkMemberSubscription(input.endpoint, getMemberEmail(ctx.req));
     }),
     link: publicProcedure.input(z10.object({ endpoint: z10.string().url().max(512), ticketCode: z10.string().max(64) })).mutation(async ({ input }) => {
       return linkCustomerSubscription(input.endpoint, input.ticketCode);

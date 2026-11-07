@@ -25,3 +25,30 @@ describe('customerPush helpers', () => {
     expect(KIND_RULES.cumpleanos.dedupeDays).toBeGreaterThan(300 - 1);
   });
 });
+
+describe('suscripción ligada a «Mi cuenta»', () => {
+  // Con la base de datos simulada: lo que importa es QUÉ correo se guarda y cuándo.
+  it('la compra manda; sin compra vale el correo de la sesión; sin ninguno queda anónima', async () => {
+    const rows: Array<Record<string, unknown>> = [];
+    const { vi } = await import('vitest');
+    vi.resetModules();
+    vi.doMock('./db', () => ({
+      getDb: async () => ({
+        select: () => ({ from: () => ({ where: () => ({ limit: async () => [] }) }) }),
+        insert: () => ({ values: (v: Record<string, unknown>) => { rows.push(v); return { onDuplicateKeyUpdate: async () => undefined }; } }),
+      }),
+      getSiteSettings: async () => ({}), getEventById: async () => null, getFeaturedEvent: async () => null, adjustPlaycoinsManually: async () => undefined,
+    }));
+    vi.doMock('./push', () => ({ ensureConfigured: () => false }));
+    const { subscribeCustomer } = await import('./customerPush');
+    const base = { subscription: { endpoint: 'https://push.test/a', keys: { p256dh: 'p', auth: 'a' } }, source: 'app' as const, platform: 'ios' as const, standalone: true };
+
+    await subscribeCustomer(base, 'Ana@Correo.cl');
+    await subscribeCustomer(base, null);
+    expect(rows[0]).toMatchObject({ email: 'Ana@Correo.cl', orderId: null });
+    expect(String(rows[0].emailNorm)).toContain('ana');
+    expect(rows[1]).toMatchObject({ email: null, emailNorm: null });
+    vi.doUnmock('./db');
+    vi.doUnmock('./push');
+  });
+});
