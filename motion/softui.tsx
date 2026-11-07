@@ -5,6 +5,7 @@ import { IgGlyph } from './hud';
 import { clamp } from './kits/shared';
 import { Headline } from './scenes';
 import { useExit } from './layers';
+import { SOFTUI } from './layouts';
 import { beats, ease, fonts, rand, safeInsets, springs } from './theme';
 
 /* Escena del estilo SOFT UI (referencia B): una tarjeta de vidrio que entra
@@ -52,11 +53,15 @@ const Calendar: React.FC<{ date: string; delay: number }> = ({ date, delay }) =>
   const first = (new Date(Date.UTC(year, month, 1)).getUTCDay() + 6) % 7; // lunes primero
   const days = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
   const cells = [...Array.from({ length: first }, () => 0), ...Array.from({ length: days }, (_, i) => i + 1)];
+  const { width, height } = useMotion();
+  // En 4:5 o cuadrado el calendario tiene menos alto: celdas más bajas para que no pise el texto.
+  const compact = height / width < 1.5;
+  const cell = compact ? 58 : 82;
   const pop = spring({ frame: frame - delay - 26, fps, config: springs.bouncy });
   const ring = interpolate((frame - delay - 30) % 40, [0, 40], [1, 1.9], clamp);
   return (
-    <div style={{ width: 760 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontFamily: fonts.grotesk, fontWeight: 700, fontSize: 40, color: palette.display, marginBottom: 22 }}>
+    <div style={{ width: compact ? 700 : 760 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontFamily: fonts.grotesk, fontWeight: 700, fontSize: 40, color: palette.display, marginBottom: compact ? 12 : 22 }}>
         <span>‹</span>
         <span style={{ textTransform: 'capitalize' }}>{MONTHS[month]} {year}</span>
         <span>›</span>
@@ -69,7 +74,7 @@ const Calendar: React.FC<{ date: string; delay: number }> = ({ date, delay }) =>
           const isTarget = n === target;
           const appear = interpolate(frame - delay - 4 - i * 0.6, [0, 8], [0, 1], { easing: ease.out, ...clamp });
           return (
-            <div key={i} style={{ position: 'relative', height: 82, display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: n ? appear : 0 }}>
+            <div key={i} style={{ position: 'relative', height: cell, display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: n ? appear : 0 }}>
               {isTarget && (
                 <>
                   <div style={{ position: 'absolute', width: 78, height: 78, borderRadius: '50%', border: `3px solid ${palette.hero}`, transform: `scale(${ring})`, opacity: (2 - ring) * 0.6 * pop }} />
@@ -210,7 +215,8 @@ const CardContent: React.FC<{ card: MotionCard; scene: MotionScene; delay: numbe
 export const SoftUiScene: React.FC<{ scene: MotionScene; index: number; frames: number }> = ({ scene, index, frames }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
-  const { width, height, palette, captionsOn } = useMotion();
+  const { width, height, palette, captionsOn, layouts } = useMotion();
+  const g = SOFTUI[layouts[index]] ?? SOFTUI.arriba;
   const glass = useGlass();
   const exit = useExit(frames, beats.exit);
   const inset = safeInsets(width, height);
@@ -218,10 +224,33 @@ export const SoftUiScene: React.FC<{ scene: MotionScene; index: number; frames: 
   // Las tarjetas que muestran el texto adentro no lo repiten como titular.
   const textInCard = scene.card === 'evento' || scene.card === 'entrada';
   const enter = spring({ frame: frame - 6, fps, config: springs.heavy });
-  const side = index % 2 === 0 ? 1 : -1;
+  // Hacia dónde se inclina la tarjeta: la composición lo fija; si no, alterna entre escenas.
+  const side = g.tilt !== 0 ? -g.tilt : index % 2 === 0 ? 1 : -1;
   const rx = interpolate(enter, [0, 1], [28, 7]) + Math.sin(frame / 34) * 2;
   const ry = interpolate(enter, [0, 1], [-24 * side, -7 * side]) + Math.cos(frame / 40) * 2.5;
   const float = Math.sin(frame / 26) * 8;
+
+  const kicker = scene.kicker && !textInCard ? <Sticker text={scene.kicker} delay={2} tilt={index % 2 ? 6 : -7} /> : null;
+  const title = !textInCard ? <Headline text={scene.text} highlight={scene.highlight} base={(hasCard ? 96 : 132) * g.titleScale} delay={hasCard ? 2 : 6} /> : null;
+  const card = hasCard ? (
+    <div style={{ perspective: 1800, transform: `translateX(${width * g.shift}px)` }}>
+      <div
+        style={{
+          ...glass, borderRadius: 48, padding: '56px 60px',
+          transform: `translateY(${(1 - enter) * 220 + float}px) rotateX(${rx}deg) rotateY(${ry}deg) scale(${(0.8 + 0.2 * enter) * g.cardScale})`,
+          opacity: interpolate(enter, [0, 0.25], [0, 1], clamp),
+        }}
+      >
+        <CardContent card={scene.card} scene={scene} delay={10} />
+      </div>
+    </div>
+  ) : null;
+  const sub = scene.sub && !textInCard ? (
+    <div style={{ fontFamily: fonts.grotesk, fontWeight: 500, fontSize: 38, color: palette.muted, opacity: interpolate(frame, [24, 40], [0, 1], { easing: ease.out, ...clamp }) }}>{scene.sub}</div>
+  ) : null;
+  // «Tarjeta primero» cambia el orden: la tarjeta arriba y el título (con su etiqueta) debajo. Sin tarjeta no hay qué invertir.
+  const first = g.cardFirst && card ? [card] : [kicker, title];
+  const second = g.cardFirst && card ? [kicker, title] : [card];
 
   return (
     <AbsoluteFill
@@ -232,24 +261,9 @@ export const SoftUiScene: React.FC<{ scene: MotionScene; index: number; frames: 
         opacity: 1 - exit, transform: `scale(${1 - exit * 0.05})`, filter: `blur(${exit * 8}px)`,
       }}
     >
-      {scene.kicker && !textInCard && <Sticker text={scene.kicker} delay={2} tilt={index % 2 ? 6 : -7} />}
-      {!textInCard && <Headline text={scene.text} highlight={scene.highlight} base={hasCard ? 96 : 132} delay={hasCard ? 2 : 6} />}
-      {hasCard && (
-        <div style={{ perspective: 1800 }}>
-          <div
-            style={{
-              ...glass, borderRadius: 48, padding: '56px 60px',
-              transform: `translateY(${(1 - enter) * 220 + float}px) rotateX(${rx}deg) rotateY(${ry}deg) scale(${0.8 + 0.2 * enter})`,
-              opacity: interpolate(enter, [0, 0.25], [0, 1], clamp),
-            }}
-          >
-            <CardContent card={scene.card} scene={scene} delay={10} />
-          </div>
-        </div>
-      )}
-      {scene.sub && !textInCard && (
-        <div style={{ fontFamily: fonts.grotesk, fontWeight: 500, fontSize: 38, color: palette.muted, opacity: interpolate(frame, [24, 40], [0, 1], { easing: ease.out, ...clamp }) }}>{scene.sub}</div>
-      )}
+      {first.map((el, i) => el && <div key={`a${i}`} style={{ display: 'contents' }}>{el}</div>)}
+      {second.map((el, i) => el && <div key={`b${i}`} style={{ display: 'contents' }}>{el}</div>)}
+      {sub}
     </AbsoluteFill>
   );
 };

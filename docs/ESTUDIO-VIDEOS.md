@@ -23,6 +23,46 @@ salidas más rápidas, 5 capas por escena, Ken Burns, grano, sonido en cada cort
 - **Voz en off y subtítulos**: voz chilena de Azure (Catalina o Lorenzo). Cada escena dura lo que su frase y los
   subtítulos salen palabra por palabra (repartidas por largo dentro de la frase; Azure no entrega el tiempo de cada palabra).
 
+## Estilo no es plantilla: la composición cambia en cada pieza
+
+Un **estilo** es un lenguaje visual (colores, tipografía, movimiento). Lo que cambia entre una pieza y otra es la
+**composición**: dónde va el texto, de qué lado, cuánto crece la palabra clave y dónde cae la forma de color.
+
+- **Catálogo por estilo** (`shared/motionVariety.ts` → `LAYOUTS`; la geometría de cada una está en `motion/layouts.ts`):
+  kinetic y editorial tienen 6 (texto abajo, arriba, al centro, a la derecha, palabra gigante, partido); póster 3D, 4
+  (palabra clave abajo o arriba, objeto a la izquierda o a la derecha); soft UI, 5 (tarjeta arriba, abajo, protagonista,
+  inclinada a un lado); liquid y glitch, 5 (centrado, abajo, arriba, izquierda, derecha).
+- **Semilla:** cada video guarda una (`spec.seed`). Con ella se elige la composición de cada escena «automática»,
+  **sin repetir la de la escena anterior ni la de dos antes**, y se mueven y espejan un poco las formas. Misma semilla =
+  mismo resultado (vista previa, láminas y MP4 se ven igual); otra semilla = otra cara, sin gastar IA. Los videos
+  guardados antes de esto sacan la semilla de su nombre, así que no cambian de cara al abrirlos.
+- **Las formas se deslizan** de una composición a la siguiente al cambiar de escena (en una lámina quieta ya llegaron).
+- **Carrusel:** en cada borde entre dos láminas hay una forma de color centrada justo en la línea (media en cada una),
+  que se completa al deslizar (`motion/thread.tsx`).
+- **Quién decide:** (1) la semilla, con el botón **«Variar composiciones»** del editor; (2) la IA, que en la misma
+  llamada elige la composición de cada escena de cada variante y le da a cada una su propia semilla; (3) tú, con el
+  selector **«Composición de esta escena»**, que fija una y deja el resto en automático.
+
+## Pack: reel, carrusel, post e historia de una misma idea
+
+El contenido es **uno solo** (las escenas del video). En el editor, la pestaña **Carrusel · Post · Historia** dibuja
+esas mismas escenas como láminas quietas, con el mismo estilo, y las descarga como PNG a 1080 px de ancho:
+
+| Salida | Tamaño | Qué lleva |
+|---|---|---|
+| Carrusel | 4:5 (1080×1350) | una lámina por escena (máximo 10), con «Desliza →» y el cierre (firma o tarjeta del @) como última |
+| Post | 4:5 | el gancho (escena 1) |
+| Historia | 9:16 (1080×1920) | el gancho y, si hay más de una escena, la última (la acción) |
+
+- Cada lámina es la composición de Remotion **congelada en el cuadro donde la escena ya quedó asentada**
+  (`packSlides` en `shared/motionSpec.ts`), así que se ve igual que el reel. En las láminas, el HUD muestra «01 / 04»
+  en vez del cronómetro.
+- Se generan **en el navegador, sin servidor ni IA** (`client/src/components/admin/motion/PackPanel.tsx` y
+  `exportPack.ts`): se dibuja cada lámina a tamaño real fuera de pantalla y se captura con `html-to-image`, con las
+  fuentes incrustadas. Botones: PNG o ZIP de la salida elegida, «Compartir» (menú del celular) y «Pack completo (ZIP)».
+- Si cambias un texto en el video, las láminas se rehacen solas. El MP4 del reel se graba aparte («Grabar MP4»).
+- El póster 3D dibuja con WebGL: en un computador sin tarjeta gráfica la exportación puede tardar más.
+
 ## La IA, sin gastar de más
 
 - **«Crear 3 variantes»**: UNA llamada a Claude Sonnet 5.5 (`server/motionAi.ts`, esfuerzo bajo, salida JSON)

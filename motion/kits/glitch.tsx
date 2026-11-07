@@ -1,5 +1,7 @@
 import { AbsoluteFill, useCurrentFrame, useVideoConfig } from 'remotion';
+import { sceneJitter } from '../../shared/motionVariety';
 import { useMotion } from '../context';
+import { useGlide } from '../layouts';
 import { beats, fonts, rand } from '../theme';
 import { BaseFill, heroText, type Kit, type WordProps } from './shared';
 
@@ -16,8 +18,10 @@ function glitchPulse(frame: number): number {
 const Background: React.FC = () => {
   const frame = useCurrentFrame();
   const { width, height } = useVideoConfig();
-  const { palette } = useMotion();
+  const { palette, spec } = useMotion();
   const pulse = glitchPulse(frame);
+  // El halo de color cambia de lugar con la semilla y se desliza al cambiar de escena.
+  const [hx, hy] = useGlide((i) => { const j = sceneJitter(spec.seed, i); return [0.5 + j.x * 0.22, 0.5 + j.y * 0.22]; });
   return (
     <AbsoluteFill style={{ overflow: 'hidden' }}>
       <BaseFill />
@@ -30,7 +34,7 @@ const Background: React.FC = () => {
       />
       <div
         style={{
-          position: 'absolute', width: width * 1.1, height: width * 1.1, left: -width * 0.05, top: height * 0.5 - width * 0.55,
+          position: 'absolute', width: width * 1.1, height: width * 1.1, left: width * hx - width * 0.55, top: height * hy - width * 0.55,
           borderRadius: '50%', background: `radial-gradient(circle, ${palette.hero}40, transparent 62%)`,
           transform: `scale(${1 + Math.sin(frame / 22) * 0.04})`,
         }}

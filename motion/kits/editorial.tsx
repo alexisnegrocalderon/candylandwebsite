@@ -1,5 +1,6 @@
 import { AbsoluteFill, interpolate, useCurrentFrame, useVideoConfig } from 'remotion';
 import { useMotion } from '../context';
+import { useMagazine } from '../layouts';
 import { beats, ease, fonts } from '../theme';
 import { AccentCircle, BaseFill, clamp, Hairline, type Kit, type WordProps } from './shared';
 
@@ -11,12 +12,14 @@ const Background: React.FC = () => {
   const frame = useCurrentFrame();
   const { width, height } = useVideoConfig();
   const { palette } = useMotion();
-  const drift = interpolate(frame, [0, 900], [0, -60]);
+  // Las formas van donde dice la composición de la escena en pantalla y se deslizan a la siguiente.
+  const { geo } = useMagazine();
+  const drift = interpolate(frame, [0, 900], [0, -40]);
   return (
     <AbsoluteFill style={{ overflow: 'hidden' }}>
       <BaseFill />
-      <AccentCircle x={width * 0.72} y={height * 0.3 + drift} r={width * 0.34} delay={2} />
-      <AccentCircle x={width * 0.12} y={height * 0.95 - drift * 0.5} r={width * 0.42} delay={8} ring color={palette.micro} />
+      <AccentCircle x={width * geo.circle.x} y={height * geo.circle.y + drift} r={width * geo.circle.r} delay={2} />
+      <AccentCircle x={width * geo.ring.x} y={height * geo.ring.y - drift * 0.5} r={width * geo.ring.r} delay={8} ring color={palette.micro} />
       <Hairline x={84} y={height * 0.18} length={height * 0.64} vertical delay={6} color={palette.micro} opacity={0.25} />
       <Hairline x={84} y={height * 0.82} length={width - 168} delay={10} color={palette.micro} opacity={0.25} />
     </AbsoluteFill>

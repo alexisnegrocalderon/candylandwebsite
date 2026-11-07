@@ -1,10 +1,12 @@
 import { useMemo } from 'react';
 import { AbsoluteFill, Html5Audio, interpolate, Sequence, staticFile, useCurrentFrame, useVideoConfig } from 'remotion';
 import { captionWords, motionPalette, motionTimeline, normalizeMotionSpec, type MotionSpec } from '../shared/motionSpec';
-import { MotionContext, useMotion, type MotionCtx } from './context';
+import { resolveLayouts } from '../shared/motionVariety';
+import { MotionContext, useMotion, type MotionCtx, type MotionSlideInfo } from './context';
 import { useBrandFonts } from './fonts';
 import { KITS } from './kits';
 import { Camera, HandleCard, Hud } from './hud';
+import { Thread } from './thread';
 import { Grade, Grain, Vignette } from './layers';
 import { KineticScene } from './kinetic';
 import { PosterScene } from './poster';
@@ -16,7 +18,7 @@ import { beats, fonts } from './theme';
  * dibuja con el kit de su estilo. Es la MISMA en el reproductor del panel
  * (@remotion/player) y en la grabación (scripts/render-studio-video.mjs). */
 
-export type MotionVideoProps = { spec: MotionSpec };
+export type MotionVideoProps = { spec: MotionSpec; slide?: MotionSlideInfo | null };
 
 const clamp = { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' } as const;
 
@@ -107,6 +109,8 @@ const Body: React.FC = () => {
     <>
       {/* 1. Fondo (continuo entre escenas). */}
       <kit.Background />
+      {/* El hilo del carrusel: una forma que cruza de una lámina a la siguiente. */}
+      <Thread />
       {/* 2-3. Fotos, gráfica y texto por escena, con un empuje lento de cámara. */}
       <Camera>
       {timeline.scenes.map((t) => {
@@ -157,16 +161,19 @@ const Body: React.FC = () => {
   );
 };
 
-export const MotionVideo: React.FC<MotionVideoProps> = ({ spec: raw }) => {
+export const MotionVideo: React.FC<MotionVideoProps> = ({ spec: raw, slide = null }) => {
   useBrandFonts();
   const { width, height } = useVideoConfig();
   const ctx = useMemo<MotionCtx>(() => {
     const spec = normalizeMotionSpec(raw);
-    return { spec, palette: motionPalette(spec.base, spec.accent), timeline: motionTimeline(spec), width, height, captionsOn: spec.captions && !!spec.voice };
-  }, [raw, width, height]);
+    return { spec, palette: motionPalette(spec.base, spec.accent), timeline: motionTimeline(spec), width, height, captionsOn: spec.captions && !!spec.voice, layouts: resolveLayouts(spec), slide };
+  }, [raw, width, height, slide]);
   return (
     <MotionContext.Provider value={ctx}>
-      <AbsoluteFill style={{ backgroundColor: ctx.palette.bg, overflow: 'hidden' }}>
+      {/* La composición no depende del CSS de la página donde se dibuja: sin `border-box` el relleno
+          se suma al alto (height:100%) y el texto se desborda fuera del cuadro. */}
+      <style>{'.mv-root, .mv-root *, .mv-root *::before, .mv-root *::after { box-sizing: border-box; }'}</style>
+      <AbsoluteFill className="mv-root" style={{ backgroundColor: ctx.palette.bg, overflow: 'hidden' }}>
         <Body />
       </AbsoluteFill>
     </MotionContext.Provider>

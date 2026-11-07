@@ -1,6 +1,8 @@
 import { AbsoluteFill, interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion';
 import { BRAND } from '../../shared/motionSpec';
+import { sceneJitter } from '../../shared/motionVariety';
 import { useMotion } from '../context';
+import { useGlide } from '../layouts';
 import { beats, ease, fonts, rand, springs } from '../theme';
 import { BaseFill, blobPath, bubbleShadow, clamp, heroText, useSvgId, type Kit, type WordProps } from './shared';
 
@@ -10,12 +12,17 @@ import { BaseFill, blobPath, bubbleShadow, clamp, heroText, useSvgId, type Kit, 
 const Background: React.FC = () => {
   const frame = useCurrentFrame();
   const { width, height } = useVideoConfig();
-  const { palette } = useMotion();
+  const { palette, spec } = useMotion();
   const blurId = useSvgId('liq-blur');
+  // Las dos manchas cambian de lado y de altura con la semilla y se deslizan al cambiar de escena.
+  const [x1, y1, r1, x2, y2, r2] = useGlide((i) => {
+    const j = sceneJitter(spec.seed, i);
+    return [0.5 + j.side * 0.45, 0.12 + 0.3 * (j.y * 0.5 + 0.5), 0.4 + 0.08 * j.r, 0.5 - j.side * 0.45, 0.7 + 0.25 * (j.x * 0.5 + 0.5), 0.5 + 0.08 * j.r];
+  });
   const blobs = [
-    { x: 0.95, y: 0.22, r: 0.46, color: palette.hero, o: palette.dark ? 0.35 : 0.42, s: 4 },
+    { x: x1, y: y1, r: r1, color: palette.hero, o: palette.dark ? 0.35 : 0.42, s: 4 },
     // En fondos claros (perla, niebla) la segunda mancha es el acento, no un gris.
-    { x: 0.05, y: 0.86, r: 0.52, color: palette.display === BRAND.graphite ? palette.accent : palette.display, o: palette.dark ? 0.08 : 0.2, s: 9 },
+    { x: x2, y: y2, r: r2, color: palette.display === BRAND.graphite ? palette.accent : palette.display, o: palette.dark ? 0.08 : 0.2, s: 9 },
   ];
   return (
     <AbsoluteFill>
