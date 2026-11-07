@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   BRAND, MOTION_ACCENTS, MOTION_BASES, MOTION_FPS, MOTION_MUSIC_BPM, MOTION_OUTRO_SECS, MOTION_STYLES, MOTION_TEMPLATES, MOTION_VOICE_LEAD, MOTION_VOICE_TAIL,
-  captionWords, cleanMediaUrl, motionPalette, motionTimeline, normalizeMotionSpec, starterSpec, voiceSays,
+  captionWords, cleanMediaUrl, packFileNames, packSlides, motionPalette, motionTimeline, normalizeMotionSpec, starterSpec, voiceSays,
 } from './motionSpec';
 
 describe('normalizeMotionSpec', () => {
@@ -145,6 +145,38 @@ describe('tarjetas y fecha (softui)', () => {
     expect(s.scenes[0].items).toEqual(['Carnet', 'Entrada', 'a', 'b', 'c']);
     expect(s.scenes[1].card).toBe('ninguna');
     expect(normalizeMotionSpec({ eventDate: '14/11/2026' }).eventDate).toBe('');
+  });
+});
+
+describe('pack (carrusel, post, historia)', () => {
+  const spec = normalizeMotionSpec({ template: 'anuncio', music: 'none', scenes: [{ text: 'Uno', secs: 2 }, { text: 'Dos', secs: 2 }, { text: 'Tres', secs: 2 }], title: 'Noche Neón' });
+
+  it('el carrusel lleva una lámina por escena más el cierre, y nunca pasa de 10', () => {
+    const slides = packSlides(spec, 'carrusel');
+    expect(slides.map((x) => x.label)).toEqual(['Escena 1', 'Escena 2', 'Escena 3', 'Cierre']);
+    const many = normalizeMotionSpec({ scenes: Array.from({ length: 10 }, (_, i) => ({ text: `E${i}`, secs: 1.5 })) });
+    expect(packSlides(many, 'carrusel')).toHaveLength(10);
+  });
+
+  it('el post es el gancho y la historia el gancho y la acción', () => {
+    expect(packSlides(spec, 'post').map((x) => x.scene)).toEqual([0]);
+    expect(packSlides(spec, 'historia').map((x) => x.scene)).toEqual([0, 2]);
+    expect(packSlides(normalizeMotionSpec({ scenes: [{ text: 'Solo' }] }), 'historia')).toHaveLength(1);
+  });
+
+  it('cada lámina se congela con la escena asentada: dentro de ella, sin tocar el corte ni la salida', () => {
+    const tl = motionTimeline(spec);
+    for (const slide of packSlides(spec, 'carrusel').filter((x) => x.scene != null)) {
+      const t = tl.scenes[slide.scene as number];
+      expect(slide.frame).toBeGreaterThanOrEqual(t.from);
+      expect(slide.frame).toBeLessThanOrEqual(t.from + t.frames - 11);
+    }
+  });
+
+  it('los nombres de archivo son únicos, ordenados y sin tildes', () => {
+    const names = packFileNames(spec, 'carrusel');
+    expect(names[0]).toBe('carrusel/noche-neon-carrusel-01.png');
+    expect(new Set(names).size).toBe(names.length);
   });
 });
 

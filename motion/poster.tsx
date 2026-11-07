@@ -49,17 +49,25 @@ export const PosterScene: React.FC<{ scene: MotionScene; index: number; frames: 
   const info = spring({ frame: frame - 18, fps, config: springs.smooth });
   const kind = role === 'cta' || index % 3 === 2 ? 'corazon' : 'cubo';
   const bottomPad = inset.bottom + (captionsOn ? height * 0.14 : 0);
+  // En 9:16 sobra espacio; en 4:5 o cuadrado los íconos de abajo chocan con el HUD y el «Desliza», y los de arriba con su barra.
+  const tall = height / width > 1.5;
+  const iconTop = tall ? inset.top - 20 : 112;
+  const textTop = tall ? inset.top + 70 : 196;
 
   return (
     <AbsoluteFill style={{ opacity: 1 - exit }}>
       {/* Íconos de esquina. */}
-      <div style={{ position: 'absolute', left: inset.side, top: inset.top - 20, transform: `scale(${icons})` }}><Heart size={56} color={palette.hero} /></div>
-      <div style={{ position: 'absolute', right: inset.side, top: inset.top - 20, transform: `rotate(${frame * 2}deg) scale(${icons})` }}><Loop size={56} color={palette.display} /></div>
-      <div style={{ position: 'absolute', left: inset.side, bottom: bottomPad - 10, transform: `scale(${icons})`, opacity: 0.8 }}><Loop size={52} color={palette.hero} flip /></div>
-      <div style={{ position: 'absolute', right: inset.side, bottom: bottomPad - 10, transform: `scale(${icons})` }}><IgGlyph size={52} color={palette.display} /></div>
+      <div style={{ position: 'absolute', left: inset.side, top: iconTop, transform: `scale(${icons})` }}><Heart size={56} color={palette.hero} /></div>
+      <div style={{ position: 'absolute', right: inset.side, top: iconTop, transform: `rotate(${frame * 2}deg) scale(${icons})` }}><Loop size={56} color={palette.display} /></div>
+      {tall && (
+        <>
+          <div style={{ position: 'absolute', left: inset.side, bottom: bottomPad - 10, transform: `scale(${icons})`, opacity: 0.8 }}><Loop size={52} color={palette.hero} flip /></div>
+          <div style={{ position: 'absolute', right: inset.side, bottom: bottomPad - 10, transform: `scale(${icons})` }}><IgGlyph size={52} color={palette.display} /></div>
+        </>
+      )}
 
       {/* Texto de arriba. */}
-      <div style={{ position: 'absolute', left: inset.side, right: inset.side, top: inset.top + 70 }}>
+      <div style={{ position: 'absolute', left: inset.side, right: inset.side, top: textTop }}>
         {scene.kicker && (
           <div style={{ fontFamily: fonts.grotesk, fontWeight: 700, fontSize: type.micro + 8, letterSpacing: '0.14em', color: palette.hero, marginBottom: 10, opacity: icons }}>
             {scene.kicker.toUpperCase()}
@@ -78,7 +86,7 @@ export const PosterScene: React.FC<{ scene: MotionScene; index: number; frames: 
       </div>
 
       {/* La palabra clave gigante, abajo. */}
-      <div style={{ position: 'absolute', left: inset.side, right: inset.side, bottom: bottomPad + 90 }}>
+      <div style={{ position: 'absolute', left: inset.side, right: inset.side, bottom: bottomPad + (tall ? 90 : 110) }}>
         <div style={{ fontFamily: fonts.syne, fontWeight: 800, fontSize: bottomSize, lineHeight: 0.86, letterSpacing: kit.letterSpacing, display: 'flex', flexWrap: 'wrap', columnGap: bottomSize * 0.2 }}>
           {bottom.map((w, i) => <kit.Word key={i} word={w} i={top.length + i} delay={6} hero size={bottomSize} />)}
         </div>

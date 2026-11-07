@@ -19,7 +19,8 @@ export const RemotionRoot: React.FC = () => (
     calculateMetadata={({ props }) => {
       const spec = normalizeMotionSpec(props.spec);
       const { width, height } = MOTION_SIZES[spec.format];
-      return { width, height, durationInFrames: motionTimeline(spec).total, props: { spec } };
+      // Se conserva el resto de las props (p. ej. `slide`, el dibujo quieto del carrusel).
+      return { width, height, durationInFrames: motionTimeline(spec).total, props: { ...props, spec } };
     }}
   />
 );

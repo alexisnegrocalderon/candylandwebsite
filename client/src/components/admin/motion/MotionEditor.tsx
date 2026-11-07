@@ -21,6 +21,7 @@ import { specHash } from '@shared/studioRender';
 import { chileIsoDate } from '@shared/contentPlan';
 import { TTS_VOICE_KEYS, TTS_VOICES, voiceScriptHash, type TtsVoice } from '@shared/studioVoice';
 import { MotionPreview } from './MotionPreview';
+import { PackPanel } from './PackPanel';
 
 /* Editor del Estudio Motion: la vista previa a la izquierda (se actualiza al
  * instante, sin IA) y la receta a la derecha. Guardar, grabar a MP4 y mandar
@@ -61,6 +62,7 @@ export function MotionEditor({ id: initialId, initial, onBack }: { id: number | 
   const [id, setId] = useState<number | null>(initialId);
   const [spec, setSpecRaw] = useState<MotionSpec>(initial);
   const [savedHash, setSavedHash] = useState<string | null>(initialId ? JSON.stringify(initial) : null);
+  const [view, setView] = useState<'video' | 'laminas'>('video');
   const [voiceKey, setVoiceKey] = useState<TtsVoice>((initial.voice?.voice as TtsVoice) || 'catalina');
   // Lo que se escribe queda tal cual (con sus espacios) mientras se edita; la
   // vista previa, la duración y lo que se guarda pasan por normalizeMotionSpec.
@@ -175,8 +177,20 @@ export function MotionEditor({ id: initialId, initial, onBack }: { id: number | 
       {!!renderCfg?.missing.length && <p className="text-xs text-muted-foreground">Para grabar el MP4 falta configurar: {renderCfg.missing.join(', ')}. La vista previa funciona igual.</p>}
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,420px)_1fr]">
-        <div className="lg:sticky lg:top-4 lg:self-start">
-          <MotionPreview spec={clean} maxHeight={720} />
+        <div className="space-y-3 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:self-start lg:overflow-y-auto">
+          <div className="flex gap-1.5">
+            {([['video', 'Video'], ['laminas', 'Carrusel · Post · Historia']] as const).map(([k, label]) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => setView(k)}
+                className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${view === k ? 'border-primary bg-primary text-primary-foreground' : 'border-border hover:bg-muted'}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {view === 'video' ? <MotionPreview spec={clean} maxHeight={720} /> : <PackPanel spec={clean} />}
         </div>
 
         <div className="space-y-4">

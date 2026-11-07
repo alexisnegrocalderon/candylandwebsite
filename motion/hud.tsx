@@ -46,7 +46,7 @@ function mmss(frame: number, fps: number) {
 export const Hud: React.FC = () => {
   const frame = useCurrentFrame();
   const { fps, durationInFrames } = useVideoConfig();
-  const { palette, width, height, timeline } = useMotion();
+  const { palette, width, height, timeline, slide } = useMotion();
   const pad = 56;
   const top = height > 1500 ? 120 : 52;
   const bottom = height > 1500 ? 150 : 52;
@@ -56,7 +56,7 @@ export const Hud: React.FC = () => {
   const microStyle: React.CSSProperties = {
     fontFamily: fonts.grotesk, fontWeight: 600, fontSize: type.micro, letterSpacing: '0.22em', color: palette.micro, textTransform: 'uppercase', whiteSpace: 'nowrap',
   };
-  const fadeOut = interpolate(frame, [durationInFrames - 12, durationInFrames - 1], [1, 0], clamp);
+  const fadeOut = slide ? 1 : interpolate(frame, [durationInFrames - 12, durationInFrames - 1], [1, 0], clamp);
   return (
     <AbsoluteFill style={{ pointerEvents: 'none', opacity: 0.62 * fadeOut }}>
       {/* Barra de arriba. */}
@@ -72,10 +72,20 @@ export const Hud: React.FC = () => {
         <div key={i} style={{ opacity: textIn(12 + i * 3) }}><Cross x={x} y={y} color={palette.micro} /></div>
       ))}
 
-      {/* Texto vertical con el número de escena. */}
-      <div style={{ position: 'absolute', right: pad - 8, top: height / 2, transform: 'translate(50%, -50%) rotate(90deg)', ...microStyle, opacity: textIn(18) }}>
-        {`Escena ${String(sceneNo + 1).padStart(2, '0')} / ${String(timeline.scenes.length).padStart(2, '0')}`}
-      </div>
+      {/* Texto vertical con el número de escena (en una lámina quieta no hace falta: va el «01 / 05»). */}
+      {!slide && (
+        <div style={{ position: 'absolute', right: pad - 8, top: height / 2, transform: 'translate(50%, -50%) rotate(90deg)', ...microStyle, opacity: textIn(18) }}>
+          {`Escena ${String(sceneNo + 1).padStart(2, '0')} / ${String(timeline.scenes.length).padStart(2, '0')}`}
+        </div>
+      )}
+
+      {/* Carrusel: invitación a deslizar, a mitad de altura del borde derecho. */}
+      {slide?.swipe && (
+        <div style={{ position: 'absolute', right: pad, bottom: bottom + 70, display: 'flex', alignItems: 'center', gap: 12, ...microStyle, border: `2px solid ${palette.micro}`, borderRadius: 999, padding: '10px 22px', opacity: 1 }}>
+          Desliza
+          <svg width={34} height={14} viewBox="0 0 34 14" fill="none"><path d="M0 7h32M26 2l6 5-6 5" stroke={palette.micro} strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" /></svg>
+        </div>
+      )}
 
       {/* Abajo: @ con ícono, contador y código de barras. */}
       <div style={{ position: 'absolute', bottom, left: pad, right: pad, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
@@ -84,7 +94,9 @@ export const Hud: React.FC = () => {
           <span style={{ ...microStyle, letterSpacing: '0.08em', textTransform: 'none' }}>{MOTION_HANDLE}</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 18, opacity: textIn(20) }}>
-          <span style={{ ...microStyle, fontVariantNumeric: 'tabular-nums', letterSpacing: '0.1em' }}>{mmss(frame, fps)}</span>
+          <span style={{ ...microStyle, fontVariantNumeric: 'tabular-nums', letterSpacing: '0.1em' }}>
+            {slide ? `${String(slide.index + 1).padStart(2, '0')} / ${String(slide.total).padStart(2, '0')}` : mmss(frame, fps)}
+          </span>
           <Barcode color={palette.micro} height={34} />
         </div>
       </div>

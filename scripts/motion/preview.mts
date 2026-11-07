@@ -3,6 +3,7 @@
  * plantillas de partida o de una receta en JSON.
  *
  *   pnpm tsx scripts/motion/preview.mts stills [salida]        # todas las plantillas × estilos
+ *   pnpm tsx scripts/motion/preview.mts pack [salida]          # láminas del carrusel, post e historia (ONLY=estilo, BASE=fondo)
  *   pnpm tsx scripts/motion/preview.mts video receta.json out.mp4
  *
  * Usa el Chromium de la máquina si existe (CHROME_PATH o el de Playwright). */
@@ -10,7 +11,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { bundle } from '@remotion/bundler';
 import { renderMedia, renderStill, selectComposition } from '@remotion/renderer';
-import { MOTION_STYLES, MOTION_TEMPLATES, motionTimeline, normalizeMotionSpec, starterSpec, type MotionSpec } from '../../shared/motionSpec';
+import { MOTION_STYLES, MOTION_TEMPLATES, PACK_KINDS, motionTimeline, normalizeMotionSpec, packSlides, starterSpec, type MotionSpec } from '../../shared/motionSpec';
 
 const ROOT = resolve(import.meta.dirname, '..', '..');
 
@@ -46,6 +47,25 @@ if (mode === 'video') {
   const composition = await selectComposition({ serveUrl, id: 'Motion', inputProps, browserExecutable, chromiumOptions });
   await renderMedia({ composition, serveUrl, codec: 'h264', crf: 17, outputLocation: b ?? 'out.mp4', inputProps, browserExecutable, chromiumOptions });
   console.log('Listo:', b ?? 'out.mp4');
+} else if (mode === 'pack') {
+  const out = a ?? 'motion-pack';
+  mkdirSync(out, { recursive: true });
+  const only = process.env.ONLY?.split(',');
+  for (const style of MOTION_STYLES) {
+    if (only && !only.includes(style)) continue;
+    for (const kind of PACK_KINDS) {
+      const base = starterSpec('anuncio', style);
+      const spec = { ...base, format: kind === 'historia' ? 'reel' : 'feed', ...(process.env.BASE ? { base: process.env.BASE } : {}), ...(process.env.CLOSING ? { closing: process.env.CLOSING } : {}) } as MotionSpec;
+      const slides = packSlides(spec, kind);
+      for (let i = 0; i < slides.length; i++) {
+        const slide = { index: i, total: slides.length, swipe: kind === 'carrusel' && i < slides.length - 1 };
+        const inputProps = { spec, slide };
+        const composition = await selectComposition({ serveUrl, id: 'Motion', inputProps, browserExecutable, chromiumOptions });
+        await renderStill({ composition, serveUrl, output: join(out, `${style}-${kind}-${String(i + 1).padStart(2, '0')}.png`), frame: slides[i].frame, inputProps, browserExecutable, chromiumOptions });
+      }
+      console.log(style, kind, slides.length, 'láminas');
+    }
+  }
 } else {
   const out = a ?? 'motion-stills';
   mkdirSync(out, { recursive: true });

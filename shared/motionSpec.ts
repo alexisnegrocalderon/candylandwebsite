@@ -495,3 +495,55 @@ export function starterSpec(template: MotionTemplate, style: MotionStyle = 'liqu
             ];
   return normalizeMotionSpec({ template, style, scenes, outroLine: 'mansionplayroom.cl', title: MOTION_TEMPLATE_LABEL[template] });
 }
+
+/* --- Pack: reel + carrusel + post + historia de una misma idea ----------------
+ * El contenido es UNO (las escenas del video). Cada salida lo dibuja a su
+ * tamaño con la misma composición, congelada en el cuadro donde la escena ya
+ * quedó asentada (todo entró, nada empezó a salir). Así el carrusel, el post y
+ * la historia se ven igual que el reel, con el mismo estilo. */
+
+export const PACK_KINDS = ['carrusel', 'post', 'historia'] as const;
+export type PackKind = (typeof PACK_KINDS)[number];
+export const PACK_KIND_LABEL: Record<PackKind, string> = { carrusel: 'Carrusel 4:5', post: 'Post 4:5', historia: 'Historia 9:16' };
+export const PACK_SIZES: Record<PackKind, { width: number; height: number }> = {
+  carrusel: { width: 1080, height: 1350 },
+  post: { width: 1080, height: 1350 },
+  historia: { width: 1080, height: 1920 },
+};
+/** Instagram admite hasta 20, pero con más de 10 nadie llega al final. */
+export const PACK_MAX_SLIDES = 10;
+
+export interface PackSlide {
+  /** Cuadro de la línea de tiempo que se congela. */
+  frame: number;
+  /** Número de escena de origen (null = la tarjeta de cierre). */
+  scene: number | null;
+  label: string;
+}
+
+/** Cuadro donde una escena ya está asentada: antes de que empiece a salir y lejos del corte siguiente. */
+export function settledFrame(from: number, frames: number): number {
+  return from + Math.max(Math.min(18, frames - 1), frames - 12);
+}
+
+export function packSlides(spec: MotionSpec, kind: PackKind, fps = MOTION_FPS): PackSlide[] {
+  const tl = motionTimeline(spec, fps);
+  const scenes: PackSlide[] = tl.scenes.map((t) => ({ frame: settledFrame(t.from, t.frames), scene: t.index, label: `Escena ${t.index + 1}` }));
+  // El cierre (firma o tarjeta del @) queda asentado a los ~1,5 s de entrar.
+  const closing: PackSlide | null = tl.outroFrom != null ? { frame: tl.outroFrom + Math.min(45, Math.max(0, tl.outroFrames - 12)), scene: null, label: 'Cierre' } : null;
+  if (kind === 'post') return scenes.slice(0, 1);
+  if (kind === 'historia') {
+    // Una historia es corta: el gancho y, si hay más de una escena, la última (la acción).
+    return scenes.length > 1 ? [scenes[0], scenes[scenes.length - 1]] : scenes;
+  }
+  return [...scenes, ...(closing ? [closing] : [])].slice(0, PACK_MAX_SLIDES);
+}
+
+/** Qué PNG sale de cada lámina del pack: nombre de archivo y tamaño. */
+export function packFileNames(spec: MotionSpec, kind: PackKind): string[] {
+  const slides = packSlides(spec, kind);
+  const base = spec.title
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'video';
+  return slides.map((_, i) => `${kind}/${base}-${kind}-${String(i + 1).padStart(2, '0')}.png`);
+}
+

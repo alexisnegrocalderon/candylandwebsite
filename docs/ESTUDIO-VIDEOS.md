@@ -23,6 +23,26 @@ salidas más rápidas, 5 capas por escena, Ken Burns, grano, sonido en cada cort
 - **Voz en off y subtítulos**: voz chilena de Azure (Catalina o Lorenzo). Cada escena dura lo que su frase y los
   subtítulos salen palabra por palabra (repartidas por largo dentro de la frase; Azure no entrega el tiempo de cada palabra).
 
+## Pack: reel, carrusel, post e historia de una misma idea
+
+El contenido es **uno solo** (las escenas del video). En el editor, la pestaña **Carrusel · Post · Historia** dibuja
+esas mismas escenas como láminas quietas, con el mismo estilo, y las descarga como PNG a 1080 px de ancho:
+
+| Salida | Tamaño | Qué lleva |
+|---|---|---|
+| Carrusel | 4:5 (1080×1350) | una lámina por escena (máximo 10), con «Desliza →» y el cierre (firma o tarjeta del @) como última |
+| Post | 4:5 | el gancho (escena 1) |
+| Historia | 9:16 (1080×1920) | el gancho y, si hay más de una escena, la última (la acción) |
+
+- Cada lámina es la composición de Remotion **congelada en el cuadro donde la escena ya quedó asentada**
+  (`packSlides` en `shared/motionSpec.ts`), así que se ve igual que el reel. En las láminas, el HUD muestra «01 / 04»
+  en vez del cronómetro.
+- Se generan **en el navegador, sin servidor ni IA** (`client/src/components/admin/motion/PackPanel.tsx` y
+  `exportPack.ts`): se dibuja cada lámina a tamaño real fuera de pantalla y se captura con `html-to-image`, con las
+  fuentes incrustadas. Botones: PNG o ZIP de la salida elegida, «Compartir» (menú del celular) y «Pack completo (ZIP)».
+- Si cambias un texto en el video, las láminas se rehacen solas. El MP4 del reel se graba aparte («Grabar MP4»).
+- El póster 3D dibuja con WebGL: en un computador sin tarjeta gráfica la exportación puede tardar más.
+
 ## La IA, sin gastar de más
 
 - **«Crear 3 variantes»**: UNA llamada a Claude Sonnet 5.5 (`server/motionAi.ts`, esfuerzo bajo, salida JSON)

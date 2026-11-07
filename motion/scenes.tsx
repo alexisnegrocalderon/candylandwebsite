@@ -265,12 +265,15 @@ export const BrandSting: React.FC<{ frames: number; tagline: string }> = ({ fram
   const word = spring({ frame: frame - 16, fps, config: springs.smooth });
   const line = spring({ frame: frame - 34, fps, config: springs.snappy });
   const rays = 14;
-  const size = Math.min(width, height) * 0.36;
+  // En vertical 9:16 sobra alto; en 4:5 o cuadrado la firma se achica para no pisar la fila de abajo.
+  const tall = height / width > 1.5;
+  const size = Math.min(width, height) * (tall ? 0.36 : 0.26);
+  const centerY = height * (tall ? 0.42 : 0.37);
   const breathe = useBreathe(20, 0.015);
   return (
     <AbsoluteFill style={{ alignItems: 'center', justifyContent: 'center', opacity: 1 - exit, transform: `scale(${1 - 0.05 * exit})` }}>
       {/* Rayos escalonados detrás del isotipo. */}
-      <div style={{ position: 'absolute', left: width / 2, top: height * 0.42, transform: `rotate(${frame * 0.6}deg)` }}>
+      <div style={{ position: 'absolute', left: width / 2, top: centerY, transform: `rotate(${frame * 0.6}deg)` }}>
         {Array.from({ length: rays }, (_, i) => {
           const p = spring({ frame: frame - 4 - i * 1.2, fps, config: springs.snappy });
           const fade = interpolate(frame, [30, 50], [0.55, 0.22], clamp);
@@ -286,7 +289,7 @@ export const BrandSting: React.FC<{ frames: number; tagline: string }> = ({ fram
           );
         })}
       </div>
-      <div style={{ position: 'absolute', top: height * 0.42 - size * 0.69, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+      <div style={{ position: 'absolute', top: centerY - size * 0.69, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
         <Img
           src={staticFile('candyland/logo-isotipo-transparent.png')}
           style={{
@@ -296,11 +299,11 @@ export const BrandSting: React.FC<{ frames: number; tagline: string }> = ({ fram
           }}
         />
       </div>
-      <div style={{ position: 'absolute', top: height * 0.42 + size * 0.85, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 34 }}>
+      <div style={{ position: 'absolute', top: centerY + size * (tall ? 0.85 : 0.8), display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 34 }}>
         <Img
           // En fondos claros (perla, niebla) va el wordmark a color; en el resto, el blanco.
           src={staticFile(palette.display === BRAND.graphite ? 'candyland/logo-wordmark-email.png' : 'studio/logo-wordmark-white.png')}
-          style={{ width: width * 0.62, opacity: word, transform: `translateY(${interpolate(word, [0, 1], [40, 0])}px)` }}
+          style={{ width: width * (tall ? 0.62 : 0.5), opacity: word, transform: `translateY(${interpolate(word, [0, 1], [40, 0])}px)` }}
         />
         {tagline && (
           <div
