@@ -19,7 +19,7 @@ import { captureStage } from './exportPack';
  * video (el texto es uno solo) y acá se ve cómo queda cada salida y se
  * descargan los PNG a 1080 de ancho. Sin servidor y sin IA. */
 
-const slideInfo = (kind: PackKind, index: number, total: number): MotionSlideInfo => ({ index, total, swipe: kind === 'carrusel' && index < total - 1 });
+const slideInfo = (kind: PackKind, index: number, total: number): MotionSlideInfo => ({ index, total, swipe: kind === 'carrusel' && index < total - 1, thread: kind === 'carrusel' });
 
 /** Una lámina chica de vista previa (se escala sola al ancho de su caja). */
 const SlideThumb: React.FC<{ spec: MotionSpec; kind: PackKind; index: number; frame: number; total: number; label: string }> = ({ spec, kind, index, frame, total, label }) => {

@@ -23,6 +23,26 @@ salidas más rápidas, 5 capas por escena, Ken Burns, grano, sonido en cada cort
 - **Voz en off y subtítulos**: voz chilena de Azure (Catalina o Lorenzo). Cada escena dura lo que su frase y los
   subtítulos salen palabra por palabra (repartidas por largo dentro de la frase; Azure no entrega el tiempo de cada palabra).
 
+## Estilo no es plantilla: la composición cambia en cada pieza
+
+Un **estilo** es un lenguaje visual (colores, tipografía, movimiento). Lo que cambia entre una pieza y otra es la
+**composición**: dónde va el texto, de qué lado, cuánto crece la palabra clave y dónde cae la forma de color.
+
+- **Catálogo por estilo** (`shared/motionVariety.ts` → `LAYOUTS`; la geometría de cada una está en `motion/layouts.ts`):
+  kinetic y editorial tienen 6 (texto abajo, arriba, al centro, a la derecha, palabra gigante, partido); póster 3D, 4
+  (palabra clave abajo o arriba, objeto a la izquierda o a la derecha); soft UI, 5 (tarjeta arriba, abajo, protagonista,
+  inclinada a un lado); liquid y glitch, 5 (centrado, abajo, arriba, izquierda, derecha).
+- **Semilla:** cada video guarda una (`spec.seed`). Con ella se elige la composición de cada escena «automática»,
+  **sin repetir la de la escena anterior ni la de dos antes**, y se mueven y espejan un poco las formas. Misma semilla =
+  mismo resultado (vista previa, láminas y MP4 se ven igual); otra semilla = otra cara, sin gastar IA. Los videos
+  guardados antes de esto sacan la semilla de su nombre, así que no cambian de cara al abrirlos.
+- **Las formas se deslizan** de una composición a la siguiente al cambiar de escena (en una lámina quieta ya llegaron).
+- **Carrusel:** en cada borde entre dos láminas hay una forma de color centrada justo en la línea (media en cada una),
+  que se completa al deslizar (`motion/thread.tsx`).
+- **Quién decide:** (1) la semilla, con el botón **«Variar composiciones»** del editor; (2) la IA, que en la misma
+  llamada elige la composición de cada escena de cada variante y le da a cada una su propia semilla; (3) tú, con el
+  selector **«Composición de esta escena»**, que fija una y deja el resto en automático.
+
 ## Pack: reel, carrusel, post e historia de una misma idea
 
 El contenido es **uno solo** (las escenas del video). En el editor, la pestaña **Carrusel · Post · Historia** dibuja

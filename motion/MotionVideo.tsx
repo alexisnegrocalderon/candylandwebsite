@@ -1,10 +1,12 @@
 import { useMemo } from 'react';
 import { AbsoluteFill, Html5Audio, interpolate, Sequence, staticFile, useCurrentFrame, useVideoConfig } from 'remotion';
 import { captionWords, motionPalette, motionTimeline, normalizeMotionSpec, type MotionSpec } from '../shared/motionSpec';
+import { resolveLayouts } from '../shared/motionVariety';
 import { MotionContext, useMotion, type MotionCtx, type MotionSlideInfo } from './context';
 import { useBrandFonts } from './fonts';
 import { KITS } from './kits';
 import { Camera, HandleCard, Hud } from './hud';
+import { Thread } from './thread';
 import { Grade, Grain, Vignette } from './layers';
 import { KineticScene } from './kinetic';
 import { PosterScene } from './poster';
@@ -107,6 +109,8 @@ const Body: React.FC = () => {
     <>
       {/* 1. Fondo (continuo entre escenas). */}
       <kit.Background />
+      {/* El hilo del carrusel: una forma que cruza de una lámina a la siguiente. */}
+      <Thread />
       {/* 2-3. Fotos, gráfica y texto por escena, con un empuje lento de cámara. */}
       <Camera>
       {timeline.scenes.map((t) => {
@@ -162,7 +166,7 @@ export const MotionVideo: React.FC<MotionVideoProps> = ({ spec: raw, slide = nul
   const { width, height } = useVideoConfig();
   const ctx = useMemo<MotionCtx>(() => {
     const spec = normalizeMotionSpec(raw);
-    return { spec, palette: motionPalette(spec.base, spec.accent), timeline: motionTimeline(spec), width, height, captionsOn: spec.captions && !!spec.voice, slide };
+    return { spec, palette: motionPalette(spec.base, spec.accent), timeline: motionTimeline(spec), width, height, captionsOn: spec.captions && !!spec.voice, layouts: resolveLayouts(spec), slide };
   }, [raw, width, height, slide]);
   return (
     <MotionContext.Provider value={ctx}>

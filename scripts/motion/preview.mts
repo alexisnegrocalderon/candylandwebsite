@@ -4,6 +4,7 @@
  *
  *   pnpm tsx scripts/motion/preview.mts stills [salida]        # todas las plantillas × estilos
  *   pnpm tsx scripts/motion/preview.mts pack [salida]          # láminas del carrusel, post e historia (ONLY=estilo, BASE=fondo)
+ *   pnpm tsx scripts/motion/preview.mts layouts [salida]       # una lámina por composición de cada estilo (ONLY=estilo, FORMAT=reel|feed, BASE=fondo)
  *   pnpm tsx scripts/motion/preview.mts video receta.json out.mp4
  *
  * Usa el Chromium de la máquina si existe (CHROME_PATH o el de Playwright). */
@@ -11,6 +12,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { bundle } from '@remotion/bundler';
 import { renderMedia, renderStill, selectComposition } from '@remotion/renderer';
+import { LAYOUTS } from '../../shared/motionVariety';
 import { MOTION_STYLES, MOTION_TEMPLATES, PACK_KINDS, motionTimeline, normalizeMotionSpec, packSlides, starterSpec, type MotionSpec } from '../../shared/motionSpec';
 
 const ROOT = resolve(import.meta.dirname, '..', '..');
@@ -47,6 +49,32 @@ if (mode === 'video') {
   const composition = await selectComposition({ serveUrl, id: 'Motion', inputProps, browserExecutable, chromiumOptions });
   await renderMedia({ composition, serveUrl, codec: 'h264', crf: 17, outputLocation: b ?? 'out.mp4', inputProps, browserExecutable, chromiumOptions });
   console.log('Listo:', b ?? 'out.mp4');
+} else if (mode === 'layouts') {
+  const out = a ?? 'motion-layouts';
+  mkdirSync(out, { recursive: true });
+  const only = process.env.ONLY?.split(',');
+  const samples = [
+    { kicker: 'SE VIENE', text: 'No es solo una fiesta', highlight: 'fiesta', sub: 'Dirección al comprar' },
+    { text: 'Es el lugar donde por fin puedes ser tú', highlight: 'tú' },
+    { kicker: 'SÁBADO', text: 'Con respeto y consentimiento', highlight: 'consentimiento' },
+    { text: 'Una noche distinta', highlight: 'distinta' },
+    { kicker: 'EN LA BIO', text: 'Entradas disponibles', highlight: 'Entradas', sub: 'Cupos limitados' },
+    { text: 'Te esperamos', highlight: 'esperamos' },
+  ];
+  for (const style of MOTION_STYLES) {
+    if (only && !only.includes(style)) continue;
+    const keys = LAYOUTS[style].map((l) => l.key);
+    const scenes = samples.slice(0, keys.length).map((sc, i) => ({ ...sc, secs: 3, layout: keys[i], card: style === 'softui' ? (['evento', 'calendario', 'checklist', 'chat', 'entrada'][i] ?? 'ninguna') : 'ninguna', items: ['Tu entrada', 'Carnet +18', 'Ganas de pasarlo bien'] }));
+    const spec = normalizeMotionSpec({ ...starterSpec('anuncio', style), scenes, outro: false, format: process.env.FORMAT ?? 'feed', seed: Number(process.env.SEED ?? 11), ...(process.env.BASE ? { base: process.env.BASE } : {}) });
+    const tl = motionTimeline(spec);
+    for (let i = 0; i < tl.scenes.length; i++) {
+      const t = tl.scenes[i];
+      const inputProps = { spec, slide: { index: i, total: tl.scenes.length, swipe: false, thread: false } };
+      const composition = await selectComposition({ serveUrl, id: 'Motion', inputProps, browserExecutable, chromiumOptions });
+      await renderStill({ composition, serveUrl, output: join(out, `${style}-${String(i + 1).padStart(2, '0')}-${keys[i]}.png`), frame: t.from + t.frames - 12, inputProps, browserExecutable, chromiumOptions });
+    }
+    console.log(style, keys.length, 'composiciones');
+  }
 } else if (mode === 'pack') {
   const out = a ?? 'motion-pack';
   mkdirSync(out, { recursive: true });
@@ -55,10 +83,10 @@ if (mode === 'video') {
     if (only && !only.includes(style)) continue;
     for (const kind of PACK_KINDS) {
       const base = starterSpec('anuncio', style);
-      const spec = { ...base, format: kind === 'historia' ? 'reel' : 'feed', ...(process.env.BASE ? { base: process.env.BASE } : {}), ...(process.env.CLOSING ? { closing: process.env.CLOSING } : {}) } as MotionSpec;
+      const spec = { ...base, format: kind === 'historia' ? 'reel' : 'feed', ...(process.env.SEED ? { seed: Number(process.env.SEED) } : {}), ...(process.env.BASE ? { base: process.env.BASE } : {}), ...(process.env.CLOSING ? { closing: process.env.CLOSING } : {}) } as MotionSpec;
       const slides = packSlides(spec, kind);
       for (let i = 0; i < slides.length; i++) {
-        const slide = { index: i, total: slides.length, swipe: kind === 'carrusel' && i < slides.length - 1 };
+        const slide = { index: i, total: slides.length, swipe: kind === 'carrusel' && i < slides.length - 1, thread: kind === 'carrusel' };
         const inputProps = { spec, slide };
         const composition = await selectComposition({ serveUrl, id: 'Motion', inputProps, browserExecutable, chromiumOptions });
         await renderStill({ composition, serveUrl, output: join(out, `${style}-${kind}-${String(i + 1).padStart(2, '0')}.png`), frame: slides[i].frame, inputProps, browserExecutable, chromiumOptions });

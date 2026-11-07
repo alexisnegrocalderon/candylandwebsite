@@ -9,6 +9,8 @@ export interface MotionCtx {
   height: number;
   /** El texto grande deja espacio abajo para los subtítulos. */
   captionsOn: boolean;
+  /** Composición de cada escena (shared/motionVariety.ts → resolveLayouts), en el orden de las escenas. */
+  layouts: string[];
   /** Dibujo de una lámina quieta del pack (carrusel, post, historia); null = video. */
   slide: MotionSlideInfo | null;
 }
@@ -19,6 +21,8 @@ export interface MotionSlideInfo {
   total: number;
   /** Carrusel con más láminas a la derecha: muestra «Desliza». */
   swipe: boolean;
+  /** Es una lámina de carrusel (varias seguidas): las formas cruzan el borde hacia la lámina vecina. */
+  thread: boolean;
 }
 
 export const MotionContext = createContext<MotionCtx | null>(null);

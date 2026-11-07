@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { LAYOUTS, resolveLayouts } from '../shared/motionVariety';
 
 vi.mock('./db', () => ({ getEventById: vi.fn(), getFeaturedEvent: vi.fn() }));
 vi.mock('./winback', () => ({ buildEventFacts: vi.fn(async () => '- Evento: Prueba') }));
@@ -44,6 +45,40 @@ describe('variantsFromAi', () => {
     const [v] = variantsFromAi({ template: 'anuncio', variants: [] }, { format: 'feed', template: 'countdown', media: [] });
     expect(v.template).toBe('countdown');
     expect(v.format).toBe('feed');
+  });
+});
+
+describe('variedad en las variantes de la IA', () => {
+  const raw = {
+    template: 'anuncio',
+    variants: [
+      { style: 'kinetic', scenes: [{ text: 'a', layout: 'gigante' }, { text: 'b', layout: 'partido' }, { text: 'c', layout: 'auto' }] },
+      { style: 'liquid', scenes: [{ text: 'a', layout: 'bajo' }, { text: 'b', layout: 'gigante' }, { text: 'c', layout: 'inventada' }] },
+      { style: 'poster', scenes: [{ text: 'a' }, { text: 'b' }, { text: 'c' }] },
+    ],
+  };
+
+  it('cada variante parte con su propia semilla (aunque compartan el mensaje)', () => {
+    const rnd = vi.spyOn(Math, 'random').mockReturnValueOnce(0.11).mockReturnValueOnce(0.52).mockReturnValueOnce(0.93);
+    const out = variantsFromAi(raw, { format: 'reel', template: null, media: [] });
+    rnd.mockRestore();
+    expect(new Set(out.map((v) => v.seed)).size).toBe(3);
+  });
+
+  it('respeta la composición que eligió la IA y nunca deja una que no sea del estilo', () => {
+    const [kinetic, liquid] = variantsFromAi(raw, { format: 'reel', template: null, media: [] });
+    expect(kinetic.scenes.map((x) => x.layout)).toEqual(['gigante', 'partido', 'auto']);
+    // «gigante» no es de liquid: se guarda tal cual, pero al dibujar la semilla elige una del catálogo de liquid.
+    const keys = LAYOUTS.liquid.map((l) => l.key);
+    const resolved = resolveLayouts(liquid);
+    expect(resolved[0]).toBe('bajo');
+    for (const k of resolved) expect(keys).toContain(k);
+    expect(liquid.scenes[2].layout).toBe('auto');
+  });
+
+  it('el catálogo de composiciones va en el system fijo (con caché) y nombra cada estilo', () => {
+    for (const style of Object.keys(LAYOUTS)) expect(MOTION_SYSTEM).toContain(`${style}: `);
+    expect(MOTION_SYSTEM).toContain('gigante');
   });
 });
 

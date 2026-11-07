@@ -21,6 +21,7 @@ import { MotionEditor } from './MotionEditor';
 import { MotionPreview } from './MotionPreview';
 import { PlanPanel } from './PlanPanel';
 import { AiUsageCard } from './AiUsageCard';
+import { randomSeed } from '@shared/motionVariety';
 import { takeStudioEvent } from './handoff';
 
 /* Estudio Motion (admin → Contenido → Estudio). Todo el contenido en un lugar:
@@ -53,6 +54,8 @@ const STARTERS: Array<{ key: string; template: MotionTemplate; style: MotionStyl
 
 export function MotionStudio() {
   const [view, setView] = useState<View>({ kind: 'home' });
+  // Una semilla por visita: cada punto de partida sale con su propia composición (y no cambian al volver a dibujar).
+  const [baseSeed] = useState(randomSeed);
   const { data: eventsData } = trpc.events.listAll.useQuery();
   const upcoming = (eventsData ?? []).filter((e: any) => new Date(e.eventDate).getTime() > Date.now() && e.status === 'published');
   const [eventPick, setEventPick] = useState<number | null>(() => takeStudioEvent());
@@ -190,8 +193,8 @@ export function MotionStudio() {
           <div>
             <h3 className="mb-3 flex items-center gap-2 font-medium"><Wand2 className="h-4 w-4" /> O parte de una plantilla, sin IA</h3>
             <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-5">
-              {STARTERS.map(({ key, template, style, label, hint }) => {
-                const spec = { ...starterSpec(template, style), format, eventId, eventDate };
+              {STARTERS.map(({ key, template, style, label, hint }, k) => {
+                const spec = { ...starterSpec(template, style), format, eventId, eventDate, seed: (baseSeed + k * 7919) % 1_000_000 };
                 return (
                   <button key={key} type="button" className="group space-y-2 text-left" onClick={() => setView({ kind: 'edit', id: null, spec })}>
                     <MotionPreview spec={spec} controls={false} autoPlay maxHeight={300} className="transition-transform group-hover:scale-[1.02]" />
@@ -211,7 +214,7 @@ export function MotionStudio() {
         </TabsContent>
 
         <TabsContent value="videos" className="pt-4">
-          <VideoList onOpen={(id, spec) => setView({ kind: 'edit', id, spec })} onNew={() => setView({ kind: 'edit', id: null, spec: { ...starterSpec('anuncio'), eventId } })} />
+          <VideoList onOpen={(id, spec) => setView({ kind: 'edit', id, spec })} onNew={() => setView({ kind: 'edit', id: null, spec: { ...starterSpec('anuncio'), eventId, eventDate, seed: randomSeed() } })} />
         </TabsContent>
       </Tabs>
       <AiUsageCard />

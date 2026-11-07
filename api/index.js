@@ -26567,6 +26567,70 @@ var init_contentStudio2 = __esm({
   }
 });
 
+// shared/motionVariety.ts
+function seedFromText(text6) {
+  let h = 2166136261;
+  for (let i = 0; i < text6.length; i++) {
+    h ^= text6.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  return h % 1e6;
+}
+var LAYOUTS, LAYOUT_AUTO, ALL_LAYOUT_KEYS, randomSeed;
+var init_motionVariety = __esm({
+  "shared/motionVariety.ts"() {
+    "use strict";
+    LAYOUTS = {
+      kinetic: [
+        { key: "abajo", label: "Texto abajo" },
+        { key: "arriba", label: "Texto arriba" },
+        { key: "centro", label: "Texto al centro" },
+        { key: "derecha", label: "Alineado a la derecha" },
+        { key: "gigante", label: "Palabra gigante" },
+        { key: "partido", label: "Partido (arriba y abajo)" }
+      ],
+      editorial: [
+        { key: "abajo", label: "Texto abajo" },
+        { key: "arriba", label: "Texto arriba" },
+        { key: "centro", label: "Texto al centro" },
+        { key: "derecha", label: "Alineado a la derecha" },
+        { key: "gigante", label: "Palabra gigante" },
+        { key: "partido", label: "Partido (arriba y abajo)" }
+      ],
+      poster: [
+        { key: "clasico", label: "Cl\xE1sico (palabra clave abajo)" },
+        { key: "invertido", label: "Invertido (palabra clave arriba)" },
+        { key: "izquierda", label: "Objeto a la izquierda" },
+        { key: "derecha", label: "Objeto a la derecha" }
+      ],
+      softui: [
+        { key: "arriba", label: "T\xEDtulo arriba, tarjeta abajo" },
+        { key: "abajo", label: "Tarjeta arriba, t\xEDtulo abajo" },
+        { key: "centro", label: "Tarjeta protagonista" },
+        { key: "izquierda", label: "Tarjeta inclinada a la izquierda" },
+        { key: "derecha", label: "Tarjeta inclinada a la derecha" }
+      ],
+      liquid: [
+        { key: "centro", label: "Centrado" },
+        { key: "bajo", label: "Abajo" },
+        { key: "alto", label: "Arriba" },
+        { key: "izquierda", label: "A la izquierda" },
+        { key: "derecha", label: "A la derecha" }
+      ],
+      glitch: [
+        { key: "centro", label: "Centrado" },
+        { key: "bajo", label: "Abajo" },
+        { key: "alto", label: "Arriba" },
+        { key: "izquierda", label: "A la izquierda" },
+        { key: "derecha", label: "A la derecha" }
+      ]
+    };
+    LAYOUT_AUTO = "auto";
+    ALL_LAYOUT_KEYS = Array.from(new Set(Object.values(LAYOUTS).flatMap((list2) => list2.map((l) => l.key))));
+    randomSeed = () => Math.floor(Math.random() * 1e6);
+  }
+});
+
 // shared/motionSpec.ts
 function cleanMediaUrl2(value) {
   const url = str5(value, 1e3);
@@ -26586,7 +26650,7 @@ function normalizeMedia(raw) {
   return { url, kind };
 }
 function emptyScene(text6 = "") {
-  return { kicker: "", text: text6, highlight: "", sub: "", say: "", secs: 2.5, media: null, card: "ninguna", items: [] };
+  return { kicker: "", text: text6, highlight: "", sub: "", say: "", secs: 2.5, media: null, layout: LAYOUT_AUTO, card: "ninguna", items: [] };
 }
 function normalizeScene(raw) {
   if (!raw || typeof raw !== "object") return null;
@@ -26602,6 +26666,7 @@ function normalizeScene(raw) {
     say: str5(r.say, 180),
     secs: Math.round(clampNum(r.secs, MOTION_SCENE_SECS.min, MOTION_SCENE_SECS.max, 2.5) * 10) / 10,
     media: normalizeMedia(r.media),
+    layout: typeof r.layout === "string" && ALL_LAYOUT_KEYS.includes(r.layout) ? r.layout : LAYOUT_AUTO,
     card: pick(r.card, MOTION_CARDS, "ninguna"),
     items: (Array.isArray(r.items) ? r.items : []).map((x) => str5(x, 70)).filter(Boolean).slice(0, MOTION_MAX_ITEMS)
   };
@@ -26639,6 +26704,8 @@ function normalizeMotionSpec(raw) {
     title: str5(r.title, 200) || "Video sin nombre",
     caption: typeof r.caption === "string" ? r.caption.slice(0, 2200) : "",
     eventId: Number.isInteger(eventId) && eventId > 0 ? eventId : null,
+    // Los videos guardados sin semilla la sacan de su nombre: no cambian de cara al abrirlos.
+    seed: Number.isInteger(r.seed) && r.seed >= 0 && r.seed < 1e6 ? r.seed : seedFromText(str5(r.title, 200) || "Video sin nombre"),
     eventDate: typeof r.eventDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(r.eventDate) ? r.eventDate : "",
     template,
     style,
@@ -26661,6 +26728,7 @@ var MOTION_TEMPLATES, MOTION_STYLES, MOTION_FORMATS, MOTION_BASES, MOTION_ACCENT
 var init_motionSpec = __esm({
   "shared/motionSpec.ts"() {
     "use strict";
+    init_motionVariety();
     MOTION_TEMPLATES = ["anuncio", "countdown", "montaje", "sting"];
     MOTION_STYLES = ["liquid", "glitch", "editorial", "kinetic", "poster", "softui"];
     MOTION_FORMATS = ["reel", "feed", "square"];
@@ -53098,6 +53166,7 @@ var TONO_DE_VOZ = '# Tono de voz\n\n## En una frase\n\nCercano y directo, con pi
 
 // server/motionAi.ts
 init_aiPhrasesEs();
+init_motionVariety();
 init_eventBrand();
 init_contentPlan();
 init_motionSpec();
@@ -53112,10 +53181,11 @@ var SCENE_SCHEMA = {
     say: { type: "string", description: "Lo que dir\xEDa una voz en off en esta escena (frase natural, \u2264 16 palabras). Vac\xEDo si no hace falta." },
     secs: { type: "number", description: "Segundos en pantalla, de 1.2 a 3.5." },
     mediaIndex: { type: "integer", description: "\xCDndice de la foto/clip entregado que va de fondo en esta escena, o -1 para ninguno." },
+    layout: { type: "string", enum: [LAYOUT_AUTO, ...ALL_LAYOUT_KEYS], description: 'Composici\xF3n de la escena, SOLO una de las del estilo de esta variante (ver el cat\xE1logo). Var\xEDa de una escena a otra; "auto" si no importa.' },
     card: { type: "string", enum: [...MOTION_CARDS], description: 'Solo en softui: tarjeta de vidrio de la escena. En los dem\xE1s estilos, "ninguna".' },
     items: { type: "array", items: { type: "string" }, description: "Solo para tarjetas checklist (\xEDtems), chat (mensajes, alternando qui\xE9n habla) o evento (2-3 datos cortos). M\xE1ximo 5, cortos. Si no, lista vac\xEDa." }
   },
-  required: ["kicker", "text", "highlight", "sub", "say", "secs", "mediaIndex", "card", "items"],
+  required: ["kicker", "text", "highlight", "sub", "say", "secs", "mediaIndex", "layout", "card", "items"],
   additionalProperties: false
 };
 var VARIANT_SCHEMA = {
@@ -53144,6 +53214,7 @@ var OUTPUT_SCHEMA = {
   required: ["title", "caption", "template", "countdownValue", "countdownUnit", "outroLine", "variants"],
   additionalProperties: false
 };
+var LAYOUT_CATALOG = Object.keys(LAYOUTS).map((style) => `${style}: ${LAYOUTS[style].map((l) => `${l.key} (${l.label.toLowerCase()})`).join(", ")}`).join("; ");
 var MOTION_SYSTEM = [
   AI_PHRASES_PROMPT_LINE,
   "Eres el director creativo de motion graphics de Mansion Playroom (fiestas liberales +18 en Valpara\xEDso / Vi\xF1a del Mar, Chile). Escribes el GUION y eliges la DIRECCI\xD3N DE ARTE de videos verticales para Instagram. Un motor de plantillas (Remotion) los anima: t\xFA no dibujas nada, solo eliges de la biblioteca y escribes los textos.",
@@ -53162,6 +53233,7 @@ var MOTION_SYSTEM = [
   "BIBLIOTECA:",
   '- Plantillas: anuncio (texto cin\xE9tico sobre fondo de marca; para anunciar evento, explicar, invitar), countdown (escena 1 = n\xFAmero grande con su unidad, `text` de la escena 1 es la frase bajo el n\xFAmero, ej. "para la noche"; `kicker` = "FALTAN"; usa los d\xEDas reales hasta el evento), montaje (fotos/clips reales de fondo con texto abajo; asigna cada foto entregada con `mediaIndex`, una por escena, sin repetir), sting (solo la firma de marca, 1 escena con `sub` como frase).',
   "- Estilos (eliges 3 distintos de 5; si el pedido es hablar de un tema, explicar o educar, kinetic va SIEMPRE): kinetic = tipograf\xEDa cin\xE9tica editorial: cada escena es una frase de 5 a 14 palabras que se arma palabra a palabra, conectores chicos y UNA palabra enorme (`highlight`); el estilo para temas, opiniones y frases que paran el scroll; 2,5 a 4 s por escena, 4 a 8 escenas. softui = tarjetas de vidrio flotando en 3D sobre fondo claro (como una app): cada escena puede llevar UNA tarjeta (`card`): evento (texto grande = nombre, `kicker` = fecha, `sub` = ciudad y hora, `items` = 2-3 datos), calendario (marca sola la fecha real del evento; \xFAsala solo si hay evento), checklist (`items` = qu\xE9 llevar, reglas, pasos), chat (`items` = mensajes cortos, como un DM), entrada (ticket: `text` = acci\xF3n, `kicker` y `sub` = datos). Ideal para explicar c\xF3mo funciona, qu\xE9 llevar, c\xF3mo comprar; 3 a 5 escenas de 3 a 4 s. poster = p\xF3ster suizo: palabras arriba, la palabra clave GIGANTE abajo (`highlight`, 1 o 2 palabras cortas) y un cubo/coraz\xF3n 3D de marca girando entre ambas; 2 a 4 escenas de 2,5 a 3,5 s; ideal para anuncios fuertes y portadas. liquid = manchas l\xEDquidas y burbujas, letras infladas que rebotan; alegre, cercano; ritmo medio. glitch = se\xF1al rota, separaci\xF3n de color, cortes secos; energ\xEDa de fiesta, urgencia; ritmo r\xE1pido (escenas m\xE1s cortas, textos en may\xFAsculas se ven bien). editorial = revista premium, revelado con m\xE1scara, mucho aire; elegante, confianza, explicar; ritmo m\xE1s pausado (puede llevar bajadas).",
+  `- Composiciones por estilo (campo \`layout\` de cada escena; usa SOLO las de su estilo, alterna entre escenas y no repitas la misma dos veces seguidas; el gancho y la acci\xF3n final van mejor en las cl\xE1sicas): ${LAYOUT_CATALOG}.`,
   "- Fondos: azul = celeste (por defecto en liquid), tinta = azul profundo (por defecto en glitch), perla = blanco roto editorial (por defecto en editorial), rosa, niebla = gris celeste editorial, noche = ciruela casi negra de PLAYMORE (solo para fiestas de noche). Acento: el color protagonista, distinto del fondo. Var\xEDa entre variantes.",
   "- M\xFAsica: pulse (electr\xF3nica 120 BPM, vers\xE1til), drive (house 124 BPM, la m\xE1s fiestera), dream (suave 96 BPM, para confianza y explicaciones).",
   "",
@@ -53199,6 +53271,8 @@ function variantsFromAi(raw, input) {
       template,
       style,
       format: input.format,
+      // Cada variante parte con su propia semilla: aunque dos tengan el mismo estilo, no se ven iguales.
+      seed: randomSeed(),
       base: v.base,
       accent: v.accent,
       music: v.music,

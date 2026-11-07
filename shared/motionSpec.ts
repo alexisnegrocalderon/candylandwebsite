@@ -7,6 +7,8 @@
  * llega (normalizeMotionSpec) y la línea de tiempo (motionTimeline). Así la
  * composición, el servidor y los tests leen exactamente lo mismo. */
 
+import { ALL_LAYOUT_KEYS, LAYOUT_AUTO, seedFromText } from './motionVariety';
+
 export const MOTION_FPS = 30;
 
 export const MOTION_TEMPLATES = ['anuncio', 'countdown', 'montaje', 'sting'] as const;
@@ -186,6 +188,9 @@ export interface MotionScene {
   /** Segundos en pantalla (sin voz; con voz manda lo que dura la frase). */
   secs: number;
   media: MotionMedia | null;
+  /** Composición de la escena (dónde va el texto y la forma de color): «auto» la elige la semilla del
+   * video; si no, una del catálogo del estilo (shared/motionVariety.ts). */
+  layout: string;
   /** Tarjeta de vidrio del estilo softui (ninguna en los demás). */
   card: MotionCard;
   /** Líneas de la tarjeta: ítems del checklist, mensajes del chat, datos de la entrada. */
@@ -221,6 +226,9 @@ export interface MotionSpec {
   /** Texto para la publicación de Instagram. */
   caption: string;
   eventId: number | null;
+  /** Semilla de la variedad: con ella se eligen las composiciones de las escenas «auto» y se mueven las formas.
+   * Misma semilla = mismo resultado; «Variar» en el editor la cambia. */
+  seed: number;
   /** Fecha del evento (YYYY-MM-DD, hora de Chile) para el calendario; vacía si no hay. */
   eventDate: string;
   template: MotionTemplate;
@@ -286,7 +294,7 @@ function normalizeMedia(raw: unknown): MotionMedia | null {
 }
 
 export function emptyScene(text = ''): MotionScene {
-  return { kicker: '', text, highlight: '', sub: '', say: '', secs: 2.5, media: null, card: 'ninguna', items: [] };
+  return { kicker: '', text, highlight: '', sub: '', say: '', secs: 2.5, media: null, layout: LAYOUT_AUTO, card: 'ninguna', items: [] };
 }
 
 function normalizeScene(raw: unknown): MotionScene | null {
@@ -304,6 +312,7 @@ function normalizeScene(raw: unknown): MotionScene | null {
     say: str(r.say, 180),
     secs: Math.round(clampNum(r.secs, MOTION_SCENE_SECS.min, MOTION_SCENE_SECS.max, 2.5) * 10) / 10,
     media: normalizeMedia(r.media),
+    layout: typeof r.layout === 'string' && ALL_LAYOUT_KEYS.includes(r.layout) ? r.layout : LAYOUT_AUTO,
     card: pick(r.card, MOTION_CARDS, 'ninguna'),
     items: (Array.isArray(r.items) ? r.items : []).map((x) => str(x, 70)).filter(Boolean).slice(0, MOTION_MAX_ITEMS),
   };
@@ -345,6 +354,8 @@ export function normalizeMotionSpec(raw: unknown): MotionSpec {
     title: str(r.title, 200) || 'Video sin nombre',
     caption: typeof r.caption === 'string' ? r.caption.slice(0, 2200) : '',
     eventId: Number.isInteger(eventId) && eventId > 0 ? eventId : null,
+    // Los videos guardados sin semilla la sacan de su nombre: no cambian de cara al abrirlos.
+    seed: Number.isInteger(r.seed) && (r.seed as number) >= 0 && (r.seed as number) < 1_000_000 ? (r.seed as number) : seedFromText(str(r.title, 200) || 'Video sin nombre'),
     eventDate: typeof r.eventDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(r.eventDate) ? r.eventDate : '',
     template,
     style,

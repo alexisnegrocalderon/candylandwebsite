@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { ArrowDown, ArrowLeft, ArrowUp, Copy, Download, Film, ImagePlus, Loader2, Mic, Plus, Save, Send, Trash2, X } from 'lucide-react';
+import { ArrowDown, ArrowLeft, ArrowUp, Copy, Dices, Download, Film, ImagePlus, Loader2, Mic, Plus, Save, Send, Trash2, X } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
 import { WriteButton } from '@/components/admin/WriteButton';
@@ -18,6 +18,7 @@ import {
   type MotionScene, type MotionSpec,
 } from '@shared/motionSpec';
 import { specHash } from '@shared/studioRender';
+import { LAYOUT_AUTO, LAYOUTS, randomSeed, resolveLayouts } from '@shared/motionVariety';
 import { chileIsoDate } from '@shared/contentPlan';
 import { TTS_VOICE_KEYS, TTS_VOICES, voiceScriptHash, type TtsVoice } from '@shared/studioVoice';
 import { MotionPreview } from './MotionPreview';
@@ -119,6 +120,7 @@ export function MotionEditor({ id: initialId, initial, onBack }: { id: number | 
   }, [id, clean, save]);
 
   const secs = useMemo(() => motionTimeline(clean).total / 30, [clean]);
+  const resolved = useMemo(() => resolveLayouts(clean), [clean]);
   const says = voiceSays(clean);
   const voiceFresh = !clean.voice || clean.voice.hash === voiceScriptHash({ says, voice: clean.voice.voice as TtsVoice, rate: clean.voice.rate, pitch: clean.voice.pitch });
   const renderState = stored?.render;
@@ -198,6 +200,11 @@ export function MotionEditor({ id: initialId, initial, onBack }: { id: number | 
             <CardContent className="grid gap-3 pt-6 sm:grid-cols-2">
               <Field label="Plantilla"><Pick value={spec.template} options={MOTION_TEMPLATES} labels={MOTION_TEMPLATE_LABEL} onChange={(template) => setSpec({ template })} /></Field>
               <Field label="Estilo"><Pick value={spec.style} options={MOTION_STYLES} labels={MOTION_STYLE_LABEL} onChange={(style) => setSpec({ style })} /></Field>
+              <Field label="Composición" hint="Cada escena usa una composición distinta del estilo; «Variar» prueba otras (gratis, sin IA).">
+                <Button type="button" variant="outline" className="w-full justify-start" onClick={() => setSpec({ seed: randomSeed() })}>
+                  <Dices className="mr-2 h-4 w-4" /> Variar composiciones
+                </Button>
+              </Field>
               <Field label="Fondo"><Pick value={spec.base} options={MOTION_BASES} labels={MOTION_BASE_LABEL} onChange={(base) => setSpec({ base })} /></Field>
               <Field label="Color de acento" hint="El protagonista: un solo elemento por cuadro."><Pick value={clean.accent} options={MOTION_ACCENTS} labels={MOTION_ACCENT_LABEL} onChange={(accent) => setSpec({ accent })} /></Field>
               <Field label="Formato"><Pick value={spec.format} options={MOTION_FORMATS} labels={MOTION_FORMAT_LABEL} onChange={(format) => setSpec({ format })} /></Field>
@@ -257,6 +264,15 @@ export function MotionEditor({ id: initialId, initial, onBack }: { id: number | 
                         <Field label="Etiqueta"><Input value={scene.kicker} maxLength={40} onChange={(e) => setScene(i, { kicker: e.target.value })} placeholder="SÁBADO 14" /></Field>
                         <Field label="Texto grande" hint="5 palabras o menos se leen mejor."><Input value={scene.text} maxLength={90} onChange={(e) => setScene(i, { text: e.target.value })} /></Field>
                       </div>
+                      <Field label="Composición de esta escena" hint={scene.layout === LAYOUT_AUTO ? `Automática: ${LAYOUTS[clean.style].find((l) => l.key === resolved[i])?.label ?? 'la clásica'}.` : undefined}>
+                        <Select value={scene.layout && scene.layout !== LAYOUT_AUTO && LAYOUTS[clean.style].some((l) => l.key === scene.layout) ? scene.layout : LAYOUT_AUTO} onValueChange={(layout) => setScene(i, { layout })}>
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value={LAYOUT_AUTO}>Automática (la elige la semilla)</SelectItem>
+                            {LAYOUTS[clean.style].map((l) => <SelectItem key={l.key} value={l.key}>{l.label}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </Field>
                       <div className="grid gap-3 sm:grid-cols-[1fr_2fr_90px]">
                         <Field label="Palabra destacada"><Input value={scene.highlight} maxLength={40} onChange={(e) => setScene(i, { highlight: e.target.value })} /></Field>
                         <Field label="Bajada"><Input value={scene.sub} maxLength={140} onChange={(e) => setScene(i, { sub: e.target.value })} /></Field>

@@ -3,6 +3,7 @@ import { buildEventFacts } from './winback';
 import { quickJson } from './studioAi/quickCall';
 import { TONO_DE_VOZ } from './studioAi/brandPack';
 import { AI_PHRASES_PROMPT_LINE } from '../shared/aiPhrasesEs';
+import { ALL_LAYOUT_KEYS, LAYOUT_AUTO, LAYOUTS, randomSeed } from '../shared/motionVariety';
 import { EVENT_BRAND } from '../shared/eventBrand';
 import { chileIsoDate } from '../shared/contentPlan';
 import {
@@ -32,10 +33,11 @@ const SCENE_SCHEMA = {
     say: { type: 'string', description: 'Lo que diría una voz en off en esta escena (frase natural, ≤ 16 palabras). Vacío si no hace falta.' },
     secs: { type: 'number', description: 'Segundos en pantalla, de 1.2 a 3.5.' },
     mediaIndex: { type: 'integer', description: 'Índice de la foto/clip entregado que va de fondo en esta escena, o -1 para ninguno.' },
+    layout: { type: 'string', enum: [LAYOUT_AUTO, ...ALL_LAYOUT_KEYS], description: 'Composición de la escena, SOLO una de las del estilo de esta variante (ver el catálogo). Varía de una escena a otra; "auto" si no importa.' },
     card: { type: 'string', enum: [...MOTION_CARDS], description: 'Solo en softui: tarjeta de vidrio de la escena. En los demás estilos, "ninguna".' },
     items: { type: 'array', items: { type: 'string' }, description: 'Solo para tarjetas checklist (ítems), chat (mensajes, alternando quién habla) o evento (2-3 datos cortos). Máximo 5, cortos. Si no, lista vacía.' },
   },
-  required: ['kicker', 'text', 'highlight', 'sub', 'say', 'secs', 'mediaIndex', 'card', 'items'],
+  required: ['kicker', 'text', 'highlight', 'sub', 'say', 'secs', 'mediaIndex', 'layout', 'card', 'items'],
   additionalProperties: false,
 } as const;
 
@@ -67,6 +69,11 @@ const OUTPUT_SCHEMA = {
   additionalProperties: false,
 } as const;
 
+/** El catálogo de composiciones de cada estilo, para el system (fijo: va en caché). */
+const LAYOUT_CATALOG = (Object.keys(LAYOUTS) as Array<keyof typeof LAYOUTS>)
+  .map((style) => `${style}: ${LAYOUTS[style].map((l) => `${l.key} (${l.label.toLowerCase()})`).join(', ')}`)
+  .join('; ');
+
 /** Fijo entre llamadas (va en caché): reglas de marca, biblioteca y ejemplo. */
 export const MOTION_SYSTEM = [
   AI_PHRASES_PROMPT_LINE,
@@ -86,6 +93,7 @@ export const MOTION_SYSTEM = [
   'BIBLIOTECA:',
   '- Plantillas: anuncio (texto cinético sobre fondo de marca; para anunciar evento, explicar, invitar), countdown (escena 1 = número grande con su unidad, `text` de la escena 1 es la frase bajo el número, ej. "para la noche"; `kicker` = "FALTAN"; usa los días reales hasta el evento), montaje (fotos/clips reales de fondo con texto abajo; asigna cada foto entregada con `mediaIndex`, una por escena, sin repetir), sting (solo la firma de marca, 1 escena con `sub` como frase).',
   '- Estilos (eliges 3 distintos de 5; si el pedido es hablar de un tema, explicar o educar, kinetic va SIEMPRE): kinetic = tipografía cinética editorial: cada escena es una frase de 5 a 14 palabras que se arma palabra a palabra, conectores chicos y UNA palabra enorme (`highlight`); el estilo para temas, opiniones y frases que paran el scroll; 2,5 a 4 s por escena, 4 a 8 escenas. softui = tarjetas de vidrio flotando en 3D sobre fondo claro (como una app): cada escena puede llevar UNA tarjeta (`card`): evento (texto grande = nombre, `kicker` = fecha, `sub` = ciudad y hora, `items` = 2-3 datos), calendario (marca sola la fecha real del evento; úsala solo si hay evento), checklist (`items` = qué llevar, reglas, pasos), chat (`items` = mensajes cortos, como un DM), entrada (ticket: `text` = acción, `kicker` y `sub` = datos). Ideal para explicar cómo funciona, qué llevar, cómo comprar; 3 a 5 escenas de 3 a 4 s. poster = póster suizo: palabras arriba, la palabra clave GIGANTE abajo (`highlight`, 1 o 2 palabras cortas) y un cubo/corazón 3D de marca girando entre ambas; 2 a 4 escenas de 2,5 a 3,5 s; ideal para anuncios fuertes y portadas. liquid = manchas líquidas y burbujas, letras infladas que rebotan; alegre, cercano; ritmo medio. glitch = señal rota, separación de color, cortes secos; energía de fiesta, urgencia; ritmo rápido (escenas más cortas, textos en mayúsculas se ven bien). editorial = revista premium, revelado con máscara, mucho aire; elegante, confianza, explicar; ritmo más pausado (puede llevar bajadas).',
+  `- Composiciones por estilo (campo \`layout\` de cada escena; usa SOLO las de su estilo, alterna entre escenas y no repitas la misma dos veces seguidas; el gancho y la acción final van mejor en las clásicas): ${LAYOUT_CATALOG}.`,
   '- Fondos: azul = celeste (por defecto en liquid), tinta = azul profundo (por defecto en glitch), perla = blanco roto editorial (por defecto en editorial), rosa, niebla = gris celeste editorial, noche = ciruela casi negra de PLAYMORE (solo para fiestas de noche). Acento: el color protagonista, distinto del fondo. Varía entre variantes.',
   '- Música: pulse (electrónica 120 BPM, versátil), drive (house 124 BPM, la más fiestera), dream (suave 96 BPM, para confianza y explicaciones).',
   '',
@@ -161,6 +169,8 @@ export function variantsFromAi(raw: RawOutput, input: Pick<MotionIdeaInput, 'for
       template,
       style,
       format: input.format,
+      // Cada variante parte con su propia semilla: aunque dos tengan el mismo estilo, no se ven iguales.
+      seed: randomSeed(),
       base: v.base,
       accent: v.accent,
       music: v.music,

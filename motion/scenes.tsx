@@ -3,6 +3,8 @@ import { BRAND, type MotionScene } from '../shared/motionSpec';
 import { useMotion } from './context';
 import { bubbleShadow, KITS, rand } from './kits';
 import { MediaLayer, useBreathe, useExit } from './layers';
+import { CENTERED, useMagazine, type Align } from './layouts';
+import { syneWidth } from './measure';
 import { beats, ease, fonts, safeInsets, springs } from './theme';
 
 const clamp = { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' } as const;
@@ -34,7 +36,7 @@ export function heroWords(text: string, highlight: string): Set<number> {
   return out;
 }
 
-export const Headline: React.FC<{ text: string; highlight: string; base: number; delay: number; maxWidth?: number }> = ({ text, highlight, base, delay, maxWidth }) => {
+export const Headline: React.FC<{ text: string; highlight: string; base: number; delay: number; maxWidth?: number; align?: Align; heroScale?: number }> = ({ text, highlight, base, delay, maxWidth, align: alignProp, heroScale = 1 }) => {
   const { spec, width } = useMotion();
   const kit = KITS[spec.style];
   const breathe = useBreathe();
@@ -49,7 +51,12 @@ export const Headline: React.FC<{ text: string; highlight: string; base: number;
   }
   const heroText = kit.contrast ? words.filter((_, i) => heroes.has(i)).join(' ') || shown : shown;
   // En contraste, la grande se mide sola (las chicas van a ~40 %).
-  const size = fitSize(heroText, kit.contrast ? base * 1.25 : base, usable, kit.uppercase ? 0.86 : 0.8);
+  // El titular de revista usa Syne (muy ancha): se mide con su propio ancho para que la palabra grande nunca se salga.
+  const size = kit.contrast
+    ? Math.round(Math.min(base * 1.25 * heroScale, (usable * 0.97) / Math.max(2.5, syneWidth(heroText))))
+    : fitSize(heroText, base, usable, kit.uppercase ? 0.86 : 0.8);
+  const align: Align = alignProp ?? kit.align;
+  const justify = align === 'center' ? 'center' : align === 'right' ? 'flex-end' : 'flex-start';
   const small = Math.round(size * 0.4);
   return (
     <div
@@ -62,13 +69,13 @@ export const Headline: React.FC<{ text: string; highlight: string; base: number;
         display: 'flex',
         flexWrap: 'wrap',
         alignItems: 'baseline',
-        justifyContent: kit.align === 'center' ? 'center' : 'flex-start',
-        textAlign: kit.align,
+        justifyContent: justify,
+        textAlign: align,
         columnGap: Math.round(size * (kit.contrast ? 0.18 : 0.28)),
         rowGap: Math.round(size * 0.04),
         maxWidth: usable,
         transform: `scale(${breathe})`,
-        transformOrigin: kit.align === 'center' ? '50% 50%' : '0% 50%',
+        transformOrigin: align === 'center' ? '50% 50%' : align === 'right' ? '100% 50%' : '0% 50%',
       }}
     >
       {words.map((w, i) => {
@@ -114,7 +121,7 @@ export const Kicker: React.FC<{ text: string; delay?: number }> = ({ text, delay
   );
 };
 
-export const Sub: React.FC<{ text: string; delay: number; size?: number }> = ({ text, delay, size = 46 }) => {
+export const Sub: React.FC<{ text: string; delay: number; size?: number; align?: Align }> = ({ text, delay, size = 46, align }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const { palette, spec } = useMotion();
@@ -129,7 +136,7 @@ export const Sub: React.FC<{ text: string; delay: number; size?: number }> = ({ 
         lineHeight: 1.35,
         color: palette.body,
         maxWidth: 860,
-        textAlign: KITS[spec.style].align,
+        textAlign: align ?? KITS[spec.style].align,
         opacity: p,
         transform: `translateY(${interpolate(p, [0, 1], [30, 0])}px)`,
       }}
@@ -144,7 +151,7 @@ export const Sub: React.FC<{ text: string; delay: number; size?: number }> = ({ 
 type Role = 'hook' | 'body' | 'cta';
 
 export const TextScene: React.FC<{ scene: MotionScene; index: number; frames: number; role: Role; lowerThird?: boolean }> = ({ scene, index, frames, role, lowerThird }) => {
-  const { spec, width, height, captionsOn, palette } = useMotion();
+  const { spec, width, height, captionsOn, palette, layouts } = useMotion();
   const frame = useCurrentFrame();
   const kit = KITS[spec.style];
   const exit = useExit(frames, beats.exit);
@@ -155,30 +162,48 @@ export const TextScene: React.FC<{ scene: MotionScene; index: number; frames: nu
   const subDelay = headDelay + words * beats.stagger + 8;
   // CTA: subrayado que crece bajo el texto, en el color protagonista.
   const underline = interpolate(frame, [subDelay, subDelay + 16], [0, 1], { easing: ease.out, ...clamp });
-  const align = kit.align === 'center' ? 'center' : 'flex-start';
+  // Composición de la escena (shared/motionVariety.ts la elige; motion/layouts.ts dice qué hace).
+  const tall = height / width > 1.5;
+  const magazine = useMagazine(index).geo;
+  const centered = CENTERED[layouts[index]] ?? CENTERED.centro;
+  const align: Align = lowerThird ? kit.align : kit.contrast ? magazine.align : centered.align;
+  const anchor = lowerThird ? 'bottom' : kit.contrast ? magazine.anchor : centered.v === 'top' ? 'top' : centered.v === 'bottom' ? 'bottom' : 'center';
+  const heroScale = kit.contrast && !lowerThird ? magazine.heroScale : 1;
+  // El bloque de arriba deja libre la barra del HUD (en 4:5 ocupa más alto relativo que en 9:16).
+  const topPad = inset.top + (anchor === 'top' || anchor === 'split' ? (tall ? 30 : 120) : 0);
+  const bottomPad = inset.bottom + (captionsOn ? height * 0.16 : 0) + (kit.contrast && !lowerThird && anchor === 'bottom' ? height * 0.1 : 0);
+  const split = anchor === 'split' && !!scene.kicker;
+  const alignItems = align === 'center' ? 'center' : align === 'right' ? 'flex-end' : 'flex-start';
+  // «partido» sin etiqueta no tiene qué separar: queda abajo, como un titular grande.
+  const justifyContent = split ? 'space-between' : anchor === 'top' ? 'flex-start' : anchor === 'center' ? 'center' : 'flex-end';
+  const kicker = scene.kicker ? <Kicker text={scene.kicker} /> : null;
   return (
     <AbsoluteFill>
       {scene.media && <MediaLayer media={scene.media} index={index} frames={frames} dim={lowerThird ? 0.55 : 0.4} />}
       <AbsoluteFill
         style={{
-          paddingTop: inset.top,
+          paddingTop: topPad,
           paddingLeft: inset.side,
           paddingRight: inset.side,
           display: 'flex',
           flexDirection: 'column',
-          justifyContent: lowerThird || kit.contrast ? 'flex-end' : 'center',
-          paddingBottom: inset.bottom + (captionsOn ? height * 0.16 : 0) + (kit.contrast && !lowerThird ? height * 0.1 : 0),
-          alignItems: align,
+          justifyContent,
+          paddingBottom: bottomPad,
+          alignItems,
           gap: 36,
           ...kit.exitStyle(exit),
         }}
       >
-        {scene.kicker && <Kicker text={scene.kicker} />}
-        <Headline text={scene.text} highlight={scene.highlight} base={base} delay={headDelay} />
-        {role === 'cta' && !scene.sub && (
-          <div style={{ height: 10, width: 320 * underline, borderRadius: 5, background: palette.hero, boxShadow: `0 0 40px ${palette.hero}88` }} />
-        )}
-        <Sub text={scene.sub} delay={subDelay} />
+        {/* En «partido» la etiqueta queda arriba y el titular abajo. */}
+        {split && kicker}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems, gap: 36, width: '100%' }}>
+          {!split && kicker}
+          <Headline text={scene.text} highlight={scene.highlight} base={base} delay={headDelay} align={align} heroScale={heroScale} />
+          {role === 'cta' && !scene.sub && (
+            <div style={{ height: 10, width: 320 * underline, borderRadius: 5, background: palette.hero, boxShadow: `0 0 40px ${palette.hero}88` }} />
+          )}
+          <Sub text={scene.sub} delay={subDelay} align={align} />
+        </div>
       </AbsoluteFill>
     </AbsoluteFill>
   );
