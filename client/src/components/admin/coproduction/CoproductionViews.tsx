@@ -6,6 +6,7 @@ import {
   Ticket, Upload, UserPlus, Users, Wallet, X, type LucideIcon,
 } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
+import { PlayGameAdmin } from './PlayGameAdmin';
 import { fromChileInputValue } from '@/pages/admin/sections/shared';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -847,6 +848,7 @@ export function CoproConfig() {
       </section>
 
       {setup.eventId && <PlaymoreTandas slug={slug} />}
+      {setup.eventId && <PlayGameAdmin />}
 
       {/* Vista previa */}
       <section className="admin-clay space-y-3 p-5">

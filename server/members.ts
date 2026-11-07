@@ -30,6 +30,10 @@ import { COUPON_BATCH_MAX, couponGiftError, couponPushText, defaultCouponTitle, 
 import { PLACEHOLDER_BUYER_EMAILS } from '../shared/parking';
 import { customerWhere } from './customerFilters';
 import { appUserEmails } from './appDevices';
+import { ENV } from './_core/env';
+import { isEventColab } from './coproduction';
+import { peopleForAcceso, type PlayTeam } from '../shared/playTeams';
+import { teamsForTicket } from './playTeams';
 
 type CustomerRow = typeof customers.$inferSelect;
 
@@ -345,7 +349,7 @@ export async function getMemberHome(email: string, now = new Date()) {
       .where(eq(memberCoupons.email, key)).orderBy(desc(memberCoupons.createdAt)).limit(30),
     db.select({
       ticketCode: tickets.ticketCode, displayCode: tickets.displayCode, usedAt: tickets.usedAt, holderName: tickets.holderName, status: tickets.status, qrImageUrl: tickets.qrImageUrl,
-      category: ticketTypes.category, typeName: ticketTypes.name,
+      category: ticketTypes.category, typeName: ticketTypes.name, accesoSlug: ticketTypes.accesoSlug, groupSize: tickets.groupSize,
       eventId: events.id, eventTitle: events.title, eventSlug: events.slug, eventDate: events.eventDate, venue: events.venue,
       doorsOpen: events.doorsOpen, eventEnd: events.eventEnd, attendeeData: orders.attendeeData, paymentMethod: orders.paymentMethod,
     }).from(tickets).innerJoin(orders, eq(tickets.orderId, orders.id)).innerJoin(events, eq(tickets.eventId, events.id))
@@ -364,7 +368,7 @@ export async function getMemberHome(email: string, now = new Date()) {
 
   type EventGroup = {
     eventId: number; eventTitle: string; eventSlug: string; eventDate: Date; venue: string | null; doorsOpen: Date | null; eventEnd: Date | null;
-    tickets: { ticketCode: string; displayCode: string | null; usedAt: Date | null; typeName: string; holderName: string | null; status: string; qrImageUrl: string | null; category: string; kind: TicketKind; kindLabel: string; companions: Companion[] }[];
+    tickets: { ticketCode: string; displayCode: string | null; usedAt: Date | null; typeName: string; holderName: string | null; status: string; qrImageUrl: string | null; category: string; kind: TicketKind; kindLabel: string; companions: Companion[]; /** PLAYMORE: el color de pulsera de cada persona, solo cuando ya entró (se revela en la puerta). */ teams?: PlayTeam[] }[];
     /** Lo que la caja le guardó o preparó en la fiesta (se une por el correo de la venta). */
     lockers: { tagNumber: string; status: string; receivedAt: Date | null; retrievedAt: Date | null }[];
     kitchen: { ticketNumber: string; status: string; items: { name: string; quantity: number }[]; createdAt: Date; deliveredAt: Date | null }[];
@@ -378,8 +382,21 @@ export async function getMemberHome(email: string, now = new Date()) {
     if (kind === 'acceso' && t.attendeeData) {
       try { companions = companionsFromCampos((JSON.parse(t.attendeeData) as { campos?: Record<string, unknown> })?.campos); } catch { /* datos viejos: sin acompañantes */ }
     }
-    g.tickets.push({ ticketCode: t.ticketCode, displayCode: t.displayCode ?? null, usedAt: t.usedAt ?? null, typeName: t.typeName, holderName: t.holderName, status: t.status, qrImageUrl: t.qrImageUrl ?? null, category: t.category, kind, kindLabel: ticketKindLabel(kind, t.typeName), companions });
+    g.tickets.push({ ticketCode: t.ticketCode, displayCode: t.displayCode ?? null, usedAt: t.usedAt ?? null, typeName: t.typeName, holderName: t.holderName, status: t.status, qrImageUrl: t.qrImageUrl ?? null, category: t.category, kind, kindLabel: ticketKindLabel(kind, t.typeName), companions, ...(kind === 'acceso' && t.status === 'used' ? { teams: [] as PlayTeam[] } : {}) });
     byEvent.set(t.eventId, g);
+  }
+
+  // PLAYMORE · Player 1 vs Player 2: quien ya entró ve su equipo (pulsera) en la tarjeta. Antes de entrar no se sabe: se revela en la puerta.
+  if (ENV.cookieSecret) {
+    const slugOf = new Map(ticketRows.map((r) => [r.ticketCode, { accesoSlug: r.accesoSlug ?? null, groupSize: r.groupSize ?? null }]));
+    for (const g of Array.from(byEvent.values())) {
+      if (!g.tickets.some((t) => t.teams) || !(await isEventColab(g.eventId))) { g.tickets.forEach((t) => { delete t.teams; }); continue; }
+      for (const t of g.tickets) {
+        if (!t.teams) continue;
+        const meta = slugOf.get(t.ticketCode);
+        t.teams = teamsForTicket(t.ticketCode, peopleForAcceso(meta?.accesoSlug, meta?.groupSize), ENV.cookieSecret);
+      }
+    }
   }
 
   // Guardarropía y cocina de la caja de las fiestas vigentes: se unen por el correo de la venta.

@@ -78,6 +78,8 @@ const DressCodeArticle = lazy(() => import("./pages/DressCodeArticle"));
 const CostumeOracle = lazy(() => import("./pages/CostumeOracle"));
 const Recargar = lazy(() => import("./pages/Recargar"));
 const Puerta = lazy(() => import("./pages/Puerta"));
+const Marcador = lazy(() => import("./pages/Marcador"));
+const Juego = lazy(() => import("./pages/Juego"));
 const Cocina = lazy(() => import("./pages/Cocina"));
 const Barra = lazy(() => import("./pages/Barra"));
 const Guardarropia = lazy(() => import("./pages/Guardarropia"));
@@ -251,6 +253,8 @@ function Router() {
           <Route path="/embajador" component={Ambassador} />
           <Route path="/embajador/:code" component={Ambassador} />
           <Route path="/puerta" component={Puerta} />
+          <Route path="/marcador" component={Marcador} />
+          <Route path="/juego/:code" component={Juego} />
           <Route path="/cocina" component={Cocina} />
           <Route path="/barra" component={Barra} />
           <Route path="/guardarropia" component={Guardarropia} />
@@ -311,7 +315,9 @@ function App() {
   // La landing de la co-producción con Dalmore tiene su propio botón de
   // compra: la navbar ("Comprar entradas" del evento de Playroom) confundiría.
   const isCoproLanding = location === '/playroomdalmore' || ((location === '/' || location.startsWith('/pago/') || location.startsWith('/checkout/')) && !!colabSlugForHost(window.location.hostname));
-  const hideChrome = isPoster || isCaja || isAdmin || isParty || isPuerta || isCocina || isGuardarropia || isGastos || isTicket;
+  // /marcador (pantalla grande de la fiesta) y /juego/<código> (QR de una estación) son pantallas propias, sin el menú del sitio.
+  const isPlayGame = location === '/marcador' || location.startsWith('/juego/');
+  const hideChrome = isPlayGame || isPoster || isCaja || isAdmin || isParty || isPuerta || isCocina || isGuardarropia || isGastos || isTicket;
   // Ni el cursor ni el scroll suave hacen nada en touch (ver isFinePointer),
   // así que en celular no se pide su chunk -- antes se importaban eager en
   // App.tsx y Lenis viajaba igual aunque nunca fuera a correr.

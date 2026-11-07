@@ -19,6 +19,9 @@ import { generateEnrollCode, enrollCodeExpiry, generateDeviceToken, hashDeviceTo
 import { redeemDisplayCode } from "./caja/redeem";
 import { undoRedeemDisplayCode } from "./caja/undoRedeem";
 import { checkInTicket } from "./caja/checkin";
+import { withPlayTeams } from "./playTeamsDoor";
+import * as playGame from "./playGame";
+import { PLAY_GAME_KINDS } from "../shared/playTeams";
 import { sellParkingAtDoor } from "./caja/parkingPaid";
 import { MAX_TEST_GUESTS, MIN_TEST_GUESTS } from "../shared/playmatchTest";
 import { UNDO_EXPENSE_WINDOW_MS } from "../shared/expenses";
@@ -2552,7 +2555,7 @@ export const appRouter = router({
     // Mismo snapshot que la caja: la puerta lo guarda en el mismo IndexedDB
     // y por eso funciona sin señal.
     snapshot: doorProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
-      const snapshot = await db.getCajaSnapshot(input.eventId);
+      const snapshot = await withPlayTeams(await db.getCajaSnapshot(input.eventId));
       if (!snapshot) return snapshot;
       // Precio del estacionamiento y lo del local por auto: la puerta cobra
       // estacionamiento y tiene que mostrar el monto antes de cobrar.
@@ -4524,6 +4527,54 @@ export const appRouter = router({
       const config = normalizeInstagramAgentConfig({ ...current, trustedAccounts: input.accounts });
       await db.updateSiteSettings({ instagramAgentConfig: config });
       return { trustedAccounts: config.trustedAccounts };
+    }),
+  }),
+
+  // PLAYMORE · Player 1 vs Player 2 (server/playGame.ts): marcador en vivo y estaciones de juego con QR. El marcador y el
+  // escaneo son públicos (la gente lo usa desde su celular, sin cuenta); crear estaciones y sumar a mano es solo del admin.
+  playGame: router({
+    score: publicProcedure.query(async () => {
+      const cp = await coproductionSvc.getCoproductionBySlug('dalmore');
+      if (!cp?.eventId) return { ready: false as const };
+      const event = await db.getEventById(cp.eventId);
+      const [score, recent] = await Promise.all([playGame.getScore(cp.eventId), playGame.recentScores(cp.eventId)]);
+      return { ready: true as const, eventTitle: event?.title ?? 'PLAYMORE', score, recent };
+    }),
+    station: publicProcedure.input(z.object({ code: z.string().max(40) })).query(async ({ input }) => {
+      const st = await playGame.getStationByCode(input.code);
+      return st && st.active ? { name: st.name, kind: st.kind, points: st.points } : null;
+    }),
+    scan: publicProcedure.input(z.object({ code: z.string().max(40), team: z.enum(['magenta', 'azul']), deviceKey: z.string().min(8).max(64) })).mutation(async ({ input, ctx }) => {
+      const key = `play-scan:${clientIp(ctx)}`;
+      if (!(await db.checkIpRateLimit(key))) throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Vas muy rápido. Espera un momento.' });
+      await db.recordIpAttempt(key, 40, 10 * 60_000);
+      const res = await playGame.scanStation(input);
+      if (!res.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: res.reason });
+      return { name: res.station.name, points: res.station.points, score: res.score };
+    }),
+    stations: adminProcedure.query(async () => {
+      const cp = await coproductionSvc.getCoproductionBySlug('dalmore');
+      if (!cp?.eventId) return { eventId: null as number | null, stations: [] as playGame.PlayStation[], score: { magenta: 0, azul: 0 }, recent: [] as Awaited<ReturnType<typeof playGame.recentScores>> };
+      const [stations, score, recent] = await Promise.all([playGame.listStations(cp.eventId), playGame.getScore(cp.eventId), playGame.recentScores(cp.eventId, 12)]);
+      return { eventId: cp.eventId as number | null, stations, score, recent };
+    }),
+    createStation: adminProcedure.input(z.object({ name: z.string().min(1).max(80), kind: z.enum(PLAY_GAME_KINDS), points: z.number().int().min(1).max(100) })).mutation(async ({ input }) => {
+      const cp = await coproductionSvc.getCoproductionBySlug('dalmore');
+      if (!cp?.eventId) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Primero enlaza el evento de PLAYMORE en Configuración.' });
+      try { return await playGame.createStation({ eventId: cp.eventId, ...input }); } catch (err) { throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo crear.' }); }
+    }),
+    setStationActive: adminProcedure.input(z.object({ id: z.number().int(), active: z.boolean() })).mutation(async ({ input }) => { await playGame.setStationActive(input.id, input.active); return { success: true }; }),
+    deleteStation: adminProcedure.input(z.object({ id: z.number().int() })).mutation(async ({ input }) => { await playGame.deleteStation(input.id); return { success: true }; }),
+    addPoints: adminProcedure.input(z.object({ team: z.enum(['magenta', 'azul']), points: z.number().int().min(-100).max(100), label: z.string().max(120).default('') })).mutation(async ({ input }) => {
+      const cp = await coproductionSvc.getCoproductionBySlug('dalmore');
+      if (!cp?.eventId) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Primero enlaza el evento de PLAYMORE en Configuración.' });
+      try { await playGame.addManualPoints({ eventId: cp.eventId, ...input }); } catch (err) { throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo sumar.' }); }
+      return { success: true };
+    }),
+    resetScore: adminProcedure.mutation(async () => {
+      const cp = await coproductionSvc.getCoproductionBySlug('dalmore');
+      if (cp?.eventId) await playGame.resetScore(cp.eventId);
+      return { success: true };
     }),
   }),
 
