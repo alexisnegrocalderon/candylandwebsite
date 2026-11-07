@@ -19,7 +19,7 @@ function fitSize(text: string, base: number, usable: number, charW: number): num
   return Math.round(Math.min(byCount, byWidth));
 }
 
-function heroWords(text: string, highlight: string): Set<number> {
+export function heroWords(text: string, highlight: string): Set<number> {
   const out = new Set<number>();
   if (!highlight) return out;
   const words = text.split(/\s+/);

@@ -18,12 +18,13 @@ export const MOTION_TEMPLATE_LABEL: Record<MotionTemplate, string> = {
   sting: 'Intro / outro de marca',
 };
 
-export const MOTION_STYLES = ['liquid', 'glitch', 'editorial'] as const;
+export const MOTION_STYLES = ['liquid', 'glitch', 'editorial', 'kinetic'] as const;
 export type MotionStyle = (typeof MOTION_STYLES)[number];
 export const MOTION_STYLE_LABEL: Record<MotionStyle, string> = {
   liquid: 'Liquid',
   glitch: 'Glitch',
   editorial: 'Editorial',
+  kinetic: 'Kinetic (para temas)',
 };
 
 export const MOTION_FORMATS = ['reel', 'feed', 'square'] as const;
@@ -224,7 +225,7 @@ export interface MotionSpec {
 }
 
 /** Fondo con que parte cada estilo. */
-export const MOTION_DEFAULT_BASE: Record<MotionStyle, MotionBase> = { liquid: 'azul', glitch: 'tinta', editorial: 'perla' };
+export const MOTION_DEFAULT_BASE: Record<MotionStyle, MotionBase> = { liquid: 'azul', glitch: 'tinta', editorial: 'perla', kinetic: 'perla' };
 
 export const MOTION_MAX_SCENES = 10;
 export const MOTION_SCENE_SECS = { min: 1, max: 8 } as const;
@@ -271,7 +272,8 @@ export function emptyScene(text = ''): MotionScene {
 function normalizeScene(raw: unknown): MotionScene | null {
   if (!raw || typeof raw !== 'object') return null;
   const r = raw as Record<string, unknown>;
-  const text = str(r.text, 90);
+  // Hasta ~16 palabras: el estilo kinetic arma frases largas palabra a palabra.
+  const text = str(r.text, 140);
   const highlight = str(r.highlight, 40);
   const scene: MotionScene = {
     kicker: str(r.kicker, 40),
@@ -377,6 +379,11 @@ export function motionTimeline(spec: MotionSpec, fps = MOTION_FPS): MotionTimeli
       secs = scene.secs;
     }
     let frames = Math.max(Math.round(fps * 0.8), Math.round(secs * fps));
+    // Kinetic sin voz: que alcance a leerse (≈0,3 s por palabra + 0,9 s de pausa).
+    if (!voice && spec.style === 'kinetic') {
+      const words = scene.text.split(/\s+/).filter(Boolean).length;
+      frames = Math.max(frames, Math.round((words * 0.3 + 0.9) * fps));
+    }
     // Montaje sin voz: el corte cae en un pulso (mínimo dos pulsos por toma).
     if (!voice && beatFrames && spec.template === 'montaje') {
       frames = Math.round(Math.max(2, Math.round(frames / beatFrames)) * beatFrames);
@@ -438,7 +445,14 @@ export function starterSpec(template: MotionTemplate, style: MotionStyle = 'liqu
         ? [{ text: 'Así se vivió', highlight: 'vivió', secs: 2 }, { text: 'la última noche', secs: 2 }, { text: 'Y esto recién empieza', highlight: 'empieza', secs: 2.5 }]
         : template === 'sting'
           ? [{ text: 'Mansion Playroom' }]
-          : [
+          : style === 'kinetic'
+            ? [
+                { text: 'No es solo una fiesta', highlight: 'fiesta', secs: 2.4 },
+                { text: 'es el lugar donde por fin puedes ser tú', highlight: 'tú', secs: 3.2 },
+                { text: 'con respeto, consentimiento y cero juicios', highlight: 'consentimiento', secs: 3.2 },
+                { text: 'Te esperamos el sábado', highlight: 'sábado', secs: 2.6 },
+              ]
+            : [
               { kicker: 'SE VIENE', text: 'Una noche distinta', highlight: 'distinta', secs: 2.2 },
               { kicker: 'SÁBADO', text: 'Valparaíso', sub: 'Dirección exacta al comprar', secs: 2.4 },
               { text: 'Entradas en la bio', highlight: 'bio', secs: 2.4 },

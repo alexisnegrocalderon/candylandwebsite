@@ -58,7 +58,7 @@ const OUTPUT_SCHEMA = {
     countdownValue: { type: 'integer', description: 'Solo countdown: el número grande (días u horas que faltan). 0 en otras plantillas.' },
     countdownUnit: { type: 'string', description: 'Solo countdown: DÍAS u HORAS. Vacío en otras.' },
     outroLine: { type: 'string', description: 'Línea corta bajo el logo en la firma final (ej. "Entradas en la bio", "Sábado 14 · Valparaíso"), ≤ 5 palabras.' },
-    variants: { type: 'array', items: VARIANT_SCHEMA, description: 'Exactamente 3: una liquid, una glitch y una editorial, en ese orden. Mismo mensaje, distinto guion y ritmo según el estilo.' },
+    variants: { type: 'array', items: VARIANT_SCHEMA, description: 'Exactamente 3, cada una con un estilo DISTINTO: los 3 que mejor calcen con el pedido. Mismo mensaje, distinto guion y ritmo según el estilo.' },
   },
   required: ['title', 'caption', 'template', 'countdownValue', 'countdownUnit', 'outroLine', 'variants'],
   additionalProperties: false,
@@ -82,7 +82,7 @@ export const MOTION_SYSTEM = [
   '',
   'BIBLIOTECA:',
   '- Plantillas: anuncio (texto cinético sobre fondo de marca; para anunciar evento, explicar, invitar), countdown (escena 1 = número grande con su unidad, `text` de la escena 1 es la frase bajo el número, ej. "para la noche"; `kicker` = "FALTAN"; usa los días reales hasta el evento), montaje (fotos/clips reales de fondo con texto abajo; asigna cada foto entregada con `mediaIndex`, una por escena, sin repetir), sting (solo la firma de marca, 1 escena con `sub` como frase).',
-  '- Estilos (los 3 se entregan siempre): liquid = manchas líquidas y burbujas, letras infladas que rebotan; alegre, cercano; ritmo medio. glitch = señal rota, separación de color, cortes secos; energía de fiesta, urgencia; ritmo rápido (escenas más cortas, textos en mayúsculas se ven bien). editorial = revista premium, revelado con máscara, mucho aire; elegante, confianza, explicar; ritmo más pausado (puede llevar bajadas).',
+  '- Estilos (eliges 3 distintos de 4; si el pedido es hablar de un tema, explicar o educar, kinetic va SIEMPRE): kinetic = tipografía cinética editorial: cada escena es una frase de 5 a 14 palabras que se arma palabra a palabra, conectores chicos y UNA palabra enorme (`highlight`); el estilo para temas, opiniones y frases que paran el scroll; 2,5 a 4 s por escena, 4 a 8 escenas. liquid = manchas líquidas y burbujas, letras infladas que rebotan; alegre, cercano; ritmo medio. glitch = señal rota, separación de color, cortes secos; energía de fiesta, urgencia; ritmo rápido (escenas más cortas, textos en mayúsculas se ven bien). editorial = revista premium, revelado con máscara, mucho aire; elegante, confianza, explicar; ritmo más pausado (puede llevar bajadas).',
   '- Fondos: azul = celeste (por defecto en liquid), tinta = azul profundo (por defecto en glitch), perla = blanco roto editorial (por defecto en editorial), rosa, niebla = gris celeste editorial, noche = ciruela casi negra de PLAYMORE (solo para fiestas de noche). Acento: el color protagonista, distinto del fondo. Varía entre variantes.',
   '- Música: pulse (electrónica 120 BPM, versátil), drive (house 124 BPM, la más fiestera), dream (suave 96 BPM, para confianza y explicaciones).',
   '',
@@ -125,13 +125,22 @@ interface RawOutput {
   variants?: RawVariant[];
 }
 
-/** Pasa lo que devolvió la IA a 3 recetas limpias (una por estilo, aunque la IA se equivoque de orden). */
+/** Estilos con que se completan las variantes si la IA manda menos de 3 (o repetidos). */
+const FILL_STYLES: MotionStyle[] = ['editorial', 'kinetic', 'liquid', 'glitch'];
+
+/** Pasa lo que devolvió la IA a 3 recetas limpias, cada una con un estilo distinto. */
 export function variantsFromAi(raw: RawOutput, input: Pick<MotionIdeaInput, 'format' | 'template' | 'eventId' | 'media'>): MotionSpec[] {
   const media = input.media ?? [];
   const template = input.template ?? (MOTION_TEMPLATES as readonly string[]).find((t) => t === raw.template) ?? 'anuncio';
   const list = Array.isArray(raw.variants) ? raw.variants : [];
-  return MOTION_STYLES.map((style: MotionStyle, k) => {
-    const v = list.find((x) => x?.style === style) ?? list[k] ?? list[0] ?? {};
+  const styles: MotionStyle[] = [];
+  for (const v of list) {
+    const st = MOTION_STYLES.find((x) => x === v?.style);
+    if (st && !styles.includes(st)) styles.push(st);
+  }
+  for (const st of FILL_STYLES) if (styles.length < 3 && !styles.includes(st)) styles.push(st);
+  return styles.slice(0, 3).map((style: MotionStyle) => {
+    const v = list.find((x) => x?.style === style) ?? list[0] ?? {};
     const used = new Set<number>();
     const scenes = (Array.isArray(v.scenes) ? v.scenes : []).map((s, i) => {
       let idx = Number(s.mediaIndex);

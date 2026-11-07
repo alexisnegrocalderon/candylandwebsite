@@ -12,7 +12,7 @@ const media = [
 ];
 
 describe('variantsFromAi', () => {
-  it('siempre devuelve 3 variantes, una por estilo, aunque la IA mande otro orden o menos', () => {
+  it('siempre devuelve 3 variantes con estilos distintos, en el orden de la IA y completando si manda menos', () => {
     const raw = {
       title: 'Anuncio', caption: 'Te esperamos', template: 'anuncio', countdownValue: 0, countdownUnit: '', outroLine: 'Entradas en la bio',
       variants: [
@@ -21,9 +21,9 @@ describe('variantsFromAi', () => {
       ],
     };
     const out = variantsFromAi(raw, { format: 'reel', template: null, eventId: 3, media: [] });
-    expect(out.map((v) => v.style)).toEqual(['liquid', 'glitch', 'editorial']);
-    expect(out[0].scenes[0].text).toBe('Dos');
-    expect(out[2].scenes[0].text).toBe('Uno');
+    expect(out.map((v) => v.style)).toEqual(['editorial', 'liquid', 'kinetic']);
+    expect(out[0].scenes[0].text).toBe('Uno');
+    expect(out[1].scenes[0].text).toBe('Dos');
     expect(out.every((v) => v.eventId === 3 && v.outroLine === 'Entradas en la bio')).toBe(true);
   });
 

@@ -56,7 +56,8 @@ if (mode === 'video') {
       const spec = { ...starterSpec(template, style), ...(process.env.BASE ? { base: process.env.BASE } : {}), ...(process.env.CLOSING ? { closing: process.env.CLOSING } : {}) } as MotionSpec;
       const tl = motionTimeline(spec);
       // Inicio de cada escena + ya asentada, y la firma.
-      const frames = [...tl.scenes.map((s) => s.from + Math.min(s.frames - 10, 40)), ...(tl.outroFrom != null ? [tl.outroFrom + 50] : [])];
+      const at = Number(process.env.AT ?? 0); // AT=0.75 muestrea cada escena a ese punto
+      const frames = [...tl.scenes.map((s) => s.from + (at ? Math.round(s.frames * at) : Math.min(s.frames - 10, 40))), ...(tl.outroFrom != null ? [tl.outroFrom + 50] : [])];
       for (const f of frames) {
         await still(spec, f, join(out, `${key}-${String(f).padStart(4, '0')}.png`));
       }

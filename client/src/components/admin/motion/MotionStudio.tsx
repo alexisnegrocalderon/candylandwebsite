@@ -15,7 +15,7 @@ import { formatChileDate, formatChileDateTime } from '@shared/chileDate';
 import type { ContentPiece } from '@shared/contentPlan';
 import {
   MOTION_FORMAT_LABEL, MOTION_FORMATS, MOTION_STYLE_LABEL, MOTION_TEMPLATE_LABEL, MOTION_TEMPLATES, starterSpec,
-  type MotionFormat, type MotionMedia, type MotionSpec, type MotionTemplate,
+  type MotionFormat, type MotionMedia, type MotionSpec, type MotionStyle, type MotionTemplate,
 } from '@shared/motionSpec';
 import { MotionEditor } from './MotionEditor';
 import { MotionPreview } from './MotionPreview';
@@ -41,6 +41,15 @@ const TEMPLATE_HINT: Record<MotionTemplate, string> = {
   montaje: 'Tus fotos y clips con Ken Burns, cortes a ritmo y texto.',
   sting: 'La firma animada de la marca (2-4 s) para abrir o cerrar.',
 };
+
+/** Puntos de partida sin IA: cada plantilla con el estilo que mejor la luce. */
+const STARTERS: Array<{ key: string; template: MotionTemplate; style: MotionStyle; label: string; hint: string }> = [
+  { key: 'tema', template: 'anuncio', style: 'kinetic', label: 'Tema (kinetic)', hint: 'Frases que se arman palabra a palabra para hablar de un tema y parar el scroll.' },
+  { key: 'anuncio', template: 'anuncio', style: 'editorial', label: MOTION_TEMPLATE_LABEL.anuncio, hint: TEMPLATE_HINT.anuncio },
+  { key: 'countdown', template: 'countdown', style: 'glitch', label: MOTION_TEMPLATE_LABEL.countdown, hint: TEMPLATE_HINT.countdown },
+  { key: 'montaje', template: 'montaje', style: 'kinetic', label: MOTION_TEMPLATE_LABEL.montaje, hint: TEMPLATE_HINT.montaje },
+  { key: 'sting', template: 'sting', style: 'liquid', label: MOTION_TEMPLATE_LABEL.sting, hint: TEMPLATE_HINT.sting },
+];
 
 export function MotionStudio() {
   const [view, setView] = useState<View>({ kind: 'home' });
@@ -178,14 +187,14 @@ export function MotionStudio() {
 
           <div>
             <h3 className="mb-3 flex items-center gap-2 font-medium"><Wand2 className="h-4 w-4" /> O parte de una plantilla, sin IA</h3>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              {MOTION_TEMPLATES.map((t) => {
-                const spec = { ...starterSpec(t, t === 'countdown' ? 'glitch' : t === 'montaje' ? 'editorial' : 'liquid'), format, eventId };
+            <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-5">
+              {STARTERS.map(({ key, template, style, label, hint }) => {
+                const spec = { ...starterSpec(template, style), format, eventId };
                 return (
-                  <button key={t} type="button" className="group space-y-2 text-left" onClick={() => setView({ kind: 'edit', id: null, spec })}>
+                  <button key={key} type="button" className="group space-y-2 text-left" onClick={() => setView({ kind: 'edit', id: null, spec })}>
                     <MotionPreview spec={spec} controls={false} autoPlay maxHeight={300} className="transition-transform group-hover:scale-[1.02]" />
-                    <p className="text-sm font-medium">{MOTION_TEMPLATE_LABEL[t]}</p>
-                    <p className="text-xs text-muted-foreground">{TEMPLATE_HINT[t]}</p>
+                    <p className="text-sm font-medium">{label}</p>
+                    <p className="text-xs text-muted-foreground">{hint}</p>
                   </button>
                 );
               })}

@@ -26577,7 +26577,7 @@ function emptyScene(text6 = "") {
 function normalizeScene(raw) {
   if (!raw || typeof raw !== "object") return null;
   const r = raw;
-  const text6 = str5(r.text, 90);
+  const text6 = str5(r.text, 140);
   const highlight = str5(r.highlight, 40);
   const scene = {
     kicker: str5(r.kicker, 40),
@@ -26645,7 +26645,7 @@ var init_motionSpec = __esm({
   "shared/motionSpec.ts"() {
     "use strict";
     MOTION_TEMPLATES = ["anuncio", "countdown", "montaje", "sting"];
-    MOTION_STYLES = ["liquid", "glitch", "editorial"];
+    MOTION_STYLES = ["liquid", "glitch", "editorial", "kinetic"];
     MOTION_FORMATS = ["reel", "feed", "square"];
     MOTION_BASES = ["azul", "rosa", "tinta", "perla", "niebla", "noche"];
     MOTION_ACCENTS = ["celeste", "rosa", "magenta", "tinta", "oro"];
@@ -26687,7 +26687,7 @@ var init_motionSpec = __esm({
     };
     MOTION_CLOSINGS = ["firma", "handle"];
     MOTION_MUSIC = ["none", "pulse", "drive", "dream"];
-    MOTION_DEFAULT_BASE = { liquid: "azul", glitch: "tinta", editorial: "perla" };
+    MOTION_DEFAULT_BASE = { liquid: "azul", glitch: "tinta", editorial: "perla", kinetic: "perla" };
     MOTION_MAX_SCENES = 10;
     MOTION_SCENE_SECS = { min: 1, max: 8 };
     MOTION_MAX_TOTAL_SECS = 60;
@@ -53117,7 +53117,7 @@ var OUTPUT_SCHEMA = {
     countdownValue: { type: "integer", description: "Solo countdown: el n\xFAmero grande (d\xEDas u horas que faltan). 0 en otras plantillas." },
     countdownUnit: { type: "string", description: "Solo countdown: D\xCDAS u HORAS. Vac\xEDo en otras." },
     outroLine: { type: "string", description: 'L\xEDnea corta bajo el logo en la firma final (ej. "Entradas en la bio", "S\xE1bado 14 \xB7 Valpara\xEDso"), \u2264 5 palabras.' },
-    variants: { type: "array", items: VARIANT_SCHEMA, description: "Exactamente 3: una liquid, una glitch y una editorial, en ese orden. Mismo mensaje, distinto guion y ritmo seg\xFAn el estilo." }
+    variants: { type: "array", items: VARIANT_SCHEMA, description: "Exactamente 3, cada una con un estilo DISTINTO: los 3 que mejor calcen con el pedido. Mismo mensaje, distinto guion y ritmo seg\xFAn el estilo." }
   },
   required: ["title", "caption", "template", "countdownValue", "countdownUnit", "outroLine", "variants"],
   additionalProperties: false
@@ -53139,7 +53139,7 @@ var MOTION_SYSTEM = [
   "",
   "BIBLIOTECA:",
   '- Plantillas: anuncio (texto cin\xE9tico sobre fondo de marca; para anunciar evento, explicar, invitar), countdown (escena 1 = n\xFAmero grande con su unidad, `text` de la escena 1 es la frase bajo el n\xFAmero, ej. "para la noche"; `kicker` = "FALTAN"; usa los d\xEDas reales hasta el evento), montaje (fotos/clips reales de fondo con texto abajo; asigna cada foto entregada con `mediaIndex`, una por escena, sin repetir), sting (solo la firma de marca, 1 escena con `sub` como frase).',
-  "- Estilos (los 3 se entregan siempre): liquid = manchas l\xEDquidas y burbujas, letras infladas que rebotan; alegre, cercano; ritmo medio. glitch = se\xF1al rota, separaci\xF3n de color, cortes secos; energ\xEDa de fiesta, urgencia; ritmo r\xE1pido (escenas m\xE1s cortas, textos en may\xFAsculas se ven bien). editorial = revista premium, revelado con m\xE1scara, mucho aire; elegante, confianza, explicar; ritmo m\xE1s pausado (puede llevar bajadas).",
+  "- Estilos (eliges 3 distintos de 4; si el pedido es hablar de un tema, explicar o educar, kinetic va SIEMPRE): kinetic = tipograf\xEDa cin\xE9tica editorial: cada escena es una frase de 5 a 14 palabras que se arma palabra a palabra, conectores chicos y UNA palabra enorme (`highlight`); el estilo para temas, opiniones y frases que paran el scroll; 2,5 a 4 s por escena, 4 a 8 escenas. liquid = manchas l\xEDquidas y burbujas, letras infladas que rebotan; alegre, cercano; ritmo medio. glitch = se\xF1al rota, separaci\xF3n de color, cortes secos; energ\xEDa de fiesta, urgencia; ritmo r\xE1pido (escenas m\xE1s cortas, textos en may\xFAsculas se ven bien). editorial = revista premium, revelado con m\xE1scara, mucho aire; elegante, confianza, explicar; ritmo m\xE1s pausado (puede llevar bajadas).",
   "- Fondos: azul = celeste (por defecto en liquid), tinta = azul profundo (por defecto en glitch), perla = blanco roto editorial (por defecto en editorial), rosa, niebla = gris celeste editorial, noche = ciruela casi negra de PLAYMORE (solo para fiestas de noche). Acento: el color protagonista, distinto del fondo. Var\xEDa entre variantes.",
   "- M\xFAsica: pulse (electr\xF3nica 120 BPM, vers\xE1til), drive (house 124 BPM, la m\xE1s fiestera), dream (suave 96 BPM, para confianza y explicaciones).",
   "",
@@ -53148,12 +53148,19 @@ var MOTION_SYSTEM = [
   "`say` es la voz en off opcional de cada escena (el due\xF1o decide si la usa): frase hablada natural en chileno, que acompa\xF1e el texto sin repetirlo palabra por palabra.",
   "Responde solo con el JSON pedido."
 ].join("\n");
+var FILL_STYLES = ["editorial", "kinetic", "liquid", "glitch"];
 function variantsFromAi(raw, input) {
   const media = input.media ?? [];
   const template = input.template ?? MOTION_TEMPLATES.find((t4) => t4 === raw.template) ?? "anuncio";
   const list2 = Array.isArray(raw.variants) ? raw.variants : [];
-  return MOTION_STYLES.map((style, k) => {
-    const v = list2.find((x) => x?.style === style) ?? list2[k] ?? list2[0] ?? {};
+  const styles = [];
+  for (const v of list2) {
+    const st = MOTION_STYLES.find((x) => x === v?.style);
+    if (st && !styles.includes(st)) styles.push(st);
+  }
+  for (const st of FILL_STYLES) if (styles.length < 3 && !styles.includes(st)) styles.push(st);
+  return styles.slice(0, 3).map((style) => {
+    const v = list2.find((x) => x?.style === style) ?? list2[0] ?? {};
     const used = /* @__PURE__ */ new Set();
     const scenes = (Array.isArray(v.scenes) ? v.scenes : []).map((s, i) => {
       let idx = Number(s.mediaIndex);

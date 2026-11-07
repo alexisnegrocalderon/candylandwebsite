@@ -6,6 +6,7 @@ import { useBrandFonts } from './fonts';
 import { KITS } from './kits';
 import { Camera, HandleCard, Hud } from './hud';
 import { Grade, Grain, Vignette } from './layers';
+import { KineticScene } from './kinetic';
 import { BrandSting, CountdownScene, TextScene } from './scenes';
 import { beats, fonts } from './theme';
 
@@ -115,7 +116,9 @@ const Body: React.FC = () => {
           content = <CountdownScene scene={scene} frames={t.frames} />;
         } else {
           const role = t.index === 0 ? 'hook' : t.index === last && last > 0 ? 'cta' : 'body';
-          content = <TextScene scene={scene} index={t.index} frames={t.frames} role={role} lowerThird={spec.template === 'montaje' && !!scene.media} />;
+          content = spec.style === 'kinetic'
+            ? <KineticScene scene={scene} index={t.index} frames={t.frames} role={role} />
+            : <TextScene scene={scene} index={t.index} frames={t.frames} role={role} lowerThird={spec.template === 'montaje' && !!scene.media} />;
         }
         return (
           <Sequence key={t.index} from={t.from} durationInFrames={t.frames} name={`Escena ${t.index + 1}`}>
