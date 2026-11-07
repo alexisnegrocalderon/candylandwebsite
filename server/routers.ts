@@ -187,6 +187,7 @@ import { normalizeOrderEmailConfig, type OrderEmailConfig } from "../shared/emai
 import { billingPeriodStart, RESEND_DAILY_DEFAULT, RESEND_MONTHLY_LIMIT } from "../shared/emailQuota";
 import { applyEmailOptOut, decodeEmail as decodeUnsubscribeEmail, verifyUnsubscribe } from "./unsubscribe";
 import { normalizeAdminAlertsConfig } from "../shared/adminAlertsConfig";
+import { DEFAULT_ADMIN_SHORTCUTS, ADMIN_SHORTCUTS_MAX } from "../shared/adminShortcuts";
 import * as customerPush from "./customerPush";
 import { notifyEventLaunch } from "./customerPush";
 import * as appDevices from "./appDevices";
@@ -3711,10 +3712,22 @@ export const appRouter = router({
       // Modo evento (solo avisos urgentes durante la fiesta). Opcional: un panel viejo no lo manda y se conserva.
       eventModeQuiet: z.boolean().optional(),
     })).mutation(async ({ input }) => {
-      // Los datos del gasto de IA se editan en el Estudio: no se pierden al guardar Ajustes.
+      // Los datos del gasto de IA (Ajustes → IA) y los atajos no se pierden al guardar las alertas.
       const current = normalizeAdminAlertsConfig(((await db.getSiteSettings()) as any)?.adminAlertsConfig);
-      const { aiCapUsd, aiBalanceUsd, aiBalanceAt, aiAlertSent, aiSpentOffsetUsd, aiSpentOffsetMonth } = current;
-      return db.updateSiteSettings({ adminAlertsConfig: normalizeAdminAlertsConfig({ ...input, eventModeQuiet: input.eventModeQuiet ?? current.eventModeQuiet, aiCapUsd, aiBalanceUsd, aiBalanceAt, aiAlertSent, aiSpentOffsetUsd, aiSpentOffsetMonth }) });
+      const { aiCapUsd, aiBalanceUsd, aiBalanceAt, aiAlertSent, aiSpentOffsetUsd, aiSpentOffsetMonth, shortcuts } = current;
+      return db.updateSiteSettings({ adminAlertsConfig: normalizeAdminAlertsConfig({ ...input, eventModeQuiet: input.eventModeQuiet ?? current.eventModeQuiet, aiCapUsd, aiBalanceUsd, aiBalanceAt, aiAlertSent, aiSpentOffsetUsd, aiSpentOffsetMonth, shortcuts }) });
+    }),
+    // Atajos para iPhone/iPad: la lista que arma el dueño (Ajustes → Atajos). Sin editar, devuelve la de siempre.
+    getShortcuts: adminReadProcedure.query(async () => {
+      const cfg = normalizeAdminAlertsConfig(((await db.getSiteSettings()) as any)?.adminAlertsConfig);
+      return { shortcuts: cfg.shortcuts ?? DEFAULT_ADMIN_SHORTCUTS, isDefault: cfg.shortcuts == null };
+    }),
+    saveShortcuts: adminProcedure.input(z.object({
+      shortcuts: z.array(z.object({ label: z.string().trim().min(1).max(60), section: z.string().regex(/^[a-z0-9-]{1,40}$/) })).max(ADMIN_SHORTCUTS_MAX),
+    }).nullable()).mutation(async ({ input }) => {
+      const current = normalizeAdminAlertsConfig(((await db.getSiteSettings()) as any)?.adminAlertsConfig);
+      await db.updateSiteSettings({ adminAlertsConfig: normalizeAdminAlertsConfig({ ...current, shortcuts: input ? input.shortcuts : null }) });
+      return { success: true };
     }),
     // La clave pública VAPID no es secreta (viaja al navegador para armar la
     // suscripción), pero igual queda detrás de admin para no publicarla sin
@@ -4571,6 +4584,49 @@ export const appRouter = router({
     }),
     split: partnerProcedure.input(coproductionScopeInput).query(async ({ input, ctx }) => {
       return coproductionSvc.getCoproductionSplit(await scopedCoproduction(ctx, input));
+    }),
+    // Lee la foto de una boleta o factura (misma IA de la calculadora de gastos) para precargar el gasto.
+    scanReceipt: partnerProcedure.input(coproductionScopeBase.extend({ imageUrl: z.string().url().max(600) })).mutation(async ({ input, ctx }) => {
+      await scopedCoproduction(ctx, input);
+      if (!/^https:\/\/[^/]+\.public\.blob\.vercel-storage\.com\/coproduction\//.test(input.imageUrl)) throw new TRPCError({ code: 'BAD_REQUEST', message: 'La foto no es válida.' });
+      try {
+        return await scanReceiptImage(input.imageUrl);
+      } catch (err) {
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'No se pudo leer la foto. Completa el gasto a mano.', cause: err });
+      }
+    }),
+    // Códigos de descuento del evento (el socio solo ve y crea los de SU evento).
+    discounts: partnerProcedure.input(coproductionScopeInput).query(async ({ input, ctx }) => {
+      return coproductionSvc.listCoproductionDiscounts(await scopedCoproduction(ctx, input));
+    }),
+    createDiscount: partnerProcedure.input(coproductionScopeBase.extend({
+      code: z.string().trim().min(3).max(40),
+      description: z.string().trim().max(255).optional(),
+      discountType: z.enum(['percentage', 'fixed']),
+      discountValue: z.number().int().min(1).max(10_000_000),
+      maxUses: z.number().int().min(1).max(100_000).optional(),
+      validUntil: z.string().max(40).optional(),
+    })).mutation(async ({ input, ctx }) => {
+      const cp = await scopedCoproduction(ctx, input);
+      try {
+        const r = await coproductionSvc.createCoproductionDiscount(cp, input);
+        await auditColab(cp, 'discount', `Código de descuento creado: ${r.code}`, ctx);
+        return r;
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo crear el código.' });
+      }
+    }),
+    setDiscountActive: partnerProcedure.input(coproductionScopeBase.extend({ id: z.number().int(), active: z.boolean() })).mutation(async ({ input, ctx }) => {
+      await coproductionSvc.setCoproductionDiscountActive(await scopedCoproduction(ctx, input), input.id, input.active);
+      return { success: true };
+    }),
+    // Pasar compradores y acompañantes a la base de clientes de Playroom: solo el dueño.
+    addToClients: adminProcedure.input(z.object({ slug: z.string().max(50), orderIds: z.array(z.number().int()).max(5000).optional() })).mutation(async ({ input }) => {
+      try {
+        return await coproductionSvc.addAttendeesToClients(await requireCoproduction(input.slug), input.orderIds);
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo pasar a Clientes.' });
+      }
     }),
     // Planilla de contactos del socio (aparte de los Clientes de Playroom).
     contacts: partnerProcedure.input(coproductionScopeInput).query(async ({ input, ctx }) => {

@@ -3,7 +3,7 @@ import { toast } from 'sonner';
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import {
   CalendarClock, Check, Copy, Download, Eye, Gift, Mail, KeyRound, Loader2, Plus, Receipt, RefreshCw, Rocket, Search, ShieldOff,
-  Ticket, Upload, Users, Wallet, X, type LucideIcon,
+  Ticket, Upload, UserPlus, Users, Wallet, X, type LucideIcon,
 } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { fromChileInputValue } from '@/pages/admin/sections/shared';
@@ -16,6 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { EmptyState } from '@/components/admin/EmptyState';
 import { ImageUploadField } from '@/components/admin/ImageUploadField';
+import { CameraCaptureField } from '@/components/admin/CameraCaptureField';
 import { formatChileDate, formatChileDateTime, formatChileShortDate } from '@shared/chileDate';
 import { PLAYMORE_TANDA_ROWS, PLAYMORE_SOLTERO, exactPercents, tandaRowProblem, type PlaymoreTandaRow } from '@shared/playmoreTandas';
 import { parseColabContacts, COLAB_CONTACTS_MAX } from '@shared/colabContacts';
@@ -118,8 +119,8 @@ export function CoproResumen() {
         <Kpi icon={Check} label="Ya entraron" value={data.checkedIn.toLocaleString('es-CL')} />
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-5">
-        <section className="admin-clay p-5 lg:col-span-3">
+      <div className="grid gap-5">
+        <section className="admin-clay p-5">
           <h3 className="mb-4 font-heading text-lg">Ventas por día</h3>
           {chart.length === 0 ? <EmptyState icon={Ticket} title="Todavía no hay ventas" /> : (
             <div className="h-60">
@@ -143,25 +144,6 @@ export function CoproResumen() {
             </div>
           )}
         </section>
-        <section className="admin-clay p-5 lg:col-span-2">
-          <h3 className="mb-3 font-heading text-lg">Por tipo de acceso</h3>
-          {data.ticketTypes.length === 0 ? <p className="text-sm text-muted-foreground">El evento todavía no tiene accesos cargados.</p> : (
-            <ul className="divide-y divide-white/10">
-              {data.ticketTypes.map((t) => (
-                <li key={t.id} className="flex items-center justify-between gap-3 py-2.5 text-sm">
-                  <span className="min-w-0">
-                    <span className="block truncate font-medium">{t.name}</span>
-                    <span className="text-xs text-muted-foreground">{clp(t.price)}{t.status !== 'active' ? ` · ${t.status === 'soldout' ? 'agotado' : 'oculto'}` : ''}</span>
-                  </span>
-                  <span className="shrink-0 text-right tabular-nums">
-                    <span className="block font-semibold">{t.quantity}</span>
-                    <span className="text-xs text-muted-foreground">{clp(t.revenue)}</span>
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
       </div>
     </div>
   );
@@ -179,16 +161,113 @@ function downloadCsv(filename: string, rows: (string | number)[][]) {
   URL.revokeObjectURL(url);
 }
 
+type Attendee = {
+  id: number; orderNumber: string; buyerName: string; buyerEmail: string; buyerPhone: string | null; total: number; paymentStatus: string;
+  channel: string; createdAt: string | Date; accesos: string[]; personas: number; checkedIn: boolean; invitedBy: string | null;
+  buyerRut: string | null; buyerInstagram: string | null; inClients: boolean;
+  companions: { name: string; rut: string | null; docType: string }[];
+  tickets: { type: string; code: string | null; holderName: string | null; status: string; people: number }[];
+};
+
+function Field({ label, value }: { label: string; value?: string | null }) {
+  return (
+    <div className="min-w-0">
+      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className="break-all text-sm">{value || '—'}</p>
+    </div>
+  );
+}
+
+function AttendeeCard({ r, isOwner, adding, onAdd, invitedLabel }: { r: Attendee; isOwner: boolean; adding: boolean; onAdd: () => void; invitedLabel: (by: string | null) => string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="admin-clay-sm border border-white/10 bg-white/5 text-sm">
+      <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} className="flex w-full items-start justify-between gap-3 p-3 text-left">
+        <span className="min-w-0">
+          <span className="block font-semibold">{r.buyerName}</span>
+          <span className="block text-muted-foreground">{r.accesos.join(' + ')} · {r.personas} persona{r.personas === 1 ? '' : 's'}{r.companions.length > 0 ? ` · ${r.companions.length} acompañante${r.companions.length === 1 ? '' : 's'}` : ''}</span>
+          <span className="mt-1.5 flex flex-wrap gap-1.5 text-[11px]">
+            {r.paymentStatus !== 'approved' && <span className="rounded-full bg-red-400/15 px-2 py-0.5 text-red-300">Reembolsada</span>}
+            {r.checkedIn && <span className="rounded-full bg-emerald-400/15 px-2 py-0.5 text-emerald-300">Entró</span>}
+            {r.invitedBy && <span className="rounded-full bg-white/10 px-2 py-0.5">{invitedLabel(r.invitedBy)}</span>}
+            {isOwner && r.inClients && <span className="rounded-full bg-sky-400/15 px-2 py-0.5 text-sky-200">Ya es cliente</span>}
+          </span>
+        </span>
+        <span className="shrink-0 text-right tabular-nums">
+          <span className="block font-semibold">{clp(r.total)}</span>
+          <span className="text-xs text-muted-foreground">{open ? 'Ocultar' : 'Ver todo'}</span>
+        </span>
+      </button>
+      {open && (
+        <div className="space-y-4 border-t border-white/10 p-3">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <Field label="Correo" value={r.buyerEmail} />
+            <Field label="Teléfono" value={r.buyerPhone} />
+            <Field label="RUT / pasaporte" value={r.buyerRut} />
+            <Field label="Instagram" value={r.buyerInstagram} />
+            <Field label="Orden" value={r.orderNumber} />
+            <Field label="Comprada" value={formatChileDateTime(r.createdAt)} />
+            <Field label="Canal" value={r.channel === 'caja' ? 'Caja' : 'Web'} />
+          </div>
+          <div>
+            <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Entradas ({r.tickets.length})</p>
+            {r.tickets.length === 0 ? <p className="text-xs text-muted-foreground">Sin entradas generadas.</p> : (
+              <ul className="space-y-1">
+                {r.tickets.map((t, i) => (
+                  <li key={i} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-white/5 px-2.5 py-1.5">
+                    <span>{t.type}{t.holderName ? ` · ${t.holderName}` : ''}{t.people > 1 ? ` · ${t.people} pers.` : ''}</span>
+                    <span className="text-xs text-muted-foreground">{t.code ?? ''} {t.status === 'used' ? '· Entró' : ''}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <div>
+            <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Acompañantes ({r.companions.length})</p>
+            {r.companions.length === 0 ? <p className="text-xs text-muted-foreground">Sin acompañantes cargados.</p> : (
+              <ul className="space-y-1">
+                {r.companions.map((c, i) => (
+                  <li key={i} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-white/5 px-2.5 py-1.5">
+                    <span>{c.name}</span>
+                    <span className="text-xs text-muted-foreground">{c.rut ? `${c.docType === 'passport' ? 'Pasaporte' : 'RUT'} ${c.rut}` : 'Sin RUT'}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          {isOwner && r.paymentStatus === 'approved' && (
+            <Button size="sm" variant="outline" disabled={adding} onClick={onAdd}>
+              {adding ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <UserPlus className="mr-1.5 h-4 w-4" />} Agregar a mis clientes
+            </Button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function CoproAsistentes() {
+  const utils = trpc.useUtils();
   const { data: me } = useMe();
   const { data, isLoading } = trpc.coproduction.attendees.useQuery(undefined, { refetchInterval: 60_000 });
   const [q, setQ] = useState('');
+  const isOwner = me?.viewer === 'playroom';
   const rows = useMemo(() => {
     const term = q.trim().toLowerCase();
-    return (data ?? []).filter((r) => !term || `${r.buyerName} ${r.buyerEmail} ${r.buyerPhone ?? ''} ${r.orderNumber}`.toLowerCase().includes(term));
+    return (data ?? []).filter((r) => !term || `${r.buyerName} ${r.buyerEmail} ${r.buyerPhone ?? ''} ${r.orderNumber} ${r.buyerRut ?? ''} ${r.companions.map((c) => `${c.name} ${c.rut ?? ''}`).join(' ')}`.toLowerCase().includes(term));
   }, [data, q]);
   const personas = rows.filter((r) => r.paymentStatus === 'approved').reduce((s, r) => s + r.personas, 0);
   const invitedLabel = (by: string | null) => (by === 'partner' ? `Cortesía ${me?.partnerName ?? 'socio'}` : by === 'playroom' ? 'Cortesía Playroom' : '');
+  const [addingId, setAddingId] = useState<number | 'all' | null>(null);
+  const addToClients = trpc.coproduction.addToClients.useMutation({
+    onSuccess: (r) => {
+      toast.success(`Listo: ${r.buyersAdded} cliente${r.buyersAdded === 1 ? '' : 's'} nuevo${r.buyersAdded === 1 ? '' : 's'}, ${r.buyersTagged} ya existían (etiquetados) y ${r.companions} acompañante${r.companions === 1 ? '' : 's'}.`);
+      void utils.coproduction.attendees.invalidate();
+    },
+    onError,
+    onSettled: () => setAddingId(null),
+  });
+  const add = (orderIds?: number[], key: number | 'all' = 'all') => { if (!me) return; setAddingId(key); addToClients.mutate({ slug: me.slug, orderIds }); };
 
   return (
     <div className="space-y-4">
@@ -196,135 +275,35 @@ export function CoproAsistentes() {
         title="Asistentes"
         subtitle={`${rows.length} compras · ${personas} personas`}
         action={(
-          <Button variant="outline" disabled={!rows.length} onClick={() => downloadCsv('asistentes-playroom-dalmore.csv', [
-            ['Orden', 'Nombre', 'Correo', 'Teléfono', 'Accesos', 'Personas', 'Total', 'Estado', 'Entró', 'Cortesía', 'Fecha'],
-            ...rows.map((r) => [r.orderNumber, r.buyerName, r.buyerEmail, r.buyerPhone ?? '', r.accesos.join(' + '), r.personas, r.total,
-              r.paymentStatus === 'approved' ? 'Pagada' : 'Reembolsada', r.checkedIn ? 'Sí' : 'No', invitedLabel(r.invitedBy), formatChileDateTime(r.createdAt)]),
-          ])}>
-            <Download className="mr-1.5 h-4 w-4" /> Descargar CSV
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            {isOwner && (
+              <Button variant="outline" disabled={!rows.length || addToClients.isPending} onClick={() => { if (confirm('¿Pasar a tu base de Clientes a todos los compradores y acompañantes de este evento? Los acompañantes quedan sin correo (nunca reciben mailing).')) add(); }}>
+                {addingId === 'all' ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <UserPlus className="mr-1.5 h-4 w-4" />} Agregar todos a Clientes
+              </Button>
+            )}
+            <Button variant="outline" disabled={!rows.length} onClick={() => downloadCsv('asistentes-playroom-dalmore.csv', [
+              ['Orden', 'Nombre', 'Correo', 'Teléfono', 'RUT', 'Instagram', 'Accesos', 'Personas', 'Acompañantes', 'Total', 'Estado', 'Entró', 'Cortesía', 'Fecha'],
+              ...rows.map((r) => [r.orderNumber, r.buyerName, r.buyerEmail, r.buyerPhone ?? '', r.buyerRut ?? '', r.buyerInstagram ?? '', r.accesos.join(' + '), r.personas,
+                r.companions.map((c) => `${c.name}${c.rut ? ` (${c.rut})` : ''}`).join(' | '), r.total,
+                r.paymentStatus === 'approved' ? 'Pagada' : 'Reembolsada', r.checkedIn ? 'Sí' : 'No', invitedLabel(r.invitedBy), formatChileDateTime(r.createdAt)]),
+            ])}>
+              <Download className="mr-1.5 h-4 w-4" /> Descargar CSV
+            </Button>
+          </div>
         )}
       />
       <label className="flex h-11 items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3">
         <Search className="h-4 w-4 text-muted-foreground" />
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por nombre, correo, teléfono u orden" className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground" />
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por nombre, correo, teléfono, RUT, acompañante u orden" className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground" />
       </label>
       {isLoading ? <p className="text-sm text-muted-foreground">Cargando…</p> : rows.length === 0 ? <EmptyState icon={Users} title={data?.length ? 'Nada coincide' : 'Todavía no hay asistentes'} /> : (
-        <>
-          {/* Celular: tarjetas. Desktop: tabla. Misma información en los dos. */}
-          <div className="space-y-2 md:hidden">
-            {rows.map((r) => (
-              <div key={r.id} className="admin-clay-sm border border-white/10 bg-white/5 p-3 text-sm">
-                <div className="flex items-start justify-between gap-2">
-                  <p className="font-semibold">{r.buyerName}</p>
-                  <span className="shrink-0 tabular-nums">{clp(r.total)}</span>
-                </div>
-                <p className="text-muted-foreground">{r.accesos.join(' + ')} · {r.personas} persona{r.personas === 1 ? '' : 's'}</p>
-                <p className="break-all text-xs text-muted-foreground">{r.buyerEmail}{r.buyerPhone ? ` · ${r.buyerPhone}` : ''}</p>
-                <div className="mt-1.5 flex flex-wrap gap-1.5 text-[11px]">
-                  {r.paymentStatus !== 'approved' && <span className="rounded-full bg-red-400/15 px-2 py-0.5 text-red-300">Reembolsada</span>}
-                  {r.checkedIn && <span className="rounded-full bg-emerald-400/15 px-2 py-0.5 text-emerald-300">Entró</span>}
-                  {r.invitedBy && <span className="rounded-full bg-white/10 px-2 py-0.5">{invitedLabel(r.invitedBy)}</span>}
-                </div>
-              </div>
-            ))}
-          </div>
-          <div className="admin-clay hidden overflow-x-auto p-0 md:block">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-white/10 text-left text-xs uppercase tracking-wide text-muted-foreground">
-                  <th className="px-4 py-3">Nombre</th><th className="px-4 py-3">Contacto</th><th className="px-4 py-3">Accesos</th>
-                  <th className="px-4 py-3 text-right">Personas</th><th className="px-4 py-3 text-right">Total</th><th className="px-4 py-3">Estado</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r) => (
-                  <tr key={r.id} className="border-b border-white/5 last:border-0">
-                    <td className="px-4 py-3"><p className="font-medium">{r.buyerName}</p><p className="text-xs text-muted-foreground">{r.orderNumber}</p></td>
-                    <td className="px-4 py-3"><p className="break-all">{r.buyerEmail}</p><p className="text-xs text-muted-foreground">{r.buyerPhone ?? '—'}</p></td>
-                    <td className="px-4 py-3">{r.accesos.join(' + ')}</td>
-                    <td className="px-4 py-3 text-right tabular-nums">{r.personas}</td>
-                    <td className="px-4 py-3 text-right tabular-nums">{clp(r.total)}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-wrap gap-1.5 text-[11px]">
-                        <span className={`rounded-full px-2 py-0.5 ${r.paymentStatus === 'approved' ? 'bg-white/10' : 'bg-red-400/15 text-red-300'}`}>{r.paymentStatus === 'approved' ? 'Pagada' : 'Reembolsada'}</span>
-                        {r.checkedIn && <span className="rounded-full bg-emerald-400/15 px-2 py-0.5 text-emerald-300">Entró</span>}
-                        {r.invitedBy && <span className="rounded-full bg-white/10 px-2 py-0.5">{invitedLabel(r.invitedBy)}</span>}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-// ── Cortesías ──────────────────────────────────────────────────────────────
-
-export function CoproCortesias() {
-  const utils = trpc.useUtils();
-  const { data: me } = useMe();
-  const { data: overview } = trpc.coproduction.overview.useQuery();
-  const { data: attendees } = trpc.coproduction.attendees.useQuery();
-  const [form, setForm] = useState({ buyerName: '', buyerEmail: '', buyerPhone: '', ticketTypeId: '', quantity: '1' });
-  const create = trpc.coproduction.createInvite.useMutation({
-    onSuccess: (r) => {
-      toast.success(`Cortesía creada (${r.orderNumber}). La entrada le llega por correo.`);
-      setForm((f) => ({ ...f, buyerName: '', buyerEmail: '', buyerPhone: '', quantity: '1' }));
-      void utils.coproduction.attendees.invalidate();
-      void utils.coproduction.overview.invalidate();
-    },
-    onError,
-  });
-  if (overview && !overview.event) return <NoEvent />;
-  const invites = (attendees ?? []).filter((a) => a.invitedBy);
-  const canSubmit = form.buyerName.trim() && /\S+@\S+\.\S+/.test(form.buyerEmail) && form.ticketTypeId && !create.isPending;
-
-  return (
-    <div className="space-y-5">
-      <SectionTitle title="Cortesías" subtitle="Invitaciones sin costo: cuentan para el aforo y la entrada con QR le llega por correo a la persona." />
-      <section className="admin-clay space-y-4 p-5">
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div><Label>Nombre</Label><Input className="mt-1" value={form.buyerName} onChange={(e) => setForm({ ...form, buyerName: e.target.value })} /></div>
-          <div><Label>Correo</Label><Input className="mt-1" type="email" value={form.buyerEmail} onChange={(e) => setForm({ ...form, buyerEmail: e.target.value })} /></div>
-          <div><Label>Teléfono (opcional)</Label><Input className="mt-1" value={form.buyerPhone} onChange={(e) => setForm({ ...form, buyerPhone: e.target.value })} /></div>
-          <div className="grid grid-cols-[1fr_88px] gap-2">
-            <div>
-              <Label>Acceso</Label>
-              <Select value={form.ticketTypeId} onValueChange={(v) => setForm({ ...form, ticketTypeId: v })}>
-                <SelectTrigger className="mt-1"><SelectValue placeholder="Elige" /></SelectTrigger>
-                <SelectContent>
-                  {(overview?.ticketTypes ?? []).map((t) => <SelectItem key={t.id} value={String(t.id)}>{t.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div><Label>Cantidad</Label><Input className="mt-1" type="number" min={1} max={20} value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} /></div>
-          </div>
+        <div className="space-y-2">
+          {rows.map((r) => (
+            <AttendeeCard key={r.id} r={r} isOwner={isOwner} invitedLabel={invitedLabel}
+              adding={addingId === r.id && addToClients.isPending} onAdd={() => add([r.id], r.id)} />
+          ))}
         </div>
-        <Button disabled={!canSubmit} onClick={() => create.mutate({
-          buyerName: form.buyerName, buyerEmail: form.buyerEmail, buyerPhone: form.buyerPhone || undefined,
-          ticketTypeId: Number(form.ticketTypeId), quantity: Math.max(1, Math.min(20, Number(form.quantity) || 1)),
-        })}>
-          {create.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Gift className="mr-1.5 h-4 w-4" />} Crear cortesía
-        </Button>
-      </section>
-
-      <section className="space-y-2">
-        <h3 className="font-heading text-lg">Cortesías creadas ({invites.length})</h3>
-        {invites.length === 0 ? <p className="text-sm text-muted-foreground">Todavía no hay cortesías.</p> : invites.map((r) => (
-          <div key={r.id} className="admin-clay-sm flex flex-wrap items-center justify-between gap-2 border border-white/10 bg-white/5 p-3 text-sm">
-            <div className="min-w-0">
-              <p className="font-medium">{r.buyerName} <span className="text-muted-foreground">· {r.accesos.join(' + ')} · {r.personas} pers.</span></p>
-              <p className="break-all text-xs text-muted-foreground">{r.buyerEmail} · {formatChileDateTime(r.createdAt)}</p>
-            </div>
-            <span className="rounded-full bg-white/10 px-2.5 py-0.5 text-xs">{r.invitedBy === 'partner' ? me?.partnerName ?? 'Socio' : 'Playroom'}</span>
-          </div>
-        ))}
-      </section>
+      )}
     </div>
   );
 }
@@ -342,6 +321,22 @@ const STATUS_STYLE: Record<string, [string, string]> = {
   rejected: ['Rechazado', 'bg-red-400/15 text-red-300'],
 };
 
+const CALC_CATEGORIES: { value: string; label: string; emoji: string }[] = [
+  { value: 'produccion', label: 'Producción', emoji: '🎛️' },
+  { value: 'barra', label: 'Barra', emoji: '🍸' },
+  { value: 'staff', label: 'Staff', emoji: '🧑‍🤝‍🧑' },
+  { value: 'decoracion', label: 'Decoración', emoji: '🎈' },
+  { value: 'arriendo', label: 'Arriendo', emoji: '🏠' },
+  { value: 'marketing', label: 'Marketing', emoji: '📣' },
+  { value: 'transporte', label: 'Transporte', emoji: '🚚' },
+  { value: 'otros', label: 'Otros', emoji: '📦' },
+];
+const CALC_DOCS: { value: string; label: string }[] = [
+  { value: 'boleta', label: 'Boleta' }, { value: 'factura', label: 'Factura' }, { value: 'boleta_honorarios', label: 'Honorarios' }, { value: 'sin_documento', label: 'Sin doc.' },
+];
+
+/** Gastos del evento, armados como la calculadora de gastos de Playroom: monto grande, foto de la boleta que se lee sola,
+ * categoría de un toque. Lo del dueño entra directo; lo del socio queda por aprobar. */
 export function CoproGastos() {
   const utils = trpc.useUtils();
   const { data: me } = useMe();
@@ -350,63 +345,127 @@ export function CoproGastos() {
   const today = new Date().toISOString().slice(0, 10);
   const empty = { category: 'produccion', description: '', supplier: '', documentType: 'boleta', amountTotal: '', expenseDate: today, receiptUrl: '' };
   const [form, setForm] = useState(empty);
+  const [showMore, setShowMore] = useState(false);
   const [rejecting, setRejecting] = useState<{ id: number; reason: string } | null>(null);
   const refresh = () => { void utils.coproduction.expenses.invalidate(); void utils.coproduction.split.invalidate(); };
 
   const create = trpc.coproduction.createExpense.useMutation({
-    onSuccess: () => { toast.success(isOwner ? 'Gasto agregado' : 'Gasto enviado: queda por aprobar'); setForm(empty); refresh(); },
+    onSuccess: () => { toast.success(isOwner ? 'Gasto agregado' : 'Gasto enviado: queda por aprobar'); setForm(empty); setShowMore(false); refresh(); },
     onError,
+  });
+  const scan = trpc.coproduction.scanReceipt.useMutation({
+    onSuccess: (r) => {
+      if (!r.isReceipt) { toast.error('No pudimos leer la foto como boleta o factura. Completa a mano: la foto queda guardada.'); return; }
+      setForm((f) => ({
+        ...f,
+        amountTotal: r.amountTotal ? String(r.amountTotal) : f.amountTotal,
+        category: r.category && CALC_CATEGORIES.some((c) => c.value === r.category) ? r.category : r.category ? 'otros' : f.category,
+        documentType: r.documentType ?? f.documentType,
+        description: r.description || f.description,
+        supplier: r.supplier || f.supplier,
+      }));
+      if (r.description || r.supplier) setShowMore(true);
+      if (r.confidence !== 'alta' || r.notes) toast.warning(r.notes || 'Revisa los datos leídos antes de guardar.');
+      else toast.success('Boleta leída: revisa y guarda.');
+    },
+    onError: (e) => toast.error(`${e.message} La foto queda guardada.`),
   });
   const approve = trpc.coproduction.approveExpense.useMutation({ onSuccess: () => { toast.success('Gasto aprobado'); refresh(); }, onError });
   const reject = trpc.coproduction.rejectExpense.useMutation({ onSuccess: () => { toast.success('Gasto rechazado'); setRejecting(null); refresh(); }, onError });
 
   const amount = Number(form.amountTotal.replace(/\D/g, ''));
-  const canSubmit = form.description.trim() && amount > 0 && !create.isPending;
+  const canSubmit = amount > 0 && !create.isPending;
   const rows = data ?? [];
   const total = rows.filter((r) => r.status === 'approved').reduce((s, r) => s + r.amountTotal, 0);
+  const catLabel = (v: string) => CALC_CATEGORIES.find((c) => c.value === v)?.label ?? 'Gasto';
 
   return (
     <div className="space-y-5">
       <SectionTitle
         title="Gastos del evento"
         subtitle={isOwner
-          ? 'Lo que cargas acá entra directo. Lo que carga el socio queda por aprobar y no cuenta en el reparto hasta que lo apruebes.'
-          : 'Carga tus gastos con la foto de la boleta. Quedan por aprobar y entran al reparto cuando Playroom los apruebe.'}
+          ? 'Lo que cargas acá entra directo. Lo que carga el socio queda por aprobar y no cuenta en el cierre hasta que lo apruebes.'
+          : 'Anota el monto o saca la foto de la boleta: se lee sola. Queda por aprobar y entra al cierre cuando Playroom lo apruebe.'}
       />
-      <section className="admin-clay space-y-4 p-5">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <div className="sm:col-span-2 lg:col-span-1"><Label>Descripción</Label><Input className="mt-1" placeholder="Ej: DJ invitado" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></div>
-          <div>
-            <Label>Categoría</Label>
-            <Select value={form.category} onValueChange={(v) => setForm({ ...form, category: v })}>
-              <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-              <SelectContent>{['arriendo', 'barra', 'staff', 'produccion', 'decoracion', 'marketing', 'transporte', 'otros'].map((c) => <SelectItem key={c} value={c}>{CATEGORY_LABEL[c]}</SelectItem>)}</SelectContent>
-            </Select>
+      <div className="mx-auto max-w-lg space-y-4">
+        <section className="admin-clay p-5">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Monto pagado</p>
+          <label className="mt-3 flex cursor-text items-baseline justify-center gap-1" htmlFor="copro-expense-amount">
+            <span className={`text-3xl font-bold ${amount > 0 ? 'text-white/70' : 'text-white/30'}`}>$</span>
+            <input
+              id="copro-expense-amount"
+              value={amount > 0 ? amount.toLocaleString('es-CL') : ''}
+              onChange={(e) => setForm({ ...form, amountTotal: e.target.value.replace(/\D/g, '') })}
+              inputMode="numeric" enterKeyHint="done" placeholder="0" aria-label="Monto total pagado"
+              style={{ width: `${Math.max(1, (amount > 0 ? amount.toLocaleString('es-CL').length : 1)) + 0.4}ch` }}
+              className="min-w-[1.5ch] max-w-full bg-transparent text-center text-5xl font-bold tracking-tight tabular-nums text-white outline-none placeholder:text-white/25"
+            />
+          </label>
+          <div className="mx-auto mt-2 h-px w-2/3 bg-gradient-to-r from-transparent via-[oklch(0.72_0.2_342)] to-transparent opacity-70" />
+          <div className="mt-4 flex items-center justify-center gap-3">
+            <CameraCaptureField
+              label={form.receiptUrl ? 'Cambiar foto' : 'Escanear boleta o factura'}
+              pathPrefix="coproduction/receipts"
+              uploadUrl="/api/partner/blob/upload"
+              maxSide={1800}
+              hidePreview
+              analyzing={scan.isPending}
+              buttonClassName="admin-tab h-10 rounded-full border-0 px-4 text-sm"
+              onScanned={(url) => { setForm((f) => ({ ...f, receiptUrl: url })); scan.mutate({ slug: me?.slug, imageUrl: url }); }}
+            />
+            {form.receiptUrl && (
+              <span className="relative">
+                <a href={form.receiptUrl} target="_blank" rel="noreferrer" aria-label="Ver la foto de la boleta"><img src={form.receiptUrl} alt="" className="h-12 w-12 rounded-xl border border-white/15 object-cover" /></a>
+                <button type="button" onClick={() => setForm({ ...form, receiptUrl: '' })} aria-label="Quitar la foto" className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full border border-white/20 bg-[#1c1c1f] text-white/80"><X className="h-3.5 w-3.5" /></button>
+              </span>
+            )}
           </div>
-          <div><Label>Monto total (IVA incluido)</Label><Input className="mt-1" inputMode="numeric" placeholder="$" value={form.amountTotal ? Number(form.amountTotal.replace(/\D/g, '')).toLocaleString('es-CL') : ''} onChange={(e) => setForm({ ...form, amountTotal: e.target.value.replace(/\D/g, '') })} /></div>
-          <div><Label>Proveedor (opcional)</Label><Input className="mt-1" value={form.supplier} onChange={(e) => setForm({ ...form, supplier: e.target.value })} /></div>
-          <div>
-            <Label>Documento</Label>
-            <Select value={form.documentType} onValueChange={(v) => setForm({ ...form, documentType: v })}>
-              <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-              <SelectContent>{Object.entries(DOC_LABEL).map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}</SelectContent>
-            </Select>
+        </section>
+
+        <section className="admin-clay p-4">
+          <p className="mb-2.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Categoría</p>
+          <div className="grid grid-cols-4 gap-2">
+            {CALC_CATEGORIES.map((c) => (
+              <button key={c.value} type="button" onClick={() => setForm({ ...form, category: c.value })} aria-pressed={form.category === c.value}
+                className={`admin-tile flex min-h-[4.5rem] flex-col items-center justify-center gap-1 rounded-2xl px-1 py-2.5 text-xs font-semibold leading-tight ${form.category === c.value ? 'admin-tab-active' : ''}`}>
+                <span className="text-xl leading-none" aria-hidden="true">{c.emoji}</span>{c.label}
+              </button>
+            ))}
           </div>
-          <div><Label>Fecha</Label><Input className="mt-1" type="date" value={form.expenseDate} onChange={(e) => setForm({ ...form, expenseDate: e.target.value })} /></div>
-        </div>
-        <div>
-          <Label>Foto de la boleta (opcional)</Label>
-          <div className="mt-1">
-            <ImageUploadField value={form.receiptUrl} onChange={(url) => setForm({ ...form, receiptUrl: url })} pathPrefix="coproduction/receipts" uploadUrl="/api/partner/blob/upload" />
+        </section>
+
+        <section className="admin-clay p-4">
+          <p className="mb-2.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Documento</p>
+          <div className="flex gap-1.5" role="radiogroup" aria-label="Documento">
+            {CALC_DOCS.map((d) => (
+              <button key={d.value} type="button" role="radio" aria-checked={form.documentType === d.value} onClick={() => setForm({ ...form, documentType: d.value })}
+                className={`admin-tab min-h-11 flex-1 rounded-full px-2 py-2.5 text-xs font-semibold leading-tight ${form.documentType === d.value ? 'admin-tab-active' : ''}`}>{d.label}</button>
+            ))}
           </div>
-        </div>
-        <Button disabled={!canSubmit} onClick={() => create.mutate({
-          category: form.category as any, description: form.description, supplier: form.supplier || undefined, documentType: form.documentType as any,
-          amountTotal: amount, expenseDate: new Date(`${form.expenseDate}T12:00:00`), receiptUrl: form.receiptUrl || undefined,
+        </section>
+
+        <section className="admin-clay p-4">
+          <button type="button" onClick={() => setShowMore(!showMore)} aria-expanded={showMore} className="flex w-full items-center justify-between text-sm text-muted-foreground hover:text-white">
+            <span>{showMore ? 'Detalle, proveedor y fecha' : 'Agregar detalle, proveedor o fecha'}</span>
+            <span aria-hidden="true">{showMore ? '−' : '+'}</span>
+          </button>
+          {showMore && (
+            <div className="mt-3 space-y-3">
+              <Input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="¿Qué compraste?" className="h-12 rounded-xl" />
+              <Input value={form.supplier} onChange={(e) => setForm({ ...form, supplier: e.target.value })} placeholder="Proveedor" className="h-12 rounded-xl" />
+              <Input type="date" value={form.expenseDate} onChange={(e) => setForm({ ...form, expenseDate: e.target.value })} className="h-12 rounded-xl" />
+            </div>
+          )}
+        </section>
+
+        <Button className="h-14 w-full rounded-[20px] text-base font-bold" disabled={!canSubmit} onClick={() => create.mutate({
+          category: form.category as any, description: form.description.trim() || catLabel(form.category), supplier: form.supplier || undefined, documentType: form.documentType as any,
+          amountTotal: amount, expenseDate: new Date(`${form.expenseDate || today}T12:00:00`), receiptUrl: form.receiptUrl || undefined,
         })}>
-          {create.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Plus className="mr-1.5 h-4 w-4" />} {isOwner ? 'Agregar gasto' : 'Enviar gasto'}
+          {create.isPending ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Check className="mr-2 h-5 w-5" />}
+          {amount > 0 ? `${isOwner ? 'Guardar' : 'Enviar'} ${clp(amount)}` : isOwner ? 'Guardar gasto' : 'Enviar gasto'}
         </Button>
-      </section>
+      </div>
 
       <section className="space-y-2">
         <div className="flex items-baseline justify-between gap-3">
@@ -458,8 +517,10 @@ export function CoproGastos() {
 
 // ── Reparto ────────────────────────────────────────────────────────────────
 
+/** Cierre del evento: todo lo vendido y lo ingresado, los gastos y cómo se reparte la utilidad entre las dos productoras. */
 export function CoproReparto() {
   const { data, isLoading } = trpc.coproduction.split.useQuery(undefined, { refetchInterval: 60_000 });
+  const { data: sales } = trpc.coproduction.overview.useQuery(undefined, { refetchInterval: 60_000 });
   if (isLoading) return <p className="text-sm text-muted-foreground">Cargando…</p>;
   if (!data) return <NoEvent />;
   const { pnl, split, partnerName } = data;
@@ -473,10 +534,56 @@ export function CoproReparto() {
     ['Comisiones de embajadores', -pnl.ambassadorCommissions],
     ['Parte del local (estacionamiento)', -pnl.extraCostsTotal],
   ];
+  const ev = sales && sales.event ? sales : null;
+  const days = ev ? [...ev.byDay].reverse() : [];
 
   return (
     <div className="space-y-5">
-      <SectionTitle title="Reparto" subtitle={`Utilidad del evento repartida ${100 - split.partnerPercent}/${split.partnerPercent} (Playroom/${partnerName}). No incluye gastos generales de ninguna de las dos productoras.`} />
+      <SectionTitle title="Cierre" subtitle={`Todo lo que entró y salió del evento, y la utilidad repartida ${100 - split.partnerPercent}/${split.partnerPercent} (Playroom/${partnerName}). No incluye gastos generales de ninguna de las dos productoras.`} />
+
+      {ev && (
+        <>
+          <div className="grid grid-cols-2 gap-3 md:gap-4 lg:grid-cols-4">
+            <Kpi icon={Wallet} label="Ingresado al evento" value={clp(ev.revenueWeb + ev.revenueCaja)} hint={`Web ${clp(ev.revenueWeb)} · Caja ${clp(ev.revenueCaja)}`} />
+            <Kpi icon={Ticket} label="Compras aprobadas" value={ev.ordersApproved.toLocaleString('es-CL')} />
+            <Kpi icon={Users} label="Personas" value={ev.personas.toLocaleString('es-CL')} />
+            <Kpi icon={Check} label="Ya entraron" value={ev.checkedIn.toLocaleString('es-CL')} />
+          </div>
+          <div className="grid gap-5 lg:grid-cols-2">
+            <section className="admin-clay p-5">
+              <h3 className="mb-3 font-heading text-lg">Ventas por tipo de acceso</h3>
+              {ev.ticketTypes.length === 0 ? <p className="text-sm text-muted-foreground">El evento todavía no tiene accesos cargados.</p> : (
+                <ul className="divide-y divide-white/10">
+                  {ev.ticketTypes.filter((t) => t.quantity > 0 || t.status === 'active').map((t) => (
+                    <li key={t.id} className="flex items-center justify-between gap-3 py-2.5 text-sm">
+                      <span className="min-w-0">
+                        <span className="block truncate font-medium">{t.name}</span>
+                        <span className="text-xs text-muted-foreground">{clp(t.price)}{t.status !== 'active' ? ` · ${t.status === 'soldout' ? 'agotado' : 'oculto'}` : ''}</span>
+                      </span>
+                      <span className="shrink-0 text-right tabular-nums"><span className="block font-semibold">{t.quantity}</span><span className="text-xs text-muted-foreground">{clp(t.revenue)}</span></span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+            <section className="admin-clay p-5">
+              <h3 className="mb-3 font-heading text-lg">Ingresos por día</h3>
+              {days.length === 0 ? <p className="text-sm text-muted-foreground">Todavía no hay ventas.</p> : (
+                <ul className="max-h-80 divide-y divide-white/10 overflow-y-auto">
+                  {days.map((d) => (
+                    <li key={d.day} className="flex items-center justify-between gap-3 py-2 text-sm">
+                      <span>{d.day.slice(8, 10)}-{d.day.slice(5, 7)}</span>
+                      <span className="tabular-nums text-muted-foreground">{d.orders} compra{d.orders === 1 ? '' : 's'}</span>
+                      <span className="w-24 text-right tabular-nums font-medium">{clp(d.revenue)}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          </div>
+        </>
+      )}
+
       <div className="grid gap-3 sm:grid-cols-3">
         <Kpi icon={Wallet} label="Utilidad del evento" value={clp(split.netProfit)} />
         <Kpi icon={Users} label={`Le toca a ${partnerName} (${split.partnerPercent}%)`} value={clp(split.partnerShare)} />
@@ -510,6 +617,78 @@ export function CoproReparto() {
             </ul>
           </>
         )}
+      </section>
+    </div>
+  );
+}
+
+// ── Códigos de descuento ───────────────────────────────────────────────────
+
+export function CoproDescuentos() {
+  const utils = trpc.useUtils();
+  const { data: me } = useMe();
+  const { data: overview } = trpc.coproduction.overview.useQuery();
+  const { data, isLoading } = trpc.coproduction.discounts.useQuery();
+  const empty = { code: '', description: '', discountType: 'percentage' as 'percentage' | 'fixed', discountValue: '', maxUses: '', validUntil: '' };
+  const [form, setForm] = useState(empty);
+  const refresh = () => { void utils.coproduction.discounts.invalidate(); };
+  const create = trpc.coproduction.createDiscount.useMutation({
+    onSuccess: (r) => { toast.success(`Código ${r.code} creado`); setForm(empty); refresh(); },
+    onError,
+  });
+  const toggle = trpc.coproduction.setDiscountActive.useMutation({ onSuccess: refresh, onError });
+  if (overview && !overview.event) return <NoEvent />;
+
+  const value = Number(form.discountValue.replace(/\D/g, ''));
+  const maxUses = Number(form.maxUses.replace(/\D/g, ''));
+  const canSubmit = form.code.trim().length >= 3 && value > 0 && (form.discountType === 'fixed' || value <= 100) && !create.isPending;
+  const rows = data ?? [];
+  const label = (r: { discountType: string; discountValue: number }) => (r.discountType === 'percentage' ? `${r.discountValue}%` : clp(r.discountValue));
+  const copy = (code: string) => navigator.clipboard?.writeText(code).then(() => toast.success('Código copiado'), () => toast.error('No se pudo copiar'));
+
+  return (
+    <div className="space-y-5">
+      <SectionTitle title="Códigos de descuento" subtitle="Crea códigos con el nombre que quieras (ej. DALMORE20). Valen solo para este evento y se usan en el checkout." />
+      <section className="admin-clay space-y-4 p-5">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div><Label>Código</Label><Input className="mt-1 uppercase" placeholder="DALMORE20" maxLength={40} value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase().replace(/[^A-Z0-9_-]/g, '') })} /></div>
+          <div><Label>Nota (opcional)</Label><Input className="mt-1" placeholder="Para quién es" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></div>
+          <div>
+            <Label>Tipo</Label>
+            <Select value={form.discountType} onValueChange={(v) => setForm({ ...form, discountType: v as 'percentage' | 'fixed' })}>
+              <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+              <SelectContent><SelectItem value="percentage">Porcentaje (%)</SelectItem><SelectItem value="fixed">Monto fijo ($)</SelectItem></SelectContent>
+            </Select>
+          </div>
+          <div><Label>{form.discountType === 'percentage' ? 'Descuento (%)' : 'Descuento ($)'}</Label><Input className="mt-1" inputMode="numeric" value={form.discountValue} onChange={(e) => setForm({ ...form, discountValue: e.target.value.replace(/\D/g, '') })} /></div>
+          <div><Label>Usos máximos (opcional)</Label><Input className="mt-1" inputMode="numeric" placeholder="Sin límite" value={form.maxUses} onChange={(e) => setForm({ ...form, maxUses: e.target.value.replace(/\D/g, '') })} /></div>
+          <div><Label>Vence (opcional)</Label><Input className="mt-1" type="date" value={form.validUntil} onChange={(e) => setForm({ ...form, validUntil: e.target.value })} /></div>
+        </div>
+        <Button disabled={!canSubmit} onClick={() => create.mutate({
+          slug: me?.slug, code: form.code, description: form.description || undefined, discountType: form.discountType, discountValue: value,
+          maxUses: maxUses > 0 ? maxUses : undefined, validUntil: form.validUntil ? new Date(`${form.validUntil}T23:59:59`).toISOString() : undefined,
+        })}>
+          {create.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Plus className="mr-1.5 h-4 w-4" />} Crear código
+        </Button>
+      </section>
+
+      <section className="space-y-2">
+        <h3 className="font-heading text-lg">Códigos del evento ({rows.length})</h3>
+        {isLoading ? <p className="text-sm text-muted-foreground">Cargando…</p> : rows.length === 0 ? <EmptyState icon={Ticket} title="Todavía no hay códigos" /> : rows.map((r) => (
+          <div key={r.id} className="admin-clay-sm flex flex-wrap items-center justify-between gap-3 border border-white/10 bg-white/5 p-3 text-sm">
+            <div className="min-w-0">
+              <p className="font-semibold tracking-wide">{r.code} <span className="font-normal text-muted-foreground">· {label(r)} de descuento</span></p>
+              <p className="text-xs text-muted-foreground">
+                {r.usedCount} uso{r.usedCount === 1 ? '' : 's'}{r.maxUses ? ` de ${r.maxUses}` : ''}{r.validUntil ? ` · vence ${formatChileShortDate(r.validUntil)}` : ''}{r.description ? ` · ${r.description}` : ''}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="outline" onClick={() => copy(r.code)}><Copy className="mr-1 h-3.5 w-3.5" /> Copiar</Button>
+              <span className="text-xs text-muted-foreground">{r.isActive ? 'Activo' : 'Pausado'}</span>
+              <Switch checked={r.isActive} disabled={toggle.isPending} onCheckedChange={(active) => toggle.mutate({ slug: me?.slug, id: r.id, active })} />
+            </div>
+          </div>
+        ))}
       </section>
     </div>
   );

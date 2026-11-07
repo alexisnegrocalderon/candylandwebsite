@@ -120,3 +120,17 @@ export function AiUsageCard() {
     </Card>
   );
 }
+
+/** Ajustes → IA: el tope mensual y el saldo que frenan al asistente y al Estudio, y en qué se fue el gasto. */
+export function AiSettings() {
+  return (
+    <div className="space-y-4">
+      <h2 className="font-heading text-2xl">IA</h2>
+      <p className="max-w-2xl text-sm text-muted-foreground">
+        El asistente, el agente de mensajes y el Estudio se detienen cuando el gasto del mes llega al tope que pones acá, o cuando el saldo anotado
+        se acaba. Si te aparece «Se alcanzó el tope de gasto de IA», sube el tope y actualiza el saldo con el que ves en platform.claude.com.
+      </p>
+      <AiUsageCard />
+    </div>
+  );
+}
