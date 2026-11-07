@@ -198,7 +198,7 @@ export function MotionStudio() {
                 const spec = { ...starterSpec(template, style), format, eventId, eventDate, seed: (baseSeed + k * 7919) % 1_000_000 };
                 return (
                   <button key={key} type="button" className="group space-y-2 text-left" onClick={() => setView({ kind: 'edit', id: null, spec })}>
-                    <MotionPreview spec={spec} controls={false} autoPlay maxHeight={300} className="transition-transform group-hover:scale-[1.02]" />
+                    <MotionPreview spec={spec} controls={false} still maxHeight={300} className="transition-transform group-hover:scale-[1.02]" />
                     <p className="text-sm font-medium">{label}</p>
                     <p className="text-xs text-muted-foreground">{hint}</p>
                   </button>
