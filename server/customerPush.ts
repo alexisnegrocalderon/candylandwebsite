@@ -164,10 +164,13 @@ export async function subscribeCustomer(input: {
   source: PushSource;
   platform: PushPlatform;
   standalone: boolean;
-}): Promise<{ linked: boolean; gift: number }> {
+}, memberEmail?: string | null): Promise<{ linked: boolean; gift: number }> {
   const db = await getDb();
   if (!db) throw new Error('Database not available');
-  const who = await resolveEmail(input);
+  // La compra manda; si no hay (activó los avisos desde «Mi cuenta» sin pasar por una entrada),
+  // vale el correo de la sesión de «Mi cuenta»: sin él la suscripción queda anónima y ninguna
+  // prueba, campaña o recordatorio por correo la encuentra.
+  const who: { email: string; orderId: number | null } | null = (await resolveEmail(input)) ?? (memberEmail ? { email: memberEmail, orderId: null } : null);
   const keys = { p256dh: input.subscription.keys.p256dh, auth: input.subscription.keys.auth };
   const [existing] = await db.select({ id: customerPushSubscriptions.id, optedOutAt: customerPushSubscriptions.optedOutAt, hourHist: customerPushSubscriptions.hourHist })
     .from(customerPushSubscriptions).where(eq(customerPushSubscriptions.endpoint, input.subscription.endpoint)).limit(1);
@@ -175,7 +178,7 @@ export async function subscribeCustomer(input: {
   // pisa si este pedido trae uno (desde la home no se pierde el que ya tenía).
   const update = {
     ...keys, optedOutAt: null, platform: input.platform, standalone: input.standalone ? 1 : 0,
-    ...(who ? { email: who.email, emailNorm: emailKey(who.email) || null, orderId: who.orderId } : {}),
+    ...(who ? { email: who.email, emailNorm: emailKey(who.email) || null, ...(who.orderId != null ? { orderId: who.orderId } : {}) } : {}),
   };
   await db.insert(customerPushSubscriptions).values({
     endpoint: input.subscription.endpoint, source: input.source, ...update,
@@ -213,6 +216,20 @@ export async function linkCustomerSubscription(endpoint: string, ticketCode: str
     .set({ email: who.email, emailNorm: emailKey(who.email) || null, orderId: who.orderId })
     .where(eq(customerPushSubscriptions.endpoint, endpoint));
   try { await awardIncentive(who.email, await getCustomerPushConfig()); } catch (err) { console.error('[CustomerPush] Regalo:', err); }
+  return { linked: true };
+}
+
+/** Liga al correo de «Mi cuenta» una suscripción que quedó anónima (activó los avisos antes de entrar).
+ * Nunca pisa un correo ya ligado por una compra. */
+export async function linkMemberSubscription(endpoint: string, memberEmail: string | null): Promise<{ linked: boolean }> {
+  const db = await getDb();
+  const key = memberEmail ? emailKey(memberEmail) : '';
+  if (!db || !memberEmail || !key) return { linked: false };
+  const [res] = await db.update(customerPushSubscriptions)
+    .set({ email: memberEmail, emailNorm: key })
+    .where(and(eq(customerPushSubscriptions.endpoint, endpoint), isNull(customerPushSubscriptions.emailNorm))) as any;
+  if (!Number(res?.affectedRows)) return { linked: false };
+  try { await awardIncentive(memberEmail, await getCustomerPushConfig()); } catch (err) { console.error('[CustomerPush] Regalo:', err); }
   return { linked: true };
 }
 

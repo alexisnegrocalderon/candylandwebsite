@@ -5755,7 +5755,11 @@ export const appRouter = router({
       if (!(await db.checkIpRateLimit(ipKey))) throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos. Prueba de nuevo en un rato.' });
       // Generoso: en la fiesta mucha gente sale por la misma IP (WiFi del local).
       await db.recordIpAttempt(ipKey, 2000, 30 * 60 * 1000);
-      return customerPush.subscribeCustomer(input);
+      return customerPush.subscribeCustomer(input, getMemberEmail(ctx.req));
+    }),
+    // Avisos activados antes de entrar a «Mi cuenta»: se ligan al correo de la sesión (sin sesión, no hace nada).
+    linkMember: publicProcedure.input(z.object({ endpoint: z.string().url().max(512) })).mutation(async ({ input, ctx }) => {
+      return customerPush.linkMemberSubscription(input.endpoint, getMemberEmail(ctx.req));
     }),
     link: publicProcedure.input(z.object({ endpoint: z.string().url().max(512), ticketCode: z.string().max(64) })).mutation(async ({ input }) => {
       return customerPush.linkCustomerSubscription(input.endpoint, input.ticketCode);
