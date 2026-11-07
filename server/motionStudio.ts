@@ -54,10 +54,19 @@ function fromRow(row: typeof contentDesigns.$inferSelect): StoredMotion {
 export async function listMotionVideos(): Promise<MotionListItem[]> {
   const db = await requireDb();
   const rows = await db.select().from(contentDesigns).where(eq(contentDesigns.kind, MOTION_KIND)).orderBy(desc(contentDesigns.updatedAt)).limit(MAX_LISTED);
-  return rows.map((row) => {
-    const m = fromRow(row);
-    return { id: m.id, title: m.spec.title, eventId: m.spec.eventId, template: m.spec.template, style: m.spec.style, format: m.spec.format, updatedAt: m.updatedAt, render: m.render, renderFresh: m.renderFresh };
-  });
+  const items: MotionListItem[] = [];
+  for (const row of rows) {
+    // Un video con datos raros nunca debe esconder a los demás: si no se puede leer, aparece igual para poder abrirlo o borrarlo.
+    try {
+      const m = fromRow(row);
+      items.push({ id: m.id, title: m.spec.title, eventId: m.spec.eventId, template: m.spec.template, style: m.spec.style, format: m.spec.format, updatedAt: m.updatedAt, render: m.render, renderFresh: m.renderFresh });
+    } catch (err) {
+      console.warn('[motionStudio] no se pudo leer el video', row.id, err);
+      const fallback = normalizeMotionSpec({ title: row.title, eventId: row.eventId });
+      items.push({ id: row.id, title: row.title || fallback.title, eventId: row.eventId, template: fallback.template, style: fallback.style, format: fallback.format, updatedAt: row.updatedAt, render: summarizeRender(normalizeRenderState(null), Date.now()), renderFresh: false });
+    }
+  }
+  return items;
 }
 
 export async function getMotionVideo(id: number): Promise<StoredMotion | null> {

@@ -228,7 +228,7 @@ export function MotionStudio() {
 
 function VideoList({ onOpen, onNew }: { onOpen: (id: number, spec: MotionSpec) => void; onNew: () => void }) {
   const utils = trpc.useUtils();
-  const { data, isLoading } = trpc.motionStudio.list.useQuery();
+  const { data, isLoading, error, refetch } = trpc.motionStudio.list.useQuery();
   const [opening, setOpening] = useState<number | null>(null);
   const del = trpc.motionStudio.delete.useMutation({
     onSuccess: () => { utils.motionStudio.list.invalidate(); toast.success('Video borrado.'); },
@@ -249,7 +249,13 @@ function VideoList({ onOpen, onNew }: { onOpen: (id: number, spec: MotionSpec) =
   return (
     <div className="space-y-3">
       <Button variant="outline" size="sm" onClick={onNew}><Plus className="mr-1 h-4 w-4" /> Video en blanco</Button>
-      {!data?.length && <p className="text-sm text-muted-foreground">Todavía no guardas ningún video.</p>}
+      {error && (
+        <p className="text-sm text-red-600">
+          No se pudo cargar la lista de videos: {error.message}{' '}
+          <button type="button" className="underline" onClick={() => refetch()}>Reintentar</button>
+        </p>
+      )}
+      {!error && !data?.length && <p className="text-sm text-muted-foreground">Todavía no guardas ningún video.</p>}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {data?.map((v) => (
           <Card key={v.id} className="rounded-2xl border-0 shadow-md shadow-black/5">
