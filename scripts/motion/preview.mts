@@ -31,18 +31,20 @@ function chrome(): string | undefined {
 const [mode = 'stills', a, b] = process.argv.slice(2);
 const serveUrl = await bundle({ entryPoint: join(ROOT, 'motion/index.ts'), publicDir: join(ROOT, 'client/public') });
 const browserExecutable = chrome();
+// WebGL por software (SwiftShader): el estilo póster dibuja en 3D y la máquina no tiene GPU.
+const chromiumOptions = { gl: 'swangle' as const };
 
 async function still(spec: MotionSpec, frame: number, output: string) {
   const inputProps = { spec };
-  const composition = await selectComposition({ serveUrl, id: 'Motion', inputProps, browserExecutable });
-  await renderStill({ composition, serveUrl, output, frame: Math.min(frame, composition.durationInFrames - 1), inputProps, browserExecutable });
+  const composition = await selectComposition({ serveUrl, id: 'Motion', inputProps, browserExecutable, chromiumOptions });
+  await renderStill({ composition, serveUrl, output, frame: Math.min(frame, composition.durationInFrames - 1), inputProps, browserExecutable, chromiumOptions });
 }
 
 if (mode === 'video') {
   const spec = normalizeMotionSpec(JSON.parse(readFileSync(a, 'utf8')));
   const inputProps = { spec };
-  const composition = await selectComposition({ serveUrl, id: 'Motion', inputProps, browserExecutable });
-  await renderMedia({ composition, serveUrl, codec: 'h264', crf: 17, outputLocation: b ?? 'out.mp4', inputProps, browserExecutable });
+  const composition = await selectComposition({ serveUrl, id: 'Motion', inputProps, browserExecutable, chromiumOptions });
+  await renderMedia({ composition, serveUrl, codec: 'h264', crf: 17, outputLocation: b ?? 'out.mp4', inputProps, browserExecutable, chromiumOptions });
   console.log('Listo:', b ?? 'out.mp4');
 } else {
   const out = a ?? 'motion-stills';

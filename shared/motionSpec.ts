@@ -18,13 +18,14 @@ export const MOTION_TEMPLATE_LABEL: Record<MotionTemplate, string> = {
   sting: 'Intro / outro de marca',
 };
 
-export const MOTION_STYLES = ['liquid', 'glitch', 'editorial', 'kinetic'] as const;
+export const MOTION_STYLES = ['liquid', 'glitch', 'editorial', 'kinetic', 'poster'] as const;
 export type MotionStyle = (typeof MOTION_STYLES)[number];
 export const MOTION_STYLE_LABEL: Record<MotionStyle, string> = {
   liquid: 'Liquid',
   glitch: 'Glitch',
   editorial: 'Editorial',
   kinetic: 'Kinetic (para temas)',
+  poster: 'Póster 3D',
 };
 
 export const MOTION_FORMATS = ['reel', 'feed', 'square'] as const;
@@ -225,7 +226,7 @@ export interface MotionSpec {
 }
 
 /** Fondo con que parte cada estilo. */
-export const MOTION_DEFAULT_BASE: Record<MotionStyle, MotionBase> = { liquid: 'azul', glitch: 'tinta', editorial: 'perla', kinetic: 'perla' };
+export const MOTION_DEFAULT_BASE: Record<MotionStyle, MotionBase> = { liquid: 'azul', glitch: 'tinta', editorial: 'perla', kinetic: 'perla', poster: 'perla' };
 
 export const MOTION_MAX_SCENES = 10;
 export const MOTION_SCENE_SECS = { min: 1, max: 8 } as const;
@@ -445,6 +446,12 @@ export function starterSpec(template: MotionTemplate, style: MotionStyle = 'liqu
         ? [{ text: 'Así se vivió', highlight: 'vivió', secs: 2 }, { text: 'la última noche', secs: 2 }, { text: 'Y esto recién empieza', highlight: 'empieza', secs: 2.5 }]
         : template === 'sting'
           ? [{ text: 'Mansion Playroom' }]
+          : style === 'poster'
+            ? [
+                { kicker: 'Mansion Playroom', text: 'Crush on Playroom', highlight: 'Playroom', sub: 'Sábado · Valparaíso · +18', secs: 3 },
+                { text: 'Una noche distinta', highlight: 'distinta', secs: 2.6 },
+                { text: 'Entradas en la bio', highlight: 'bio', secs: 2.6 },
+              ]
           : style === 'kinetic'
             ? [
                 { text: 'No es solo una fiesta', highlight: 'fiesta', secs: 2.4 },

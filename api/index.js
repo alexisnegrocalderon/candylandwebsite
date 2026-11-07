@@ -26645,7 +26645,7 @@ var init_motionSpec = __esm({
   "shared/motionSpec.ts"() {
     "use strict";
     MOTION_TEMPLATES = ["anuncio", "countdown", "montaje", "sting"];
-    MOTION_STYLES = ["liquid", "glitch", "editorial", "kinetic"];
+    MOTION_STYLES = ["liquid", "glitch", "editorial", "kinetic", "poster"];
     MOTION_FORMATS = ["reel", "feed", "square"];
     MOTION_BASES = ["azul", "rosa", "tinta", "perla", "niebla", "noche"];
     MOTION_ACCENTS = ["celeste", "rosa", "magenta", "tinta", "oro"];
@@ -26687,7 +26687,7 @@ var init_motionSpec = __esm({
     };
     MOTION_CLOSINGS = ["firma", "handle"];
     MOTION_MUSIC = ["none", "pulse", "drive", "dream"];
-    MOTION_DEFAULT_BASE = { liquid: "azul", glitch: "tinta", editorial: "perla", kinetic: "perla" };
+    MOTION_DEFAULT_BASE = { liquid: "azul", glitch: "tinta", editorial: "perla", kinetic: "perla", poster: "perla" };
     MOTION_MAX_SCENES = 10;
     MOTION_SCENE_SECS = { min: 1, max: 8 };
     MOTION_MAX_TOTAL_SECS = 60;
@@ -53139,7 +53139,7 @@ var MOTION_SYSTEM = [
   "",
   "BIBLIOTECA:",
   '- Plantillas: anuncio (texto cin\xE9tico sobre fondo de marca; para anunciar evento, explicar, invitar), countdown (escena 1 = n\xFAmero grande con su unidad, `text` de la escena 1 es la frase bajo el n\xFAmero, ej. "para la noche"; `kicker` = "FALTAN"; usa los d\xEDas reales hasta el evento), montaje (fotos/clips reales de fondo con texto abajo; asigna cada foto entregada con `mediaIndex`, una por escena, sin repetir), sting (solo la firma de marca, 1 escena con `sub` como frase).',
-  "- Estilos (eliges 3 distintos de 4; si el pedido es hablar de un tema, explicar o educar, kinetic va SIEMPRE): kinetic = tipograf\xEDa cin\xE9tica editorial: cada escena es una frase de 5 a 14 palabras que se arma palabra a palabra, conectores chicos y UNA palabra enorme (`highlight`); el estilo para temas, opiniones y frases que paran el scroll; 2,5 a 4 s por escena, 4 a 8 escenas. liquid = manchas l\xEDquidas y burbujas, letras infladas que rebotan; alegre, cercano; ritmo medio. glitch = se\xF1al rota, separaci\xF3n de color, cortes secos; energ\xEDa de fiesta, urgencia; ritmo r\xE1pido (escenas m\xE1s cortas, textos en may\xFAsculas se ven bien). editorial = revista premium, revelado con m\xE1scara, mucho aire; elegante, confianza, explicar; ritmo m\xE1s pausado (puede llevar bajadas).",
+  "- Estilos (eliges 3 distintos de 5; si el pedido es hablar de un tema, explicar o educar, kinetic va SIEMPRE): kinetic = tipograf\xEDa cin\xE9tica editorial: cada escena es una frase de 5 a 14 palabras que se arma palabra a palabra, conectores chicos y UNA palabra enorme (`highlight`); el estilo para temas, opiniones y frases que paran el scroll; 2,5 a 4 s por escena, 4 a 8 escenas. poster = p\xF3ster suizo: palabras arriba, la palabra clave GIGANTE abajo (`highlight`, 1 o 2 palabras cortas) y un cubo/coraz\xF3n 3D de marca girando entre ambas; 2 a 4 escenas de 2,5 a 3,5 s; ideal para anuncios fuertes y portadas. liquid = manchas l\xEDquidas y burbujas, letras infladas que rebotan; alegre, cercano; ritmo medio. glitch = se\xF1al rota, separaci\xF3n de color, cortes secos; energ\xEDa de fiesta, urgencia; ritmo r\xE1pido (escenas m\xE1s cortas, textos en may\xFAsculas se ven bien). editorial = revista premium, revelado con m\xE1scara, mucho aire; elegante, confianza, explicar; ritmo m\xE1s pausado (puede llevar bajadas).",
   "- Fondos: azul = celeste (por defecto en liquid), tinta = azul profundo (por defecto en glitch), perla = blanco roto editorial (por defecto en editorial), rosa, niebla = gris celeste editorial, noche = ciruela casi negra de PLAYMORE (solo para fiestas de noche). Acento: el color protagonista, distinto del fondo. Var\xEDa entre variantes.",
   "- M\xFAsica: pulse (electr\xF3nica 120 BPM, vers\xE1til), drive (house 124 BPM, la m\xE1s fiestera), dream (suave 96 BPM, para confianza y explicaciones).",
   "",

@@ -66,7 +66,9 @@ try {
   await ensureBrowser();
   const serveUrl = await bundle({ entryPoint: join(MOTION, 'index.ts'), publicDir: join(ROOT, 'client/public') });
   const inputProps = { spec };
-  const composition = await selectComposition({ serveUrl, id: 'Motion', inputProps });
+  // WebGL por software: el estilo póster dibuja en 3D y la máquina de GitHub no tiene GPU.
+  const chromiumOptions = { gl: 'swangle' };
+  const composition = await selectComposition({ serveUrl, id: 'Motion', inputProps, chromiumOptions });
   const outDir = join(tmpdir(), `video-${VIDEO_ID}`);
   mkdirSync(outDir, { recursive: true });
   const output = join(outDir, 'video.mp4');
@@ -78,6 +80,7 @@ try {
     crf: 17,
     outputLocation: output,
     inputProps,
+    chromiumOptions,
     onProgress: ({ progress }) => {
       const pct = Math.floor(progress * 100);
       if (pct >= lastPct + 10) { lastPct = pct; console.log(`Grabando… ${pct} %`); }
