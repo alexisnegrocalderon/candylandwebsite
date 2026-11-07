@@ -88,9 +88,13 @@ export default defineConfig(() => {
   return {
     plugins,
     resolve: {
+      // motion/ (la composición de Remotion) puede tener su propio node_modules
+      // para la grabación en GitHub Actions: en el sitio, una sola copia de cada uno.
+      dedupe: ["react", "react-dom", "remotion"],
       alias: {
         "@": path.resolve(import.meta.dirname, "client", "src"),
         "@shared": path.resolve(import.meta.dirname, "shared"),
+        "@motion": path.resolve(import.meta.dirname, "motion"),
       },
     },
     envDir: path.resolve(import.meta.dirname),

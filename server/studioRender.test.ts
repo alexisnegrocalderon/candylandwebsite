@@ -2,11 +2,12 @@ import express from 'express';
 import type { AddressInfo } from 'net';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RenderState } from '../shared/studioRender';
+import { normalizeMotionSpec } from '../shared/motionSpec';
 
 const store = vi.hoisted(() => ({ render: null as RenderState | null, exists: true }));
 
-vi.mock('./contentStudio', () => ({
-  readVideoRender: vi.fn(async () => ({ exists: store.exists, render: store.render, title: 'Noche Neón' })),
+vi.mock('./motionStudio', () => ({
+  readVideoRender: vi.fn(async () => ({ exists: store.exists, render: store.render, title: 'Noche Neón', spec: null })),
   writeVideoRender: vi.fn(async (_id: number, render: RenderState) => { store.render = render; }),
 }));
 vi.mock('@vercel/blob/client', () => ({ generateClientTokenFromReadWriteToken: vi.fn(async () => 'token-de-subida') }));
@@ -15,7 +16,7 @@ vi.mock('./_core/env', () => ({ ENV: { renderCallbackSecret: 'secreto', githubRe
 const { registerStudioRenderRoutes } = await import('./studioRender');
 
 const JOB = '11111111-2222-3333-4444-555555555555';
-const project = { html: '<script>window.__timelines["main"] = tl;</script>', assets: [['assets/logo.png', 'https://mansionplayroom.cl/logo.png']] as Array<[string, string]> };
+const project = { spec: normalizeMotionSpec({ template: 'anuncio', scenes: [{ text: 'Noche Neón' }] }) };
 let base = '';
 let server: ReturnType<express.Express['listen']>;
 

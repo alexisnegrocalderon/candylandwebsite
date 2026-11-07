@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { ArrowRight, ArrowUp, Check, Sparkles, X } from 'lucide-react';
-import { OPEN_SECTION_EVENT } from '@/components/admin/studio/handoff';
+import { OPEN_SECTION_EVENT } from '@/components/admin/shell/nav';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
 import { ASSISTANT_QUESTION_MAX, TOOL_LABELS, type AssistantChoice, type AssistantMessageView, type AssistantProposal } from '@shared/assistant';

@@ -1,6 +1,7 @@
-# Graba a MP4 un video del Estudio de contenido (admin → Marketing → Estudio)
-# con HyperFrames. Lo dispara el sitio (server/studioRender.ts) al apretar
-# «Exportar MP4»; no corre con pushes ni PRs.
+# Graba a MP4 un video del Estudio Motion (admin → Contenido → Estudio) con
+# Remotion: la misma composición de motion/ que se ve en el panel. Lo dispara
+# el sitio (server/studioRender.ts) al apretar «Grabar MP4»; no corre con
+# pushes ni PRs.
 #
 # El repo es público: estos inputs los ve cualquiera, así que no llevan nada
 # secreto. El proyecto y el permiso para subir el MP4 se piden al sitio con
@@ -32,62 +33,51 @@ concurrency:
 jobs:
   render:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 15
     steps:
+      # Solo lo que necesita la grabación: la composición, la receta compartida,
+      # las fuentes, la música, los efectos y el logo.
       - uses: actions/checkout@v4
         with:
-          sparse-checkout: scripts/render-studio-video.mjs
+          sparse-checkout: |
+            motion/
+            shared/motionSpec.ts
+            scripts/render-studio-video.mjs
+            client/public/studio/
+            client/public/motion/
+            client/public/fonts/
+            client/public/candyland/logo-isotipo-transparent.png
+            client/public/candyland/logo-wordmark-email.png
           sparse-checkout-cone-mode: false
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
 
-      # Lo pesado se guarda entre grabaciones: el navegador de HyperFrames
-      # (~270 MB), lo que baja npm, FFmpeg y la fuente de emojis. Con eso, una
-      # grabación tarda 1 a 3 minutos; la primera (o si cambia la versión) baja todo.
-      - name: Caché de herramientas
+      # Lo pesado se guarda entre grabaciones: las dependencias de Remotion y su
+      # navegador (Chrome Headless Shell). Con eso una grabación tarda 1 a 3 minutos.
+      - name: Caché de Remotion
         uses: actions/cache@v4
         with:
           path: |
-            ~/.cache/hyperframes
             ~/.npm
-            ~/ffmpeg-static
-            ~/emoji-font
-          key: render-studio-${{ runner.os }}-hf0.8.185-v1
+            motion/node_modules
+          key: render-motion-${{ runner.os }}-${{ hashFiles('motion/package-lock.json') }}-v1
 
-      # FFmpeg: un binario estático (bajan ~40 MB en segundos). Si esa descarga
-      # falla, se instala con apt, con tiempo límite: ningún paso se queda colgado.
-      - name: FFmpeg
+      - name: Dependencias
         timeout-minutes: 5
         run: |
-          if [ ! -x "$HOME/ffmpeg-static/ffmpeg" ] || [ ! -x "$HOME/ffmpeg-static/ffprobe" ]; then
-            mkdir -p "$HOME/ffmpeg-static"
-            if ! curl -fsSL --retry 3 --max-time 90 https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz \
-                | tar -xJ -C "$HOME/ffmpeg-static" --strip-components=1 --wildcards '*/ffmpeg' '*/ffprobe'; then
-              echo "No se pudo bajar FFmpeg estático; se instala con apt."
-              rm -rf "$HOME/ffmpeg-static"
-              sudo timeout 150 apt-get install -y -qq --no-install-recommends ffmpeg \
-                || { sudo timeout 120 apt-get update -qq && sudo timeout 200 apt-get install -y -qq --no-install-recommends ffmpeg; }
-            fi
-          fi
-          echo "$HOME/ffmpeg-static" >> "$GITHUB_PATH"
+          if [ ! -d motion/node_modules/remotion ]; then npm ci --prefix motion --no-audit --no-fund; fi
 
-      # Emojis (✅ ❌ 🔥…): si no se logra, se graba igual, solo que sin ellos.
+      # Emojis (✅ ❌ 🔥…) de los textos: si no se logra, se graba igual, solo que sin ellos.
       - name: Fuente de emojis
         continue-on-error: true
         timeout-minutes: 4
         run: |
-          if [ -f "$HOME/emoji-font/NotoColorEmoji.ttf" ]; then
-            mkdir -p "$HOME/.fonts" && cp "$HOME/emoji-font/NotoColorEmoji.ttf" "$HOME/.fonts/" && fc-cache -f "$HOME/.fonts"
-            exit 0
-          fi
           if ! fc-list | grep -qi "color emoji"; then
             sudo timeout 100 apt-get install -y -qq --no-install-recommends fonts-noto-color-emoji \
               || { sudo timeout 60 apt-get update -qq && sudo timeout 100 apt-get install -y -qq --no-install-recommends fonts-noto-color-emoji; }
           fi
-          font="$(fc-list | grep -i "color emoji" | head -1 | cut -d: -f1)"
-          if [ -n "$font" ]; then mkdir -p "$HOME/emoji-font" && cp "$font" "$HOME/emoji-font/NotoColorEmoji.ttf"; fi
 
       - name: Grabar y subir
         timeout-minutes: 10
@@ -96,5 +86,4 @@ jobs:
           JOB_ID: ${{ inputs.job_id }}
           SITE: ${{ inputs.site }}
           RENDER_CALLBACK_SECRET: ${{ secrets.RENDER_CALLBACK_SECRET }}
-          HYPERFRAMES_SKIP_SKILLS: '1'
         run: node scripts/render-studio-video.mjs

@@ -1,5 +1,6 @@
 {
   "include": [
+    "motion/**/*",
     "client/src/**/*",
     "shared/**/*",
     "server/**/*"
@@ -35,6 +36,9 @@
     "paths": {
       "@/*": [
         "./client/src/*"
+      ],
+      "@motion/*": [
+        "./motion/*"
       ],
       "@shared/*": [
         "./shared/*"

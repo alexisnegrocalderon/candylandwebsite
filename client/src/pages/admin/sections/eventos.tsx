@@ -20,7 +20,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ConfirmDeleteButton } from '@/components/admin/ConfirmDeleteButton';
 import { ImageUploadField } from '@/components/admin/ImageUploadField';
 import { MailingComposer } from '@/components/admin/MailingComposer';
-import { openEventPackInStudio } from '@/components/admin/studio/handoff';
+import { openStudioForEvent } from '@/components/admin/motion/handoff';
 import { TableSkeleton } from '@/components/admin/TableSkeleton';
 import { phasePriceFor, discountPercent, nextPhase, normalizeTandaSchedule, type TandaPhase } from '@shared/tandaSchedule';
 import { formatChileShortDate } from '@shared/chileDate';
@@ -959,7 +959,7 @@ export function EventCard({ event, onDeleted, expanded, onToggleExpand }: { even
             <p className="text-muted-foreground text-sm truncate">/{event.slug} | {event.status} | {new Date(event.eventDate).toLocaleDateString('es-CL', { timeZone: 'America/Santiago' })}</p>
           </button>
           <div className="flex items-center gap-2 shrink-0">
-            <Button variant="outline" size="sm" onClick={() => openEventPackInStudio(event.id)} title="Imágenes y videos de este evento (Estudio)" aria-label="Contenido del evento">
+            <Button variant="outline" size="sm" onClick={() => openStudioForEvent(event.id)} title="Videos de este evento (Estudio)" aria-label="Contenido del evento">
               <Palette className="w-3 h-3 md:mr-1" /><span className="hidden md:inline">Contenido</span>
             </Button>
             {!expanded && (

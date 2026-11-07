@@ -19,22 +19,33 @@ Estudio: si algo no se parece a esto, se ajusta el formato, no el estilo.
 - Cortes secos o con destello. Todo cae en el ritmo de la música (pendiente: detectar el beat).
 
 ## Color
-- Solo los colores de la marca (PlayRoom Design System): fondo liso **celeste `#00A3FF`** o **rosa `#EF8DFF`**,
-  con blanco, magenta `#FF008E` y azul `#0010DF`. Un solo fondo por pieza, sin degradados.
-- Los colores de los reels de ediciones pasadas (REDROOM en rojo y negro, Dark Candy en negro, rosado y verde ácido)
-  ya no se usan.
+- **De marca, a todo el sangrado:** **celeste `#00A3FF`**, **rosa `#EF8DFF`** o azul tinta `#0010DF`, con blanco y magenta `#FF008E`.
+- **Neutros editoriales (decisión del dueño, nov 2026):** perla `#F2EFEA` y niebla `#E6ECF4`, con texto grafito `#16161A`
+  y **un solo** color de marca como acento (el «círculo» de las piezas de revista).
+- **Noche (PLAYMORE):** ciruela `#2A0A33` → negro cálido `#0C0908`, texto crema `#F4EFE6` y degradé rosa `#E477EA` → oro `#D6B25E`.
+  Solo para piezas de fiesta nocturna.
+- Ningún otro color: `BRAND` en `shared/motionSpec.ts` es la lista y un test la hace cumplir.
+- Los colores de ediciones pasadas (REDROOM rojo y negro, Dark Candy) ya no se usan.
+
+## Tipografía
+- **Gliker** con volumen «candy bubble» para el estilo liquid.
+- **Syne** (gruesa, tracking negativo) + **Space Grotesk** para lo editorial: palabras chicas + la protagonista enorme.
+- **Inter / Space Grotesk** en micro-tipo para el HUD (barra superior, marcas, @, contador).
 
 ## Sonido
 - Música fuerte (volumen medio de −12 a −13 dB, picos a 0 dB). Para publicar conviene estandarizar a −14 LUFS.
 
 ## Formatos
+Desde el Estudio Motion (Remotion, ver `docs/ESTUDIO-VIDEOS.md`):
+
 | Formato | Estado |
 |---|---|
-| Cuenta regresiva | **Hecho** (`shared/studioCountdown*.ts`) |
-| Lista de características (sellos, papelitos, ritmo) | Pendiente |
+| Anuncio (texto cinético) | **Hecho**: plantilla `anuncio` |
+| Cuenta regresiva | **Hecho**: plantilla `countdown` |
+| Montaje de fotos/clips a ritmo | **Hecho**: plantilla `montaje` (cortes en el pulso) |
+| Intro / outro de marca | **Hecho**: plantilla `sting` y firma al final de cada video |
+| Reels con voz hablada y subtítulos | **Hecho**: voz chilena de Azure + subtítulos palabra por palabra |
 | Presentación con gancho de celular (mockup, mensaje falso) | Pendiente |
-| Reels con voz hablada y subtítulos | **Hecho** (`shared/studioVoice*.ts`, voz chilena de Azure; subtítulos por reparto de palabras, sin Whisper) |
-| Cuenta regresiva diaria automática | Pendiente (`countdownVideo` ya calcula todo desde la fecha del evento) |
 | Publicación programada en Instagram | Pendiente (primero con aprobación) |
 
 ## Cómo se compara

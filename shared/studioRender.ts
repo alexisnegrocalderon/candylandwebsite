@@ -1,28 +1,22 @@
-/* Grabar un video del Estudio a MP4 (fase 3): el panel arma el proyecto de
- * HyperFrames (index.html + qué archivo va en cada `assets/...`), el servidor
- * lo guarda en el video y le pide a GitHub Actions que lo grabe
- * (.github/workflows/render-video.yml). La máquina de GitHub pide el proyecto,
- * graba, sube el MP4 a Vercel Blob y avisa. Acá vive lo puro: qué proyecto se
- * acepta y en qué estado queda cada grabación. */
+/* Grabar un video del Estudio Motion a MP4: el servidor guarda la receta del
+ * video (shared/motionSpec.ts) y le pide a GitHub Actions que la grabe con
+ * Remotion (.github/workflows/render-video.yml). La máquina de GitHub pide la
+ * receta, graba, sube el MP4 a Vercel Blob y avisa. Acá vive lo puro: qué
+ * receta se acepta y en qué estado queda cada grabación. */
+import { cleanMediaUrl, normalizeMotionSpec, type MotionSpec } from './motionSpec';
 
-/** Lo que manda el panel. */
+/** Lo que recibe la máquina de GitHub. */
 export interface RenderProject {
-  html: string;
-  /** [ruta local en el proyecto, de dónde bajarlo]. El panel manda rutas del
-   * sitio ("/studio/fonts/x.woff2") o URLs completas; el servidor deja todo
-   * como URL completa contra la dirección oficial del sitio. */
-  assets: Array<[string, string]>;
+  spec: MotionSpec;
 }
 
-export const RENDER_MAX_HTML = 3_000_000;
-export const RENDER_MAX_ASSETS = 80;
 /** Más que esto sin respuesta es que la grabación murió en el camino. */
 export const RENDER_TIMEOUT_MS = 25 * 60_000;
 
 export type RenderStatus = 'grabando' | 'listo' | 'error';
 
-/** Lo que se guarda en el video (`data.render`). El proyecto (`job`) se
- * guarda solo mientras se graba: después ya no hace falta. */
+/** Lo que se guarda en el video (`data.render`). La receta (`job`) se guarda
+ * solo mientras se graba: después ya no hace falta. */
 export interface RenderState {
   status: RenderStatus;
   jobId: string;
@@ -45,23 +39,31 @@ export function isAllowedAssetUrl(url: string, siteOrigin: string): boolean {
   return u.host === site || u.host === `www.${site}` || /\.public\.blob\.vercel-storage\.com$/.test(u.host);
 }
 
-/** Valida y limpia el proyecto que manda el panel. Lanza con un mensaje para el dueño. */
-export function cleanRenderProject(raw: RenderProject, siteOrigin: string): RenderProject {
-  if (typeof raw.html !== 'string' || !raw.html.includes('window.__timelines')) throw new Error('El proyecto del video está incompleto.');
-  if (raw.html.length > RENDER_MAX_HTML) throw new Error('El video es demasiado grande para grabarlo.');
-  if (!Array.isArray(raw.assets) || raw.assets.length > RENDER_MAX_ASSETS) throw new Error('El video usa demasiados archivos.');
-  const seen = new Set<string>();
-  const assets: Array<[string, string]> = [];
-  for (const pair of raw.assets) {
-    const [local, url] = Array.isArray(pair) ? pair : [];
-    if (typeof local !== 'string' || !/^assets\/[A-Za-z0-9._-]{1,120}$/.test(local) || local.includes('..')) throw new Error('Un archivo del video tiene un nombre inválido.');
-    const full = typeof url === 'string' && /^\/(?!\/)/.test(url) ? `${siteOrigin.replace(/\/+$/, '')}${url}` : url;
-    if (typeof full !== 'string' || !isAllowedAssetUrl(full, siteOrigin)) throw new Error(`Un archivo del video no viene del sitio ni del almacenamiento de fotos: ${String(url).slice(0, 80)}`);
-    if (seen.has(local)) continue;
-    seen.add(local);
-    assets.push([local, full]);
-  }
-  return { html: raw.html, assets };
+/** Deja la receta lista para grabar: limpia, con las rutas del sitio como URL
+ * completa y solo con fotos/voz del sitio o de Vercel Blob. Lanza con un
+ * mensaje para el dueño. */
+export function cleanRenderProject(raw: unknown, siteOrigin: string): RenderProject {
+  const spec = normalizeMotionSpec(raw);
+  const site = siteOrigin.replace(/\/+$/, '');
+  const absolute = (url: string) => {
+    const clean = cleanMediaUrl(url);
+    const full = clean.startsWith('/') ? `${site}${clean}` : clean;
+    if (!isAllowedAssetUrl(full, site)) throw new Error(`Un archivo del video no viene del sitio ni del almacenamiento de fotos: ${url.slice(0, 80)}`);
+    return full;
+  };
+  return {
+    spec: {
+      ...spec,
+      scenes: spec.scenes.map((s) => (s.media ? { ...s, media: { ...s.media, url: absolute(s.media.url) } } : s)),
+      voice: spec.voice ? { ...spec.voice, url: absolute(spec.voice.url) } : null,
+    },
+  };
+}
+
+/** Huella de una receta (para saber si el MP4 quedó viejo). */
+export function specHash(spec: MotionSpec): string {
+  const { title: _t, caption: _c, ...visual } = spec;
+  return contentHash(JSON.stringify(visual));
 }
 
 /** Huella corta y estable del contenido (FNV-1a de 32 bits); solo compara versiones. */
@@ -79,7 +81,7 @@ export function normalizeRenderState(raw: unknown): RenderState | null {
   const r = raw as Record<string, unknown>;
   const status = r.status === 'grabando' || r.status === 'listo' || r.status === 'error' ? r.status : null;
   if (!status || typeof r.jobId !== 'string') return null;
-  const job = r.job && typeof r.job === 'object' ? (r.job as RenderProject) : null;
+  const job = r.job && typeof r.job === 'object' && (r.job as Record<string, unknown>).spec ? (r.job as RenderProject) : null;
   return {
     status,
     jobId: r.jobId,
@@ -88,7 +90,7 @@ export function normalizeRenderState(raw: unknown): RenderState | null {
     contentHash: typeof r.contentHash === 'string' ? r.contentHash : '',
     url: typeof r.url === 'string' ? r.url : null,
     error: typeof r.error === 'string' ? r.error : null,
-    job: job && typeof job.html === 'string' && Array.isArray(job.assets) ? job : null,
+    job,
   };
 }
 

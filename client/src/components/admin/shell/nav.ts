@@ -140,3 +140,7 @@ export function normalizeSearch(text: string): string {
 export function hubBadgeCount(hub: AdminHubId, sections: ShellSection[], counts: Record<string, number>): number {
   return sections.filter((s) => s.hub === hub).reduce((sum, s) => sum + (counts[s.id] ?? 0), 0);
 }
+
+/** Evento para abrir una sección del panel desde cualquier parte (asistente,
+ * botones «Abrir Staff», etc.): `detail` es el id de la sección. */
+export const OPEN_SECTION_EVENT = 'admin:open-section';

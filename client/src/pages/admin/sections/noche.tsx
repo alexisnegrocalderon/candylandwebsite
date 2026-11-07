@@ -15,7 +15,7 @@ import { AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader,
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ConfirmDeleteButton } from '@/components/admin/ConfirmDeleteButton';
-import { OPEN_SECTION_EVENT } from '@/components/admin/studio/handoff';
+import { OPEN_SECTION_EVENT } from '@/components/admin/shell/nav';
 import { StatTile } from '@/components/admin/StatTile';
 import { BentoGrid, BentoTile } from '@/components/admin/BentoGrid';
 import { EmptyState } from '@/components/admin/EmptyState';

@@ -20,6 +20,7 @@ import {
   contentPlanWindow,
   type ContentPlan,
 } from '../shared/contentPlan';
+import { MOTION_STYLES, MOTION_TEMPLATES } from '../shared/motionSpec';
 
 /* Plan de contenido para Instagram (plan del 02/10): un calendario de
  * publicaciones hasta el próximo evento, con el texto listo para copiar, qué
@@ -57,8 +58,10 @@ const PLAN_SCHEMA = {
             interaction: { type: 'string', description: 'Lo que le pides a la gente que haga: comentar algo concreto, etiquetar a alguien, votar en la encuesta de la historia, responder, guardar... Una frase. Vacío si la pieza no pide nada.' },
             hashtags: { type: 'array', items: { type: 'string' }, description: 'De 3 a 5 hashtags (Instagram permite máximo 5), incluido #MansionPlayroom.' },
             keyword: { type: 'string', description: 'Solo en historias: una palabra clave de la lista entregada para que respondan a la historia, o vacío.' },
+            motionTemplate: { type: 'string', enum: [...MOTION_TEMPLATES, 'ninguno'], description: 'Video de motion graphics que el Estudio arma para esta pieza: anuncio (texto animado del evento), countdown (cuenta regresiva), montaje (fotos/clips reales con texto) o sting (solo la firma de marca). "ninguno" en carruseles o si la pieza es una foto.' },
+            motionStyle: { type: 'string', enum: [...MOTION_STYLES], description: 'kinetic = tipografía cinética para hablar de temas y opiniones (para el scroll); softui = tarjetas tipo app para explicar (qué llevar, cómo comprar, fecha); poster = póster 3D para anuncios fuertes; editorial = premium y confianza; liquid = alegre y fluido; glitch = energía de fiesta y urgencia. Varía entre piezas.' },
           },
-          required: ['date', 'time', 'format', 'goal', 'hook', 'caption', 'visual', 'slides', 'interaction', 'hashtags', 'keyword'],
+          required: ['date', 'time', 'format', 'goal', 'hook', 'caption', 'visual', 'slides', 'interaction', 'hashtags', 'keyword', 'motionTemplate', 'motionStyle'],
           additionalProperties: false,
         },
       },
@@ -135,6 +138,7 @@ const SYSTEM_PROMPT = [
   'Captions: entre 100 y 400 caracteres, sin ninguna URL ni dirección web (si hay que mandar a comprar o a leer algo, di "link en la bio"). Sin markdown. Como mucho un emoji por pieza.',
   'Palabras clave de automatización: SOLO en historias, y SOLO de la lista entregada (se activan cuando la persona RESPONDE a la historia con esa palabra y le llega un DM automático). En posts, reels y carruseles NO uses una palabra clave tipo "comenta ENTRADA y te mando el link": esa automatización por comentarios todavía no funciona. Pedir comentarios para PARTICIPAR ("comenta cuántas acertaste", "etiqueta a alguien") SÍ está bien y es lo que más interacción genera. Si la lista está vacía, deja `keyword` vacío en todas.',
   'Las fechas de cada pieza tienen que estar DENTRO de la ventana indicada y en formato YYYY-MM-DD.',
+  'VIDEO: cada reel, historia o post que pueda ser video lleva `motionTemplate` y `motionStyle`: el Estudio Motion lo arma con motion graphics de marca (texto animado, cuenta regresiva o montaje de fotos reales). Usa countdown en la última semana, montaje cuando `visual` pide grabar algo real, y anuncio para el resto. Alterna estilos para que el feed no se vea repetido.',
 ].join('\n');
 
 export async function resolveTargetEvent(targetEventId: number | undefined) {
@@ -222,7 +226,8 @@ export async function generateContentPlan(targetEventId: number | undefined, now
 
   const result = await invokeLLM({ feature: "contentPlanner",
     messages: [
-      { role: 'system', content: SYSTEM_PROMPT },
+      // Las reglas fijas van en caché: un plan nuevo paga solo los datos del evento.
+      { role: 'system', content: SYSTEM_PROMPT, cache: true },
       { role: 'user', content: userContent },
     ],
     responseFormat: { type: 'json_schema', json_schema: PLAN_SCHEMA as any },

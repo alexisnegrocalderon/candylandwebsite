@@ -17,7 +17,7 @@ import { useSeo } from '@/hooks/useSeo';
 import { useInstallableApp } from '@/hooks/useInstallableApp';
 import { Home, Flame, Calendar, DollarSign, Ticket, Users, Plus, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, Contact, Mail, History, Gift, MessageCircle, Crown, Martini, Instagram, UserPlus, Ban, Receipt, Compass, Sparkles, Car, Send, ShieldAlert, Zap, Cake, Calculator, Star, FlaskConical, Palette, UserCheck, Banknote, Landmark, Headphones, ListChecks, PartyPopper, BellRing, Wine, Smartphone, Bot, TrendingUp, Link2, FileText, ShieldCheck, Plane } from 'lucide-react';
 import { AdminLoginForm } from '@/components/admin/AdminLoginForm';
-import { OPEN_SECTION_EVENT } from '@/components/admin/studio/handoff';
+import { OPEN_SECTION_EVENT } from '@/components/admin/shell/nav';
 import { parseAdminDeepLink } from '@shared/adminDeepLink';
 import { deliverAdminDeepLink } from '@/lib/adminDeepLink';
 import { AdminShell, type AdminQuickAction } from '@/components/admin/shell/AdminShell';
@@ -31,7 +31,6 @@ const SolterosManager = lazy(() => import('@/components/admin/solteros/SolterosM
 const BlockedManager = lazy(() => import('@/components/admin/blocked/BlockedManager').then((m) => ({ default: m.BlockedManager })));
 const CartaManager = lazy(() => import('@/components/admin/carta/CartaManager').then((m) => ({ default: m.CartaManager })));
 const InsumosManager = lazy(() => import('@/components/admin/insumos/InsumosManager').then((m) => ({ default: m.InsumosManager })));
-const ContentPlanView = lazy(() => import('@/components/admin/ContentPlanView').then((m) => ({ default: m.ContentPlanView })));
 const ContestsView = lazy(() => import('@/components/admin/ContestsView').then((m) => ({ default: m.ContestsView })));
 const AppOverview = lazy(() => import('@/components/admin/app/AppOverview').then((m) => ({ default: m.AppOverview })));
 const AppInstallsView = lazy(() => import('@/components/admin/push/AppInstallsView').then((m) => ({ default: m.AppInstallsView })));
@@ -86,7 +85,8 @@ const SettingsManager = lazy(() => import('./sections/ajustes').then((m) => ({ d
 
 // El Estudio trae sus propias fuentes, html-to-image y jszip: se carga recién
 // cuando se abre, para no sumarle peso al resto del panel.
-const ContentStudio = lazy(() => import('@/components/admin/ContentStudio').then((m) => ({ default: m.ContentStudio })));
+const MotionStudio = lazy(() => import('@/components/admin/motion/MotionStudio').then((m) => ({ default: m.MotionStudio })));
+const AmbassadorContentAdmin = lazy(() => import('@/components/admin/studio/AmbassadorContentAdmin').then((m) => ({ default: m.AmbassadorContentAdmin })));
 const CrossCheckView = lazy(() => import('@/components/admin/crossCheck/CrossCheckView').then((m) => ({ default: m.CrossCheckView })));
 const CompraFiestaView = lazy(() => import('@/components/admin/insumos/CompraFiestaView').then((m) => ({ default: m.CompraFiestaView })));
 const AutomationsView = lazy(() => import('@/components/admin/AutomationsView').then((m) => ({ default: m.AutomationsView })));
@@ -215,12 +215,15 @@ const ADMIN_SECTIONS = [
   { id: 'agente-links', label: 'Agente · Links', hub: 'mensajes', hidden: true, icon: Link2, render: () => <AgentSection tab="links" /> },
   { id: 'agente-whatsapp', label: 'Agente · WhatsApp', hub: 'mensajes', hidden: true, icon: MessageCircle, render: () => <AgentSection tab="whatsapp" /> },
   // Contenido: lo que se publica.
-  { id: 'content-plan', label: 'Plan de contenido', hub: 'contenido', icon: Calendar, render: () => <ContentPlanView /> },
+  // Estudio Motion: el plan de contenido vive adentro (pestaña «Plan»). `content-plan` queda como
+  // alias escondido para los enlaces y avisos viejos.
   { id: 'studio', label: 'Estudio', hub: 'contenido', icon: Palette, render: () => (
     <Suspense fallback={<div className="py-12 flex justify-center"><div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" /></div>}>
-      <ContentStudio />
+      <MotionStudio />
     </Suspense>
   ) },
+  { id: 'content-plan', label: 'Plan de contenido', hub: 'contenido', hidden: true, icon: Calendar, render: () => <MotionStudio /> },
+  { id: 'ambassador-content', label: 'Contenido embajadores', hub: 'contenido', icon: Users, render: () => <AmbassadorContentAdmin onBack={() => window.dispatchEvent(new CustomEvent(OPEN_SECTION_EVENT, { detail: 'studio' }))} /> },
   { id: 'profile-audit', label: 'Revisar mi perfil', hub: 'contenido', icon: UserCheck, render: () => <ProfileAuditView /> },
   // 3 · En vivo: la noche en control (resumen, caja, Playmatch, denuncias, promos).
   { id: 'overview', label: 'Resumen de la noche', hub: 'envivo', icon: LayoutDashboard, render: () => <EventOverview /> },
@@ -289,8 +292,8 @@ export default function AdminDashboard() {
     markSeen(id);
   };
 
-  // Otra sección pide cambiar de pantalla (ej. "Abrir en Estudio" desde el
-  // Plan de contenido -- studio/handoff.ts).
+  // Otra sección pide cambiar de pantalla (ej. «Contenido» de un evento abre
+  // el Estudio -- components/admin/motion/handoff.ts).
   useEffect(() => {
     const onOpen = (e: Event) => {
       const id = (e as CustomEvent<string>).detail;
