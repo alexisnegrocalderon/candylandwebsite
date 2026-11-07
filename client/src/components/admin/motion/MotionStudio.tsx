@@ -12,7 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ImageUploadField } from '@/components/admin/ImageUploadField';
 import { ConfirmDeleteButton } from '@/components/admin/ConfirmDeleteButton';
 import { formatChileDate, formatChileDateTime } from '@shared/chileDate';
-import type { ContentPiece } from '@shared/contentPlan';
+import { chileIsoDate, type ContentPiece } from '@shared/contentPlan';
 import {
   MOTION_FORMAT_LABEL, MOTION_FORMATS, MOTION_STYLE_LABEL, MOTION_TEMPLATE_LABEL, MOTION_TEMPLATES, starterSpec,
   type MotionFormat, type MotionMedia, type MotionSpec, type MotionStyle, type MotionTemplate,
@@ -57,6 +57,8 @@ export function MotionStudio() {
   const upcoming = (eventsData ?? []).filter((e: any) => new Date(e.eventDate).getTime() > Date.now() && e.status === 'published');
   const [eventPick, setEventPick] = useState<number | null>(() => takeStudioEvent());
   const eventId = eventPick ?? upcoming[0]?.id ?? null;
+  const pickedEvent = upcoming.find((e: any) => e.id === eventId);
+  const eventDate = pickedEvent ? chileIsoDate(new Date(pickedEvent.eventDate)) : '';
 
   const [brief, setBrief] = useState('');
   const [template, setTemplate] = useState<MotionTemplate | 'auto'>('auto');
@@ -189,7 +191,7 @@ export function MotionStudio() {
             <h3 className="mb-3 flex items-center gap-2 font-medium"><Wand2 className="h-4 w-4" /> O parte de una plantilla, sin IA</h3>
             <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-5">
               {STARTERS.map(({ key, template, style, label, hint }) => {
-                const spec = { ...starterSpec(template, style), format, eventId };
+                const spec = { ...starterSpec(template, style), format, eventId, eventDate };
                 return (
                   <button key={key} type="button" className="group space-y-2 text-left" onClick={() => setView({ kind: 'edit', id: null, spec })}>
                     <MotionPreview spec={spec} controls={false} autoPlay maxHeight={300} className="transition-transform group-hover:scale-[1.02]" />

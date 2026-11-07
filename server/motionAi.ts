@@ -4,8 +4,9 @@ import { quickJson } from './studioAi/quickCall';
 import { TONO_DE_VOZ } from './studioAi/brandPack';
 import { AI_PHRASES_PROMPT_LINE } from '../shared/aiPhrasesEs';
 import { EVENT_BRAND } from '../shared/eventBrand';
+import { chileIsoDate } from '../shared/contentPlan';
 import {
-  MOTION_ACCENTS, MOTION_BASES, MOTION_MAX_SCENES, MOTION_MUSIC, MOTION_STYLES, MOTION_TEMPLATES, normalizeMotionSpec,
+  MOTION_ACCENTS, MOTION_BASES, MOTION_CARDS, MOTION_MAX_SCENES, MOTION_MUSIC, MOTION_STYLES, MOTION_TEMPLATES, normalizeMotionSpec,
   type MotionFormat, type MotionMedia, type MotionSpec, type MotionStyle, type MotionTemplate,
 } from '../shared/motionSpec';
 import type { AiUsage } from '../shared/studioAi';
@@ -31,8 +32,10 @@ const SCENE_SCHEMA = {
     say: { type: 'string', description: 'Lo que diría una voz en off en esta escena (frase natural, ≤ 16 palabras). Vacío si no hace falta.' },
     secs: { type: 'number', description: 'Segundos en pantalla, de 1.2 a 3.5.' },
     mediaIndex: { type: 'integer', description: 'Índice de la foto/clip entregado que va de fondo en esta escena, o -1 para ninguno.' },
+    card: { type: 'string', enum: [...MOTION_CARDS], description: 'Solo en softui: tarjeta de vidrio de la escena. En los demás estilos, "ninguna".' },
+    items: { type: 'array', items: { type: 'string' }, description: 'Solo para tarjetas checklist (ítems), chat (mensajes, alternando quién habla) o evento (2-3 datos cortos). Máximo 5, cortos. Si no, lista vacía.' },
   },
-  required: ['kicker', 'text', 'highlight', 'sub', 'say', 'secs', 'mediaIndex'],
+  required: ['kicker', 'text', 'highlight', 'sub', 'say', 'secs', 'mediaIndex', 'card', 'items'],
   additionalProperties: false,
 } as const;
 
@@ -82,7 +85,7 @@ export const MOTION_SYSTEM = [
   '',
   'BIBLIOTECA:',
   '- Plantillas: anuncio (texto cinético sobre fondo de marca; para anunciar evento, explicar, invitar), countdown (escena 1 = número grande con su unidad, `text` de la escena 1 es la frase bajo el número, ej. "para la noche"; `kicker` = "FALTAN"; usa los días reales hasta el evento), montaje (fotos/clips reales de fondo con texto abajo; asigna cada foto entregada con `mediaIndex`, una por escena, sin repetir), sting (solo la firma de marca, 1 escena con `sub` como frase).',
-  '- Estilos (eliges 3 distintos de 5; si el pedido es hablar de un tema, explicar o educar, kinetic va SIEMPRE): kinetic = tipografía cinética editorial: cada escena es una frase de 5 a 14 palabras que se arma palabra a palabra, conectores chicos y UNA palabra enorme (`highlight`); el estilo para temas, opiniones y frases que paran el scroll; 2,5 a 4 s por escena, 4 a 8 escenas. poster = póster suizo: palabras arriba, la palabra clave GIGANTE abajo (`highlight`, 1 o 2 palabras cortas) y un cubo/corazón 3D de marca girando entre ambas; 2 a 4 escenas de 2,5 a 3,5 s; ideal para anuncios fuertes y portadas. liquid = manchas líquidas y burbujas, letras infladas que rebotan; alegre, cercano; ritmo medio. glitch = señal rota, separación de color, cortes secos; energía de fiesta, urgencia; ritmo rápido (escenas más cortas, textos en mayúsculas se ven bien). editorial = revista premium, revelado con máscara, mucho aire; elegante, confianza, explicar; ritmo más pausado (puede llevar bajadas).',
+  '- Estilos (eliges 3 distintos de 5; si el pedido es hablar de un tema, explicar o educar, kinetic va SIEMPRE): kinetic = tipografía cinética editorial: cada escena es una frase de 5 a 14 palabras que se arma palabra a palabra, conectores chicos y UNA palabra enorme (`highlight`); el estilo para temas, opiniones y frases que paran el scroll; 2,5 a 4 s por escena, 4 a 8 escenas. softui = tarjetas de vidrio flotando en 3D sobre fondo claro (como una app): cada escena puede llevar UNA tarjeta (`card`): evento (texto grande = nombre, `kicker` = fecha, `sub` = ciudad y hora, `items` = 2-3 datos), calendario (marca sola la fecha real del evento; úsala solo si hay evento), checklist (`items` = qué llevar, reglas, pasos), chat (`items` = mensajes cortos, como un DM), entrada (ticket: `text` = acción, `kicker` y `sub` = datos). Ideal para explicar cómo funciona, qué llevar, cómo comprar; 3 a 5 escenas de 3 a 4 s. poster = póster suizo: palabras arriba, la palabra clave GIGANTE abajo (`highlight`, 1 o 2 palabras cortas) y un cubo/corazón 3D de marca girando entre ambas; 2 a 4 escenas de 2,5 a 3,5 s; ideal para anuncios fuertes y portadas. liquid = manchas líquidas y burbujas, letras infladas que rebotan; alegre, cercano; ritmo medio. glitch = señal rota, separación de color, cortes secos; energía de fiesta, urgencia; ritmo rápido (escenas más cortas, textos en mayúsculas se ven bien). editorial = revista premium, revelado con máscara, mucho aire; elegante, confianza, explicar; ritmo más pausado (puede llevar bajadas).',
   '- Fondos: azul = celeste (por defecto en liquid), tinta = azul profundo (por defecto en glitch), perla = blanco roto editorial (por defecto en editorial), rosa, niebla = gris celeste editorial, noche = ciruela casi negra de PLAYMORE (solo para fiestas de noche). Acento: el color protagonista, distinto del fondo. Varía entre variantes.',
   '- Música: pulse (electrónica 120 BPM, versátil), drive (house 124 BPM, la más fiestera), dream (suave 96 BPM, para confianza y explicaciones).',
   '',
@@ -129,7 +132,7 @@ interface RawOutput {
 const FILL_STYLES: MotionStyle[] = ['editorial', 'kinetic', 'liquid', 'glitch'];
 
 /** Pasa lo que devolvió la IA a 3 recetas limpias, cada una con un estilo distinto. */
-export function variantsFromAi(raw: RawOutput, input: Pick<MotionIdeaInput, 'format' | 'template' | 'eventId' | 'media'>): MotionSpec[] {
+export function variantsFromAi(raw: RawOutput, input: Pick<MotionIdeaInput, 'format' | 'template' | 'eventId' | 'media'> & { eventDate?: string }): MotionSpec[] {
   const media = input.media ?? [];
   const template = input.template ?? (MOTION_TEMPLATES as readonly string[]).find((t) => t === raw.template) ?? 'anuncio';
   const list = Array.isArray(raw.variants) ? raw.variants : [];
@@ -154,6 +157,7 @@ export function variantsFromAi(raw: RawOutput, input: Pick<MotionIdeaInput, 'for
       title: raw.title,
       caption: raw.caption,
       eventId: input.eventId ?? null,
+      eventDate: input.eventDate ?? '',
       template,
       style,
       format: input.format,
@@ -169,16 +173,20 @@ export function variantsFromAi(raw: RawOutput, input: Pick<MotionIdeaInput, 'for
   });
 }
 
-async function eventFacts(eventId: number | null | undefined): Promise<string> {
+async function eventFacts(eventId: number | null | undefined): Promise<{ facts: string; eventId: number | null; eventDate: string }> {
   const event = eventId ? await getEventById(eventId) : await getFeaturedEvent();
-  if (!event) return 'No hay un evento elegido: no menciones fechas ni precios.';
+  if (!event) return { facts: 'No hay un evento elegido: no menciones fechas ni precios, y no uses la tarjeta calendario.', eventId: null, eventDate: '' };
   const days = Math.ceil((new Date(event.eventDate).getTime() - Date.now()) / 86_400_000);
-  return ['DATOS REALES DEL EVENTO:', await buildEventFacts(event), `- Dress code: ${EVENT_BRAND.dressCode}`, `- Faltan ${Math.max(0, days)} días.`].join('\n');
+  return {
+    facts: ['DATOS REALES DEL EVENTO:', await buildEventFacts(event), `- Dress code: ${EVENT_BRAND.dressCode}`, `- Faltan ${Math.max(0, days)} días.`].join('\n'),
+    eventId: event.id,
+    eventDate: chileIsoDate(new Date(event.eventDate)),
+  };
 }
 
 export async function motionVariantsFromIdea(input: MotionIdeaInput): Promise<MotionIdeaResult> {
   const media = (input.media ?? []).slice(0, 12);
-  const facts = await eventFacts(input.eventId);
+  const { facts, eventId, eventDate } = await eventFacts(input.eventId);
   const ask = [
     `PEDIDO DEL DUEÑO: ${input.brief.trim().slice(0, 2000)}`,
     `Formato: ${input.format === 'reel' ? 'vertical 9:16 (reel/historia)' : input.format === 'feed' ? 'feed 4:5' : 'cuadrado 1:1'}.`,
@@ -196,5 +204,5 @@ export async function motionVariantsFromIdea(input: MotionIdeaInput): Promise<Mo
     refusal: 'La IA no quiso escribir ese video. Cambia el pedido.',
     tooLong: 'La respuesta salió demasiado larga. Pide un video más corto.',
   });
-  return { variants: variantsFromAi(result.data, { ...input, media }), usage: result.usage, costUsd: result.costUsd, model: result.model };
+  return { variants: variantsFromAi(result.data, { ...input, eventId, eventDate, media }), usage: result.usage, costUsd: result.costUsd, model: result.model };
 }

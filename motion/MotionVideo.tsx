@@ -8,6 +8,7 @@ import { Camera, HandleCard, Hud } from './hud';
 import { Grade, Grain, Vignette } from './layers';
 import { KineticScene } from './kinetic';
 import { PosterScene } from './poster';
+import { SoftUiScene } from './softui';
 import { BrandSting, CountdownScene, TextScene } from './scenes';
 import { beats, fonts } from './theme';
 
@@ -121,6 +122,8 @@ const Body: React.FC = () => {
             ? <KineticScene scene={scene} index={t.index} frames={t.frames} role={role} />
             : spec.style === 'poster'
             ? <PosterScene scene={scene} index={t.index} frames={t.frames} role={role} />
+            : spec.style === 'softui'
+            ? <SoftUiScene scene={scene} index={t.index} frames={t.frames} />
             : <TextScene scene={scene} index={t.index} frames={t.frames} role={role} lowerThird={spec.template === 'montaje' && !!scene.media} />;
         }
         return (

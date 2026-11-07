@@ -133,3 +133,18 @@ describe('starterSpec', () => {
     }
   });
 });
+
+describe('tarjetas y fecha (softui)', () => {
+  it('limpia la tarjeta, sus ítems y la fecha del evento', () => {
+    const s = normalizeMotionSpec({
+      style: 'softui', eventDate: '2026-11-14',
+      scenes: [{ text: 'Qué llevar', card: 'checklist', items: ['Carnet', '', 'Entrada', 'a', 'b', 'c', 'd'] }, { text: 'x', card: 'otra' }],
+    });
+    expect(s.eventDate).toBe('2026-11-14');
+    expect(s.scenes[0].card).toBe('checklist');
+    expect(s.scenes[0].items).toEqual(['Carnet', 'Entrada', 'a', 'b', 'c']);
+    expect(s.scenes[1].card).toBe('ninguna');
+    expect(normalizeMotionSpec({ eventDate: '14/11/2026' }).eventDate).toBe('');
+  });
+});
+

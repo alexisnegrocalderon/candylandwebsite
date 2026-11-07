@@ -13,11 +13,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ImageUploadField } from '@/components/admin/ImageUploadField';
 import { CaptionReviewBox } from '@/components/admin/CaptionReview';
 import {
-  MOTION_ACCENT_LABEL, MOTION_ACCENTS, MOTION_BASE_LABEL, MOTION_BASES, MOTION_CLOSING_LABEL, MOTION_CLOSINGS, MOTION_FORMAT_LABEL, MOTION_FORMATS, MOTION_MAX_SCENES, MOTION_MUSIC, MOTION_MUSIC_LABEL,
+  MOTION_ACCENT_LABEL, MOTION_ACCENTS, MOTION_CARD_LABEL, MOTION_CARDS, MOTION_BASE_LABEL, MOTION_BASES, MOTION_CLOSING_LABEL, MOTION_CLOSINGS, MOTION_FORMAT_LABEL, MOTION_FORMATS, MOTION_MAX_SCENES, MOTION_MUSIC, MOTION_MUSIC_LABEL,
   MOTION_STYLE_LABEL, MOTION_STYLES, MOTION_TEMPLATE_LABEL, MOTION_TEMPLATES, emptyScene, motionTimeline, normalizeMotionSpec, voiceSays,
   type MotionScene, type MotionSpec,
 } from '@shared/motionSpec';
 import { specHash } from '@shared/studioRender';
+import { chileIsoDate } from '@shared/contentPlan';
 import { TTS_VOICE_KEYS, TTS_VOICES, voiceScriptHash, type TtsVoice } from '@shared/studioVoice';
 import { MotionPreview } from './MotionPreview';
 
@@ -188,7 +189,11 @@ export function MotionEditor({ id: initialId, initial, onBack }: { id: number | 
               <Field label="Formato"><Pick value={spec.format} options={MOTION_FORMATS} labels={MOTION_FORMAT_LABEL} onChange={(format) => setSpec({ format })} /></Field>
               <Field label="Música"><Pick value={spec.music} options={MOTION_MUSIC} labels={MOTION_MUSIC_LABEL} onChange={(music) => setSpec({ music })} /></Field>
               <Field label="Evento">
-                <Select value={spec.eventId != null ? String(spec.eventId) : 'none'} onValueChange={(v) => setSpec({ eventId: v === 'none' ? null : Number(v) })}>
+                <Select value={spec.eventId != null ? String(spec.eventId) : 'none'} onValueChange={(v) => {
+                  const ev = events.find((e: any) => String(e.id) === v);
+                  // La fecha va en la receta para el calendario del estilo softui.
+                  setSpec({ eventId: v === 'none' ? null : Number(v), eventDate: ev ? chileIsoDate(new Date(ev.eventDate)) : '' });
+                }}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">Sin evento</SelectItem>
@@ -243,6 +248,17 @@ export function MotionEditor({ id: initialId, initial, onBack }: { id: number | 
                         <Field label="Bajada"><Input value={scene.sub} maxLength={140} onChange={(e) => setScene(i, { sub: e.target.value })} /></Field>
                         <Field label="Segundos"><Input type="number" step={0.1} min={1} max={8} value={scene.secs} disabled={!!spec.voice} onChange={(e) => setScene(i, { secs: Number(e.target.value) })} /></Field>
                       </div>
+                      {clean.style === 'softui' && (
+                        <div className="grid gap-3 sm:grid-cols-[200px_1fr]">
+                          <Field label="Tarjeta"><Pick value={scene.card ?? 'ninguna'} options={MOTION_CARDS} labels={MOTION_CARD_LABEL} onChange={(card) => setScene(i, { card })} /></Field>
+                          {(scene.card === 'checklist' || scene.card === 'chat' || scene.card === 'evento') && (
+                            <Field label={scene.card === 'chat' ? 'Mensajes (uno por línea)' : 'Ítems (uno por línea)'}>
+                              <Textarea rows={3} value={(scene.items ?? []).join('\n')} onChange={(e) => setScene(i, { items: e.target.value.split('\n').slice(0, 5) })} />
+                            </Field>
+                          )}
+                          {scene.card === 'calendario' && !clean.eventDate && <p className="text-xs text-amber-700 sm:col-span-2">Elige un evento arriba para que el calendario marque su fecha.</p>}
+                        </div>
+                      )}
                       <Field label="Voz en off de esta escena (opcional)"><Input value={scene.say} maxLength={180} onChange={(e) => setScene(i, { say: e.target.value })} placeholder="Si queda vacío, la voz lee el texto grande" /></Field>
                       {scene.media ? (
                         <div className="flex items-center gap-3">

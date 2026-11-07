@@ -26572,7 +26572,7 @@ function normalizeMedia(raw) {
   return { url, kind };
 }
 function emptyScene(text6 = "") {
-  return { kicker: "", text: text6, highlight: "", sub: "", say: "", secs: 2.5, media: null };
+  return { kicker: "", text: text6, highlight: "", sub: "", say: "", secs: 2.5, media: null, card: "ninguna", items: [] };
 }
 function normalizeScene(raw) {
   if (!raw || typeof raw !== "object") return null;
@@ -26587,7 +26587,9 @@ function normalizeScene(raw) {
     sub: str5(r.sub, 140),
     say: str5(r.say, 180),
     secs: Math.round(clampNum(r.secs, MOTION_SCENE_SECS.min, MOTION_SCENE_SECS.max, 2.5) * 10) / 10,
-    media: normalizeMedia(r.media)
+    media: normalizeMedia(r.media),
+    card: pick(r.card, MOTION_CARDS, "ninguna"),
+    items: (Array.isArray(r.items) ? r.items : []).map((x) => str5(x, 70)).filter(Boolean).slice(0, MOTION_MAX_ITEMS)
   };
   return scene.text || scene.media || scene.kicker ? scene : null;
 }
@@ -26623,6 +26625,7 @@ function normalizeMotionSpec(raw) {
     title: str5(r.title, 200) || "Video sin nombre",
     caption: typeof r.caption === "string" ? r.caption.slice(0, 2200) : "",
     eventId: Number.isInteger(eventId) && eventId > 0 ? eventId : null,
+    eventDate: typeof r.eventDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(r.eventDate) ? r.eventDate : "",
     template,
     style,
     format: pick(r.format, MOTION_FORMATS, "reel"),
@@ -26640,12 +26643,12 @@ function normalizeMotionSpec(raw) {
     captions: !!voice && r.captions !== false
   };
 }
-var MOTION_TEMPLATES, MOTION_STYLES, MOTION_FORMATS, MOTION_BASES, MOTION_ACCENTS, MOTION_DEFAULT_ACCENT, BRAND2, ACCENT_HEX, MOTION_CLOSINGS, MOTION_MUSIC, MOTION_DEFAULT_BASE, MOTION_MAX_SCENES, MOTION_SCENE_SECS, MOTION_MAX_TOTAL_SECS, MOTION_VOICE_LEAD, MOTION_VOICE_GAP, MOTION_VOICE_TAIL, str5, pick, clampNum;
+var MOTION_TEMPLATES, MOTION_STYLES, MOTION_FORMATS, MOTION_BASES, MOTION_ACCENTS, MOTION_DEFAULT_ACCENT, BRAND2, ACCENT_HEX, MOTION_CLOSINGS, MOTION_MUSIC, MOTION_CARDS, MOTION_MAX_ITEMS, MOTION_DEFAULT_BASE, MOTION_MAX_SCENES, MOTION_SCENE_SECS, MOTION_MAX_TOTAL_SECS, MOTION_VOICE_LEAD, MOTION_VOICE_GAP, MOTION_VOICE_TAIL, str5, pick, clampNum;
 var init_motionSpec = __esm({
   "shared/motionSpec.ts"() {
     "use strict";
     MOTION_TEMPLATES = ["anuncio", "countdown", "montaje", "sting"];
-    MOTION_STYLES = ["liquid", "glitch", "editorial", "kinetic", "poster"];
+    MOTION_STYLES = ["liquid", "glitch", "editorial", "kinetic", "poster", "softui"];
     MOTION_FORMATS = ["reel", "feed", "square"];
     MOTION_BASES = ["azul", "rosa", "tinta", "perla", "niebla", "noche"];
     MOTION_ACCENTS = ["celeste", "rosa", "magenta", "tinta", "oro"];
@@ -26687,7 +26690,9 @@ var init_motionSpec = __esm({
     };
     MOTION_CLOSINGS = ["firma", "handle"];
     MOTION_MUSIC = ["none", "pulse", "drive", "dream"];
-    MOTION_DEFAULT_BASE = { liquid: "azul", glitch: "tinta", editorial: "perla", kinetic: "perla", poster: "perla" };
+    MOTION_CARDS = ["ninguna", "evento", "calendario", "checklist", "chat", "entrada"];
+    MOTION_MAX_ITEMS = 5;
+    MOTION_DEFAULT_BASE = { liquid: "azul", glitch: "tinta", editorial: "perla", kinetic: "perla", poster: "perla", softui: "niebla" };
     MOTION_MAX_SCENES = 10;
     MOTION_SCENE_SECS = { min: 1, max: 8 };
     MOTION_MAX_TOTAL_SECS = 60;
@@ -51954,7 +51959,7 @@ var PLAN_SCHEMA = {
             hashtags: { type: "array", items: { type: "string" }, description: "De 3 a 5 hashtags (Instagram permite m\xE1ximo 5), incluido #MansionPlayroom." },
             keyword: { type: "string", description: "Solo en historias: una palabra clave de la lista entregada para que respondan a la historia, o vac\xEDo." },
             motionTemplate: { type: "string", enum: [...MOTION_TEMPLATES, "ninguno"], description: 'Video de motion graphics que el Estudio arma para esta pieza: anuncio (texto animado del evento), countdown (cuenta regresiva), montaje (fotos/clips reales con texto) o sting (solo la firma de marca). "ninguno" en carruseles o si la pieza es una foto.' },
-            motionStyle: { type: "string", enum: [...MOTION_STYLES], description: "liquid = alegre y fluido (awareness, interacci\xF3n); glitch = energ\xEDa de fiesta y urgencia; editorial = premium, confianza y explicaciones. Var\xEDa entre piezas." }
+            motionStyle: { type: "string", enum: [...MOTION_STYLES], description: "kinetic = tipograf\xEDa cin\xE9tica para hablar de temas y opiniones (para el scroll); softui = tarjetas tipo app para explicar (qu\xE9 llevar, c\xF3mo comprar, fecha); poster = p\xF3ster 3D para anuncios fuertes; editorial = premium y confianza; liquid = alegre y fluido; glitch = energ\xEDa de fiesta y urgencia. Var\xEDa entre piezas." }
           },
           required: ["date", "time", "format", "goal", "hook", "caption", "visual", "slides", "interaction", "hashtags", "keyword", "motionTemplate", "motionStyle"],
           additionalProperties: false
@@ -53080,6 +53085,7 @@ var TONO_DE_VOZ = '# Tono de voz\n\n## En una frase\n\nCercano y directo, con pi
 // server/motionAi.ts
 init_aiPhrasesEs();
 init_eventBrand();
+init_contentPlan();
 init_motionSpec();
 var MOTION_AI_MODEL = "claude-sonnet-5-5";
 var SCENE_SCHEMA = {
@@ -53091,9 +53097,11 @@ var SCENE_SCHEMA = {
     sub: { type: "string", description: "Bajada opcional, m\xE1ximo 9 palabras, o vac\xEDo." },
     say: { type: "string", description: "Lo que dir\xEDa una voz en off en esta escena (frase natural, \u2264 16 palabras). Vac\xEDo si no hace falta." },
     secs: { type: "number", description: "Segundos en pantalla, de 1.2 a 3.5." },
-    mediaIndex: { type: "integer", description: "\xCDndice de la foto/clip entregado que va de fondo en esta escena, o -1 para ninguno." }
+    mediaIndex: { type: "integer", description: "\xCDndice de la foto/clip entregado que va de fondo en esta escena, o -1 para ninguno." },
+    card: { type: "string", enum: [...MOTION_CARDS], description: 'Solo en softui: tarjeta de vidrio de la escena. En los dem\xE1s estilos, "ninguna".' },
+    items: { type: "array", items: { type: "string" }, description: "Solo para tarjetas checklist (\xEDtems), chat (mensajes, alternando qui\xE9n habla) o evento (2-3 datos cortos). M\xE1ximo 5, cortos. Si no, lista vac\xEDa." }
   },
-  required: ["kicker", "text", "highlight", "sub", "say", "secs", "mediaIndex"],
+  required: ["kicker", "text", "highlight", "sub", "say", "secs", "mediaIndex", "card", "items"],
   additionalProperties: false
 };
 var VARIANT_SCHEMA = {
@@ -53139,7 +53147,7 @@ var MOTION_SYSTEM = [
   "",
   "BIBLIOTECA:",
   '- Plantillas: anuncio (texto cin\xE9tico sobre fondo de marca; para anunciar evento, explicar, invitar), countdown (escena 1 = n\xFAmero grande con su unidad, `text` de la escena 1 es la frase bajo el n\xFAmero, ej. "para la noche"; `kicker` = "FALTAN"; usa los d\xEDas reales hasta el evento), montaje (fotos/clips reales de fondo con texto abajo; asigna cada foto entregada con `mediaIndex`, una por escena, sin repetir), sting (solo la firma de marca, 1 escena con `sub` como frase).',
-  "- Estilos (eliges 3 distintos de 5; si el pedido es hablar de un tema, explicar o educar, kinetic va SIEMPRE): kinetic = tipograf\xEDa cin\xE9tica editorial: cada escena es una frase de 5 a 14 palabras que se arma palabra a palabra, conectores chicos y UNA palabra enorme (`highlight`); el estilo para temas, opiniones y frases que paran el scroll; 2,5 a 4 s por escena, 4 a 8 escenas. poster = p\xF3ster suizo: palabras arriba, la palabra clave GIGANTE abajo (`highlight`, 1 o 2 palabras cortas) y un cubo/coraz\xF3n 3D de marca girando entre ambas; 2 a 4 escenas de 2,5 a 3,5 s; ideal para anuncios fuertes y portadas. liquid = manchas l\xEDquidas y burbujas, letras infladas que rebotan; alegre, cercano; ritmo medio. glitch = se\xF1al rota, separaci\xF3n de color, cortes secos; energ\xEDa de fiesta, urgencia; ritmo r\xE1pido (escenas m\xE1s cortas, textos en may\xFAsculas se ven bien). editorial = revista premium, revelado con m\xE1scara, mucho aire; elegante, confianza, explicar; ritmo m\xE1s pausado (puede llevar bajadas).",
+  "- Estilos (eliges 3 distintos de 5; si el pedido es hablar de un tema, explicar o educar, kinetic va SIEMPRE): kinetic = tipograf\xEDa cin\xE9tica editorial: cada escena es una frase de 5 a 14 palabras que se arma palabra a palabra, conectores chicos y UNA palabra enorme (`highlight`); el estilo para temas, opiniones y frases que paran el scroll; 2,5 a 4 s por escena, 4 a 8 escenas. softui = tarjetas de vidrio flotando en 3D sobre fondo claro (como una app): cada escena puede llevar UNA tarjeta (`card`): evento (texto grande = nombre, `kicker` = fecha, `sub` = ciudad y hora, `items` = 2-3 datos), calendario (marca sola la fecha real del evento; \xFAsala solo si hay evento), checklist (`items` = qu\xE9 llevar, reglas, pasos), chat (`items` = mensajes cortos, como un DM), entrada (ticket: `text` = acci\xF3n, `kicker` y `sub` = datos). Ideal para explicar c\xF3mo funciona, qu\xE9 llevar, c\xF3mo comprar; 3 a 5 escenas de 3 a 4 s. poster = p\xF3ster suizo: palabras arriba, la palabra clave GIGANTE abajo (`highlight`, 1 o 2 palabras cortas) y un cubo/coraz\xF3n 3D de marca girando entre ambas; 2 a 4 escenas de 2,5 a 3,5 s; ideal para anuncios fuertes y portadas. liquid = manchas l\xEDquidas y burbujas, letras infladas que rebotan; alegre, cercano; ritmo medio. glitch = se\xF1al rota, separaci\xF3n de color, cortes secos; energ\xEDa de fiesta, urgencia; ritmo r\xE1pido (escenas m\xE1s cortas, textos en may\xFAsculas se ven bien). editorial = revista premium, revelado con m\xE1scara, mucho aire; elegante, confianza, explicar; ritmo m\xE1s pausado (puede llevar bajadas).",
   "- Fondos: azul = celeste (por defecto en liquid), tinta = azul profundo (por defecto en glitch), perla = blanco roto editorial (por defecto en editorial), rosa, niebla = gris celeste editorial, noche = ciruela casi negra de PLAYMORE (solo para fiestas de noche). Acento: el color protagonista, distinto del fondo. Var\xEDa entre variantes.",
   "- M\xFAsica: pulse (electr\xF3nica 120 BPM, vers\xE1til), drive (house 124 BPM, la m\xE1s fiestera), dream (suave 96 BPM, para confianza y explicaciones).",
   "",
@@ -53173,6 +53181,7 @@ function variantsFromAi(raw, input) {
       title: raw.title,
       caption: raw.caption,
       eventId: input.eventId ?? null,
+      eventDate: input.eventDate ?? "",
       template,
       style,
       format: input.format,
@@ -53189,13 +53198,17 @@ function variantsFromAi(raw, input) {
 }
 async function eventFacts(eventId) {
   const event = eventId ? await getEventById(eventId) : await getFeaturedEvent();
-  if (!event) return "No hay un evento elegido: no menciones fechas ni precios.";
+  if (!event) return { facts: "No hay un evento elegido: no menciones fechas ni precios, y no uses la tarjeta calendario.", eventId: null, eventDate: "" };
   const days2 = Math.ceil((new Date(event.eventDate).getTime() - Date.now()) / 864e5);
-  return ["DATOS REALES DEL EVENTO:", await buildEventFacts(event), `- Dress code: ${EVENT_BRAND.dressCode}`, `- Faltan ${Math.max(0, days2)} d\xEDas.`].join("\n");
+  return {
+    facts: ["DATOS REALES DEL EVENTO:", await buildEventFacts(event), `- Dress code: ${EVENT_BRAND.dressCode}`, `- Faltan ${Math.max(0, days2)} d\xEDas.`].join("\n"),
+    eventId: event.id,
+    eventDate: chileIsoDate(new Date(event.eventDate))
+  };
 }
 async function motionVariantsFromIdea(input) {
   const media = (input.media ?? []).slice(0, 12);
-  const facts = await eventFacts(input.eventId);
+  const { facts, eventId, eventDate } = await eventFacts(input.eventId);
   const ask2 = [
     `PEDIDO DEL DUE\xD1O: ${input.brief.trim().slice(0, 2e3)}`,
     `Formato: ${input.format === "reel" ? "vertical 9:16 (reel/historia)" : input.format === "feed" ? "feed 4:5" : "cuadrado 1:1"}.`,
@@ -53213,7 +53226,7 @@ async function motionVariantsFromIdea(input) {
     refusal: "La IA no quiso escribir ese video. Cambia el pedido.",
     tooLong: "La respuesta sali\xF3 demasiado larga. Pide un video m\xE1s corto."
   });
-  return { variants: variantsFromAi(result.data, { ...input, media }), usage: result.usage, costUsd: result.costUsd, model: result.model };
+  return { variants: variantsFromAi(result.data, { ...input, eventId, eventDate, media }), usage: result.usage, costUsd: result.costUsd, model: result.model };
 }
 
 // server/studioVoice.ts

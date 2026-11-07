@@ -59,7 +59,7 @@ const PLAN_SCHEMA = {
             hashtags: { type: 'array', items: { type: 'string' }, description: 'De 3 a 5 hashtags (Instagram permite máximo 5), incluido #MansionPlayroom.' },
             keyword: { type: 'string', description: 'Solo en historias: una palabra clave de la lista entregada para que respondan a la historia, o vacío.' },
             motionTemplate: { type: 'string', enum: [...MOTION_TEMPLATES, 'ninguno'], description: 'Video de motion graphics que el Estudio arma para esta pieza: anuncio (texto animado del evento), countdown (cuenta regresiva), montaje (fotos/clips reales con texto) o sting (solo la firma de marca). "ninguno" en carruseles o si la pieza es una foto.' },
-            motionStyle: { type: 'string', enum: [...MOTION_STYLES], description: 'liquid = alegre y fluido (awareness, interacción); glitch = energía de fiesta y urgencia; editorial = premium, confianza y explicaciones. Varía entre piezas.' },
+            motionStyle: { type: 'string', enum: [...MOTION_STYLES], description: 'kinetic = tipografía cinética para hablar de temas y opiniones (para el scroll); softui = tarjetas tipo app para explicar (qué llevar, cómo comprar, fecha); poster = póster 3D para anuncios fuertes; editorial = premium y confianza; liquid = alegre y fluido; glitch = energía de fiesta y urgencia. Varía entre piezas.' },
           },
           required: ['date', 'time', 'format', 'goal', 'hook', 'caption', 'visual', 'slides', 'interaction', 'hashtags', 'keyword', 'motionTemplate', 'motionStyle'],
           additionalProperties: false,
