@@ -23,6 +23,7 @@ import { chileIsoDate } from '@shared/contentPlan';
 import { TTS_VOICE_KEYS, TTS_VOICES, voiceScriptHash, type TtsVoice } from '@shared/studioVoice';
 import { MotionPreview } from './MotionPreview';
 import { PackPanel } from './PackPanel';
+import { saveVideoFile } from './saveVideo';
 
 /* Editor del Estudio Motion: la vista previa a la izquierda (se actualiza al
  * instante, sin IA) y la receta a la derecha. Guardar, grabar a MP4 y mandar
@@ -166,7 +167,7 @@ export function MotionEditor({ id: initialId, initial, onBack }: { id: number | 
           {renderState.status === 'listo' && renderState.url && (
             <>
               <span>{mp4Fresh ? 'MP4 listo.' : 'Hay un MP4, pero es de una versión anterior: vuelve a grabar.'}</span>
-              <a href={renderState.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-medium underline"><Download className="h-4 w-4" /> Descargar</a>
+              <Button size="sm" variant="outline" onClick={() => void saveVideoFile(renderState.url!, clean.title)}><Download className="mr-1 h-4 w-4" /> Descargar / Guardar video</Button>
               {id != null && mp4Fresh && (
                 <WriteButton size="sm" variant="outline" disabled={send.isPending} onClick={() => send.mutate({ ids: [id] })}>
                   <Send className="mr-1 h-4 w-4" /> Mandar a embajadores

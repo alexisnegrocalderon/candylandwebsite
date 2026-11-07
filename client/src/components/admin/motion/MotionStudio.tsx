@@ -17,6 +17,7 @@ import {
   MOTION_FORMAT_LABEL, MOTION_FORMATS, MOTION_STYLE_LABEL, MOTION_TEMPLATE_LABEL, MOTION_TEMPLATES, starterSpec,
   type MotionFormat, type MotionMedia, type MotionSpec, type MotionStyle, type MotionTemplate,
 } from '@shared/motionSpec';
+import { saveVideoFile } from './saveVideo';
 import { MotionEditor } from './MotionEditor';
 import { MotionPreview } from './MotionPreview';
 import { PlanPanel } from './PlanPanel';
@@ -273,7 +274,7 @@ function VideoList({ onOpen, onNew }: { onOpen: (id: number, spec: MotionSpec) =
                   <Button size="sm" variant="outline" disabled={opening === v.id} onClick={() => open(v.id)}>
                     {opening === v.id ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null} Abrir
                   </Button>
-                  {v.render.status === 'listo' && v.render.url && <a className="inline-flex items-center text-xs underline" href={v.render.url} target="_blank" rel="noreferrer">MP4</a>}
+                  {v.render.status === 'listo' && v.render.url && <button type="button" className="inline-flex items-center text-xs underline" onClick={() => void saveVideoFile(v.render.url!, v.title)}>Guardar MP4</button>}
                   <ConfirmDeleteButton description={`el video «${v.title}»`} onConfirm={(adminPassword) => del.mutateAsync({ id: v.id, adminPassword })} />
                 </div>
               </div>
