@@ -26617,6 +26617,7 @@ function normalizeMotionSpec(raw) {
   const cd = r.countdown && typeof r.countdown === "object" ? r.countdown : {};
   const eventId = Number(r.eventId);
   const voice = normalizeVoice(r.voice, scenes.length);
+  const base2 = pick(r.base, MOTION_BASES, MOTION_DEFAULT_BASE[style]);
   return {
     v: 1,
     title: str5(r.title, 200) || "Video sin nombre",
@@ -26625,10 +26626,13 @@ function normalizeMotionSpec(raw) {
     template,
     style,
     format: pick(r.format, MOTION_FORMATS, "reel"),
-    base: pick(r.base, MOTION_BASES, style === "glitch" ? "tinta" : style === "editorial" ? "rosa" : "azul"),
+    base: base2,
+    accent: pick(r.accent, MOTION_ACCENTS, MOTION_DEFAULT_ACCENT[base2]),
+    hud: r.hud !== false,
     scenes,
     countdown: { value: Math.round(clampNum(cd.value, 0, 999, 7)), unit: str5(cd.unit, 16) || "D\xCDAS" },
     outro: template === "sting" ? false : r.outro !== false,
+    closing: pick(r.closing, MOTION_CLOSINGS, "firma"),
     outroLine: str5(r.outroLine, 60),
     music: pick(r.music, MOTION_MUSIC, "pulse"),
     sfx: r.sfx !== false,
@@ -26636,15 +26640,54 @@ function normalizeMotionSpec(raw) {
     captions: !!voice && r.captions !== false
   };
 }
-var MOTION_TEMPLATES, MOTION_STYLES, MOTION_FORMATS, MOTION_BASES, MOTION_MUSIC, MOTION_MAX_SCENES, MOTION_SCENE_SECS, MOTION_MAX_TOTAL_SECS, MOTION_VOICE_LEAD, MOTION_VOICE_GAP, MOTION_VOICE_TAIL, str5, pick, clampNum;
+var MOTION_TEMPLATES, MOTION_STYLES, MOTION_FORMATS, MOTION_BASES, MOTION_ACCENTS, MOTION_DEFAULT_ACCENT, BRAND2, ACCENT_HEX, MOTION_CLOSINGS, MOTION_MUSIC, MOTION_DEFAULT_BASE, MOTION_MAX_SCENES, MOTION_SCENE_SECS, MOTION_MAX_TOTAL_SECS, MOTION_VOICE_LEAD, MOTION_VOICE_GAP, MOTION_VOICE_TAIL, str5, pick, clampNum;
 var init_motionSpec = __esm({
   "shared/motionSpec.ts"() {
     "use strict";
     MOTION_TEMPLATES = ["anuncio", "countdown", "montaje", "sting"];
     MOTION_STYLES = ["liquid", "glitch", "editorial"];
     MOTION_FORMATS = ["reel", "feed", "square"];
-    MOTION_BASES = ["azul", "rosa", "tinta"];
+    MOTION_BASES = ["azul", "rosa", "tinta", "perla", "niebla", "noche"];
+    MOTION_ACCENTS = ["celeste", "rosa", "magenta", "tinta", "oro"];
+    MOTION_DEFAULT_ACCENT = {
+      azul: "rosa",
+      rosa: "tinta",
+      tinta: "rosa",
+      perla: "magenta",
+      niebla: "celeste",
+      noche: "rosa"
+    };
+    BRAND2 = {
+      blue: "#00A3FF",
+      pink: "#EF8DFF",
+      magenta: "#FF008E",
+      ink: "#0010DF",
+      black: "#000000",
+      white: "#FFFFFF",
+      // Neutros editoriales.
+      pearl: "#F2EFEA",
+      pearlShade: "#D9D3C9",
+      mist: "#E6ECF4",
+      mistShade: "#C6D1DF",
+      stone: "#8A857E",
+      graphite: "#16161A",
+      // PLAYMORE (client/public/playmore/og-playmore-v4.jpg).
+      plum: "#2A0A33",
+      night: "#0C0908",
+      orchid: "#E477EA",
+      gold: "#D6B25E",
+      cream: "#F4EFE6"
+    };
+    ACCENT_HEX = {
+      celeste: BRAND2.blue,
+      rosa: BRAND2.pink,
+      magenta: BRAND2.magenta,
+      tinta: BRAND2.ink,
+      oro: BRAND2.gold
+    };
+    MOTION_CLOSINGS = ["firma", "handle"];
     MOTION_MUSIC = ["none", "pulse", "drive", "dream"];
+    MOTION_DEFAULT_BASE = { liquid: "azul", glitch: "tinta", editorial: "perla" };
     MOTION_MAX_SCENES = 10;
     MOTION_SCENE_SECS = { min: 1, max: 8 };
     MOTION_MAX_TOTAL_SECS = 60;
@@ -53057,11 +53100,12 @@ var VARIANT_SCHEMA = {
   type: "object",
   properties: {
     style: { type: "string", enum: [...MOTION_STYLES] },
-    base: { type: "string", enum: [...MOTION_BASES], description: "Color de fondo: azul (celeste #00A3FF), rosa (#EF8DFF) o tinta (#0010DF)." },
+    base: { type: "string", enum: [...MOTION_BASES], description: "Fondo: azul (celeste), rosa o tinta (de marca); perla o niebla (neutros editoriales); noche (PLAYMORE, fiesta)." },
+    accent: { type: "string", enum: [...MOTION_ACCENTS], description: "Color protagonista (distinto del fondo). Oro solo con noche." },
     music: { type: "string", enum: MOTION_MUSIC.filter((m) => m !== "none") },
     scenes: { type: "array", items: SCENE_SCHEMA, description: `De 2 a ${MOTION_MAX_SCENES - 4} escenas.` }
   },
-  required: ["style", "base", "music", "scenes"],
+  required: ["style", "base", "accent", "music", "scenes"],
   additionalProperties: false
 };
 var OUTPUT_SCHEMA = {
@@ -53096,7 +53140,7 @@ var MOTION_SYSTEM = [
   "BIBLIOTECA:",
   '- Plantillas: anuncio (texto cin\xE9tico sobre fondo de marca; para anunciar evento, explicar, invitar), countdown (escena 1 = n\xFAmero grande con su unidad, `text` de la escena 1 es la frase bajo el n\xFAmero, ej. "para la noche"; `kicker` = "FALTAN"; usa los d\xEDas reales hasta el evento), montaje (fotos/clips reales de fondo con texto abajo; asigna cada foto entregada con `mediaIndex`, una por escena, sin repetir), sting (solo la firma de marca, 1 escena con `sub` como frase).',
   "- Estilos (los 3 se entregan siempre): liquid = manchas l\xEDquidas y burbujas, letras infladas que rebotan; alegre, cercano; ritmo medio. glitch = se\xF1al rota, separaci\xF3n de color, cortes secos; energ\xEDa de fiesta, urgencia; ritmo r\xE1pido (escenas m\xE1s cortas, textos en may\xFAsculas se ven bien). editorial = revista premium, revelado con m\xE1scara, mucho aire; elegante, confianza, explicar; ritmo m\xE1s pausado (puede llevar bajadas).",
-  "- Fondos: azul = celeste (por defecto en liquid), rosa (por defecto en editorial), tinta = azul profundo (por defecto en glitch). Puedes cambiarlos si el mensaje lo pide, pero var\xEDa entre variantes.",
+  "- Fondos: azul = celeste (por defecto en liquid), tinta = azul profundo (por defecto en glitch), perla = blanco roto editorial (por defecto en editorial), rosa, niebla = gris celeste editorial, noche = ciruela casi negra de PLAYMORE (solo para fiestas de noche). Acento: el color protagonista, distinto del fondo. Var\xEDa entre variantes.",
   "- M\xFAsica: pulse (electr\xF3nica 120 BPM, vers\xE1til), drive (house 124 BPM, la m\xE1s fiestera), dream (suave 96 BPM, para confianza y explicaciones).",
   "",
   'EJEMPLO (forma, no contenido): pedido "anunciar fiesta del s\xE1bado". liquid: [{kicker:"SE VIENE", text:"Una noche distinta", highlight:"distinta"}, {kicker:"S\xC1BADO 14", text:"Valpara\xEDso", sub:"Direcci\xF3n exacta al comprar"}, {text:"Entradas en la bio", highlight:"bio"}]. glitch: [{text:"\xBFTIENES PLANES?"}, {text:"S\xC1BADO 14", highlight:"14"}, {text:"NO TE QUEDES AFUERA", highlight:"AFUERA"}, {text:"Entradas en la bio"}]. editorial: [{kicker:"MANSION PLAYROOM", text:"No es solo una fiesta", highlight:"fiesta"}, {text:"Es una experiencia", sub:"Que t\xFA defines, con respeto y libertad"}, {kicker:"S\xC1BADO 14", text:"Te esperamos", highlight:"esperamos"}].',
@@ -53126,6 +53170,7 @@ function variantsFromAi(raw, input) {
       style,
       format: input.format,
       base: v.base,
+      accent: v.accent,
       music: v.music,
       scenes,
       countdown: { value: raw.countdownValue, unit: raw.countdownUnit },

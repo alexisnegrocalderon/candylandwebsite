@@ -4,6 +4,7 @@ import { captionWords, motionPalette, motionTimeline, normalizeMotionSpec, type 
 import { MotionContext, useMotion, type MotionCtx } from './context';
 import { useBrandFonts } from './fonts';
 import { KITS } from './kits';
+import { Camera, HandleCard, Hud } from './hud';
 import { Grade, Grain, Vignette } from './layers';
 import { BrandSting, CountdownScene, TextScene } from './scenes';
 import { beats, fonts } from './theme';
@@ -103,7 +104,8 @@ const Body: React.FC = () => {
     <>
       {/* 1. Fondo (continuo entre escenas). */}
       <kit.Background />
-      {/* 2-3. Fotos, gráfica y texto por escena. */}
+      {/* 2-3. Fotos, gráfica y texto por escena, con un empuje lento de cámara. */}
+      <Camera>
       {timeline.scenes.map((t) => {
         const scene = spec.scenes[t.index];
         let content: React.ReactNode;
@@ -122,10 +124,14 @@ const Body: React.FC = () => {
         );
       })}
       {timeline.outroFrom != null && (
-        <Sequence from={timeline.outroFrom} durationInFrames={timeline.outroFrames} name="Firma">
-          <BrandSting frames={timeline.outroFrames} tagline={spec.outroLine} />
+        <Sequence from={timeline.outroFrom} durationInFrames={timeline.outroFrames} name="Cierre">
+          {spec.closing === 'handle'
+            ? <HandleCard frames={timeline.outroFrames} line={spec.outroLine} />
+            : <BrandSting frames={timeline.outroFrames} tagline={spec.outroLine} />}
         </Sequence>
       )}
+      </Camera>
+      {spec.hud && <Hud />}
       <Captions />
       {/* Transiciones encima de todo el contenido, centradas en cada corte. */}
       {[...timeline.scenes.slice(1).map((t) => t.from), ...(timeline.outroFrom != null ? [timeline.outroFrom] : [])].map((cut) => (
@@ -147,7 +153,7 @@ export const MotionVideo: React.FC<MotionVideoProps> = ({ spec: raw }) => {
   const { width, height } = useVideoConfig();
   const ctx = useMemo<MotionCtx>(() => {
     const spec = normalizeMotionSpec(raw);
-    return { spec, palette: motionPalette(spec.base), timeline: motionTimeline(spec), width, height, captionsOn: spec.captions && !!spec.voice };
+    return { spec, palette: motionPalette(spec.base, spec.accent), timeline: motionTimeline(spec), width, height, captionsOn: spec.captions && !!spec.voice };
   }, [raw, width, height]);
   return (
     <MotionContext.Provider value={ctx}>

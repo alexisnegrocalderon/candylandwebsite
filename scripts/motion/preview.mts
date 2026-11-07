@@ -50,9 +50,10 @@ if (mode === 'video') {
   const only = process.env.ONLY?.split(',');
   for (const template of MOTION_TEMPLATES) {
     for (const style of MOTION_STYLES) {
-      const key = `${template}-${style}`;
+      const key = `${template}-${style}${process.env.BASE ? `-${process.env.BASE}` : ''}`;
       if (only && !only.some((o) => key.includes(o))) continue;
-      const spec = starterSpec(template, style);
+      // BASE=perla,noche prueba otros fondos; CLOSING=handle la tarjeta del @.
+      const spec = { ...starterSpec(template, style), ...(process.env.BASE ? { base: process.env.BASE } : {}), ...(process.env.CLOSING ? { closing: process.env.CLOSING } : {}) } as MotionSpec;
       const tl = motionTimeline(spec);
       // Inicio de cada escena + ya asentada, y la firma.
       const frames = [...tl.scenes.map((s) => s.from + Math.min(s.frames - 10, 40)), ...(tl.outroFrom != null ? [tl.outroFrom + 50] : [])];

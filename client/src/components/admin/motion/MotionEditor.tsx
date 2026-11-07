@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ImageUploadField } from '@/components/admin/ImageUploadField';
 import { CaptionReviewBox } from '@/components/admin/CaptionReview';
 import {
-  MOTION_BASE_LABEL, MOTION_BASES, MOTION_FORMAT_LABEL, MOTION_FORMATS, MOTION_MAX_SCENES, MOTION_MUSIC, MOTION_MUSIC_LABEL,
+  MOTION_ACCENT_LABEL, MOTION_ACCENTS, MOTION_BASE_LABEL, MOTION_BASES, MOTION_CLOSING_LABEL, MOTION_CLOSINGS, MOTION_FORMAT_LABEL, MOTION_FORMATS, MOTION_MAX_SCENES, MOTION_MUSIC, MOTION_MUSIC_LABEL,
   MOTION_STYLE_LABEL, MOTION_STYLES, MOTION_TEMPLATE_LABEL, MOTION_TEMPLATES, emptyScene, motionTimeline, normalizeMotionSpec, voiceSays,
   type MotionScene, type MotionSpec,
 } from '@shared/motionSpec';
@@ -184,6 +184,7 @@ export function MotionEditor({ id: initialId, initial, onBack }: { id: number | 
               <Field label="Plantilla"><Pick value={spec.template} options={MOTION_TEMPLATES} labels={MOTION_TEMPLATE_LABEL} onChange={(template) => setSpec({ template })} /></Field>
               <Field label="Estilo"><Pick value={spec.style} options={MOTION_STYLES} labels={MOTION_STYLE_LABEL} onChange={(style) => setSpec({ style })} /></Field>
               <Field label="Fondo"><Pick value={spec.base} options={MOTION_BASES} labels={MOTION_BASE_LABEL} onChange={(base) => setSpec({ base })} /></Field>
+              <Field label="Color de acento" hint="El protagonista: un solo elemento por cuadro."><Pick value={clean.accent} options={MOTION_ACCENTS} labels={MOTION_ACCENT_LABEL} onChange={(accent) => setSpec({ accent })} /></Field>
               <Field label="Formato"><Pick value={spec.format} options={MOTION_FORMATS} labels={MOTION_FORMAT_LABEL} onChange={(format) => setSpec({ format })} /></Field>
               <Field label="Música"><Pick value={spec.music} options={MOTION_MUSIC} labels={MOTION_MUSIC_LABEL} onChange={(music) => setSpec({ music })} /></Field>
               <Field label="Evento">
@@ -196,8 +197,12 @@ export function MotionEditor({ id: initialId, initial, onBack }: { id: number | 
                 </Select>
               </Field>
               <label className="flex items-center gap-2 text-sm"><Switch checked={spec.sfx} onCheckedChange={(sfx) => setSpec({ sfx })} /> Efectos de sonido en los cortes</label>
+              <label className="flex items-center gap-2 text-sm"><Switch checked={clean.hud} onCheckedChange={(hud) => setSpec({ hud })} /> Micro-textos de revista (bordes)</label>
               {spec.template !== 'sting' && (
                 <label className="flex items-center gap-2 text-sm"><Switch checked={spec.outro} onCheckedChange={(outro) => setSpec({ outro })} /> Cerrar con la firma de la marca</label>
+              )}
+              {spec.outro && spec.template !== 'sting' && (
+                <Field label="Cierre"><Pick value={clean.closing} options={MOTION_CLOSINGS} labels={MOTION_CLOSING_LABEL} onChange={(closing) => setSpec({ closing })} /></Field>
               )}
               {(spec.outro || spec.template === 'sting') && (
                 <Field label="Frase bajo el logo"><Input value={spec.outroLine} maxLength={60} onChange={(e) => setSpec({ outroLine: e.target.value })} placeholder="Entradas en la bio" /></Field>

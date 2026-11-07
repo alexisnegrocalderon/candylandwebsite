@@ -1,5 +1,5 @@
 import { AbsoluteFill, Img, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig } from 'remotion';
-import type { MotionScene } from '../shared/motionSpec';
+import { BRAND, type MotionScene } from '../shared/motionSpec';
 import { useMotion } from './context';
 import { bubbleShadow, KITS, rand } from './kits';
 import { MediaLayer, useBreathe, useExit } from './layers';
@@ -40,31 +40,45 @@ export const Headline: React.FC<{ text: string; highlight: string; base: number;
   const breathe = useBreathe();
   const usable = maxWidth ?? width - safeInsets(width, 1).side * 2;
   const shown = kit.uppercase ? text.toUpperCase() : text;
-  const size = fitSize(shown, base, usable, kit.uppercase ? 0.86 : 0.8);
-  const heroes = heroWords(text, highlight);
   const words = shown.split(/\s+/).filter(Boolean);
+  let heroes = heroWords(text, highlight);
+  // Contraste editorial: sin palabra destacada, la protagonista es la más larga.
+  if (kit.contrast && heroes.size === 0) {
+    const longest = words.reduce((best, w, i) => (w.length > words[best].length ? i : best), 0);
+    heroes = new Set([longest]);
+  }
+  const heroText = kit.contrast ? words.filter((_, i) => heroes.has(i)).join(' ') || shown : shown;
+  // En contraste, la grande se mide sola (las chicas van a ~40 %).
+  const size = fitSize(heroText, kit.contrast ? base * 1.25 : base, usable, kit.uppercase ? 0.86 : 0.8);
+  const small = Math.round(size * 0.4);
   return (
     <div
       style={{
         fontFamily: kit.headlineFont,
-        fontWeight: kit.uppercase ? 800 : 600,
+        fontWeight: kit.headlineWeight,
         fontSize: size,
         lineHeight: kit.lineHeight,
-        letterSpacing: kit.uppercase ? '-0.02em' : '-0.03em',
+        letterSpacing: kit.letterSpacing,
         display: 'flex',
         flexWrap: 'wrap',
+        alignItems: 'baseline',
         justifyContent: kit.align === 'center' ? 'center' : 'flex-start',
         textAlign: kit.align,
-        columnGap: Math.round(size * 0.28),
-        rowGap: Math.round(size * 0.06),
+        columnGap: Math.round(size * (kit.contrast ? 0.18 : 0.28)),
+        rowGap: Math.round(size * 0.04),
         maxWidth: usable,
         transform: `scale(${breathe})`,
         transformOrigin: kit.align === 'center' ? '50% 50%' : '0% 50%',
       }}
     >
-      {words.map((w, i) => (
-        <kit.Word key={`${i}-${w}`} word={w} i={i} delay={delay} hero={heroes.has(i)} size={size} />
-      ))}
+      {words.map((w, i) => {
+        const wordSize = kit.contrast && !heroes.has(i) ? small : size;
+        return (
+          <span key={`${i}-${w}`} style={{ fontSize: wordSize, display: 'inline-block' }}>
+            <kit.Word word={w} i={i} delay={delay} hero={heroes.has(i)} size={wordSize} />
+          </span>
+        );
+      })}
     </div>
   );
 };
@@ -85,7 +99,7 @@ export const Kicker: React.FC<{ text: string; delay?: number }> = ({ text, delay
         padding: '14px 30px',
         borderRadius: 999,
         border: `3px solid ${palette.body}`,
-        fontFamily: glitch ? fonts.body : fonts.ui,
+        fontFamily: glitch ? fonts.grotesk : fonts.ui,
         fontWeight: 800,
         fontSize: 38,
         letterSpacing: '0.18em',
@@ -109,7 +123,7 @@ export const Sub: React.FC<{ text: string; delay: number; size?: number }> = ({ 
   return (
     <div
       style={{
-        fontFamily: fonts.body,
+        fontFamily: spec.style === 'liquid' ? fonts.body : fonts.grotesk,
         fontWeight: 500,
         fontSize: size,
         lineHeight: 1.35,
@@ -148,12 +162,12 @@ export const TextScene: React.FC<{ scene: MotionScene; index: number; frames: nu
       <AbsoluteFill
         style={{
           paddingTop: inset.top,
-          paddingBottom: inset.bottom + (captionsOn ? height * 0.16 : 0),
           paddingLeft: inset.side,
           paddingRight: inset.side,
           display: 'flex',
           flexDirection: 'column',
-          justifyContent: lowerThird ? 'flex-end' : 'center',
+          justifyContent: lowerThird || kit.contrast ? 'flex-end' : 'center',
+          paddingBottom: inset.bottom + (captionsOn ? height * 0.16 : 0) + (kit.contrast && !lowerThird ? height * 0.1 : 0),
           alignItems: align,
           gap: 36,
           ...kit.exitStyle(exit),
@@ -284,7 +298,8 @@ export const BrandSting: React.FC<{ frames: number; tagline: string }> = ({ fram
       </div>
       <div style={{ position: 'absolute', top: height * 0.42 + size * 0.85, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 34 }}>
         <Img
-          src={staticFile('studio/logo-wordmark-white.png')}
+          // En fondos claros (perla, niebla) va el wordmark a color; en el resto, el blanco.
+          src={staticFile(palette.display === BRAND.graphite ? 'candyland/logo-wordmark-email.png' : 'studio/logo-wordmark-white.png')}
           style={{ width: width * 0.62, opacity: word, transform: `translateY(${interpolate(word, [0, 1], [40, 0])}px)` }}
         />
         {tagline && (

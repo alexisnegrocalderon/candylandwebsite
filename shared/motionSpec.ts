@@ -39,16 +39,36 @@ export const MOTION_SIZES: Record<MotionFormat, { width: number; height: number 
   square: { width: 1080, height: 1080 },
 };
 
-/** Color de fondo de la pieza: siempre uno de marca, a todo el sangrado. */
-export const MOTION_BASES = ['azul', 'rosa', 'tinta'] as const;
+/** Fondo de la pieza. Los de marca (celeste, rosa, tinta) a todo el
+ * sangrado; los neutros (perla, niebla) para el look editorial con un solo
+ * acento de marca; y noche (la paleta de PLAYMORE) para fiestas. */
+export const MOTION_BASES = ['azul', 'rosa', 'tinta', 'perla', 'niebla', 'noche'] as const;
 export type MotionBase = (typeof MOTION_BASES)[number];
 export const MOTION_BASE_LABEL: Record<MotionBase, string> = {
   azul: 'Celeste de marca',
   rosa: 'Rosa de marca',
   tinta: 'Azul tinta',
+  perla: 'Perla (editorial)',
+  niebla: 'Niebla (editorial)',
+  noche: 'Noche (PLAYMORE)',
 };
 
-/** Colores de marca (server/studioAi/brandPack.ts). Ningún otro entra a un video. */
+/** El color protagonista de la pieza (el «círculo rojo» de las referencias). */
+export const MOTION_ACCENTS = ['celeste', 'rosa', 'magenta', 'tinta', 'oro'] as const;
+export type MotionAccent = (typeof MOTION_ACCENTS)[number];
+export const MOTION_ACCENT_LABEL: Record<MotionAccent, string> = {
+  celeste: 'Celeste',
+  rosa: 'Rosa',
+  magenta: 'Magenta',
+  tinta: 'Azul tinta',
+  oro: 'Oro (PLAYMORE)',
+};
+export const MOTION_DEFAULT_ACCENT: Record<MotionBase, MotionAccent> = {
+  azul: 'rosa', rosa: 'tinta', tinta: 'rosa', perla: 'magenta', niebla: 'celeste', noche: 'rosa',
+};
+
+/** Colores permitidos (server/studioAi/brandPack.ts + neutros editoriales +
+ * la paleta de PLAYMORE). Ningún otro entra a un video: lo revisa un test. */
 export const BRAND = {
   blue: '#00A3FF',
   pink: '#EF8DFF',
@@ -56,32 +76,82 @@ export const BRAND = {
   ink: '#0010DF',
   black: '#000000',
   white: '#FFFFFF',
+  // Neutros editoriales.
+  pearl: '#F2EFEA',
+  pearlShade: '#D9D3C9',
+  mist: '#E6ECF4',
+  mistShade: '#C6D1DF',
+  stone: '#8A857E',
+  graphite: '#16161A',
+  // PLAYMORE (client/public/playmore/og-playmore-v4.jpg).
+  plum: '#2A0A33',
+  night: '#0C0908',
+  orchid: '#E477EA',
+  gold: '#D6B25E',
+  cream: '#F4EFE6',
 } as const;
+
+const ACCENT_HEX: Record<MotionAccent, string> = {
+  celeste: BRAND.blue, rosa: BRAND.pink, magenta: BRAND.magenta, tinta: BRAND.ink, oro: BRAND.gold,
+};
 
 export interface MotionPalette {
   bg: string;
-  /** Relleno del titular (letra «candy bubble»). */
+  /** Segundo tono del fondo (solo noche lleva un degradé muy suave). */
+  bg2: string;
+  /** Relleno del titular. */
   display: string;
   /** Sombra/volumen del titular. */
   shadow: string;
   /** Texto de bajada. */
   body: string;
+  /** Palabras chicas que acompañan a la grande (conectores). */
+  muted: string;
   /** EL color protagonista: máximo un elemento por cuadro. */
   hero: string;
+  /** Relleno del texto protagonista (en noche, el degradé rosa→oro). */
+  heroFill: string;
   accent: string;
   deep: string;
+  /** Micro-textos del HUD y líneas finas. */
+  micro: string;
+  /** Superficie de tarjetas (vidrio). */
+  surface: string;
+  /** Fondo oscuro: el grano va en «overlay» y el texto en claro. */
+  dark: boolean;
 }
 
-export function motionPalette(base: MotionBase): MotionPalette {
+export function motionPalette(base: MotionBase, accent: MotionAccent = MOTION_DEFAULT_ACCENT[base]): MotionPalette {
+  let hero = ACCENT_HEX[accent];
+  // Un acento igual al fondo no se ve: se usa el de por defecto.
+  const bgOf: Record<MotionBase, string> = { azul: BRAND.blue, rosa: BRAND.pink, tinta: BRAND.ink, perla: BRAND.pearl, niebla: BRAND.mist, noche: BRAND.plum };
+  if (hero === bgOf[base]) hero = ACCENT_HEX[MOTION_DEFAULT_ACCENT[base]];
+  const solid = (p: Omit<MotionPalette, 'hero' | 'heroFill' | 'bg2'> & { bg2?: string; heroFill?: string }): MotionPalette => ({ ...p, bg2: p.bg2 ?? p.bg, hero, heroFill: p.heroFill ?? hero });
   switch (base) {
     case 'rosa':
-      return { bg: BRAND.pink, display: BRAND.white, shadow: BRAND.magenta, body: BRAND.ink, hero: BRAND.ink, accent: BRAND.blue, deep: BRAND.magenta };
+      return solid({ bg: BRAND.pink, display: BRAND.white, shadow: BRAND.magenta, body: BRAND.ink, muted: BRAND.ink, accent: BRAND.blue, deep: BRAND.magenta, micro: BRAND.ink, surface: BRAND.white, dark: false });
     case 'tinta':
-      return { bg: BRAND.ink, display: BRAND.white, shadow: BRAND.magenta, body: BRAND.white, hero: BRAND.pink, accent: BRAND.blue, deep: BRAND.black };
+      return solid({ bg: BRAND.ink, display: BRAND.white, shadow: BRAND.magenta, body: BRAND.white, muted: BRAND.pink, accent: BRAND.blue, deep: BRAND.black, micro: BRAND.white, surface: BRAND.white, dark: true });
+    case 'perla':
+      return solid({ bg: BRAND.pearl, display: BRAND.graphite, shadow: BRAND.pearlShade, body: BRAND.graphite, muted: BRAND.stone, accent: BRAND.blue, deep: BRAND.graphite, micro: BRAND.graphite, surface: BRAND.white, dark: false });
+    case 'niebla':
+      return solid({ bg: BRAND.mist, display: BRAND.graphite, shadow: BRAND.mistShade, body: BRAND.graphite, muted: BRAND.stone, accent: BRAND.pink, deep: BRAND.ink, micro: BRAND.graphite, surface: BRAND.white, dark: false });
+    case 'noche':
+      return solid({
+        bg: BRAND.plum, bg2: BRAND.night, display: BRAND.cream, shadow: BRAND.night, body: BRAND.cream, muted: BRAND.gold,
+        accent: BRAND.gold, deep: BRAND.night, micro: BRAND.gold, surface: BRAND.cream, dark: true,
+        heroFill: accent === 'oro' ? `linear-gradient(90deg, ${BRAND.gold}, ${BRAND.cream})` : `linear-gradient(90deg, ${BRAND.orchid}, ${BRAND.gold})`,
+      });
     default:
-      return { bg: BRAND.blue, display: BRAND.white, shadow: BRAND.ink, body: BRAND.white, hero: BRAND.pink, accent: BRAND.magenta, deep: BRAND.ink };
+      return solid({ bg: BRAND.blue, display: BRAND.white, shadow: BRAND.ink, body: BRAND.white, muted: BRAND.white, accent: BRAND.magenta, deep: BRAND.ink, micro: BRAND.white, surface: BRAND.white, dark: false });
   }
 }
+
+/** Cómo cierra el video: la firma con el isotipo, o la tarjeta del @ (como las referencias). */
+export const MOTION_CLOSINGS = ['firma', 'handle'] as const;
+export type MotionClosing = (typeof MOTION_CLOSINGS)[number];
+export const MOTION_CLOSING_LABEL: Record<MotionClosing, string> = { firma: 'Firma con el logo', handle: 'Tarjeta @mansionplayroom.cl' };
+export const MOTION_HANDLE = '@mansionplayroom.cl';
 
 export const MOTION_MUSIC = ['none', 'pulse', 'drive', 'dream'] as const;
 export type MotionMusic = (typeof MOTION_MUSIC)[number];
@@ -136,11 +206,15 @@ export interface MotionSpec {
   style: MotionStyle;
   format: MotionFormat;
   base: MotionBase;
+  accent: MotionAccent;
+  /** Micro-textos de revista (barra de arriba, marcas, @). */
+  hud: boolean;
   scenes: MotionScene[];
   /** Solo plantilla countdown: el número grande y su unidad. */
   countdown: { value: number; unit: string };
-  /** Cierra con la firma animada de la marca. */
+  /** Cierra con la firma animada de la marca (o la tarjeta del @). */
   outro: boolean;
+  closing: MotionClosing;
   /** Línea bajo el logo en la firma («Entradas en la bio»). */
   outroLine: string;
   music: MotionMusic;
@@ -148,6 +222,9 @@ export interface MotionSpec {
   voice: MotionVoice | null;
   captions: boolean;
 }
+
+/** Fondo con que parte cada estilo. */
+export const MOTION_DEFAULT_BASE: Record<MotionStyle, MotionBase> = { liquid: 'azul', glitch: 'tinta', editorial: 'perla' };
 
 export const MOTION_MAX_SCENES = 10;
 export const MOTION_SCENE_SECS = { min: 1, max: 8 } as const;
@@ -238,6 +315,7 @@ export function normalizeMotionSpec(raw: unknown): MotionSpec {
   const cd = (r.countdown && typeof r.countdown === 'object' ? r.countdown : {}) as Record<string, unknown>;
   const eventId = Number(r.eventId);
   const voice = normalizeVoice(r.voice, scenes.length);
+  const base = pick(r.base, MOTION_BASES, MOTION_DEFAULT_BASE[style]);
   return {
     v: 1,
     title: str(r.title, 200) || 'Video sin nombre',
@@ -246,10 +324,13 @@ export function normalizeMotionSpec(raw: unknown): MotionSpec {
     template,
     style,
     format: pick(r.format, MOTION_FORMATS, 'reel'),
-    base: pick(r.base, MOTION_BASES, style === 'glitch' ? 'tinta' : style === 'editorial' ? 'rosa' : 'azul'),
+    base,
+    accent: pick(r.accent, MOTION_ACCENTS, MOTION_DEFAULT_ACCENT[base]),
+    hud: r.hud !== false,
     scenes,
     countdown: { value: Math.round(clampNum(cd.value, 0, 999, 7)), unit: str(cd.unit, 16) || 'DÍAS' },
     outro: template === 'sting' ? false : r.outro !== false,
+    closing: pick(r.closing, MOTION_CLOSINGS, 'firma'),
     outroLine: str(r.outroLine, 60),
     music: pick(r.music, MOTION_MUSIC, 'pulse'),
     sfx: r.sfx !== false,

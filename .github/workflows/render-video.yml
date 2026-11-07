@@ -45,7 +45,9 @@ jobs:
             scripts/render-studio-video.mjs
             client/public/studio/
             client/public/motion/
+            client/public/fonts/
             client/public/candyland/logo-isotipo-transparent.png
+            client/public/candyland/logo-wordmark-email.png
           sparse-checkout-cone-mode: false
 
       - uses: actions/setup-node@v4

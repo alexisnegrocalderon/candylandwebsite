@@ -21,11 +21,26 @@ export const springs = {
 } as const;
 
 export const fonts = {
+  /** Letra «candy bubble» de la marca (estilos liquid). */
   display: "'Gliker Semi Bold Expanded', 'Unbounded', sans-serif",
   body: "'Unbounded', sans-serif",
+  /** Grotesca editorial (la del sitio): titulares de revista y póster. */
+  grotesk: "'Space Grotesk', 'Inter', sans-serif",
+  /** Display editorial ancha (la de los títulos del sitio). */
+  syne: "'Syne', 'Space Grotesk', sans-serif",
   ui: "'Inter', sans-serif",
   script: "'Allura', cursive",
   numbers: "'Anton', 'Unbounded', sans-serif",
+} as const;
+
+/** Escala tipográfica (px a 1080 de ancho). Contraste grande = look editorial. */
+export const type = {
+  micro: 20,
+  s: 30,
+  m: 48,
+  l: 96,
+  xl: 168,
+  xxl: 300,
 } as const;
 
 /** Archivos de fuente (client/public/studio/fonts, los mismos del Estudio de siempre). */
@@ -35,6 +50,8 @@ export const FONT_FILES: Array<{ family: string; file: string; weight?: string }
   { family: 'Inter', file: 'studio/fonts/inter.woff2', weight: '100 900' },
   { family: 'Allura', file: 'studio/fonts/allura.woff2', weight: '400' },
   { family: 'Anton', file: 'studio/fonts/Anton-Regular.ttf', weight: '400' },
+  { family: 'Space Grotesk', file: 'fonts/space-grotesk-variable.woff2', weight: '300 700' },
+  { family: 'Syne', file: 'fonts/syne-variable.woff2', weight: '400 800' },
 ];
 
 /** Cuadros de cada movimiento, a 30 fps. Salidas más rápidas que entradas (regla 4). */
@@ -49,4 +66,10 @@ export const beats = {
 export function safeInsets(width: number, height: number) {
   const tall = height / width > 1.5;
   return { top: tall ? 270 : 90, bottom: tall ? 300 : 90, side: 84 };
+}
+
+/** Pseudoazar estable (mismo cuadro → mismo resultado, en vista previa y grabación). */
+export function rand(seed: number): number {
+  const x = Math.sin(seed * 127.1 + 311.7) * 43758.5453;
+  return x - Math.floor(x);
 }

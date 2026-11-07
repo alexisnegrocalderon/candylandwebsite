@@ -5,7 +5,7 @@ import { TONO_DE_VOZ } from './studioAi/brandPack';
 import { AI_PHRASES_PROMPT_LINE } from '../shared/aiPhrasesEs';
 import { EVENT_BRAND } from '../shared/eventBrand';
 import {
-  MOTION_BASES, MOTION_MAX_SCENES, MOTION_MUSIC, MOTION_STYLES, MOTION_TEMPLATES, normalizeMotionSpec,
+  MOTION_ACCENTS, MOTION_BASES, MOTION_MAX_SCENES, MOTION_MUSIC, MOTION_STYLES, MOTION_TEMPLATES, normalizeMotionSpec,
   type MotionFormat, type MotionMedia, type MotionSpec, type MotionStyle, type MotionTemplate,
 } from '../shared/motionSpec';
 import type { AiUsage } from '../shared/studioAi';
@@ -40,11 +40,12 @@ const VARIANT_SCHEMA = {
   type: 'object',
   properties: {
     style: { type: 'string', enum: [...MOTION_STYLES] },
-    base: { type: 'string', enum: [...MOTION_BASES], description: 'Color de fondo: azul (celeste #00A3FF), rosa (#EF8DFF) o tinta (#0010DF).' },
+    base: { type: 'string', enum: [...MOTION_BASES], description: 'Fondo: azul (celeste), rosa o tinta (de marca); perla o niebla (neutros editoriales); noche (PLAYMORE, fiesta).' },
+    accent: { type: 'string', enum: [...MOTION_ACCENTS], description: 'Color protagonista (distinto del fondo). Oro solo con noche.' },
     music: { type: 'string', enum: MOTION_MUSIC.filter((m) => m !== 'none') },
     scenes: { type: 'array', items: SCENE_SCHEMA, description: `De 2 a ${MOTION_MAX_SCENES - 4} escenas.` },
   },
-  required: ['style', 'base', 'music', 'scenes'],
+  required: ['style', 'base', 'accent', 'music', 'scenes'],
   additionalProperties: false,
 } as const;
 
@@ -82,7 +83,7 @@ export const MOTION_SYSTEM = [
   'BIBLIOTECA:',
   '- Plantillas: anuncio (texto cinético sobre fondo de marca; para anunciar evento, explicar, invitar), countdown (escena 1 = número grande con su unidad, `text` de la escena 1 es la frase bajo el número, ej. "para la noche"; `kicker` = "FALTAN"; usa los días reales hasta el evento), montaje (fotos/clips reales de fondo con texto abajo; asigna cada foto entregada con `mediaIndex`, una por escena, sin repetir), sting (solo la firma de marca, 1 escena con `sub` como frase).',
   '- Estilos (los 3 se entregan siempre): liquid = manchas líquidas y burbujas, letras infladas que rebotan; alegre, cercano; ritmo medio. glitch = señal rota, separación de color, cortes secos; energía de fiesta, urgencia; ritmo rápido (escenas más cortas, textos en mayúsculas se ven bien). editorial = revista premium, revelado con máscara, mucho aire; elegante, confianza, explicar; ritmo más pausado (puede llevar bajadas).',
-  '- Fondos: azul = celeste (por defecto en liquid), rosa (por defecto en editorial), tinta = azul profundo (por defecto en glitch). Puedes cambiarlos si el mensaje lo pide, pero varía entre variantes.',
+  '- Fondos: azul = celeste (por defecto en liquid), tinta = azul profundo (por defecto en glitch), perla = blanco roto editorial (por defecto en editorial), rosa, niebla = gris celeste editorial, noche = ciruela casi negra de PLAYMORE (solo para fiestas de noche). Acento: el color protagonista, distinto del fondo. Varía entre variantes.',
   '- Música: pulse (electrónica 120 BPM, versátil), drive (house 124 BPM, la más fiestera), dream (suave 96 BPM, para confianza y explicaciones).',
   '',
   'EJEMPLO (forma, no contenido): pedido "anunciar fiesta del sábado". liquid: [{kicker:"SE VIENE", text:"Una noche distinta", highlight:"distinta"}, {kicker:"SÁBADO 14", text:"Valparaíso", sub:"Dirección exacta al comprar"}, {text:"Entradas en la bio", highlight:"bio"}]. glitch: [{text:"¿TIENES PLANES?"}, {text:"SÁBADO 14", highlight:"14"}, {text:"NO TE QUEDES AFUERA", highlight:"AFUERA"}, {text:"Entradas en la bio"}]. editorial: [{kicker:"MANSION PLAYROOM", text:"No es solo una fiesta", highlight:"fiesta"}, {text:"Es una experiencia", sub:"Que tú defines, con respeto y libertad"}, {kicker:"SÁBADO 14", text:"Te esperamos", highlight:"esperamos"}].',
@@ -109,6 +110,7 @@ export interface MotionIdeaResult {
 interface RawVariant {
   style?: string;
   base?: string;
+  accent?: string;
   music?: string;
   scenes?: Array<Record<string, unknown>>;
 }
@@ -147,6 +149,7 @@ export function variantsFromAi(raw: RawOutput, input: Pick<MotionIdeaInput, 'for
       style,
       format: input.format,
       base: v.base,
+      accent: v.accent,
       music: v.music,
       scenes,
       countdown: { value: raw.countdownValue, unit: raw.countdownUnit },

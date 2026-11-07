@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  BRAND, MOTION_BASES, MOTION_FPS, MOTION_MUSIC_BPM, MOTION_OUTRO_SECS, MOTION_STYLES, MOTION_TEMPLATES, MOTION_VOICE_LEAD, MOTION_VOICE_TAIL,
+  BRAND, MOTION_ACCENTS, MOTION_BASES, MOTION_FPS, MOTION_MUSIC_BPM, MOTION_OUTRO_SECS, MOTION_STYLES, MOTION_TEMPLATES, MOTION_VOICE_LEAD, MOTION_VOICE_TAIL,
   captionWords, cleanMediaUrl, motionPalette, motionTimeline, normalizeMotionSpec, starterSpec, voiceSays,
 } from './motionSpec';
 
@@ -47,15 +47,32 @@ describe('normalizeMotionSpec', () => {
   it('cada estilo trae su fondo de marca por defecto', () => {
     expect(normalizeMotionSpec({ style: 'liquid' }).base).toBe('azul');
     expect(normalizeMotionSpec({ style: 'glitch' }).base).toBe('tinta');
-    expect(normalizeMotionSpec({ style: 'editorial' }).base).toBe('rosa');
+    expect(normalizeMotionSpec({ style: 'editorial' }).base).toBe('perla');
   });
 });
 
 describe('paleta', () => {
-  it('solo usa colores de marca', () => {
+  it('solo usa colores de la lista (marca + neutros + PLAYMORE), con cualquier acento', () => {
     const brand = new Set<string>(Object.values(BRAND));
     for (const base of MOTION_BASES) {
-      for (const color of Object.values(motionPalette(base))) expect(brand.has(color)).toBe(true);
+      for (const accent of MOTION_ACCENTS) {
+        for (const value of Object.values(motionPalette(base, accent))) {
+          if (typeof value !== 'string') continue;
+          // Un degradé (noche) solo puede llevar colores de la lista.
+          const hexes = value.match(/#[0-9A-Fa-f]{6}/g) ?? [];
+          expect(hexes.length).toBeGreaterThan(0);
+          for (const h of hexes) expect(brand.has(h)).toBe(true);
+        }
+      }
+    }
+  });
+
+  it('el acento nunca es igual al fondo', () => {
+    for (const base of MOTION_BASES) {
+      for (const accent of MOTION_ACCENTS) {
+        const p = motionPalette(base, accent);
+        expect(p.hero).not.toBe(p.bg);
+      }
     }
   });
 });
