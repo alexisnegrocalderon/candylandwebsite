@@ -46,7 +46,9 @@ function mmss(frame: number, fps: number) {
 export const Hud: React.FC = () => {
   const frame = useCurrentFrame();
   const { fps, durationInFrames } = useVideoConfig();
-  const { palette, width, height, timeline, slide } = useMotion();
+  const { palette, width, height, timeline, slide, spec } = useMotion();
+  // PLAYMORE (fondos noche y arcade) es en Santiago y +21; lo demás, Playroom de siempre.
+  const playmore = spec.base === 'noche' || spec.base === 'arcade' || spec.style === 'arcade';
   const pad = 56;
   const top = height > 1500 ? 120 : 52;
   const bottom = height > 1500 ? 150 : 52;
@@ -61,9 +63,9 @@ export const Hud: React.FC = () => {
     <AbsoluteFill style={{ pointerEvents: 'none', opacity: 0.62 * fadeOut }}>
       {/* Barra de arriba. */}
       <div style={{ position: 'absolute', top, left: pad, right: pad, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span style={{ ...microStyle, opacity: textIn(6), transform: `translateY(${(1 - textIn(6)) * 10}px)` }}>Mansion Playroom</span>
-        <span style={{ ...microStyle, opacity: textIn(10) }}>Valparaíso · CL</span>
-        <span style={{ ...microStyle, opacity: textIn(14), border: `2px solid ${palette.micro}`, borderRadius: 999, padding: '4px 12px', letterSpacing: '0.12em' }}>+18</span>
+        <span style={{ ...microStyle, opacity: textIn(6), transform: `translateY(${(1 - textIn(6)) * 10}px)` }}>{playmore ? 'PLAYMORE · Playroom × Dalmore' : 'Mansion Playroom'}</span>
+        <span style={{ ...microStyle, opacity: textIn(10) }}>{playmore ? 'Providencia · CL' : 'Valparaíso · CL'}</span>
+        <span style={{ ...microStyle, opacity: textIn(14), border: `2px solid ${palette.micro}`, borderRadius: 999, padding: '4px 12px', letterSpacing: '0.12em' }}>{playmore ? '+21' : '+18'}</span>
       </div>
       <div style={{ position: 'absolute', top: top + 44, left: pad, width: (width - pad * 2) * lineIn, height: 2, background: palette.micro, opacity: 0.6 }} />
 

@@ -54,6 +54,13 @@ export const LAYOUTS: Record<MotionStyle, LayoutOption[]> = {
     { key: 'izquierda', label: 'A la izquierda' },
     { key: 'derecha', label: 'A la derecha' },
   ],
+  arcade: [
+    { key: 'centro', label: 'Centrado' },
+    { key: 'alto', label: 'Arriba' },
+    { key: 'bajo', label: 'Abajo' },
+    { key: 'izquierda', label: 'A la izquierda' },
+    { key: 'derecha', label: 'A la derecha' },
+  ],
   glitch: [
     { key: 'centro', label: 'Centrado' },
     { key: 'bajo', label: 'Abajo' },

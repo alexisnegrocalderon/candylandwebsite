@@ -180,3 +180,26 @@ describe('pack (carrusel, post, historia)', () => {
   });
 });
 
+
+import { BRAND as BRAND_ARCADE, motionPalette as paletteArcade, starterSpec as starterArcade } from './motionSpec';
+describe('estilo arcade (PLAYMORE · Player 1 vs Player 2)', () => {
+  it('usa solo colores de la paleta permitida: magenta (P1), celeste (P2) y oro', () => {
+    const p = paletteArcade('arcade', 'magenta');
+    const allowed = new Set(Object.values(BRAND_ARCADE));
+    for (const c of [p.bg, p.bg2, p.display, p.shadow, p.body, p.muted, p.hero, p.accent, p.deep, p.micro, p.surface]) expect(allowed.has(c as any)).toBe(true);
+    expect(p.hero).toBe(BRAND_ARCADE.magenta);
+    expect(p.accent).toBe(BRAND_ARCADE.blue);
+    expect(p.dark).toBe(true);
+  });
+  it('el punto de partida trae el dress code por equipo, +21 y el link de PLAYMORE', () => {
+    const spec = starterArcade('anuncio', 'arcade');
+    expect(spec.style).toBe('arcade');
+    expect(spec.base).toBe('arcade');
+    const all = JSON.stringify(spec);
+    expect(all).toContain('Equipo magenta');
+    expect(all).toContain('Equipo celeste');
+    expect(all).toContain('+21');
+    expect(all).toContain('dalmore.mansionplayroom.cl');
+    expect(all).not.toMatch(/Valpara|\+18/);
+  });
+});

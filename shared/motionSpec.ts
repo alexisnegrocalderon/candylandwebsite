@@ -20,7 +20,7 @@ export const MOTION_TEMPLATE_LABEL: Record<MotionTemplate, string> = {
   sting: 'Intro / outro de marca',
 };
 
-export const MOTION_STYLES = ['liquid', 'glitch', 'editorial', 'kinetic', 'poster', 'softui'] as const;
+export const MOTION_STYLES = ['liquid', 'glitch', 'editorial', 'kinetic', 'poster', 'softui', 'arcade'] as const;
 export type MotionStyle = (typeof MOTION_STYLES)[number];
 export const MOTION_STYLE_LABEL: Record<MotionStyle, string> = {
   liquid: 'Liquid',
@@ -29,6 +29,7 @@ export const MOTION_STYLE_LABEL: Record<MotionStyle, string> = {
   kinetic: 'Kinetic (para temas)',
   poster: 'Póster 3D',
   softui: 'Soft UI (tarjetas)',
+  arcade: 'Arcade neón (PLAYMORE · Player 1 vs Player 2)',
 };
 
 export const MOTION_FORMATS = ['reel', 'feed', 'square'] as const;
@@ -47,7 +48,7 @@ export const MOTION_SIZES: Record<MotionFormat, { width: number; height: number 
 /** Fondo de la pieza. Los de marca (celeste, rosa, tinta) a todo el
  * sangrado; los neutros (perla, niebla) para el look editorial con un solo
  * acento de marca; y noche (la paleta de PLAYMORE) para fiestas. */
-export const MOTION_BASES = ['azul', 'rosa', 'tinta', 'perla', 'niebla', 'noche'] as const;
+export const MOTION_BASES = ['azul', 'rosa', 'tinta', 'perla', 'niebla', 'noche', 'arcade'] as const;
 export type MotionBase = (typeof MOTION_BASES)[number];
 export const MOTION_BASE_LABEL: Record<MotionBase, string> = {
   azul: 'Celeste de marca',
@@ -56,6 +57,7 @@ export const MOTION_BASE_LABEL: Record<MotionBase, string> = {
   perla: 'Perla (editorial)',
   niebla: 'Niebla (editorial)',
   noche: 'Noche (PLAYMORE)',
+  arcade: 'Arcade (PLAYMORE · negro neón)',
 };
 
 /** El color protagonista de la pieza (el «círculo rojo» de las referencias). */
@@ -69,7 +71,7 @@ export const MOTION_ACCENT_LABEL: Record<MotionAccent, string> = {
   oro: 'Oro (PLAYMORE)',
 };
 export const MOTION_DEFAULT_ACCENT: Record<MotionBase, MotionAccent> = {
-  azul: 'rosa', rosa: 'tinta', tinta: 'rosa', perla: 'magenta', niebla: 'celeste', noche: 'rosa',
+  azul: 'rosa', rosa: 'tinta', tinta: 'rosa', perla: 'magenta', niebla: 'celeste', noche: 'rosa', arcade: 'magenta',
 };
 
 /** Colores permitidos (server/studioAi/brandPack.ts + neutros editoriales +
@@ -129,7 +131,7 @@ export interface MotionPalette {
 export function motionPalette(base: MotionBase, accent: MotionAccent = MOTION_DEFAULT_ACCENT[base]): MotionPalette {
   let hero = ACCENT_HEX[accent];
   // Un acento igual al fondo no se ve: se usa el de por defecto.
-  const bgOf: Record<MotionBase, string> = { azul: BRAND.blue, rosa: BRAND.pink, tinta: BRAND.ink, perla: BRAND.pearl, niebla: BRAND.mist, noche: BRAND.plum };
+  const bgOf: Record<MotionBase, string> = { azul: BRAND.blue, rosa: BRAND.pink, tinta: BRAND.ink, perla: BRAND.pearl, niebla: BRAND.mist, noche: BRAND.plum, arcade: BRAND.black };
   if (hero === bgOf[base]) hero = ACCENT_HEX[MOTION_DEFAULT_ACCENT[base]];
   const solid = (p: Omit<MotionPalette, 'hero' | 'heroFill' | 'bg2'> & { bg2?: string; heroFill?: string }): MotionPalette => ({ ...p, bg2: p.bg2 ?? p.bg, hero, heroFill: p.heroFill ?? hero });
   switch (base) {
@@ -146,6 +148,12 @@ export function motionPalette(base: MotionBase, accent: MotionAccent = MOTION_DE
         bg: BRAND.plum, bg2: BRAND.night, display: BRAND.cream, shadow: BRAND.night, body: BRAND.cream, muted: BRAND.gold,
         accent: BRAND.gold, deep: BRAND.night, micro: BRAND.gold, surface: BRAND.cream, dark: true,
         heroFill: accent === 'oro' ? `linear-gradient(90deg, ${BRAND.gold}, ${BRAND.cream})` : `linear-gradient(90deg, ${BRAND.orchid}, ${BRAND.gold})`,
+      });
+    case 'arcade':
+      // PLAYMORE · Player 1 vs Player 2: negro con luz ciruela; magenta (P1) protagonista, celeste (P2) de acento y oro de puntaje.
+      return solid({
+        bg: BRAND.plum, bg2: BRAND.black, display: BRAND.white, shadow: BRAND.magenta, body: BRAND.white, muted: BRAND.blue,
+        accent: hero === BRAND.blue ? BRAND.magenta : BRAND.blue, deep: BRAND.black, micro: BRAND.gold, surface: BRAND.white, dark: true,
       });
     default:
       return solid({ bg: BRAND.blue, display: BRAND.white, shadow: BRAND.ink, body: BRAND.white, muted: BRAND.white, accent: BRAND.magenta, deep: BRAND.ink, micro: BRAND.white, surface: BRAND.white, dark: false });
@@ -253,7 +261,7 @@ export interface MotionSpec {
 }
 
 /** Fondo con que parte cada estilo. */
-export const MOTION_DEFAULT_BASE: Record<MotionStyle, MotionBase> = { liquid: 'azul', glitch: 'tinta', editorial: 'perla', kinetic: 'perla', poster: 'perla', softui: 'niebla' };
+export const MOTION_DEFAULT_BASE: Record<MotionStyle, MotionBase> = { liquid: 'azul', glitch: 'tinta', editorial: 'perla', kinetic: 'perla', poster: 'perla', softui: 'niebla', arcade: 'arcade' };
 
 export const MOTION_MAX_SCENES = 10;
 export const MOTION_SCENE_SECS = { min: 1, max: 8 } as const;
@@ -492,6 +500,15 @@ export function starterSpec(template: MotionTemplate, style: MotionStyle = 'liqu
                 { text: 'Una noche distinta', highlight: 'distinta', secs: 2.6 },
                 { text: 'Entradas en la bio', highlight: 'bio', secs: 2.6 },
               ]
+          : style === 'arcade'
+            ? [
+                // PLAYMORE · Player 1 vs Player 2: el concepto y el dress code (qué ponerse según tu equipo).
+                { kicker: 'PLAYMORE · INSERT COIN', text: 'P1 vs P2', highlight: 'vs', sub: 'Player 1 o Player 2: elige tu equipo y vístete para ganar', secs: 3 },
+                { kicker: 'PLAYER 1 · MUNDO PLAYROOM', text: 'Equipo magenta', highlight: 'magenta', sub: 'Base negra, vinilo, malla, lentes espejados y luces LED', secs: 3.2 },
+                { kicker: 'PLAYER 2 · MUNDO DALMORE', text: 'Equipo celeste', highlight: 'celeste', sub: 'Cromo, tech-wear, guantes, visor y delineado neón', secs: 3.2 },
+                { kicker: 'DADOS · RULETAS · MARCADOR', text: 'Gana tu equipo', highlight: 'equipo', sub: 'Rondas toda la noche. Todo opcional, siempre con respeto', secs: 3 },
+                { kicker: 'VIERNES 4 DIC · PROVIDENCIA · +21', text: 'Press start', highlight: 'start', sub: 'Entradas en dalmore.mansionplayroom.cl', secs: 2.8 },
+              ]
           : style === 'kinetic'
             ? [
                 { text: 'No es solo una fiesta', highlight: 'fiesta', secs: 2.4 },
@@ -504,6 +521,12 @@ export function starterSpec(template: MotionTemplate, style: MotionStyle = 'liqu
               { kicker: 'SÁBADO', text: 'Valparaíso', sub: 'Dirección exacta al comprar', secs: 2.4 },
               { text: 'Entradas en la bio', highlight: 'bio', secs: 2.4 },
             ];
+  if (style === 'arcade' && template === 'anuncio') {
+    return normalizeMotionSpec({
+      template, style, scenes, base: 'arcade', accent: 'magenta', music: 'drive', outroLine: 'dalmore.mansionplayroom.cl', title: 'PLAYMORE · Player 1 vs Player 2',
+      caption: 'PLAYMORE: Player 1 vs Player 2 🕹️\nElige tu equipo: magenta (Player 1 · mundo Playroom) o celeste (Player 2 · mundo Dalmore). Base negra + tu color neón y ven a ganar.\nDados, ruletas y un marcador gigante toda la noche.\n\nViernes 4 de diciembre · Providencia · +21\nEntradas en dalmore.mansionplayroom.cl\n\n#PLAYMORE #Player1vsPlayer2 #MansionPlayroom #Dalmore',
+    });
+  }
   return normalizeMotionSpec({ template, style, scenes, outroLine: 'mansionplayroom.cl', title: MOTION_TEMPLATE_LABEL[template] });
 }
 

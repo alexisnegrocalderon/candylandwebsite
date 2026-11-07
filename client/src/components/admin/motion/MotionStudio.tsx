@@ -45,6 +45,7 @@ const TEMPLATE_HINT: Record<MotionTemplate, string> = {
 
 /** Puntos de partida sin IA: cada plantilla con el estilo que mejor la luce. */
 const STARTERS: Array<{ key: string; template: MotionTemplate; style: MotionStyle; label: string; hint: string }> = [
+  { key: 'playmore', template: 'anuncio', style: 'arcade', label: 'PLAYMORE · Player 1 vs Player 2', hint: 'El concepto arcade neón y el dress code por equipo: reel, carrusel, post e historia.' },
   { key: 'tema', template: 'anuncio', style: 'kinetic', label: 'Tema (kinetic)', hint: 'Frases que se arman palabra a palabra para hablar de un tema y parar el scroll.' },
   { key: 'anuncio', template: 'anuncio', style: 'editorial', label: MOTION_TEMPLATE_LABEL.anuncio, hint: TEMPLATE_HINT.anuncio },
   { key: 'countdown', template: 'countdown', style: 'glitch', label: MOTION_TEMPLATE_LABEL.countdown, hint: TEMPLATE_HINT.countdown },

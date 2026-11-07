@@ -16,6 +16,7 @@ salidas más rápidas, 5 capas por escena, Ken Burns, grano, sonido en cada cort
   - **Intro / outro**: la firma animada (isotipo + wordmark + frase). Los demás videos la llevan al final (se puede apagar).
 - **Estilos** (`motion/kits.tsx`): **Liquid** (manchas líquidas, burbujas, letra «candy bubble» que rebota),
   **Glitch** (señal rota, separación de color, cortes secos) y **Editorial** (revista premium, revelado con máscara, aros finos).
+  **Arcade neón** (solo PLAYMORE, «Player 1 vs Player 2»): grilla neón que corre al horizonte, sol retro, marcador P1 (magenta, mundo Playroom) contra P2 (celeste, mundo Dalmore), palabras que entran en saltos de 8 bits y transición de píxeles; fondo «Arcade» (negro con luz ciruela). En «Puntos de partida» está «PLAYMORE · Player 1 vs Player 2» con el dress code por equipo.
 - **Fondos**: solo de marca — celeste `#00A3FF`, rosa `#EF8DFF` o azul tinta `#0010DF`
   (`motionPalette` en `shared/motionSpec.ts`; un test revisa que no entre ningún otro color).
 - **Música y efectos**: sintetizados en el repo, sin licencias ni descargas
