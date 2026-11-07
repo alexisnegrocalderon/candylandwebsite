@@ -6,7 +6,6 @@ import {
   Ticket, Upload, UserPlus, Users, Wallet, X, type LucideIcon,
 } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
-import { PlayGameAdmin } from './PlayGameAdmin';
 import { fromChileInputValue } from '@/pages/admin/sections/shared';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -848,7 +847,21 @@ export function CoproConfig() {
       </section>
 
       {setup.eventId && <PlaymoreTandas slug={slug} />}
-      {setup.eventId && <PlayGameAdmin />}
+
+      {/* Player 1 vs Player 2: pulseras al azar en la puerta y juegos en vivo con premio de un copete */}
+      <section className="admin-clay space-y-3 p-5">
+        <p className="font-semibold">Player 1 vs Player 2 · pulseras y juegos en vivo</p>
+        <p className="text-sm text-muted-foreground">
+          En la puerta el sistema sortea la pulsera de cada persona (magenta o azul; una pareja sale con una de cada una) y la ficha del anfitrión dice cuál entregar. En la app aparece como «Tu equipo» cuando ya entró.
+          Para los juegos, el anfitrión abre <strong>/ronda</strong> en su celular (o la proyecta): elige el juego, pide «2 azules y 2 magenta», marca a quienes van llegando, y al terminar toca al equipo ganador, que se lleva un copete.
+          Todo es opcional y siempre se puede pasar.
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <code className="min-w-0 flex-1 truncate rounded-xl bg-black/30 px-3 py-2 text-xs">{origin}/ronda</code>
+          <Button variant="outline" size="sm" onClick={() => copy(`${origin}/ronda`)}><Copy className="mr-1 h-4 w-4" /> Copiar</Button>
+          <Button variant="outline" size="sm" asChild><a href={`${origin}/ronda`} target="_blank" rel="noreferrer">Abrir</a></Button>
+        </div>
+      </section>
 
       {/* Vista previa */}
       <section className="admin-clay space-y-3 p-5">

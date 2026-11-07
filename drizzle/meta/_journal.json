@@ -1065,13 +1065,6 @@
       "when": 1794210000000,
       "tag": "0150_cross_checks",
       "breakpoints": true
-    },
-    {
-      "idx": 152,
-      "version": "5",
-      "when": 1794296400000,
-      "tag": "0151_play_game",
-      "breakpoints": true
     }
   ]
 }

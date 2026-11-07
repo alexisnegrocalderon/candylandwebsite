@@ -3,8 +3,7 @@ import { ArrowRight } from 'lucide-react';
 import { formatChileTime } from '@shared/chileDate';
 import { maskCode, useCountdown, type MeEvent, type MeTicket } from '@/components/site/walletParts';
 import type { CoproductionLanding } from '@shared/coproduction';
-import { PLAY_TEAM_META, describeTeams, leader, scoreShare } from '@shared/playTeams';
-import { trpc } from '@/lib/trpc';
+import { PLAY_TEAM_META, describeTeams } from '@shared/playTeams';
 
 /* La PlayCard de «Mi cuenta» con la cara de PLAYMORE: la entrada de la colab (negro, dorado y magenta, los dos logos)
  * y, para quien todavía no tiene entrada, la PlayCard de miembro con la invitación a comprar. Misma estética de la
@@ -31,27 +30,6 @@ const Field = ({ label, value, cls = '', wrap = false }: { label: string; value:
     <p className={`mt-0.5 text-[13px] font-bold tracking-[0.06em] text-[#f3e9d2] ${wrap ? 'line-clamp-2 leading-tight' : 'truncate'}`}>{value}</p>
   </div>
 );
-
-/** El marcador de Player 1 vs Player 2 en chiquito, dentro de la entrada (se actualiza solo). */
-function MiniScore() {
-  const { data } = trpc.playGame.score.useQuery(undefined, { refetchInterval: 10_000, retry: false });
-  if (!data || !data.ready) return null;
-  const share = scoreShare(data.score);
-  const lead = leader(data.score);
-  return (
-    <Link href="/marcador" className="mt-3 block">
-      <div className="flex items-center justify-between text-[10px] font-bold tracking-[0.16em]">
-        <span style={{ color: PLAY_TEAM_META.magenta.hex }}>MAGENTA {data.score.magenta}</span>
-        <span className="text-[#e9d9b0]/70">{lead === 'empate' ? 'EMPATE' : `VA GANANDO ${PLAY_TEAM_META[lead].label.toUpperCase()}`}</span>
-        <span style={{ color: PLAY_TEAM_META.azul.hex }}>{data.score.azul} AZUL</span>
-      </div>
-      <div className="mt-1 flex h-2 overflow-hidden rounded-full bg-white/10">
-        <div style={{ width: `${share.magenta}%`, background: PLAY_TEAM_META.magenta.hex, transition: 'width .6s' }} />
-        <div style={{ width: `${share.azul}%`, background: PLAY_TEAM_META.azul.hex, transition: 'width .6s' }} />
-      </div>
-    </Link>
-  );
-}
 
 /** La entrada de PLAYMORE: titular, acceso, fecha, hora y lugar, con la cuenta regresiva o «Ya entraste». */
 export function PlaymorePass({ ev, t, holder, landing, wallet }: {
@@ -101,7 +79,6 @@ export function PlaymorePass({ ev, t, holder, landing, wallet }: {
               </span>
             ))}
           </div>
-          <MiniScore />
         </div>
       ) : !used && (
         <p className="mt-3 text-[9px] font-semibold leading-snug tracking-[0.14em] text-[#e9d9b0]/65">TU PULSERA NEÓN (MAGENTA O AZUL) SE SORTEA EN LA PUERTA: PLAYER 1 VS PLAYER 2.</p>

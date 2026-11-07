@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cleanPoints, cleanStationCode, describeTeams, leader, otherTeam, peopleForAcceso, scoreShare } from './playTeams';
+import { describeTeams, otherTeam, peopleForAcceso } from './playTeams';
 import { firstTeamFor, teamsForTicket } from '../server/playTeams';
 
 const SECRET = 'clave-de-prueba';
@@ -62,28 +62,5 @@ describe('equipos de PLAYMORE', () => {
     expect(describeTeams(['magenta'])).toBe('Magenta');
     expect(describeTeams(['azul', 'magenta'])).toBe('Magenta + Azul');
     expect(describeTeams(['azul', 'magenta', 'azul'])).toBe('Magenta + 2 Azul');
-  });
-});
-
-describe('marcador', () => {
-  it('quién va ganando y el % de la barra', () => {
-    expect(leader({ magenta: 10, azul: 10 })).toBe('empate');
-    expect(leader({ magenta: 30, azul: 10 })).toBe('magenta');
-    expect(leader({ magenta: 5, azul: 25 })).toBe('azul');
-    expect(scoreShare({ magenta: 0, azul: 0 })).toEqual({ magenta: 50, azul: 50 });
-    expect(scoreShare({ magenta: 75, azul: 25 })).toEqual({ magenta: 75, azul: 25 });
-    expect(scoreShare({ magenta: 1, azul: 2 })).toEqual({ magenta: 33, azul: 67 });
-  });
-});
-
-describe('estaciones', () => {
-  it('limpia el código y los puntos', () => {
-    expect(cleanStationCode(' dados-1 ')).toBe('DADOS1');
-    expect(cleanStationCode('ab')).toBe('');
-    expect(cleanStationCode(null)).toBe('');
-    expect(cleanPoints(5000)).toBe(100);
-    expect(cleanPoints(0)).toBe(1);
-    expect(cleanPoints('abc')).toBe(10);
-    expect(cleanPoints(25)).toBe(25);
   });
 });
