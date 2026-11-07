@@ -1,35 +1,17 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { trpc } from '@/lib/trpc';
 import Home from './Home';
 
-/* Portada con Modo Halloween. NO es una copia de la Home: es la misma Home
+/* Portada con tema Halloween. NO es una copia de la Home: es la misma Home
  * oficial, re-teñida poniendo la clase `.halloween` en <html> (paleta en
  * client/src/index.css). Así Navbar, menús, footer y cada sección cambian
  * juntos, y la Home oficial no se edita en nada.
  *
- * - `/halloween`: siempre en modo Halloween (vista previa para el dueño).
- * - `/`: modo Halloween solo si el switch de Admin -> Ajustes está prendido
- *   (`siteSettings.halloweenModeEnabled`). Se recuerda el último valor en
- *   localStorage para no mostrar un parpadeo rosado antes de que llegue la
- *   configuración. */
-
-const STORAGE_KEY = 'mp_halloween_mode';
-
-function readCached(): boolean {
-  try { return localStorage.getItem(STORAGE_KEY) === '1'; } catch { return false; }
-}
+ * - `/halloween`: siempre en tema Halloween (vista previa; se usará de nuevo el próximo Halloween).
+ * - `/`: ya no hay interruptor en el panel, así que la portada oficial no lo usa. */
 
 export default function HalloweenHome({ force = false }: { force?: boolean }) {
-  const { data: settings } = trpc.settings.get.useQuery(undefined, { enabled: !force });
-  const [cached] = useState(readCached);
-  const enabled = force || (settings ? !!settings.halloweenModeEnabled : cached);
-
-  useEffect(() => {
-    if (!force && settings) {
-      try { localStorage.setItem(STORAGE_KEY, settings.halloweenModeEnabled ? '1' : '0'); } catch { /* storage bloqueado */ }
-    }
-  }, [force, settings]);
+  const enabled = force;
 
   useEffect(() => {
     if (!enabled) return;

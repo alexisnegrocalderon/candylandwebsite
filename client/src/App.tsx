@@ -38,8 +38,8 @@ import { DARK_CHROME_BG, isDarkRoute } from "@/lib/darkChrome";
 import { colabSlugForHost, isColabHost } from "@shared/colabHosts";
 import { lockZoom } from "@/lib/lockZoom";
 // La portada "/" pasa por HalloweenHome: renderiza la Home oficial tal cual,
-// y solo le agrega la paleta Halloween si el switch del admin está prendido
-// (o siempre en /halloween, la vista previa).
+// y solo le agrega la paleta Halloween en /halloween (la vista previa);
+// ya no hay interruptor en el panel.
 const HalloweenHome = lazy(() => import("./pages/HalloweenHome"));
 const AppHome = lazy(() => import("./pages/AppHome"));
 const AppEvents = lazy(() => import("./pages/AppEvents"));

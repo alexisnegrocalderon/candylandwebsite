@@ -20,7 +20,6 @@ import {
 import { MotionEditor } from './MotionEditor';
 import { MotionPreview } from './MotionPreview';
 import { PlanPanel } from './PlanPanel';
-import { AiUsageCard } from './AiUsageCard';
 import { randomSeed } from '@shared/motionVariety';
 import { takeStudioEvent } from './handoff';
 
@@ -218,7 +217,6 @@ export function MotionStudio() {
           <VideoList onOpen={(id, spec) => setView({ kind: 'edit', id, spec })} onNew={() => setView({ kind: 'edit', id: null, spec: { ...starterSpec('anuncio'), eventId, eventDate, seed: randomSeed() } })} />
         </TabsContent>
       </Tabs>
-      <AiUsageCard />
       {generate.isPending && (
         <div className="fixed inset-x-0 bottom-6 z-50 mx-auto w-fit rounded-full bg-black/85 px-5 py-2.5 text-sm text-white shadow-xl">
           <Loader2 className="mr-2 inline h-4 w-4 animate-spin" /> Claude está dirigiendo las 3 variantes…

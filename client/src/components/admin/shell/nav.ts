@@ -124,10 +124,10 @@ export const SECTION_KEYWORDS: Record<string, string> = {
   'gastos-hoy': 'gastos hoy cargados lista boletas',
   settings: 'ajustes configuracion alertas push seguridad',
   'copro-resumen': 'dalmore playmore coproduccion socio hipodromo',
-  'copro-asistentes': 'dalmore asistentes lista',
-  'copro-cortesias': 'dalmore cortesias invitaciones',
+  'copro-asistentes': 'dalmore asistentes lista acompañantes agregar clientes',
+  'copro-descuentos': 'dalmore descuento codigo cupon promo',
   'copro-gastos': 'dalmore gastos aprobar boletas',
-  'copro-reparto': 'dalmore reparto utilidad 50/50',
+  'copro-reparto': 'dalmore cierre reparto utilidad 50/50 finanzas ventas ingresos',
   'copro-config': 'dalmore configuracion landing clave activar lanzar',
 };
 

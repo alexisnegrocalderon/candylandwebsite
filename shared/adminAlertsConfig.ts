@@ -4,6 +4,8 @@
  *
  * Arrancan TODAS apagadas a propósito: desplegar este código no debe
  * empezar a notificar solo (mismo criterio que foundersPromoEnabled). */
+import { normalizeShortcuts, type AdminShortcut } from './adminShortcuts';
+
 export interface AdminAlertsConfig {
   /** Push inmediato: venta web aprobada. */
   pushNewOrder: boolean;
@@ -53,6 +55,8 @@ export interface AdminAlertsConfig {
   /** Gasto del mes que el panel no vio (antes de registrar) y el mes (YYYY-MM) al que aplica. */
   aiSpentOffsetUsd: number;
   aiSpentOffsetMonth: string;
+  /** Atajos para iPhone/iPad que armó el dueño (Ajustes → Atajos). `null` = la lista de siempre. */
+  shortcuts: AdminShortcut[] | null;
 }
 
 export const DEFAULT_ADMIN_ALERTS_CONFIG: AdminAlertsConfig = {
@@ -77,6 +81,7 @@ export const DEFAULT_ADMIN_ALERTS_CONFIG: AdminAlertsConfig = {
   aiAlertSent: '',
   aiSpentOffsetUsd: 0,
   aiSpentOffsetMonth: '',
+  shortcuts: null,
 };
 
 /** Meta de margen válida: entre 1 y 90 %; si no, la de siempre (30 %). */
@@ -115,6 +120,7 @@ export function normalizeAdminAlertsConfig(raw: unknown): AdminAlertsConfig {
     aiSpentOffsetUsd: nonNegativeNumber(partial.aiSpentOffsetUsd, 0),
     aiSpentOffsetMonth: typeof partial.aiSpentOffsetMonth === 'string' ? partial.aiSpentOffsetMonth.slice(0, 10) : '',
     aiAlertSent: typeof partial.aiAlertSent === 'string' ? partial.aiAlertSent.slice(-200) : '',
+    shortcuts: normalizeShortcuts(partial.shortcuts),
   };
 }
 

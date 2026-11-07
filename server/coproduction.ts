@@ -7,10 +7,10 @@
 import { randomBytes, randomInt } from 'crypto';
 import { and, desc, eq, gt, inArray, like, ne } from 'drizzle-orm';
 import {
-  coproductions, coproductionInvites, coproductionExpenses, coproductionContacts, adminAuditLog, rateLimits, events, expenses, orders, orderItems, tickets, ticketTypes,
+  customers, discountCodes, coproductions, coproductionInvites, coproductionExpenses, coproductionContacts, adminAuditLog, rateLimits, events, expenses, orders, orderItems, tickets, ticketTypes,
   type Coproduction,
 } from '../drizzle/schema';
-import { getDb, getEventPnl, getOrderStats, getSalesByDay, getTicketTypesByEventId, createExpense, createManualOrder } from './db';
+import { getDb, getEventPnl, getOrderStats, getSalesByDay, getTicketTypesByEventId, createExpense, createManualOrder, parseAttendees, parseBuyerRut, parseAttendeeInstagram, upsertAttendeeContactsFromOrder, createDiscountCode } from './db';
 import { hashPin, verifyPin } from './caja/auth';
 import { normalizeLanding, applyEventToLanding, splitProfit, generatePartnerPassword, COLAB_MIN_AGE, type ColabBrand, type CoproductionLanding } from '../shared/coproduction';
 import { parseColabContacts } from '../shared/colabContacts';
@@ -323,8 +323,8 @@ export async function getCoproductionOverview(cp: Coproduction) {
   } as const;
 }
 
-/** Asistentes del evento: compras aprobadas y cortesías, con contacto (lo
- * decidió el dueño). Nunca mira otros eventos ni el historial del cliente. */
+/** Asistentes del evento: compras aprobadas y cortesías, con todos los datos de la entrada (titular,
+ * RUT, Instagram, cada ticket) y de los acompañantes. Nunca mira otros eventos ni el historial del cliente. */
 export async function getCoproductionAttendees(cp: Coproduction) {
   const event = await requireEvent(cp);
   if (!event) return [];
@@ -332,20 +332,29 @@ export async function getCoproductionAttendees(cp: Coproduction) {
   const rows = await db.select({
     id: orders.id, orderNumber: orders.orderNumber, buyerName: orders.buyerName, buyerEmail: orders.buyerEmail,
     buyerPhone: orders.buyerPhone, total: orders.total, paymentStatus: orders.paymentStatus, channel: orders.channel,
-    createdAt: orders.createdAt,
+    createdAt: orders.createdAt, attendeeData: orders.attendeeData,
   }).from(orders).where(and(eq(orders.eventId, event.id), inArray(orders.paymentStatus, ['approved', 'refunded'])))
     .orderBy(desc(orders.createdAt));
   if (rows.length === 0) return [];
   const ids = rows.map((r) => r.id);
 
-  const ticketRows = await db.select({ orderId: tickets.orderId, status: tickets.status, groupSize: tickets.groupSize, accesoSlug: ticketTypes.accesoSlug, typeName: ticketTypes.name })
+  const ticketRows = await db.select({ orderId: tickets.orderId, status: tickets.status, groupSize: tickets.groupSize, holderName: tickets.holderName, displayCode: tickets.displayCode, accesoSlug: ticketTypes.accesoSlug, typeName: ticketTypes.name })
     .from(tickets).innerJoin(ticketTypes, eq(ticketTypes.id, tickets.ticketTypeId)).where(inArray(tickets.orderId, ids));
   const invites = await safe(() => db.select().from(coproductionInvites).where(inArray(coproductionInvites.orderId, ids)), []);
   const inviteBy = new Map(invites.map((i) => [i.orderId, i.createdBy]));
+  // Quiénes de los compradores ya están en la base de clientes de Playroom.
+  const emails = Array.from(new Set(rows.map((r) => (r.buyerEmail ?? '').trim().toLowerCase()).filter(Boolean)));
+  const known = emails.length
+    ? new Set((await safe(() => db.select({ email: customers.email }).from(customers).where(inArray(customers.email, emails)), [])).map((c) => c.email))
+    : new Set<string>();
 
-  return rows.map((r) => {
+  return rows.map(({ attendeeData, ...r }) => {
     const ts = ticketRows.filter((t) => t.orderId === r.id && t.status !== 'cancelled');
     const accesos = Array.from(new Set(ts.map((t) => t.typeName)));
+    const buyerRut = parseBuyerRut(attendeeData);
+    const buyerFolded = (r.buyerName ?? '').trim().toLowerCase();
+    // El titular viene en la misma lista del checkout: se separa de los acompañantes.
+    const companions = parseAttendees(attendeeData).filter((a) => (buyerRut && a.rut ? a.rut.replace(/[^0-9kK]/g, '').toLowerCase() !== buyerRut.replace(/[^0-9kK]/g, '').toLowerCase() : a.name.trim().toLowerCase() !== buyerFolded));
     return {
       ...r,
       total: Number(r.total),
@@ -353,8 +362,45 @@ export async function getCoproductionAttendees(cp: Coproduction) {
       personas: ts.reduce((s, t) => s + personasForTicket(t.groupSize, t.accesoSlug), 0),
       checkedIn: ts.length > 0 && ts.every((t) => t.status === 'used'),
       invitedBy: inviteBy.get(r.id) ?? null,
+      buyerRut,
+      buyerInstagram: parseAttendeeInstagram(attendeeData),
+      companions: companions.map((a) => ({ name: a.name, rut: a.rut, docType: a.docType })),
+      tickets: ts.map((t) => ({ type: t.typeName, code: t.displayCode, holderName: t.holderName, status: t.status, people: personasForTicket(t.groupSize, t.accesoSlug) })),
+      inClients: known.has((r.buyerEmail ?? '').trim().toLowerCase()),
     };
   });
+}
+
+/** Pasa a la base de clientes de Playroom a los compradores y acompañantes de estas órdenes (o de todas las del evento).
+ * El comprador queda como cliente (si ya existía solo se le suma la etiqueta); cada acompañante queda con su ficha
+ * «Acompañante», sin correo, para que nunca le llegue un mailing. Se puede repetir sin duplicar. */
+export async function addAttendeesToClients(cp: Coproduction, orderIds?: number[]) {
+  const event = await requireEvent(cp);
+  if (!event) throw new Error('Todavía no hay evento enlazado a la co-producción.');
+  const db = (await getDb())!;
+  const where = [eq(orders.eventId, event.id), eq(orders.paymentStatus, 'approved')];
+  if (orderIds?.length) where.push(inArray(orders.id, orderIds));
+  const rows = await db.select().from(orders).where(and(...where));
+  const tag = `Playroom × ${cp.partnerName}`;
+  let buyersAdded = 0; let buyersTagged = 0; let companions = 0;
+  for (const o of rows) {
+    const email = (o.buyerEmail ?? '').trim().toLowerCase();
+    if (/^\S+@\S+\.\S+$/.test(email) && !/^(caja|invitacion)@/.test(email)) {
+      const [existing] = await db.select().from(customers).where(eq(customers.email, email)).limit(1);
+      if (existing) {
+        const tags: string[] = Array.isArray(existing.tags) ? (existing.tags as string[]) : [];
+        if (!tags.includes(tag)) { await db.update(customers).set({ tags: [...tags, tag] }).where(eq(customers.id, existing.id)); buyersTagged++; }
+      } else {
+        await db.insert(customers).values({
+          email, fullName: o.buyerName, phone: o.buyerPhone, rut: parseBuyerRut(o.attendeeData), instagram: parseAttendeeInstagram(o.attendeeData),
+          accessTypes: [], tags: [tag], totalOrders: 0, totalSpent: '0', source: 'coproduccion',
+        });
+        buyersAdded++;
+      }
+    }
+    companions += await upsertAttendeeContactsFromOrder(o);
+  }
+  return { orders: rows.length, buyersAdded, buyersTagged, companions };
 }
 
 /** Cortesía: un acceso manual sin costo (cuenta para el aforo y le llega la
@@ -758,4 +804,45 @@ export async function applyPlaymoreTandas(
   await db.update(events).set({ tandaDiscountSchedule: buildPlaymorePhases(rows, until) as any, tandaPhaseIndex: 0 }).where(eq(events.id, cp.eventId));
   const { exactPercents } = await import('../shared/playmoreTandas');
   return { updated, missing, percents: rows.map((r) => ({ slug: r.slug, ...(({ t1, t2 }) => ({ t1, t2 }))(exactPercents(r)) })) };
+}
+
+
+// ── Códigos de descuento del evento ─────────────────────────────────────────
+// Siempre atados al evento de la co-producción: el socio nunca elige otro evento.
+
+export async function listCoproductionDiscounts(cp: Coproduction) {
+  const db = await getDb();
+  if (!db || !cp.eventId) return [];
+  const rows = await db.select().from(discountCodes).where(eq(discountCodes.eventId, cp.eventId)).orderBy(desc(discountCodes.createdAt));
+  return rows
+    .filter((r) => !r.giftTicketTypeId && !r.applicableTicketTypeIds)
+    .map((r) => ({
+      id: r.id, code: r.code, description: r.description, discountType: r.discountType, discountValue: Number(r.discountValue),
+      maxUses: r.maxUses, usedCount: r.usedCount, validUntil: r.validUntil, isActive: r.isActive === 1, createdAt: r.createdAt,
+    }));
+}
+
+export function normalizeDiscountCode(raw: string): string {
+  return raw.trim().toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Z0-9_-]/g, '');
+}
+
+export async function createCoproductionDiscount(cp: Coproduction, input: {
+  code: string; description?: string; discountType: 'percentage' | 'fixed'; discountValue: number; maxUses?: number; validUntil?: string;
+}) {
+  if (!cp.eventId) throw new Error('Todavía no hay evento enlazado a la co-producción.');
+  const code = normalizeDiscountCode(input.code);
+  if (code.length < 3) throw new Error('El código necesita al menos 3 letras o números.');
+  if (!Number.isFinite(input.discountValue) || input.discountValue <= 0) throw new Error('Ingresa el valor del descuento.');
+  if (input.discountType === 'percentage' && input.discountValue > 100) throw new Error('Un porcentaje no puede pasar de 100.');
+  await createDiscountCode({
+    code, description: input.description?.trim().slice(0, 255) || `Código ${cp.partnerName}`, discountType: input.discountType,
+    discountValue: Math.round(input.discountValue), maxUses: input.maxUses || undefined, eventId: cp.eventId, validUntil: input.validUntil || undefined,
+  });
+  return { code };
+}
+
+export async function setCoproductionDiscountActive(cp: Coproduction, id: number, active: boolean) {
+  const db = await getDb();
+  if (!db || !cp.eventId) throw new Error('Database not available');
+  await db.update(discountCodes).set({ isActive: active ? 1 : 0 }).where(and(eq(discountCodes.id, id), eq(discountCodes.eventId, cp.eventId)));
 }

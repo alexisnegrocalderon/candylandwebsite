@@ -42,7 +42,9 @@ export const ADMIN_SECTION_INDEX = [
   { id: 'finanzas', label: 'Finanzas', what: 'resultado de la empresa y movimientos' },
   { id: 'sii', label: 'SII', what: 'impuestos y boletas' },
   { id: 'cargar-gasto', label: 'Cargar gasto', what: 'registrar un gasto o boleta' },
-  { id: 'settings', label: 'Ajustes', what: 'configuración, alertas y atajos del iPhone' },
+  { id: 'settings', label: 'Ajustes', what: 'configuración: general, cobros y costos, IA (tope de gasto), atajos del iPhone, seguridad y avisos' },
+  { id: 'ajustes-ia', label: 'Ajustes · IA', what: 'tope mensual y saldo de IA; subirlo cuando el asistente dice que se alcanzó el tope' },
+  { id: 'ajustes-atajos', label: 'Ajustes · Atajos', what: 'atajos del iPhone y iPad: agregar, quitar y ordenar' },
 ] as const;
 
 export type AdminSectionId = (typeof ADMIN_SECTION_INDEX)[number]['id'];
