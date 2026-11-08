@@ -99,10 +99,18 @@ export function buildSalesDripContent(event: DripEvent, offer: Tanda2Offer, now:
 
   const daysText = days <= 0 ? 'Hoy' : days === 1 ? 'Mañana' : `Faltan ${days} días`;
 
+  // ¿Hoy termina la tanda vigente (precio preventa)? Entonces el aviso lo dice y avisa el precio de las 00:00.
+  const current = normalizeTandaSchedule(event.tandaDiscountSchedule)[event.tandaPhaseIndex];
+  const lastDay = !!(next && current?.untilDate && startOfChileDay(new Date(current.untilDate)).getTime() === startOfChileDay(now).getTime());
+
   let subject: string;
   let headline: string;
   let intro: string;
-  if (days <= 0) {
+  if (lastDay) {
+    subject = `Hoy es el último día del precio preventa de ${event.title}`;
+    headline = `Hoy es el último día del precio especial 🕹️`;
+    intro = `Hoy termina el precio preventa de ${event.title} (${when}${where}). Desde mañana a las 00:00 sube el precio. Si quieres tu entrada al valor de hoy, este es el momento.`;
+  } else if (days <= 0) {
     subject = `Hoy es ${event.title}: todavía hay entradas desde ${from}`;
     headline = `Hoy es la fiesta 🎉`;
     intro = `Hoy es ${event.title} y todavía puedes sumarte. Compra tu entrada online en un minuto y llega directo con tu QR.`;
@@ -125,7 +133,9 @@ export function buildSalesDripContent(event: DripEvent, offer: Tanda2Offer, now:
   }
 
   const paragraphs = [intro];
-  if (next) {
+  if (next && lastDay) {
+    paragraphs.push(`Hoy es el último día de este precio. A las 00:00 sube a ${formatClp(next.price)} (desde) para todos los accesos.`);
+  } else if (next) {
     paragraphs.push(
       `Este precio rige hasta el ${formatChileDate(new Date(next.untilDate), { withWeekday: true })}; después sube a ${formatClp(next.price)} (desde).`,
     );
@@ -142,8 +152,8 @@ export function buildSalesDripContent(event: DripEvent, offer: Tanda2Offer, now:
     headline: headline.slice(0, 80),
     paragraphs: paragraphs.map((p) => p.slice(0, 500)),
     ctaText: 'Comprar mi entrada',
-    highlightLabel: days <= 0 ? 'La fiesta es' : 'Faltan',
-    highlightValue: days <= 0 ? 'hoy' : days === 1 ? '1 día' : `${days} días`,
+    highlightLabel: lastDay ? 'Último día' : days <= 0 ? 'La fiesta es' : 'Faltan',
+    highlightValue: lastDay ? 'precio preventa' : days <= 0 ? 'hoy' : days === 1 ? '1 día' : `${days} días`,
   };
 }
 
