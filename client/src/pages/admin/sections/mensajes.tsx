@@ -218,6 +218,18 @@ export function SalesDripCard() {
           <WriteButton onClick={() => runNow.mutate()} disabled={runNow.isPending}>
             {runNow.isPending ? 'Mandando…' : 'Mandar la tanda de hoy ahora'}
           </WriteButton>
+          {status && status.dueToday > 0 && (
+            <WriteButton
+              onClick={() => {
+                const total = (status.sentToday ?? 0) + status.dueToday;
+                if (confirm(`¿Mandar hoy a todos los que faltan? Son ${status.dueToday} correos más (llegarían ${total} hoy, sin el tope normal de ${status.dailyTarget}).`)) runNow.mutate({ cap: total });
+              }}
+              disabled={runNow.isPending}
+              className="bg-white/70 dark:bg-black/30 text-foreground border border-border/50 hover:bg-white"
+            >
+              Enviar a todos los que faltan hoy ({status.dueToday})
+            </WriteButton>
+          )}
         </div>
 
         {showPreview && preview?.html && (

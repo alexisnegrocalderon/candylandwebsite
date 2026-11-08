@@ -175,7 +175,7 @@ export async function selectDueCustomers(eventId: number, intervalDays: number, 
 }
 
 /** La corrida diaria (`/api/cron/sales-drip`). Nunca se apaga sola. */
-export async function runSalesDripDaily(now: Date = new Date()): Promise<SalesDripRunResult> {
+export async function runSalesDripDaily(now: Date = new Date(), opts: { cap?: number } = {}): Promise<SalesDripRunResult> {
   const settings = await getSalesDripSettings();
   if (!settings.enabled) return { ran: false, reason: 'disabled' };
   // Un día con campaña programada (ej. el último día de preventa) el aviso diario se pausa: la campaña ya le escribe
@@ -193,7 +193,9 @@ export async function runSalesDripDaily(now: Date = new Date()): Promise<SalesDr
   const offer = await resolveCurrentOffer(fresh.id);
   if (!offer) return { ran: false, reason: 'no-price' };
 
-  const budget = dailyDripCap(fresh.tandaPhaseIndex) - (await countTandaPromoEmailsSentToday(now));
+  // `opts.cap`: tope de HOY pedido a mano por el admin (para llegar a toda la lista el último día); no cambia el tope normal.
+  const cap = opts.cap ?? dailyDripCap(fresh.tandaPhaseIndex);
+  const budget = cap - (await countTandaPromoEmailsSentToday(now));
   if (budget <= 0) return { ran: false, reason: 'daily-cap-reached' };
 
   const { due } = await selectDueCustomers(fresh.id, settings.intervalDays, now);

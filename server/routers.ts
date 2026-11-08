@@ -8260,8 +8260,8 @@ export const appRouter = router({
         status,
       };
     }),
-    salesDripRunNow: adminProcedure.mutation(async () => {
-      return runSalesDripDaily();
+    salesDripRunNow: adminProcedure.input(z.object({ cap: z.number().int().min(1).max(5000).optional() }).optional()).mutation(async ({ input }) => {
+      return runSalesDripDaily(new Date(), { cap: input?.cap });
     }),
   }),
 
