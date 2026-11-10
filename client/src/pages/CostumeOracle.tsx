@@ -8,7 +8,7 @@ import { useSeo } from '@/hooks/useSeo';
 import CrystalBall from '@/components/CrystalBall';
 import { breadcrumbSchema } from '@shared/structuredData';
 import { CANDYLAND, EVENTO } from '@/config/candyland';
-import { EVENT_BRAND } from '@shared/eventBrand';
+import { EVENT_BRAND, eventBrandActive } from '@shared/eventBrand';
 import {
   ORACLE_EXTRA_MAX, ORACLE_LABELS,
   type CostumeCard, type OracleAnswers, type OracleCompany, type OracleItem,
@@ -157,7 +157,7 @@ export default function CostumeOracle() {
               className="text-center pt-10"
             >
               <CrystalBall />
-              <p className="text-xs uppercase tracking-[0.35em] text-primary mt-8 mb-3">{EVENT_BRAND.fechaTexto} · Disfraz obligatorio</p>
+              {eventBrandActive() && <p className="text-xs uppercase tracking-[0.35em] text-primary mt-8 mb-3">{EVENT_BRAND.fechaTexto} · Disfraz obligatorio</p>}
               <h1 className="font-heading font-extrabold text-4xl md:text-6xl leading-[1.05] tracking-tight mb-5">
                 El <span className="text-gradient-candy">Oráculo</span> de Disfraces
               </h1>

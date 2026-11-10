@@ -10,7 +10,6 @@ import { getPublicContest } from "./contests";
 import { normalizeLanding, applyEventToLanding } from "../shared/coproduction";
 import { COLAB_HOSTS, colabSlugForHost } from "../shared/colabHosts";
 import { PARTNER_DEFAULT_HEADLINE } from "../shared/partnerCampaign";
-import { EVENT_BRAND } from "../shared/eventBrand";
 
 /* Inyección de metaetiquetas del lado del servidor (pedido explícito del
  * dueño, 02-03/09) -- el fix real para que WhatsApp/Facebook/Twitter
@@ -165,7 +164,7 @@ export function registerSsrMetaRoutes(app: Express) {
       const campaign = await getPartnerCampaignBySlug("electronica").catch(() => null);
       const headline = campaign?.headline || PARTNER_DEFAULT_HEADLINE;
       const title = `${campaign?.emoji ?? "🎧"} ${headline.split("·")[0].trim()} · Mansion Playroom`;
-      const description = `${headline}. ${EVENT_BRAND.fechaTexto}, ${EVENT_BRAND.horarioTexto}. Acceso especial para la comunidad electrónica.`;
+      const description = `${headline}. Acceso especial para la comunidad electrónica.`;
       const image = await resolveDefaultOgImage();
       const url = `${SITE_URL}/electronica`;
       sendHtml(res, injectMeta(template, {

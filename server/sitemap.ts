@@ -2,6 +2,7 @@ import type { Express, Request, Response } from "express";
 import * as db from "./db";
 import { getGuides, getPosts } from "../client/src/content";
 import { articlePath } from "../client/src/content/types";
+import { eventBrandActive } from "../shared/eventBrand";
 
 /* sitemap.xml generado en cada request (con caché corto en memoria), no un
  * archivo estático -- ver el commit que reemplaza esto. El archivo estático
@@ -37,7 +38,7 @@ const STATIC_ENTRIES: SitemapEntry[] = [
   { path: "/blog", changefreq: "weekly", priority: "0.7" },
   { path: "/blog/que-son-las-fiestas-liberales", changefreq: "monthly", priority: "0.7" },
   { path: "/blog/tarjeta-playcard", changefreq: "monthly", priority: "0.7" },
-  { path: "/blog/dress-code-explicado", changefreq: "monthly", priority: "0.6" },
+  ...(eventBrandActive() ? [{ path: "/blog/dress-code-explicado", changefreq: "monthly", priority: "0.6" }] : []),
   { path: "/politica-de-reembolso", changefreq: "yearly", priority: "0.3" },
   { path: "/politica-de-privacidad", changefreq: "yearly", priority: "0.3" },
 ];

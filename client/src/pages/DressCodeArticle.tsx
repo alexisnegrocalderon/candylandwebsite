@@ -1,10 +1,11 @@
 import { motion } from 'framer-motion';
-import { Link } from 'wouter';
+import { Link, useLocation } from 'wouter';
+import { useEffect } from 'react';
 import { Instagram } from 'lucide-react';
 import { useSeo } from '@/hooks/useSeo';
 import { articleSchema, breadcrumbSchema } from '@shared/structuredData';
 import { CANDYLAND } from '@/config/candyland';
-import { EVENT_BRAND } from '@shared/eventBrand';
+import { EVENT_BRAND, eventBrandActive } from '@shared/eventBrand';
 import { Quiz, type Pregunta, type Resultado } from '@/components/Quiz';
 
 /* Página especial standalone (no un Article más del blog), mismo criterio
@@ -93,6 +94,12 @@ function resultadoPara(puntaje: number): Resultado {
 
 export default function DressCodeArticle() {
   const path = '/blog/dress-code-explicado';
+  const [, navigate] = useLocation();
+  // Artículo de la fiesta de disfraces: cuando esa fiesta ya pasó, no se muestra.
+  const vigente = eventBrandActive();
+  useEffect(() => {
+    if (!vigente) navigate('/blog', { replace: true });
+  }, [vigente, navigate]);
 
   useSeo({
     title: 'Disfraz Obligatorio — 2º Aniversario Mansion Playroom',

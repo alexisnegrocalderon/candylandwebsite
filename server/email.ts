@@ -2042,7 +2042,7 @@ function oracleCard() {
   return `
     <div style="background:${H.card};border:1px solid ${H.violet};border-radius:24px;padding:28px 20px;margin:28px 0 8px;text-align:center;box-shadow:0 0 40px rgba(186,140,255,0.18);">
       <p style="font-size:44px;margin:0 0 6px;">🔮</p>
-      <p style="color:${H.violet};font-size:11px;font-weight:800;letter-spacing:2.5px;text-transform:uppercase;margin:0 0 8px;">Disfraz obligatorio · ${EVENT_BRAND.fechaTexto}</p>
+      <p style="color:${H.violet};font-size:11px;font-weight:800;letter-spacing:2.5px;text-transform:uppercase;margin:0 0 8px;">${eventBrandActive() ? `Disfraz obligatorio · ${EVENT_BRAND.fechaTexto}` : 'Código de vestimenta'}</p>
       <h3 style="color:${H.lime};font-size:22px;font-weight:800;margin:0 0 10px;">¿No sabes de qué disfrazarte?</h3>
       <p style="color:${H.muted};font-size:14px;line-height:1.6;margin:0 0 18px;">Contéstale 5 preguntas al <strong style="color:${H.ink};">Oráculo de Disfraces</strong> y te revela 3 ideas hechas a tu medida: una con lo que ya tienes, una con accesorios y una full producción.</p>
       ${examples}

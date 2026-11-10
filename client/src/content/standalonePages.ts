@@ -14,7 +14,9 @@ export type StandalonePage = {
   path: string;
 };
 
-export const STANDALONE_PAGES: StandalonePage[] = [
+import { eventBrandActive } from '../../../shared/eventBrand';
+
+const ALL_STANDALONE_PAGES: StandalonePage[] = [
   {
     title: '¿Qué son las fiestas liberales?',
     description: 'Mitos, realidad y un quiz de 2 minutos para saber si es para ti.',
@@ -46,3 +48,6 @@ export const STANDALONE_PAGES: StandalonePage[] = [
     path: '/beneficios-cumpleaneros',
   },
 ];
+
+/** La guía de disfraces solo existe mientras la fiesta de disfraces vale (regla de shared/eventBrand). */
+export const STANDALONE_PAGES: StandalonePage[] = ALL_STANDALONE_PAGES.filter((p) => p.path !== '/blog/dress-code-explicado' || eventBrandActive());

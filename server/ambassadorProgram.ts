@@ -920,7 +920,7 @@ CONTENIDO:
 - Tono chileno cercano, tuteo, con energía de fiesta. Nada corporativo.
 - El evento es +18, pero lo que se publica debe cumplir las normas de Instagram y TikTok: sugerente está bien, explícito NO.
 - No inventes datos: nada de precios, direcciones, artistas ni horarios que no estén en el contexto.
-- El evento tiene Disfraz obligatorio; puedes mencionarlo si el contexto lo trae.
+- Solo menciona disfraces o dress code si el contexto del evento lo trae; nunca de fiestas anteriores.
 
 IMÁGENES: si te pasan una lista de archivos de Drive (id y nombre), devuelve en "imageIds" hasta 4 ids EXACTOS de la lista que mejor calcen con la semana (elige por el nombre del archivo). Nunca inventes ids. Si no hay lista, devuelve [].
 

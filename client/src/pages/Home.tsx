@@ -1672,12 +1672,14 @@ function HalloweenTeaserSection() {
 
       <div className="container max-w-4xl relative text-center">
         <CrystalBall />
-        <span
-          className="inline-block px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide mt-10 mb-4"
-          style={{ background: 'rgba(186,140,255,0.15)', color: '#BA8CFF', border: '1px solid rgba(186,140,255,0.4)' }}
-        >
-          🎃 Disfraz obligatorio · {EVENT_BRAND.fechaTexto}
-        </span>
+        {eventBrandActive() && (
+          <span
+            className="inline-block px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide mt-10 mb-4"
+            style={{ background: 'rgba(186,140,255,0.15)', color: '#BA8CFF', border: '1px solid rgba(186,140,255,0.4)' }}
+          >
+            🎃 Disfraz obligatorio · {EVENT_BRAND.fechaTexto}
+          </span>
+        )}
         <h2 className="font-heading font-extrabold text-3xl md:text-5xl tracking-tight mb-4 leading-[1.1] text-white">
           ¿No sabes de qué disfrazarte? <span style={{ color: '#C4FF4D' }}>Pregúntale al Oráculo</span>
         </h2>
