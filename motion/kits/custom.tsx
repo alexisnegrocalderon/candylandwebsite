@@ -35,18 +35,34 @@ const Background: React.FC = () => {
       </AbsoluteFill>
     );
   }
-  // rejilla en perspectiva que avanza
-  const shift = (frame * 6 * spec.custom.speed) % 160;
+  // Rejilla en perspectiva que avanza hacia la cámara (SVG: no depende de transformaciones 3D del navegador).
+  const horizon = height * 0.56;
+  const shift = ((frame * 0.012 * spec.custom.speed) % 1 + 1) % 1;
+  const rows = 16;
+  const cols = 14;
+  const hLines = Array.from({ length: rows }, (_, k) => {
+    const u = (k + shift) / rows;
+    const y = horizon + (height - horizon) * u * u;
+    return <line key={`h${k}`} x1={0} x2={width} y1={y} y2={y} stroke={palette.hero} strokeWidth={3} opacity={Math.min(1, 0.25 + u)} />;
+  });
+  const vLines = Array.from({ length: cols + 1 }, (_, i) => {
+    const x = (width / (cols)) * i;
+    return <line key={`v${i}`} x1={width / 2} y1={horizon} x2={x} y2={height} stroke={palette.micro} strokeWidth={2} opacity={0.5} />;
+  });
   return (
     <AbsoluteFill style={{ background: palette.bg, overflow: 'hidden' }}>
-      <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: '46%', perspective: 420, overflow: 'hidden' }}>
-        <div style={{
-          position: 'absolute', inset: '-60% -40% 0 -40%',
-          backgroundImage: `linear-gradient(${palette.hero} 4px, transparent 4px), linear-gradient(90deg, ${palette.micro} 4px, transparent 4px)`,
-          backgroundSize: '140px 160px', backgroundPosition: `0 ${shift}px`,
-          transform: 'rotateX(64deg)', transformOrigin: '50% 0%',
-        }} />
-      </div>
+      <svg width={width} height={height} style={{ position: 'absolute', inset: 0 }}>
+        <defs>
+          <linearGradient id="horizonGlow" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor={palette.hero} stopOpacity={0} />
+            <stop offset="1" stopColor={palette.hero} stopOpacity={0.35} />
+          </linearGradient>
+        </defs>
+        <rect x={0} y={horizon - 180} width={width} height={180} fill="url(#horizonGlow)" />
+        {vLines}
+        {hLines}
+        <line x1={0} x2={width} y1={horizon} y2={horizon} stroke={palette.hero} strokeWidth={6} />
+      </svg>
     </AbsoluteFill>
   );
 };

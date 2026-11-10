@@ -82,6 +82,7 @@ export function MotionEditor({ id: initialId, initial, onBack }: { id: number | 
   });
   const { data: renderCfg } = trpc.motionStudio.renderConfig.useQuery();
   const { data: voiceCfg } = trpc.motionStudio.voiceConfig.useQuery();
+  const { data: canCustom } = trpc.motionStudio.canUseCustomStyle.useQuery();
   const { data: eventsData } = trpc.events.listAll.useQuery();
   const events = (eventsData ?? []).filter((e: any) => new Date(e.eventDate).getTime() > Date.now() - 86_400_000);
 
@@ -219,7 +220,7 @@ export function MotionEditor({ id: initialId, initial, onBack }: { id: number | 
           <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
             <CardContent className="grid gap-3 pt-6 sm:grid-cols-2">
               <Field label="Plantilla"><Pick value={spec.template} options={MOTION_TEMPLATES} labels={MOTION_TEMPLATE_LABEL} onChange={(template) => setSpec({ template })} /></Field>
-              <Field label="Estilo"><Pick value={spec.style} options={MOTION_STYLES} labels={MOTION_STYLE_LABEL} onChange={(style) => setSpec({ style })} /></Field>
+              <Field label="Estilo"><Pick value={spec.style} options={MOTION_STYLES.filter((st) => st !== 'custom' || !!canCustom)} labels={MOTION_STYLE_LABEL} onChange={(style) => setSpec({ style })} /></Field>
               {spec.style === 'custom' && (
                 <div className="space-y-3 rounded-xl border border-border/60 p-3">
                   <p className="text-xs font-semibold text-muted-foreground">Estilo personalizado</p>

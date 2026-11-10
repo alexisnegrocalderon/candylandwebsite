@@ -254,6 +254,7 @@ import { previewCustomerMerge, mergeCustomers } from "./customerMerge";
 import { getMemberHistory } from "./memberHistory";
 import { hasSalesLink } from "../shared/staffSales";
 import { deleteAmbassadorItem, ensureAmbassadorDrafts, getUpcomingContentEvents, listAmbassadorItems, notifyAmbassadorsNewContent, saveAmbassadorItem, sendStudioToAmbassadors, setAmbassadorItemStatus } from "./ambassadorContent";
+import { ENV } from "./_core/env";
 import { approveMotionVideo, deleteMotionVideo, getMotionVideo, listMotionVideos, loadPlan, publishMotionVideo, saveMotionVideo, savePlan, unapproveMotionVideo } from "./motionStudio";
 import { motionVariantsFromIdea } from "./motionAi";
 import { renderMissingConfig, requestVideoRender } from "./studioRender";
@@ -3968,10 +3969,15 @@ export const appRouter = router({
       return video;
     }),
     // La forma fina la valida y recorta normalizeMotionSpec (shared/motionSpec.ts).
+    // Solo la cuenta dueña (OWNER_OPEN_ID) ve y guarda el estilo «Personalizado».
+    canUseCustomStyle: adminProcedure.query(({ ctx }) => ctx.user.openId === ENV.ownerOpenId),
     save: adminProcedure.input(z.object({
       id: z.number().int().positive().optional(),
       spec: z.record(z.string(), z.unknown()),
-    })).mutation(async ({ input }) => {
+    })).mutation(async ({ input, ctx }) => {
+      if (input.spec.style === 'custom' && ctx.user.openId !== ENV.ownerOpenId) {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'El estilo personalizado es solo para la cuenta dueña.' });
+      }
       try {
         return { id: await saveMotionVideo(input.id, input.spec) };
       } catch (err) {
