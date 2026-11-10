@@ -257,6 +257,7 @@ import { deleteAmbassadorItem, ensureAmbassadorDrafts, getUpcomingContentEvents,
 import { ENV } from "./_core/env";
 import { approveMotionVideo, deleteMotionVideo, getMotionVideo, listMotionVideos, loadPlan, publishMotionVideo, saveMotionVideo, savePlan, unapproveMotionVideo } from "./motionStudio";
 import { motionVariantsFromIdea } from "./motionAi";
+import { AI_MODELS } from "../shared/studioAi";
 import { renderMissingConfig, requestVideoRender } from "./studioRender";
 import { generateVoice, voiceMissingConfig } from "./studioVoice";
 import { TTS_VOICE_KEYS, VOICE_MAX_BEATS, VOICE_MAX_SAY } from "../shared/studioVoice";
@@ -4009,6 +4010,7 @@ export const appRouter = router({
     generate: adminProcedure.input(z.object({
       brief: z.string().trim().min(3, 'Escribe qué quieres contar').max(2000),
       keyword: z.string().max(40).nullable().optional(),
+      model: z.enum(AI_MODELS).nullable().optional(),
       format: z.enum(MOTION_FORMATS).default('reel'),
       template: z.enum(MOTION_TEMPLATES).nullable().optional(),
       eventId: z.number().int().positive().nullable().optional(),

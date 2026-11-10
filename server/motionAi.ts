@@ -9,7 +9,7 @@ import {
   MOTION_ACCENTS, MOTION_BASES, MOTION_CARDS, MOTION_MAX_SCENES, MOTION_MUSIC, MOTION_STYLES, MOTION_TEMPLATES, normalizeKeyword, normalizeMotionSpec,
   type MotionFormat, type MotionMedia, type MotionSpec, type MotionStyle, type MotionTemplate,
 } from '../shared/motionSpec';
-import type { AiUsage } from '../shared/studioAi';
+import type { AiModel, AiUsage } from '../shared/studioAi';
 
 /* Dirección de arte con IA del Estudio Motion: UNA llamada a Sonnet devuelve
  * las 3 variantes (liquid, glitch y editorial) de un mismo video, con guion,
@@ -105,6 +105,8 @@ export const MOTION_SYSTEM = [
 
 export interface MotionIdeaInput {
   brief: string;
+  /** Modelo de Claude para esta llamada (Haiku, Sonnet u Opus). Por defecto Sonnet. */
+  model?: AiModel | null;
   /** Palabra clave de la automatización de comentarios. Por defecto INFO. */
   keyword?: string | null;
   format: MotionFormat;
@@ -202,13 +204,13 @@ export async function motionVariantsFromIdea(input: MotionIdeaInput): Promise<Mo
   const { facts, eventId, eventDate } = await eventFacts(input.eventId);
   const ask = [
     `PEDIDO DEL DUEÑO: ${input.brief.trim().slice(0, 2000)}`,
-    `Formato: ${input.format === 'reel' ? 'vertical 9:16 (reel/historia)' : input.format === 'feed' ? 'feed 4:5' : 'cuadrado 1:1'}.`,
+    `Formato: ${input.format === 'reel' ? 'vertical 9:16 (reel/historia)' : input.format === 'feed' ? 'feed 4:5' : input.format === 'retrato' ? 'feed 3:4 (vertical)' : 'cuadrado 1:1'}.`,
     input.template ? `Plantilla obligatoria: ${input.template}.` : 'Elige la plantilla que mejor sirva.',
     `Palabra clave de comentarios: ${normalizeKeyword(input.keyword)}. Cuando invites a comentar, usa exactamente "Comenta ${normalizeKeyword(input.keyword)}" en el texto del cierre y en el caption; nunca otra palabra.`,
     media.length ? `Fotos/clips entregados (índice: tipo): ${media.map((m, i) => `${i}: ${m.kind === 'video' ? 'clip' : 'foto'}`).join(', ')}.` : 'No hay fotos: mediaIndex = -1 en todas las escenas.',
   ].join('\n');
   const result = await quickJson<RawOutput>({
-    model: MOTION_AI_MODEL,
+    model: input.model ?? MOTION_AI_MODEL,
     system: MOTION_SYSTEM,
     facts,
     content: ask,
