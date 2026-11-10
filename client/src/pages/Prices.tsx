@@ -7,6 +7,7 @@ import { isMissionActiveForEvent, missionDepositPrice } from '@shared/mission300
 import { dropSupersededTickets } from '@shared/liveTickets';
 import { useSeo } from '@/hooks/useSeo';
 import { breadcrumbSchema } from '@shared/structuredData';
+import { eventBrandActive } from '@shared/eventBrand';
 
 /** Página "Entradas": lista todos los accesos con su precio general y, si la
  * ventana de Misión 300 sigue abierta, el precio de abono al lado tachando
@@ -144,9 +145,11 @@ export default function Prices() {
                 <Link href="/blog/primera-vez-que-esperar" className="text-primary text-sm font-semibold hover:underline">
                   Qué esperar en tu primera vez →
                 </Link>
-                <Link href="/blog/dress-code-explicado" className="text-primary text-sm font-semibold hover:underline">
-                  Disfraz obligatorio: ¿qué me pongo? →
-                </Link>
+                {eventBrandActive() && (
+                  <Link href="/blog/dress-code-explicado" className="text-primary text-sm font-semibold hover:underline">
+                    Disfraz obligatorio: ¿qué me pongo? →
+                  </Link>
+                )}
                 <Link href="/blog/como-llegar-y-estacionar" className="text-primary text-sm font-semibold hover:underline">
                   Cómo llegar y dónde estacionar →
                 </Link>
