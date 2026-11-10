@@ -18,6 +18,7 @@ import {
   type MotionScene, type MotionSpec,
 } from '@shared/motionSpec';
 import { applyKeyword } from '@shared/motionSpec';
+import { AI_MODELS, AI_MODEL_LABEL, motionCallEstimateUsd, type AiModel } from '@shared/studioAi';
 import { MOTION_CUSTOM_BG, MOTION_CUSTOM_BG_LABEL, MOTION_CUSTOM_ENTRY, MOTION_CUSTOM_ENTRY_LABEL, MOTION_CUSTOM_FONTS, MOTION_CUSTOM_FONT_LABEL, normalizeCustom } from '@shared/motionSpec';
 import { specHash } from '@shared/studioRender';
 import { LAYOUT_AUTO, LAYOUTS, randomSeed, resolveLayouts } from '@shared/motionVariety';
@@ -83,6 +84,20 @@ export function MotionEditor({ id: initialId, initial, onBack }: { id: number | 
   const { data: renderCfg } = trpc.motionStudio.renderConfig.useQuery();
   const { data: voiceCfg } = trpc.motionStudio.voiceConfig.useQuery();
   const { data: canCustom } = trpc.motionStudio.canUseCustomStyle.useQuery();
+  // Guion con IA para este video: reemplaza las escenas (sin guardar hasta pulsar Guardar).
+  const [guionTema, setGuionTema] = useState('');
+  const [guionDensidad, setGuionDensidad] = useState<'pocas' | 'medias' | 'muchas'>('medias');
+  const [guionModelo, setGuionModelo] = useState<AiModel>('claude-sonnet-5-5');
+  const [guionEscenas, setGuionEscenas] = useState<number | null>(null);
+  const guion = trpc.motionStudio.generate.useMutation({
+    onSuccess: (r) => {
+      const v = r.variants[0] as MotionSpec | undefined;
+      if (!v) return;
+      setSpec({ scenes: v.scenes, caption: v.caption });
+      toast.success(`Guion listo (≈ US$ ${r.costUsd.toFixed(3).replace('.', ',')}). Revísalo y guarda.`);
+    },
+    onError: (e) => toast.error(e.message),
+  });
   const { data: eventsData } = trpc.events.listAll.useQuery();
   const events = (eventsData ?? []).filter((e: any) => new Date(e.eventDate).getTime() > Date.now() - 86_400_000);
 
@@ -220,6 +235,21 @@ export function MotionEditor({ id: initialId, initial, onBack }: { id: number | 
           <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
             <CardContent className="grid gap-3 pt-6 sm:grid-cols-2">
               <Field label="Plantilla"><Pick value={spec.template} options={MOTION_TEMPLATES} labels={MOTION_TEMPLATE_LABEL} onChange={(template) => setSpec({ template })} /></Field>
+              <div className="space-y-3 rounded-xl border border-border/60 p-3">
+                <p className="text-xs font-semibold text-muted-foreground">Escribir guion con IA</p>
+                <Textarea rows={2} maxLength={2000} value={guionTema} onChange={(e) => setGuionTema(e.target.value)} placeholder="Ej: explicar cómo funciona el Playmatch y qué llevar a la fiesta." />
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <Field label="Texto por escena"><Pick value={guionDensidad} options={['pocas', 'medias', 'muchas'] as const} labels={{ pocas: 'Pocas palabras', medias: 'Medias', muchas: 'Muchas palabras' }} onChange={setGuionDensidad} /></Field>
+                  <Field label="Escenas"><Pick value={guionEscenas == null ? 'auto' : String(guionEscenas)} options={['auto', '3', '4', '5', '6', '7'] as const} labels={{ auto: 'Automático', '3': '3', '4': '4', '5': '5', '6': '6', '7': '7' }} onChange={(v) => setGuionEscenas(v === 'auto' ? null : Number(v))} /></Field>
+                  <Field label="Modelo"><Pick value={guionModelo} options={AI_MODELS} labels={Object.fromEntries(AI_MODELS.map((m) => [m, `${AI_MODEL_LABEL[m]} · ≈ US$ ${motionCallEstimateUsd(m).toFixed(3).replace('.', ',')}`])) as Record<AiModel, string>} onChange={setGuionModelo} /></Field>
+                </div>
+                <div className="flex flex-wrap items-center gap-3">
+                  <WriteButton size="sm" disabled={guion.isPending || guionTema.trim().length < 3} onClick={() => guion.mutate({ brief: guionTema, format: spec.format, keyword: spec.keyword, model: guionModelo, density: guionDensidad, escenas: guionEscenas, style: spec.style, template: null, eventId: spec.eventId, media: [] })}>
+                    {guion.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null} Escribir guion
+                  </WriteButton>
+                  <span className="text-xs text-muted-foreground">Reemplaza las escenas actuales (las fotos asignadas se quitan).</span>
+                </div>
+              </div>
               <Field label="Estilo"><Pick value={spec.style} options={MOTION_STYLES.filter((st) => st !== 'custom' || !!canCustom)} labels={MOTION_STYLE_LABEL} onChange={(style) => setSpec({ style })} /></Field>
               {spec.style === 'custom' && (
                 <div className="space-y-3 rounded-xl border border-border/60 p-3">

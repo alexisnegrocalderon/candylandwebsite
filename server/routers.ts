@@ -261,7 +261,7 @@ import { AI_MODELS } from "../shared/studioAi";
 import { renderMissingConfig, requestVideoRender } from "./studioRender";
 import { generateVoice, voiceMissingConfig } from "./studioVoice";
 import { TTS_VOICE_KEYS, VOICE_MAX_BEATS, VOICE_MAX_SAY } from "../shared/studioVoice";
-import { MOTION_FORMATS, MOTION_TEMPLATES } from "../shared/motionSpec";
+import { MOTION_FORMATS, MOTION_STYLES, MOTION_TEMPLATES } from "../shared/motionSpec";
 import { recordAiUsage, listAiUsageSince } from "./db";
 import { summarizeAiUsage } from "../shared/aiUsage";
 import { loadAiBudget, saveAiBudget } from "./aiBudget";
@@ -4011,6 +4011,9 @@ export const appRouter = router({
       brief: z.string().trim().min(3, 'Escribe qué quieres contar').max(2000),
       keyword: z.string().max(40).nullable().optional(),
       model: z.enum(AI_MODELS).nullable().optional(),
+      density: z.enum(['pocas', 'medias', 'muchas']).nullable().optional(),
+      escenas: z.number().int().min(2).max(9).nullable().optional(),
+      style: z.enum(MOTION_STYLES).nullable().optional(),
       format: z.enum(MOTION_FORMATS).default('reel'),
       template: z.enum(MOTION_TEMPLATES).nullable().optional(),
       eventId: z.number().int().positive().nullable().optional(),

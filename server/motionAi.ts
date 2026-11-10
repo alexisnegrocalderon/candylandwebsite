@@ -105,6 +105,12 @@ export const MOTION_SYSTEM = [
 
 export interface MotionIdeaInput {
   brief: string;
+  /** Cuánto texto va en cada escena: pocas (≤ 4 palabras), medias (≤ 8) o muchas (≤ 14). */
+  density?: 'pocas' | 'medias' | 'muchas' | null;
+  /** Número exacto de escenas (2 a 9). */
+  escenas?: number | null;
+  /** Si viene, se escribe el guion para ese estilo (sin variantes). */
+  style?: MotionStyle | null;
   /** Modelo de Claude para esta llamada (Haiku, Sonnet u Opus). Por defecto Sonnet. */
   model?: AiModel | null;
   /** Palabra clave de la automatización de comentarios. Por defecto INFO. */
@@ -204,6 +210,9 @@ export async function motionVariantsFromIdea(input: MotionIdeaInput): Promise<Mo
   const { facts, eventId, eventDate } = await eventFacts(input.eventId);
   const ask = [
     `PEDIDO DEL DUEÑO: ${input.brief.trim().slice(0, 2000)}`,
+    input.density ? `Densidad de texto por escena: ${input.density === 'pocas' ? 'pocas palabras (máximo 4 en text)' : input.density === 'medias' ? 'medias (máximo 8 palabras, con bajada corta)' : 'muchas (hasta 14 palabras, con bajada)'}.` : '',
+    input.escenas ? `Usa exactamente ${Math.min(9, Math.max(2, input.escenas))} escenas.` : '',
+    input.style ? `Estilo obligatorio: ${input.style}. Todas las escenas y la variante son de ese estilo.` : '',
     `Formato: ${input.format === 'reel' ? 'vertical 9:16 (reel/historia)' : input.format === 'feed' ? 'feed 4:5' : input.format === 'retrato' ? 'feed 3:4 (vertical)' : 'cuadrado 1:1'}.`,
     input.template ? `Plantilla obligatoria: ${input.template}.` : 'Elige la plantilla que mejor sirva.',
     `Palabra clave de comentarios: ${normalizeKeyword(input.keyword)}. Cuando invites a comentar, usa exactamente "Comenta ${normalizeKeyword(input.keyword)}" en el texto del cierre y en el caption; nunca otra palabra.`,
@@ -220,5 +229,10 @@ export async function motionVariantsFromIdea(input: MotionIdeaInput): Promise<Mo
     refusal: 'La IA no quiso escribir ese video. Cambia el pedido.',
     tooLong: 'La respuesta salió demasiado larga. Pide un video más corto.',
   });
-  return { variants: variantsFromAi(result.data, { ...input, eventId, eventDate, media }), usage: result.usage, costUsd: result.costUsd, model: result.model };
+  let variants = variantsFromAi(result.data, { ...input, eventId, eventDate, media });
+  if (input.style) {
+    const one = variants.find((v) => v.style === input.style) ?? { ...variants[0], style: input.style };
+    variants = [one];
+  }
+  return { variants, usage: result.usage, costUsd: result.costUsd, model: result.model };
 }
