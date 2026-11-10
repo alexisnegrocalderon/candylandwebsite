@@ -25,11 +25,13 @@ const Background: React.FC = () => {
     const depth = rand(k + 90);
     const span = height + 480;
     const y = (((height * rand(k + 30) - frame * (0.4 + depth * 1.1)) % span) + span) % span - 240;
-    return { x: width * rand(k), y, r: 50 + rand(k + 60) * 160, blur: 4 + (1 - depth) * 22, o: 0.1 + depth * 0.16 };
+    return { x: width * rand(k), y, r: 50 + rand(k + 60) * 160, blur: 4 + (1 - depth) * 22, o: 0.05 + depth * 0.08 };
   });
   return (
     <AbsoluteFill style={{ overflow: 'hidden', background: `linear-gradient(180deg, ${palette.bg}, ${palette.bg2})` }}>
-      <div style={{ position: 'absolute', inset: 0, background: `radial-gradient(ellipse 70% 52% at ${cx}px ${cy}px, ${palette.hero}66 0%, transparent 72%)` }} />
+      <div style={{ position: 'absolute', inset: 0, background: `radial-gradient(ellipse 70% 52% at ${cx}px ${cy}px, ${palette.hero}77 0%, transparent 70%)` }} />
+      <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse 85% 75% at 50% 45%, transparent 48%, rgba(0,8,40,0.6) 100%)' }} />
+      <div style={{ position: 'absolute', left: 0, right: 0, top: height * 0.5 + Math.sin(frame / 60) * 40, height: 6, background: 'linear-gradient(90deg, transparent 0%, rgba(190,235,255,0.85) 50%, transparent 100%)', opacity: 0.35 + 0.25 * Math.sin(frame / 22), filter: 'blur(1px)' }} />
       {bokeh.map((b, k) => (
         <div key={k} style={{ position: 'absolute', left: b.x - b.r, top: b.y - b.r, width: b.r * 2, height: b.r * 2, borderRadius: '50%', background: `radial-gradient(circle, ${palette.display} 0%, ${palette.display}00 70%)`, opacity: b.o, filter: `blur(${b.blur}px)` }} />
       ))}
@@ -54,7 +56,7 @@ const Word: React.FC<WordProps> = ({ word, i, delay, hero, size }) => {
         display: 'inline-block',
         opacity: interpolate(p, [0, 0.5], [0, 1], clamp),
         transform: `translateY(${interpolate(p, [0, 1], [size * 0.2, 0])}px) scale(${interpolate(p, [0, 1], [0.92, 1])})`,
-        filter: `blur(${interpolate(p, [0, 0.8], [10, 0], clamp)}px) drop-shadow(0 ${Math.round(size * 0.05)}px ${Math.round(size * 0.12)}px rgba(0,12,70,0.35))`,
+        filter: `blur(${interpolate(p, [0, 0.8], [10, 0], clamp)}px) drop-shadow(-1px -2px 0 rgba(255,255,255,0.7)) drop-shadow(0 ${Math.round(size * 0.06)}px ${Math.round(size * 0.1)}px rgba(0,8,50,0.55))`,
         color: base,
         backgroundImage: `${light}, ${volume}, linear-gradient(${base}, ${base})`,
         WebkitBackgroundClip: 'text',
