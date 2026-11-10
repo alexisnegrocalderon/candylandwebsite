@@ -18,6 +18,7 @@ import {
   type MotionScene, type MotionSpec,
 } from '@shared/motionSpec';
 import { applyKeyword } from '@shared/motionSpec';
+import { MOTION_CUSTOM_BG, MOTION_CUSTOM_BG_LABEL, MOTION_CUSTOM_ENTRY, MOTION_CUSTOM_ENTRY_LABEL, MOTION_CUSTOM_FONTS, MOTION_CUSTOM_FONT_LABEL, normalizeCustom } from '@shared/motionSpec';
 import { specHash } from '@shared/studioRender';
 import { LAYOUT_AUTO, LAYOUTS, randomSeed, resolveLayouts } from '@shared/motionVariety';
 import { chileIsoDate } from '@shared/contentPlan';
@@ -219,6 +220,16 @@ export function MotionEditor({ id: initialId, initial, onBack }: { id: number | 
             <CardContent className="grid gap-3 pt-6 sm:grid-cols-2">
               <Field label="Plantilla"><Pick value={spec.template} options={MOTION_TEMPLATES} labels={MOTION_TEMPLATE_LABEL} onChange={(template) => setSpec({ template })} /></Field>
               <Field label="Estilo"><Pick value={spec.style} options={MOTION_STYLES} labels={MOTION_STYLE_LABEL} onChange={(style) => setSpec({ style })} /></Field>
+              {spec.style === 'custom' && (
+                <div className="space-y-3 rounded-xl border border-border/60 p-3">
+                  <p className="text-xs font-semibold text-muted-foreground">Estilo personalizado</p>
+                  <Field label="Fuente"><Pick value={spec.custom.font} options={MOTION_CUSTOM_FONTS} labels={MOTION_CUSTOM_FONT_LABEL} onChange={(font) => setSpec({ custom: { ...spec.custom, font } })} /></Field>
+                  <Field label="Fondo"><Pick value={spec.custom.bg} options={MOTION_CUSTOM_BG} labels={MOTION_CUSTOM_BG_LABEL} onChange={(bg) => setSpec({ custom: { ...spec.custom, bg } })} /></Field>
+                  <Field label="Entrada del texto"><Pick value={spec.custom.entry} options={MOTION_CUSTOM_ENTRY} labels={MOTION_CUSTOM_ENTRY_LABEL} onChange={(entry) => setSpec({ custom: { ...spec.custom, entry } })} /></Field>
+                  <Field label="Velocidad (0,6 a 1,6)"><Input type="number" step={0.1} min={0.6} max={1.6} value={spec.custom.speed} onChange={(e) => setSpec({ custom: normalizeCustom({ ...spec.custom, speed: Number(e.target.value) }) })} /></Field>
+                  <Field label="Solo mayúsculas"><Switch checked={spec.custom.uppercase} onCheckedChange={(uppercase) => setSpec({ custom: { ...spec.custom, uppercase } })} /></Field>
+                </div>
+              )}
               <Field label="Composición" hint="Cada escena usa una composición distinta del estilo; «Variar» prueba otras (gratis, sin IA).">
                 <Button type="button" variant="outline" className="w-full justify-start" onClick={() => setSpec({ seed: randomSeed() })}>
                   <Dices className="mr-2 h-4 w-4" /> Variar composiciones
