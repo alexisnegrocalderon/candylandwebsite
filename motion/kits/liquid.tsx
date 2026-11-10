@@ -1,4 +1,4 @@
-import { AbsoluteFill, interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion';
+import { AbsoluteFill, Img, interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion';
 import { BRAND } from '../../shared/motionSpec';
 import { sceneJitter } from '../../shared/motionVariety';
 import { useMotion } from '../context';
@@ -96,10 +96,32 @@ const Cut: React.FC = () => {
   );
 };
 
+/* Foto enmarcada como burbuja de marca: marco blanco brillante, luz de la misma banda y sombra suave. */
+const Framed: React.FC<{ media: { url: string; kind: 'image' | 'video' }; index: number; frames: number }> = ({ media, frames }) => {
+  const frame = useCurrentFrame();
+  const { width, height } = useVideoConfig();
+  const { palette } = useMotion();
+  const p = interpolate(frame, [0, frames], [0, 1], { ...clamp });
+  const float = Math.sin(frame / 38) * 14;
+  const w = Math.round(width * 0.66);
+  const h = Math.round(w * 1.18);
+  const sweep = ((frame * 1.1) % 170) - 35;
+  return (
+    <div style={{ position: 'absolute', left: (width - w) / 2, top: height * 0.5 - h / 2 + float, width: w, height: h, borderRadius: 64, background: 'rgba(255,255,255,0.92)', padding: 14, boxSizing: 'border-box', transform: `scale(${1 + 0.03 * p})`, filter: `drop-shadow(0 26px 40px rgba(0,8,50,0.45))` }}>
+      <div style={{ position: 'relative', width: '100%', height: '100%', borderRadius: 52, overflow: 'hidden', background: palette.bg }}>
+        <Img src={media.url} style={{ width: '100%', height: '100%', objectFit: 'cover', filter: 'saturate(1.06) contrast(1.05)' }} />
+        <div style={{ position: 'absolute', inset: 0, background: `linear-gradient(105deg, transparent ${sweep - 9}%, rgba(255,255,255,0.45) ${sweep}%, transparent ${sweep + 9}%)` }} />
+        <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse 85% 75% at 50% 45%, transparent 55%, rgba(0,8,40,0.45) 100%)' }} />
+      </div>
+    </div>
+  );
+};
+
 export const liquid: Kit = {
   Background,
   Word,
   Cut,
+  Framed,
   align: 'center',
   uppercase: false,
   headlineFont: fonts.display,

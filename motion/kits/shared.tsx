@@ -37,6 +37,8 @@ export interface Kit {
   cutSfx: 'whoosh' | 'glitch';
   /** Cómo sale la escena (0 → 1). */
   exitStyle: (p: number) => React.CSSProperties;
+  /** Foto o clip de la escena dibujado como elemento enmarcado (no de fondo). Si no existe, va de fondo. */
+  Framed?: React.FC<{ media: { url: string; kind: 'image' | 'video' }; index: number; frames: number }>;
 }
 
 /** Letra «candy bubble» de la marca: relleno sólido + volumen extruido + sombra. */

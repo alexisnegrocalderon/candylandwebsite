@@ -179,7 +179,7 @@ export const TextScene: React.FC<{ scene: MotionScene; index: number; frames: nu
   const kicker = scene.kicker ? <Kicker text={scene.kicker} /> : null;
   return (
     <AbsoluteFill>
-      {scene.media && <MediaLayer media={scene.media} index={index} frames={frames} dim={lowerThird ? 0.55 : 0.4} />}
+      {scene.media && (kit.Framed ? <kit.Framed media={scene.media} index={index} frames={frames} /> : <MediaLayer media={scene.media} index={index} frames={frames} dim={lowerThird ? 0.55 : 0.4} />)}
       <AbsoluteFill
         style={{
           paddingTop: topPad,
