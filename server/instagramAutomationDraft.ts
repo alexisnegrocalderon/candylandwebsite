@@ -2,7 +2,7 @@ import { z } from "zod";
 import { invokeLLM, extractContent } from "./_core/llm";
 import { getSiteSettings } from "./db";
 import { normalizeInstagramAgentConfig } from "../shared/instagramAgentConfig";
-import { EVENT_BRAND } from "../shared/eventBrand";
+import { currentDressCode } from "../shared/eventBrand";
 
 /* Botón "Rellenar con IA" de la automatización de Instagram por palabra
  * clave (client/src/components/admin/InstagramAutomations.tsx). Mismo
@@ -74,7 +74,7 @@ export async function generateAutomationReplyDraft(input: {
     `Se activa cuando alguien deja ${TRIGGER_LABEL[input.triggerSource]} con la palabra clave "${input.keyword}".`,
     describeReward(input.reward),
     input.idea?.trim() ? `Lo que quiere lograr el dueño con este mensaje: ${input.idea.trim()}` : null,
-    `DRESS CODE (por si el mensaje lo menciona): ${EVENT_BRAND.dressCode}`,
+    `DRESS CODE (por si el mensaje lo menciona): ${currentDressCode()}`,
   ].filter(Boolean).join("\n");
 
   const systemPrompt = [

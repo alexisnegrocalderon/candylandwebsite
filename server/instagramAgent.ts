@@ -13,7 +13,7 @@ import type { IgMessage } from '../drizzle/schema';
 import { AGENT_SITE_PAGES, AGENT_PAGE_KEYS, stripUrlsFromReply, pageForMessage } from './agentLinks';
 import { cleanAiMarks } from '../shared/captionCheck';
 import { AI_PHRASES_ES } from '../shared/aiPhrasesEs';
-import { EVENT_BRAND } from '../shared/eventBrand';
+import { currentDressCode } from '../shared/eventBrand';
 import { dropSupersededTickets } from '../shared/liveTickets';
 import { getPlaymoreFocus } from './playmoreFocus';
 import { buildPlaymoreContext, PLAYMORE_RULES, PLAYMORE_BRAND_NOTES, PLAYMORE_SALES_PLAYBOOK } from './playmoreAgent';
@@ -89,7 +89,7 @@ export async function buildInstagramContext(now: Date = new Date()): Promise<str
   // y los correos de compra (fuente única, shared/eventBrand.ts), para que
   // el agente nunca tenga que adivinar ni inventar el dress code. Se agrega
   // siempre, tanto si hay evento anunciado como si no.
-  const dressCodeBlock = `DRESS CODE: ${EVENT_BRAND.dressCode}`;
+  const dressCodeBlock = `DRESS CODE: ${currentDressCode()}`;
 
   if (upcoming.length === 0) {
     return [

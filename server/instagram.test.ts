@@ -7,6 +7,7 @@ import { verifyMetaSignature, humanReplyDelayMs, sendManualInstagramReply, handl
 import { canReplyWithinWindow } from './instagramSend';
 import { buildInstagramContext, runInstagramAgent } from './instagramAgent';
 import { normalizeInstagramAgentConfig, IG_MAX_REPLY_CHARS } from '../shared/instagramAgentConfig';
+import { currentDressCode } from '../shared/eventBrand';
 
 vi.mock('./_core/llm', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./_core/llm')>();
@@ -637,7 +638,8 @@ describe('buildInstagramContext', () => {
 
     const context = await buildInstagramContext(new Date('2026-09-13T12:00:00Z'));
     expect(context).toContain('DRESS CODE');
-    expect(context).toContain('Disfraz obligatorio');
+    expect(context).toContain(currentDressCode());
+    expect(context).not.toContain('Disfraz obligatorio');
   });
 
   it('avisa que no hay fecha anunciada cuando no hay eventos futuros', async () => {
@@ -958,7 +960,8 @@ describe('runInstagramAgent', () => {
     await runInstagramAgent({ incomingText: '¿el disfraz es obligatorio?', history: [], config });
     const userMessage = invokeLLMMock.mock.calls[0][0].messages.at(-1).content;
     expect(userMessage).toContain('DRESS CODE');
-    expect(userMessage).toContain('Disfraz obligatorio');
+    expect(userMessage).toContain(currentDressCode());
+    expect(userMessage).not.toContain('Disfraz obligatorio');
   });
 
   // Campo nuevo editable desde el admin -- si el dueño no pegó ejemplos, el
