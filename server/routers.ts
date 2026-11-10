@@ -4002,6 +4002,7 @@ export const appRouter = router({
     // Desde una idea (o una pieza del plan): 3 variantes, una por estilo. No guarda: el dueño elige.
     generate: adminProcedure.input(z.object({
       brief: z.string().trim().min(3, 'Escribe qué quieres contar').max(2000),
+      keyword: z.string().max(40).nullable().optional(),
       format: z.enum(MOTION_FORMATS).default('reel'),
       template: z.enum(MOTION_TEMPLATES).nullable().optional(),
       eventId: z.number().int().positive().nullable().optional(),

@@ -17,6 +17,7 @@ import {
   MOTION_STYLE_LABEL, MOTION_STYLES, MOTION_TEMPLATE_LABEL, MOTION_TEMPLATES, emptyScene, motionTimeline, normalizeMotionSpec, voiceSays,
   type MotionScene, type MotionSpec,
 } from '@shared/motionSpec';
+import { applyKeyword } from '@shared/motionSpec';
 import { specHash } from '@shared/studioRender';
 import { LAYOUT_AUTO, LAYOUTS, randomSeed, resolveLayouts } from '@shared/motionVariety';
 import { chileIsoDate } from '@shared/contentPlan';
@@ -248,8 +249,9 @@ export function MotionEditor({ id: initialId, initial, onBack }: { id: number | 
               {spec.outro && spec.template !== 'sting' && (
                 <Field label="Cierre"><Pick value={clean.closing} options={MOTION_CLOSINGS} labels={MOTION_CLOSING_LABEL} onChange={(closing) => setSpec({ closing })} /></Field>
               )}
+              <Field label="Palabra clave de comentarios"><Input value={spec.keyword} maxLength={20} onChange={(e) => setSpecRaw((s) => applyKeyword(s, e.target.value))} placeholder="INFO" /></Field>
               {(spec.outro || spec.template === 'sting') && (
-                <Field label="Frase bajo el logo"><Input value={spec.outroLine} maxLength={60} onChange={(e) => setSpec({ outroLine: e.target.value })} placeholder="Entradas en la bio" /></Field>
+                <Field label="Frase bajo el logo"><Input value={spec.outroLine} maxLength={60} onChange={(e) => setSpec({ outroLine: e.target.value })} placeholder="Comenta INFO" /></Field>
               )}
               {spec.template === 'countdown' && (
                 <div className="grid grid-cols-2 gap-3 sm:col-span-2">

@@ -252,8 +252,10 @@ export interface MotionSpec {
   /** Cierra con la firma animada de la marca (o la tarjeta del @). */
   outro: boolean;
   closing: MotionClosing;
-  /** Línea bajo el logo en la firma («Entradas en la bio»). */
+  /** Línea bajo el logo en la firma («Comenta INFO»). */
   outroLine: string;
+  /** Palabra clave de la automatización de comentarios (ej. INFO). Va en el texto del cierre y en el caption. */
+  keyword: string;
   music: MotionMusic;
   sfx: boolean;
   voice: MotionVoice | null;
@@ -376,6 +378,7 @@ export function normalizeMotionSpec(raw: unknown): MotionSpec {
     outro: template === 'sting' ? false : r.outro !== false,
     closing: pick(r.closing, MOTION_CLOSINGS, 'firma'),
     outroLine: str(r.outroLine, 60),
+    keyword: normalizeKeyword(r.keyword),
     music: pick(r.music, MOTION_MUSIC, 'pulse'),
     sfx: r.sfx !== false,
     voice,
@@ -479,6 +482,40 @@ export function voiceSays(spec: MotionSpec): string[] {
 }
 
 /** Un video de partida para cada plantilla (el editor empieza de acá). */
+export const DEFAULT_KEYWORD = 'INFO';
+
+/** La palabra clave tal como la automatización la reconoce: mayúsculas, sin espacios ni símbolos, máximo 20. */
+export function normalizeKeyword(raw: unknown): string {
+  const clean = String(raw ?? '').toUpperCase().replace(/[^A-Z0-9ÁÉÍÓÚÑÜ]/g, '').slice(0, 20);
+  return clean || DEFAULT_KEYWORD;
+}
+
+/** Cambia la palabra clave y actualiza donde aparezca «comenta X»: escenas, subtítulos, firma y caption.
+ * Solo toca la frase de comentar y el resaltado que es la palabra clave; el resto del texto no se mueve. */
+export function applyKeyword(spec: MotionSpec, raw: string): MotionSpec {
+  const from = spec.keyword;
+  const to = normalizeKeyword(raw);
+  if (from === to) return spec;
+  const esc = from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const phrase = new RegExp(`comenta\\s+${esc}\\b`, 'giu');
+  const word = new RegExp(`^${esc}$`, 'iu');
+  const swap = (t: string | undefined) => (t ? t.replace(phrase, (m) => m.replace(/\S+$/, to)) : t);
+  const swapWord = (t: string | undefined) => (t && word.test(t.trim()) ? to : t);
+  return {
+    ...spec,
+    keyword: to,
+    outroLine: swap(spec.outroLine) ?? spec.outroLine,
+    caption: swap(spec.caption) ?? spec.caption,
+    scenes: spec.scenes.map((sc) => ({
+      ...sc,
+      text: swap(sc.text) ?? sc.text,
+      sub: swap(sc.sub) ?? sc.sub,
+      say: swap(sc.say) ?? sc.say,
+      highlight: swapWord(sc.highlight) ?? sc.highlight,
+    })),
+  };
+}
+
 export function starterSpec(template: MotionTemplate, style: MotionStyle = 'liquid'): MotionSpec {
   const scenes: Partial<MotionScene>[] =
     template === 'countdown'
@@ -492,13 +529,13 @@ export function starterSpec(template: MotionTemplate, style: MotionStyle = 'liqu
                 { kicker: '¿Primera vez?', text: 'Te lo contamos fácil', highlight: 'fácil', secs: 2.4 },
                 { text: 'Anótalo', card: 'calendario', sub: 'Sábado desde las 22:00', secs: 3 },
                 { text: 'Qué llevar', card: 'checklist', items: ['Tu entrada en el celular', 'Carnet (+18)', 'Ganas de pasarlo bien'], secs: 3.4 },
-                { text: 'Entradas en la bio', highlight: 'bio', card: 'entrada', kicker: 'Mansion Playroom', sub: 'Valparaíso · +18', secs: 3 },
+                { text: 'Comenta INFO', highlight: 'INFO', card: 'entrada', kicker: 'Mansion Playroom', sub: 'Valparaíso · +18', secs: 3 },
               ]
           : style === 'poster'
             ? [
                 { kicker: 'Mansion Playroom', text: 'Crush on Playroom', highlight: 'Playroom', sub: 'Sábado · Valparaíso · +18', secs: 3 },
                 { text: 'Una noche distinta', highlight: 'distinta', secs: 2.6 },
-                { text: 'Entradas en la bio', highlight: 'bio', secs: 2.6 },
+                { text: 'Comenta INFO', highlight: 'INFO', secs: 2.6 },
               ]
           : style === 'arcade'
             ? [
@@ -519,7 +556,7 @@ export function starterSpec(template: MotionTemplate, style: MotionStyle = 'liqu
             : [
               { kicker: 'SE VIENE', text: 'Una noche distinta', highlight: 'distinta', secs: 2.2 },
               { kicker: 'SÁBADO', text: 'Valparaíso', sub: 'Dirección exacta al comprar', secs: 2.4 },
-              { text: 'Entradas en la bio', highlight: 'bio', secs: 2.4 },
+              { text: 'Comenta INFO', highlight: 'INFO', secs: 2.4 },
             ];
   if (style === 'arcade' && template === 'anuncio') {
     return normalizeMotionSpec({
