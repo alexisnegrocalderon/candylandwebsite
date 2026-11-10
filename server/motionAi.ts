@@ -43,7 +43,7 @@ const SCENE_SCHEMA = {
 const VARIANT_SCHEMA = {
   type: 'object',
   properties: {
-    style: { type: 'string', enum: [...MOTION_STYLES] },
+    style: { type: 'string', enum: MOTION_STYLES.filter((st) => st !== 'custom') },
     base: { type: 'string', enum: [...MOTION_BASES], description: 'Fondo: azul (celeste), rosa o tinta (de marca); perla o niebla (neutros editoriales); noche (PLAYMORE, fiesta).' },
     accent: { type: 'string', enum: [...MOTION_ACCENTS], description: 'Color protagonista (distinto del fondo). Oro solo con noche.' },
     music: { type: 'string', enum: MOTION_MUSIC.filter((m) => m !== 'none') },

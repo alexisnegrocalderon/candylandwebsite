@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BRAND, MOTION_ACCENTS, MOTION_BASES, MOTION_FPS, MOTION_MUSIC_BPM, MOTION_OUTRO_SECS, MOTION_STYLES, MOTION_TEMPLATES, MOTION_VOICE_LEAD, MOTION_VOICE_TAIL, captionWords, cleanMediaUrl, packFileNames, packSlides, motionPalette, motionTimeline, normalizeMotionSpec, starterSpec, voiceSays, applyKeyword, normalizeKeyword } from './motionSpec';
+import { BRAND, MOTION_ACCENTS, MOTION_BASES, MOTION_FPS, MOTION_MUSIC_BPM, MOTION_OUTRO_SECS, MOTION_STYLES, MOTION_TEMPLATES, MOTION_VOICE_LEAD, MOTION_VOICE_TAIL, captionWords, cleanMediaUrl, packFileNames, packSlides, motionPalette, motionTimeline, normalizeMotionSpec, starterSpec, voiceSays, applyKeyword, normalizeKeyword, MOTION_CUSTOM_DEFAULT, normalizeCustom } from './motionSpec';
 
 describe('normalizeMotionSpec', () => {
   it('cualquier cosa rota queda en una receta válida', () => {
@@ -239,5 +239,26 @@ describe('palabra clave de comentarios', () => {
   it('con la misma palabra no cambia nada', () => {
     const spec = normalizeMotionSpec({ outroLine: 'Comenta INFO' });
     expect(applyKeyword(spec, 'info')).toBe(spec);
+  });
+});
+
+describe('estilo personalizado', () => {
+  it('sin configurar usa los valores por defecto', () => {
+    expect(normalizeMotionSpec({ style: 'custom' }).custom).toEqual(MOTION_CUSTOM_DEFAULT);
+  });
+
+  it('limita la velocidad a 0,6–1,6 y descarta valores que no existen', () => {
+    expect(normalizeCustom({ speed: 9 }).speed).toBe(1.6);
+    expect(normalizeCustom({ speed: 0.1 }).speed).toBe(0.6);
+    expect(normalizeCustom({ speed: 'rápido' as unknown as number }).speed).toBe(MOTION_CUSTOM_DEFAULT.speed);
+    const c = normalizeCustom({ font: 'comic', bg: 'lava', entry: 'rebote', uppercase: false });
+    expect(c.font).toBe(MOTION_CUSTOM_DEFAULT.font);
+    expect(c.bg).toBe(MOTION_CUSTOM_DEFAULT.bg);
+    expect(c.entry).toBe(MOTION_CUSTOM_DEFAULT.entry);
+    expect(c.uppercase).toBe(false);
+  });
+
+  it('la IA no puede elegir el estilo personalizado por su cuenta', () => {
+    expect(MOTION_STYLES).toContain('custom');
   });
 });

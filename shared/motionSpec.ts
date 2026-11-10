@@ -20,7 +20,7 @@ export const MOTION_TEMPLATE_LABEL: Record<MotionTemplate, string> = {
   sting: 'Intro / outro de marca',
 };
 
-export const MOTION_STYLES = ['liquid', 'glitch', 'editorial', 'kinetic', 'poster', 'softui', 'arcade'] as const;
+export const MOTION_STYLES = ['liquid', 'glitch', 'editorial', 'kinetic', 'poster', 'softui', 'arcade', 'custom'] as const;
 export type MotionStyle = (typeof MOTION_STYLES)[number];
 export const MOTION_STYLE_LABEL: Record<MotionStyle, string> = {
   liquid: 'Liquid',
@@ -30,6 +30,7 @@ export const MOTION_STYLE_LABEL: Record<MotionStyle, string> = {
   poster: 'Póster 3D',
   softui: 'Soft UI (tarjetas)',
   arcade: 'Arcade neón (PLAYMORE · Player 1 vs Player 2)',
+  custom: 'Personalizado',
 };
 
 export const MOTION_FORMATS = ['reel', 'feed', 'square'] as const;
@@ -228,6 +229,46 @@ export interface MotionVoice {
   secs: number[];
 }
 
+/* Estilo personalizado (admin → Estudio): los valores que el kit «custom»
+ * usa para dibujar el fondo, la entrada del texto y la fuente. Solo fuentes y
+ * entradas que ya existen en el motor, para no depender de archivos nuevos. */
+export const MOTION_CUSTOM_FONTS = ['unbounded', 'gliker', 'anton', 'syne', 'grotesk', 'inter', 'allura'] as const;
+export type MotionCustomFont = (typeof MOTION_CUSTOM_FONTS)[number];
+export const MOTION_CUSTOM_FONT_LABEL: Record<MotionCustomFont, string> = {
+  unbounded: 'Unbounded (ancha, urbana)', gliker: 'Gliker (burbuja de marca)', anton: 'Anton (condensada, impacto)',
+  syne: 'Syne (editorial ancha)', grotesk: 'Space Grotesk (técnica)', inter: 'Inter (limpia)', allura: 'Allura (script)',
+};
+export const MOTION_CUSTOM_BG = ['solido', 'rejilla', 'sol', 'degradado'] as const;
+export type MotionCustomBg = (typeof MOTION_CUSTOM_BG)[number];
+export const MOTION_CUSTOM_BG_LABEL: Record<MotionCustomBg, string> = { solido: 'Sólido', rejilla: 'Rejilla en perspectiva', sol: 'Sol con franjas', degradado: 'Degradado' };
+export const MOTION_CUSTOM_ENTRY = ['elastica', 'pixel', 'deslizar'] as const;
+export type MotionCustomEntry = (typeof MOTION_CUSTOM_ENTRY)[number];
+export const MOTION_CUSTOM_ENTRY_LABEL: Record<MotionCustomEntry, string> = { elastica: 'Elástica (rebota)', pixel: 'Pixelada (a saltos)', deslizar: 'Desliza desde abajo' };
+
+export interface MotionCustom {
+  font: MotionCustomFont;
+  bg: MotionCustomBg;
+  entry: MotionCustomEntry;
+  /** 0.6 (lento) a 1.6 (rápido). Multiplica la velocidad de las entradas. */
+  speed: number;
+  uppercase: boolean;
+}
+
+export const MOTION_CUSTOM_DEFAULT: MotionCustom = { font: 'unbounded', bg: 'rejilla', entry: 'elastica', speed: 1, uppercase: true };
+
+export function normalizeCustom(raw: unknown): MotionCustom {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Partial<MotionCustom>;
+  const pick = <T extends string>(v: unknown, list: readonly T[], fallback: T): T => (list as readonly string[]).includes(String(v)) ? (v as T) : fallback;
+  const speed = typeof r.speed === 'number' && Number.isFinite(r.speed) ? Math.min(1.6, Math.max(0.6, r.speed)) : MOTION_CUSTOM_DEFAULT.speed;
+  return {
+    font: pick(r.font, MOTION_CUSTOM_FONTS, MOTION_CUSTOM_DEFAULT.font),
+    bg: pick(r.bg, MOTION_CUSTOM_BG, MOTION_CUSTOM_DEFAULT.bg),
+    entry: pick(r.entry, MOTION_CUSTOM_ENTRY, MOTION_CUSTOM_DEFAULT.entry),
+    speed: Math.round(speed * 10) / 10,
+    uppercase: r.uppercase !== false,
+  };
+}
+
 export interface MotionSpec {
   v: 1;
   title: string;
@@ -256,6 +297,8 @@ export interface MotionSpec {
   outroLine: string;
   /** Palabra clave de la automatización de comentarios (ej. INFO). Va en el texto del cierre y en el caption. */
   keyword: string;
+  /** Solo para el estilo «custom»: fuente, fondo, entrada y velocidad. */
+  custom: MotionCustom;
   music: MotionMusic;
   sfx: boolean;
   voice: MotionVoice | null;
@@ -263,7 +306,7 @@ export interface MotionSpec {
 }
 
 /** Fondo con que parte cada estilo. */
-export const MOTION_DEFAULT_BASE: Record<MotionStyle, MotionBase> = { liquid: 'azul', glitch: 'tinta', editorial: 'perla', kinetic: 'perla', poster: 'perla', softui: 'niebla', arcade: 'arcade' };
+export const MOTION_DEFAULT_BASE: Record<MotionStyle, MotionBase> = { liquid: 'azul', glitch: 'tinta', editorial: 'perla', kinetic: 'perla', poster: 'perla', softui: 'niebla', arcade: 'arcade', custom: 'tinta' };
 
 export const MOTION_MAX_SCENES = 10;
 export const MOTION_SCENE_SECS = { min: 1, max: 8 } as const;
@@ -379,6 +422,7 @@ export function normalizeMotionSpec(raw: unknown): MotionSpec {
     closing: pick(r.closing, MOTION_CLOSINGS, 'firma'),
     outroLine: str(r.outroLine, 60),
     keyword: normalizeKeyword(r.keyword),
+    custom: normalizeCustom(r.custom),
     music: pick(r.music, MOTION_MUSIC, 'pulse'),
     sfx: r.sfx !== false,
     voice,
