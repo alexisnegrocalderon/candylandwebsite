@@ -270,6 +270,9 @@ function VideoList({ onOpen, onNew }: { onOpen: (id: number, spec: MotionSpec) =
                 <p className="text-[11px] text-muted-foreground">
                   {formatChileDateTime(v.updatedAt)} · {v.render.status === 'listo' ? (v.renderFresh ? 'MP4 listo' : 'MP4 viejo') : v.render.status === 'grabando' ? 'Grabando…' : v.render.status === 'error' ? 'Error al grabar' : 'Sin MP4'}
                 </p>
+                <p className={`mt-0.5 inline-block rounded-full px-2 py-0.5 text-[11px] font-medium ${v.publicacion === 'publicado' ? 'bg-emerald-500/15 text-emerald-700' : v.publicacion === 'aprobado' ? 'bg-sky-500/15 text-sky-700' : 'bg-amber-500/15 text-amber-700'}`}>
+                  {v.publicacion === 'publicado' ? 'Publicado en Instagram' : v.publicacion === 'aprobado' ? 'Aprobado' : 'Por aprobar'}
+                </p>
                 <div className="mt-2 flex gap-2">
                   <Button size="sm" variant="outline" disabled={opening === v.id} onClick={() => open(v.id)}>
                     {opening === v.id ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null} Abrir

@@ -23,6 +23,7 @@ import { chileIsoDate } from '@shared/contentPlan';
 import { TTS_VOICE_KEYS, TTS_VOICES, voiceScriptHash, type TtsVoice } from '@shared/studioVoice';
 import { MotionPreview } from './MotionPreview';
 import { PackPanel } from './PackPanel';
+import { PublicacionControls } from './PublicacionControls';
 import { saveVideoFile } from './saveVideo';
 
 /* Editor del Estudio Motion: la vista previa a la izquierda (se actualiza al
@@ -103,9 +104,18 @@ export function MotionEditor({ id: initialId, initial, onBack }: { id: number | 
     },
     onError: (e) => toast.error(e.message),
   });
-  const send = trpc.ambassadorContent.sendDesigns.useMutation({
-    onSuccess: (r) => toast.success(r.skipped.length ? r.skipped[0].reason : 'Enviado a «Por aprobar» de embajadores.'),
+  // Cola de la marca (@mansionplayroom): aprobar, quitar la aprobación y publicar como Reel.
+  const approve = trpc.motionStudio.approve.useMutation({
+    onSuccess: () => { utils.motionStudio.get.invalidate({ id: id ?? 0 }); utils.motionStudio.list.invalidate(); toast.success('Aprobado. Ya puedes publicarlo en Instagram.'); },
     onError: (e) => toast.error(e.message),
+  });
+  const unapprove = trpc.motionStudio.unapprove.useMutation({
+    onSuccess: () => { utils.motionStudio.get.invalidate({ id: id ?? 0 }); utils.motionStudio.list.invalidate(); toast.success('Vuelve a «Por aprobar».'); },
+    onError: (e) => toast.error(e.message),
+  });
+  const publish = trpc.motionStudio.publish.useMutation({
+    onSuccess: () => { utils.motionStudio.get.invalidate({ id: id ?? 0 }); utils.motionStudio.list.invalidate(); toast.success('Publicado como Reel en @mansionplayroom.'); },
+    onError: (e) => { utils.motionStudio.get.invalidate({ id: id ?? 0 }); toast.error(e.message); },
   });
 
   // Ctrl/Cmd+S guarda.
@@ -168,10 +178,17 @@ export function MotionEditor({ id: initialId, initial, onBack }: { id: number | 
             <>
               <span>{mp4Fresh ? 'MP4 listo.' : 'Hay un MP4, pero es de una versión anterior: vuelve a grabar.'}</span>
               <Button size="sm" variant="outline" onClick={() => void saveVideoFile(renderState.url!, clean.title)}><Download className="mr-1 h-4 w-4" /> Descargar / Guardar video</Button>
-              {id != null && mp4Fresh && (
-                <WriteButton size="sm" variant="outline" disabled={send.isPending} onClick={() => send.mutate({ ids: [id] })}>
-                  <Send className="mr-1 h-4 w-4" /> Mandar a embajadores
-                </WriteButton>
+              {id != null && stored?.publicacion && (
+                <PublicacionControls
+                  estado={stored.publicacion.estadoActual}
+                  igMediaId={stored.publicacion.igMediaId}
+                  error={stored.publicacion.error}
+                  mp4Fresh={mp4Fresh}
+                  busy={approve.isPending || unapprove.isPending || publish.isPending}
+                  onApprove={() => approve.mutate({ id })}
+                  onUnapprove={() => unapprove.mutate({ id })}
+                  onPublish={() => publish.mutate({ id })}
+                />
               )}
             </>
           )}

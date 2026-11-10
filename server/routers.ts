@@ -254,7 +254,7 @@ import { previewCustomerMerge, mergeCustomers } from "./customerMerge";
 import { getMemberHistory } from "./memberHistory";
 import { hasSalesLink } from "../shared/staffSales";
 import { deleteAmbassadorItem, ensureAmbassadorDrafts, getUpcomingContentEvents, listAmbassadorItems, notifyAmbassadorsNewContent, saveAmbassadorItem, sendStudioToAmbassadors, setAmbassadorItemStatus } from "./ambassadorContent";
-import { deleteMotionVideo, getMotionVideo, listMotionVideos, loadPlan, saveMotionVideo, savePlan } from "./motionStudio";
+import { approveMotionVideo, deleteMotionVideo, getMotionVideo, listMotionVideos, loadPlan, publishMotionVideo, saveMotionVideo, savePlan, unapproveMotionVideo } from "./motionStudio";
 import { motionVariantsFromIdea } from "./motionAi";
 import { renderMissingConfig, requestVideoRender } from "./studioRender";
 import { generateVoice, voiceMissingConfig } from "./studioVoice";
@@ -3981,6 +3981,23 @@ export const appRouter = router({
     delete: adminPasswordProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => {
       await deleteMotionVideo(input.id);
       return { success: true } as const;
+    }),
+    // Cola de la marca (Instagram @mansionplayroom): por aprobar → aprobado → publicado como Reel.
+    approve: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => {
+      try { await approveMotionVideo(input.id); } catch (err) { throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo aprobar.' }); }
+      return { success: true } as const;
+    }),
+    unapprove: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => {
+      try { await unapproveMotionVideo(input.id); } catch (err) { throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo quitar la aprobación.' }); }
+      return { success: true } as const;
+    }),
+    // Sale hacia Instagram público: el servidor exige que esté aprobado (publishMotionVideo); la UI pide confirmar.
+    publish: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => {
+      try {
+        return await publishMotionVideo(input.id);
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo publicar en Instagram.' });
+      }
     }),
     // Desde una idea (o una pieza del plan): 3 variantes, una por estilo. No guarda: el dueño elige.
     generate: adminProcedure.input(z.object({
