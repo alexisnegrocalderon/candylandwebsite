@@ -7,7 +7,7 @@ import { ALL_LAYOUT_KEYS, LAYOUT_AUTO, LAYOUTS, randomSeed } from '../shared/mot
 import { EVENT_BRAND } from '../shared/eventBrand';
 import { chileIsoDate } from '../shared/contentPlan';
 import {
-  MOTION_ACCENTS, MOTION_BASES, MOTION_CARDS, MOTION_MAX_SCENES, MOTION_MUSIC, MOTION_STYLES, MOTION_TEMPLATES, normalizeMotionSpec,
+  MOTION_ACCENTS, MOTION_BASES, MOTION_CARDS, MOTION_MAX_SCENES, MOTION_MUSIC, MOTION_STYLES, MOTION_TEMPLATES, normalizeKeyword, normalizeMotionSpec,
   type MotionFormat, type MotionMedia, type MotionSpec, type MotionStyle, type MotionTemplate,
 } from '../shared/motionSpec';
 import type { AiUsage } from '../shared/studioAi';
@@ -106,6 +106,8 @@ export const MOTION_SYSTEM = [
 
 export interface MotionIdeaInput {
   brief: string;
+  /** Palabra clave de la automatización de comentarios. Por defecto INFO. */
+  keyword?: string | null;
   format: MotionFormat;
   template?: MotionTemplate | null;
   eventId?: number | null;
@@ -141,7 +143,7 @@ interface RawOutput {
 const FILL_STYLES: MotionStyle[] = ['editorial', 'kinetic', 'liquid', 'glitch'];
 
 /** Pasa lo que devolvió la IA a 3 recetas limpias, cada una con un estilo distinto. */
-export function variantsFromAi(raw: RawOutput, input: Pick<MotionIdeaInput, 'format' | 'template' | 'eventId' | 'media'> & { eventDate?: string }): MotionSpec[] {
+export function variantsFromAi(raw: RawOutput, input: Pick<MotionIdeaInput, 'format' | 'template' | 'eventId' | 'media' | 'keyword'> & { eventDate?: string }): MotionSpec[] {
   const media = input.media ?? [];
   const template = input.template ?? (MOTION_TEMPLATES as readonly string[]).find((t) => t === raw.template) ?? 'anuncio';
   const list = Array.isArray(raw.variants) ? raw.variants : [];
@@ -179,6 +181,7 @@ export function variantsFromAi(raw: RawOutput, input: Pick<MotionIdeaInput, 'for
       countdown: { value: raw.countdownValue, unit: raw.countdownUnit },
       outro: template !== 'sting',
       outroLine: raw.outroLine,
+      keyword: input.keyword ?? undefined,
       sfx: true,
     });
   });
@@ -202,6 +205,7 @@ export async function motionVariantsFromIdea(input: MotionIdeaInput): Promise<Mo
     `PEDIDO DEL DUEÑO: ${input.brief.trim().slice(0, 2000)}`,
     `Formato: ${input.format === 'reel' ? 'vertical 9:16 (reel/historia)' : input.format === 'feed' ? 'feed 4:5' : 'cuadrado 1:1'}.`,
     input.template ? `Plantilla obligatoria: ${input.template}.` : 'Elige la plantilla que mejor sirva.',
+    `Palabra clave de comentarios: ${normalizeKeyword(input.keyword)}. Cuando invites a comentar, usa exactamente "Comenta ${normalizeKeyword(input.keyword)}" en el texto del cierre y en el caption; nunca otra palabra.`,
     media.length ? `Fotos/clips entregados (índice: tipo): ${media.map((m, i) => `${i}: ${m.kind === 'video' ? 'clip' : 'foto'}`).join(', ')}.` : 'No hay fotos: mediaIndex = -1 en todas las escenas.',
   ].join('\n');
   const result = await quickJson<RawOutput>({

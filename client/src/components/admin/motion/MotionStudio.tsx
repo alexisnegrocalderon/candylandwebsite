@@ -8,13 +8,14 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ImageUploadField } from '@/components/admin/ImageUploadField';
 import { ConfirmDeleteButton } from '@/components/admin/ConfirmDeleteButton';
 import { formatChileDate, formatChileDateTime } from '@shared/chileDate';
 import { chileIsoDate, type ContentPiece } from '@shared/contentPlan';
 import {
-  MOTION_FORMAT_LABEL, MOTION_FORMATS, MOTION_STYLE_LABEL, MOTION_TEMPLATE_LABEL, MOTION_TEMPLATES, starterSpec,
+  MOTION_FORMAT_LABEL, MOTION_FORMATS, MOTION_STYLE_LABEL, MOTION_TEMPLATE_LABEL, MOTION_TEMPLATES, normalizeKeyword, starterSpec,
   type MotionFormat, type MotionMedia, type MotionSpec, type MotionStyle, type MotionTemplate,
 } from '@shared/motionSpec';
 import { saveVideoFile } from './saveVideo';
@@ -68,6 +69,7 @@ export function MotionStudio() {
   const [template, setTemplate] = useState<MotionTemplate | 'auto'>('auto');
   const [format, setFormat] = useState<MotionFormat>('reel');
   const [media, setMedia] = useState<MotionMedia[]>([]);
+  const [keyword, setKeyword] = useState('INFO');
 
   const generate = trpc.motionStudio.generate.useMutation({
     onSuccess: (r) => setView({ kind: 'variants', variants: r.variants as MotionSpec[], costUsd: r.costUsd }),
@@ -75,7 +77,7 @@ export function MotionStudio() {
   });
 
   const create = (opts: { brief: string; template: MotionTemplate | null }) =>
-    generate.mutate({ brief: opts.brief, template: opts.template, format, eventId, media });
+    generate.mutate({ brief: opts.brief, template: opts.template, format, eventId, media, keyword });
 
   const fromPiece = (p: ContentPiece) => {
     const text = [`Gancho: ${p.hook}`, `Caption: ${p.caption}`, p.visual && `Qué se graba: ${p.visual}`, p.interaction && `Qué pedir: ${p.interaction}`].filter(Boolean).join('\n');
@@ -145,6 +147,13 @@ export function MotionStudio() {
                 <Label htmlFor="motion-brief">¿Qué quieres contar?</Label>
                 <Textarea id="motion-brief" rows={3} maxLength={2000} value={brief} onChange={(e) => setBrief(e.target.value)}
                   placeholder="Ej: anunciar la fiesta del sábado con foco en que es la primera vez de mucha gente y que el consentimiento es lo primero." />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="motion-keyword" className="text-xs">Palabra clave para comentarios</Label>
+                <Input id="motion-keyword" className="max-w-xs" maxLength={20} value={keyword}
+                  onChange={(e) => setKeyword(normalizeKeyword(e.target.value))}
+                  placeholder="INFO" />
+                <p className="text-xs text-muted-foreground">Es la palabra que la gente comenta para recibir todo por mensaje. Se escribe «Comenta {keyword || 'INFO'}» en el video.</p>
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-1.5">

@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  BRAND, MOTION_ACCENTS, MOTION_BASES, MOTION_FPS, MOTION_MUSIC_BPM, MOTION_OUTRO_SECS, MOTION_STYLES, MOTION_TEMPLATES, MOTION_VOICE_LEAD, MOTION_VOICE_TAIL,
-  captionWords, cleanMediaUrl, packFileNames, packSlides, motionPalette, motionTimeline, normalizeMotionSpec, starterSpec, voiceSays,
-} from './motionSpec';
+import { BRAND, MOTION_ACCENTS, MOTION_BASES, MOTION_FPS, MOTION_MUSIC_BPM, MOTION_OUTRO_SECS, MOTION_STYLES, MOTION_TEMPLATES, MOTION_VOICE_LEAD, MOTION_VOICE_TAIL, captionWords, cleanMediaUrl, packFileNames, packSlides, motionPalette, motionTimeline, normalizeMotionSpec, starterSpec, voiceSays, applyKeyword, normalizeKeyword } from './motionSpec';
 
 describe('normalizeMotionSpec', () => {
   it('cualquier cosa rota queda en una receta válida', () => {
@@ -201,5 +198,46 @@ describe('estilo arcade (PLAYMORE · Player 1 vs Player 2)', () => {
     expect(all).toContain('+21');
     expect(all).toContain('dalmore.mansionplayroom.cl');
     expect(all).not.toMatch(/Valpara|\+18/);
+  });
+});
+
+describe('palabra clave de comentarios', () => {
+  it('se normaliza: mayúsculas, sin espacios ni símbolos, y por defecto INFO', () => {
+    expect(normalizeKeyword('play more!')).toBe('PLAYMORE');
+    expect(normalizeKeyword('  ')).toBe('INFO');
+    expect(normalizeKeyword(undefined)).toBe('INFO');
+    expect(normalizeKeyword('a'.repeat(30))).toHaveLength(20);
+  });
+
+  it('la receta trae la palabra clave por defecto', () => {
+    expect(normalizeMotionSpec({}).keyword).toBe('INFO');
+    expect(normalizeMotionSpec({ keyword: 'entrada' }).keyword).toBe('ENTRADA');
+  });
+
+  it('cambiarla actualiza «Comenta X» en escenas, firma y caption, sin tocar el resto', () => {
+    const spec = normalizeMotionSpec({
+      title: 't', caption: 'Mañana. Comenta INFO y te escribimos.',
+      outroLine: 'Comenta INFO',
+      scenes: [
+        { text: 'Una noche distinta', highlight: 'distinta', say: 'Comenta INFO ahora' },
+        { text: 'Comenta INFO', highlight: 'INFO', sub: 'Escribe comenta info' },
+        { text: 'Ven a la fiesta', highlight: 'fiesta' },
+      ],
+    });
+    const next = applyKeyword(spec, 'playmore');
+    expect(next.keyword).toBe('PLAYMORE');
+    expect(next.outroLine).toBe('Comenta PLAYMORE');
+    expect(next.caption).toBe('Mañana. Comenta PLAYMORE y te escribimos.');
+    expect(next.scenes[0].say).toBe('Comenta PLAYMORE ahora');
+    expect(next.scenes[1].text).toBe('Comenta PLAYMORE');
+    expect(next.scenes[1].highlight).toBe('PLAYMORE');
+    expect(next.scenes[1].sub).toBe('Escribe comenta PLAYMORE');
+    expect(next.scenes[2]).toEqual(spec.scenes[2]);
+    expect(next.scenes[0].highlight).toBe('distinta');
+  });
+
+  it('con la misma palabra no cambia nada', () => {
+    const spec = normalizeMotionSpec({ outroLine: 'Comenta INFO' });
+    expect(applyKeyword(spec, 'info')).toBe(spec);
   });
 });
