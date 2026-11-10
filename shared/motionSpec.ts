@@ -33,16 +33,18 @@ export const MOTION_STYLE_LABEL: Record<MotionStyle, string> = {
   custom: 'Personalizado',
 };
 
-export const MOTION_FORMATS = ['reel', 'feed', 'square'] as const;
+export const MOTION_FORMATS = ['reel', 'feed', 'retrato', 'square'] as const;
 export type MotionFormat = (typeof MOTION_FORMATS)[number];
 export const MOTION_FORMAT_LABEL: Record<MotionFormat, string> = {
   reel: 'Reel / Historia 9:16',
   feed: 'Feed 4:5',
+  retrato: 'Feed 3:4 (el de Instagram ahora)',
   square: 'Cuadrado 1:1',
 };
 export const MOTION_SIZES: Record<MotionFormat, { width: number; height: number }> = {
   reel: { width: 1080, height: 1920 },
   feed: { width: 1080, height: 1350 },
+  retrato: { width: 1080, height: 1440 },
   square: { width: 1080, height: 1080 },
 };
 

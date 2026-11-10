@@ -236,3 +236,10 @@ export function slideDocument(design: Pick<AiDesign, 'css' | 'format'>, slide: A
     `</head><body>${slideBoardHtml(slide)}</body></html>`,
   ].join('');
 }
+
+/** Costo estimado de una llamada de diseño de video (US$), con un uso típico: ~2.000 tokens nuevos de entrada,
+ * ~6.000 leídos de caché (las reglas fijas), ~2.000 de salida. Es una estimación para elegir modelo, no el cobro real. */
+export function motionCallEstimateUsd(model: AiModel): number {
+  const p = AI_PRICES[model];
+  return (2_000 * p.input + 6_000 * p.cacheRead + 2_000 * p.output) / 1_000_000;
+}

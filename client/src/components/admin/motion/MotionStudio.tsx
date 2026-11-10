@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
+import { AI_MODELS, AI_MODEL_LABEL, motionCallEstimateUsd, type AiModel } from '@shared/studioAi';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ImageUploadField } from '@/components/admin/ImageUploadField';
 import { ConfirmDeleteButton } from '@/components/admin/ConfirmDeleteButton';
@@ -70,6 +71,7 @@ export function MotionStudio() {
   const [format, setFormat] = useState<MotionFormat>('reel');
   const [media, setMedia] = useState<MotionMedia[]>([]);
   const [keyword, setKeyword] = useState('INFO');
+  const [model, setModel] = useState<AiModel>('claude-sonnet-5-5');
 
   const generate = trpc.motionStudio.generate.useMutation({
     onSuccess: (r) => setView({ kind: 'variants', variants: r.variants as MotionSpec[], costUsd: r.costUsd }),
@@ -77,7 +79,7 @@ export function MotionStudio() {
   });
 
   const create = (opts: { brief: string; template: MotionTemplate | null }) =>
-    generate.mutate({ brief: opts.brief, template: opts.template, format, eventId, media, keyword });
+    generate.mutate({ brief: opts.brief, template: opts.template, format, eventId, media, keyword, model });
 
   const fromPiece = (p: ContentPiece) => {
     const text = [`Gancho: ${p.hook}`, `Caption: ${p.caption}`, p.visual && `Qué se graba: ${p.visual}`, p.interaction && `Qué pedir: ${p.interaction}`].filter(Boolean).join('\n');
@@ -147,6 +149,18 @@ export function MotionStudio() {
                 <Label htmlFor="motion-brief">¿Qué quieres contar?</Label>
                 <Textarea id="motion-brief" rows={3} maxLength={2000} value={brief} onChange={(e) => setBrief(e.target.value)}
                   placeholder="Ej: anunciar la fiesta del sábado con foco en que es la primera vez de mucha gente y que el consentimiento es lo primero." />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Modelo de IA</Label>
+                <Select value={model} onValueChange={(v) => setModel(v as AiModel)}>
+                  <SelectTrigger className="max-w-md"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {AI_MODELS.map((m) => (
+                      <SelectItem key={m} value={m}>{AI_MODEL_LABEL[m]} · ≈ US$ {motionCallEstimateUsd(m).toFixed(3).replace('.', ',')} por video</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">El precio es una estimación por video; al crear, se muestra el costo real de esa llamada.</p>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="motion-keyword" className="text-xs">Palabra clave para comentarios</Label>
