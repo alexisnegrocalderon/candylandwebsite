@@ -42,7 +42,9 @@ const Background: React.FC = () => {
 const Word: React.FC<WordProps> = ({ word, i, delay, hero, size }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
-  const { palette } = useMotion();
+  const { palette, spec } = useMotion();
+  // Mezcla tipográfica: la palabra protagonista usa una fuente de contraste (Anton o Syne), elegida por la semilla del video.
+  const contrast = spec.seed % 2 === 0 ? { family: "'Anton', sans-serif", weight: 400, upper: true, scale: 1.25 } : { family: "'Syne', sans-serif", weight: 800, upper: false, scale: 1.15 };
   // Entrada suave: sin rebote exagerado, con un solo desenfoque que enfoca la letra.
   const p = spring({ frame: frame - delay - i * beats.stagger, fps, config: { damping: 24, stiffness: 110 } });
   const base = hero ? palette.hero : palette.display;
@@ -58,6 +60,7 @@ const Word: React.FC<WordProps> = ({ word, i, delay, hero, size }) => {
         transform: `translateY(${interpolate(p, [0, 1], [size * 0.2, 0])}px) scale(${interpolate(p, [0, 1], [0.92, 1])})`,
         filter: `blur(${interpolate(p, [0, 0.8], [10, 0], clamp)}px) drop-shadow(-1px -2px 0 rgba(255,255,255,0.7)) drop-shadow(0 ${Math.round(size * 0.06)}px ${Math.round(size * 0.1)}px rgba(0,8,50,0.55))`,
         color: base,
+        ...(hero ? { fontFamily: contrast.family, fontWeight: contrast.weight, fontSize: size * contrast.scale, textTransform: contrast.upper ? 'uppercase' : 'none' } : {}),
         backgroundImage: `${light}, ${volume}, linear-gradient(${base}, ${base})`,
         WebkitBackgroundClip: 'text',
         backgroundClip: 'text',
