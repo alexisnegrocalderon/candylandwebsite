@@ -103,7 +103,10 @@ if (mode === 'video') {
       const key = `${template}-${style}${process.env.BASE ? `-${process.env.BASE}` : ''}`;
       if (only && !only.some((o) => key.includes(o))) continue;
       // BASE=perla,noche prueba otros fondos; CLOSING=handle la tarjeta del @.
-      const spec = { ...starterSpec(template, style), ...(process.env.BASE ? { base: process.env.BASE } : {}), ...(process.env.CLOSING ? { closing: process.env.CLOSING } : {}) } as MotionSpec;
+      const base0 = { ...starterSpec(template, style), ...(process.env.BASE ? { base: process.env.BASE } : {}), ...(process.env.CLOSING ? { closing: process.env.CLOSING } : {}) } as MotionSpec;
+      // MEDIA_TEST=/motion/archivo.png: imagen de prueba enmarcada en la escena 2 (no es fondo).
+      const testUrl = process.env.MEDIA_TEST ? (process.env.MEDIA_TEST.startsWith('/') ? 'data:image/png;base64,' + readFileSync(join(ROOT, 'client/public', process.env.MEDIA_TEST)).toString('base64') : process.env.MEDIA_TEST) : null;
+      const spec = testUrl && base0.scenes[1] ? { ...base0, scenes: base0.scenes.map((sc, k) => (k === 1 ? { ...sc, media: { url: testUrl, kind: 'image' as const } } : sc)) } : base0;
       const tl = motionTimeline(spec);
       // Inicio de cada escena + ya asentada, y la firma.
       const at = Number(process.env.AT ?? 0); // AT=0.75 muestrea cada escena a ese punto
