@@ -249,7 +249,7 @@ export function MotionEditor({ id: initialId, initial, onBack }: { id: number | 
                 <Field label="Cierre"><Pick value={clean.closing} options={MOTION_CLOSINGS} labels={MOTION_CLOSING_LABEL} onChange={(closing) => setSpec({ closing })} /></Field>
               )}
               {(spec.outro || spec.template === 'sting') && (
-                <Field label="Frase bajo el logo"><Input value={spec.outroLine} maxLength={60} onChange={(e) => setSpec({ outroLine: e.target.value })} placeholder="Entradas en la bio" /></Field>
+                <Field label="Frase bajo el logo"><Input value={spec.outroLine} maxLength={60} onChange={(e) => setSpec({ outroLine: e.target.value })} placeholder="Comenta INFO" /></Field>
               )}
               {spec.template === 'countdown' && (
                 <div className="grid grid-cols-2 gap-3 sm:col-span-2">

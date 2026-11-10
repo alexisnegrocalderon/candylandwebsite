@@ -252,7 +252,7 @@ export interface MotionSpec {
   /** Cierra con la firma animada de la marca (o la tarjeta del @). */
   outro: boolean;
   closing: MotionClosing;
-  /** Línea bajo el logo en la firma («Entradas en la bio»). */
+  /** Línea bajo el logo en la firma («Comenta INFO»). */
   outroLine: string;
   music: MotionMusic;
   sfx: boolean;
@@ -492,13 +492,13 @@ export function starterSpec(template: MotionTemplate, style: MotionStyle = 'liqu
                 { kicker: '¿Primera vez?', text: 'Te lo contamos fácil', highlight: 'fácil', secs: 2.4 },
                 { text: 'Anótalo', card: 'calendario', sub: 'Sábado desde las 22:00', secs: 3 },
                 { text: 'Qué llevar', card: 'checklist', items: ['Tu entrada en el celular', 'Carnet (+18)', 'Ganas de pasarlo bien'], secs: 3.4 },
-                { text: 'Entradas en la bio', highlight: 'bio', card: 'entrada', kicker: 'Mansion Playroom', sub: 'Valparaíso · +18', secs: 3 },
+                { text: 'Comenta INFO', highlight: 'INFO', card: 'entrada', kicker: 'Mansion Playroom', sub: 'Valparaíso · +18', secs: 3 },
               ]
           : style === 'poster'
             ? [
                 { kicker: 'Mansion Playroom', text: 'Crush on Playroom', highlight: 'Playroom', sub: 'Sábado · Valparaíso · +18', secs: 3 },
                 { text: 'Una noche distinta', highlight: 'distinta', secs: 2.6 },
-                { text: 'Entradas en la bio', highlight: 'bio', secs: 2.6 },
+                { text: 'Comenta INFO', highlight: 'INFO', secs: 2.6 },
               ]
           : style === 'arcade'
             ? [
@@ -519,7 +519,7 @@ export function starterSpec(template: MotionTemplate, style: MotionStyle = 'liqu
             : [
               { kicker: 'SE VIENE', text: 'Una noche distinta', highlight: 'distinta', secs: 2.2 },
               { kicker: 'SÁBADO', text: 'Valparaíso', sub: 'Dirección exacta al comprar', secs: 2.4 },
-              { text: 'Entradas en la bio', highlight: 'bio', secs: 2.4 },
+              { text: 'Comenta INFO', highlight: 'INFO', secs: 2.4 },
             ];
   if (style === 'arcade' && template === 'anuncio') {
     return normalizeMotionSpec({

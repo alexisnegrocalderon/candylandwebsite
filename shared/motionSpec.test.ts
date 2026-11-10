@@ -107,11 +107,11 @@ describe('motionTimeline', () => {
 describe('subtítulos', () => {
   it('reparten las palabras dentro de cada frase, en orden y sin solaparse', () => {
     const s = normalizeMotionSpec({
-      scenes: [{ text: 'a', say: 'Una noche distinta' }, { text: 'b', say: 'Entradas en la bio' }],
+      scenes: [{ text: 'a', say: 'Una noche distinta' }, { text: 'b', say: 'Comenta INFO' }],
       voice: { url: 'https://x.public.blob.vercel-storage.com/v.wav', secs: [1.2, 1.5] },
     });
     const words = captionWords(s);
-    expect(words.map((w) => w.text)).toEqual(['Una', 'noche', 'distinta', 'Entradas', 'en', 'la', 'bio']);
+    expect(words.map((w) => w.text)).toEqual(['Una', 'noche', 'distinta', 'Comenta', 'INFO']);
     expect(words[0].from).toBe(Math.round(MOTION_VOICE_LEAD * MOTION_FPS));
     for (let i = 1; i < words.length; i++) expect(words[i].from).toBeGreaterThanOrEqual(words[i - 1].to - 1);
   });
