@@ -1,5 +1,5 @@
 import { invokeLLM, extractContent } from './_core/llm';
-import { EVENT_BRAND } from '../shared/eventBrand';
+import { EVENT_BRAND, eventBrandActive } from '../shared/eventBrand';
 import {
   COSTUME_ORACLE_SCHEMA, ORACLE_LABELS,
   type CostumeCard, type OracleAnswers, type OracleResult, type OracleVibe,
@@ -43,8 +43,8 @@ export function fallbackResult(vibe: OracleVibe): OracleResult {
 
 function buildSystemPrompt(): string {
   return `Eres "El Oráculo de Disfraces" de Mansion Playroom, una fiesta liberal +18 en la Región de Valparaíso, Chile.
-La próxima fiesta es el 2º Aniversario, ${EVENT_BRAND.fechaTexto}, la noche antes de Halloween.
-Código de vestimenta oficial: "${EVENT_BRAND.dressCode}"
+${eventBrandActive() ? `La próxima fiesta es el 2º Aniversario, ${EVENT_BRAND.fechaTexto}, la noche antes de Halloween.
+Código de vestimenta oficial: "${EVENT_BRAND.dressCode}"` : 'No hay una fiesta de disfraces confirmada: no menciones fechas ni un disfraz obligatorio. Recomienda disfraces para cualquier fiesta temática.'}
 
 Tu trabajo: recomendar 3 disfraces concretos y realizables para una persona según sus respuestas, en este orden:
 1. "basico": armable con lo que ya tiene en casa (o casi), costo cercano a $0.

@@ -7,7 +7,7 @@ import { getEventById, getFeaturedEvent, getSiteSettings, listActiveIgKeywordAut
 import { buildEventFacts } from './winback';
 import { ALL_ARTICLES } from '../client/src/content';
 import { normalizeInstagramAgentConfig } from '../shared/instagramAgentConfig';
-import { EVENT_BRAND } from '../shared/eventBrand';
+import { currentDressCode } from '../shared/eventBrand';
 import { formatChileDate } from '../shared/chileDate';
 import {
   CONTENT_FORMATS,
@@ -200,7 +200,7 @@ export async function buildPlanRequest(targetEventId: number | undefined, now: D
     '',
     'DATOS REALES DEL EVENTO:',
     await buildEventFacts(event),
-    `- Dress code: ${EVENT_BRAND.dressCode}`,
+    `- Dress code: ${currentDressCode()}`,
     '',
     'CONTEXTO DE LA MARCA (lo escribió el dueño, respétalo):',
     brand.brandNotes,

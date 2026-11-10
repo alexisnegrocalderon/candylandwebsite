@@ -4,7 +4,6 @@ import { quickJson } from './studioAi/quickCall';
 import { TONO_DE_VOZ } from './studioAi/brandPack';
 import { AI_PHRASES_PROMPT_LINE } from '../shared/aiPhrasesEs';
 import { ALL_LAYOUT_KEYS, LAYOUT_AUTO, LAYOUTS, randomSeed } from '../shared/motionVariety';
-import { EVENT_BRAND } from '../shared/eventBrand';
 import { chileIsoDate } from '../shared/contentPlan';
 import {
   MOTION_ACCENTS, MOTION_BASES, MOTION_CARDS, MOTION_MAX_SCENES, MOTION_MUSIC, MOTION_STYLES, MOTION_TEMPLATES, normalizeKeyword, normalizeMotionSpec,
@@ -82,7 +81,7 @@ export const MOTION_SYSTEM = [
   'TONO DE MARCA (respétalo al pie de la letra):',
   TONO_DE_VOZ,
   '',
-  'REGLAS DE CONTENIDO: nada sexual explícito ni doble sentido grueso. Respeto, consentimiento y libertad. Nunca inventes shows, invitados, premios, precios ni horarios: usa SOLO los datos entregados. Nunca publiques la dirección exacta (di "Valparaíso" o "dirección al comprar").',
+  'REGLAS DE CONTENIDO: solo hablas de la fiesta que aparece en DATOS REALES DEL EVENTO. Nunca menciones disfraces obligatorios, aniversarios, dress codes ni fechas de fiestas anteriores: no existen para este video salvo que estén en esos datos. nada sexual explícito ni doble sentido grueso. Respeto, consentimiento y libertad. Nunca inventes shows, invitados, premios, precios ni horarios: usa SOLO los datos entregados. Nunca publiques la dirección exacta (di "Valparaíso" o "dirección al comprar").',
   '',
   'RITMO (lo que ya funciona en los reels de la marca):',
   '- Gancho en el PRIMER segundo: la escena 1 frena el scroll con una pregunta o una afirmación que rompe un prejuicio.',
@@ -192,7 +191,7 @@ async function eventFacts(eventId: number | null | undefined): Promise<{ facts: 
   if (!event) return { facts: 'No hay un evento elegido: no menciones fechas ni precios, y no uses la tarjeta calendario.', eventId: null, eventDate: '' };
   const days = Math.ceil((new Date(event.eventDate).getTime() - Date.now()) / 86_400_000);
   return {
-    facts: ['DATOS REALES DEL EVENTO:', await buildEventFacts(event), `- Dress code: ${EVENT_BRAND.dressCode}`, `- Faltan ${Math.max(0, days)} días.`].join('\n'),
+    facts: ['DATOS REALES DEL EVENTO:', await buildEventFacts(event), `- Faltan ${Math.max(0, days)} días.`].join('\n'),
     eventId: event.id,
     eventDate: chileIsoDate(new Date(event.eventDate)),
   };
