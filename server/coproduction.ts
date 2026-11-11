@@ -832,6 +832,8 @@ export async function applyPlaymoreTandas(
  * 3 = Trío). Es idempotente: sin compras huérfanas no cambia nada. */
 export async function repairPlaymoreOrphans(coproductionId: number): Promise<{
   approvedOrders: number; orphanItems: number; relinked: Record<string, number>; unresolved: { orderNumber: string; reason: string }[];
+  /** Todas las órdenes del evento por estado de pago (aprobada, pendiente, rechazada…), para ver qué hay de verdad. */
+  ordersByStatus: Record<string, number>; tickets: number; orphanTickets: number; accesos: { name: string; slug: string | null; status: string; sold: number; stock: number }[];
 }> {
   const db = await getDb();
   if (!db) throw new Error('Database not available');
@@ -880,7 +882,18 @@ export async function repairPlaymoreOrphans(coproductionId: number): Promise<{
     const sold = afterItems.filter((i) => i.ticketTypeId === id).reduce((n, i) => n + Number(i.quantity), 0);
     await db.update(ticketTypes).set({ soldCount: sold }).where(eq(ticketTypes.id, id));
   }
-  return { approvedOrders: approved.length, orphanItems: orphans.length, relinked, unresolved };
+  // Foto completa de lo que hay en la base para este evento (no solo lo aprobado).
+  const allOrders = await db.select({ status: orders.paymentStatus }).from(orders).where(eq(orders.eventId, eventId));
+  const ordersByStatus: Record<string, number> = {};
+  for (const o of allOrders) ordersByStatus[String(o.status)] = (ordersByStatus[String(o.status)] ?? 0) + 1;
+  const eventTickets = await db.select({ id: tickets.id, ticketTypeId: tickets.ticketTypeId }).from(tickets).where(eq(tickets.eventId, eventId));
+  const typesNow = await db.select().from(ticketTypes).where(eq(ticketTypes.eventId, eventId));
+  const idsNow = new Set(typesNow.map((t) => t.id));
+  return {
+    approvedOrders: approved.length, orphanItems: orphans.length, relinked, unresolved, ordersByStatus,
+    tickets: eventTickets.length, orphanTickets: eventTickets.filter((t) => !idsNow.has(t.ticketTypeId)).length,
+    accesos: typesNow.filter((t) => t.category === 'acceso').map((t) => ({ name: t.name, slug: t.accesoSlug ?? null, status: t.status, sold: Number(t.soldCount), stock: Number(t.totalStock) })),
+  };
 }
 
 // ── Códigos de descuento del evento ─────────────────────────────────────────

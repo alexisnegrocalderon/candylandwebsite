@@ -724,9 +724,11 @@ function PlaymoreTandas({ slug }: { slug: string }) {
     },
     onError,
   });
+  const [repairResult, setRepairResult] = useState<null | { approvedOrders: number; orphanItems: number; relinked: Record<string, number>; unresolved: { orderNumber: string; reason: string }[]; ordersByStatus: Record<string, number>; tickets: number; orphanTickets: number; accesos: { name: string; slug: string | null; status: string; sold: number; stock: number }[] }>(null);
   // Compras hechas antes de borrar los accesos: se vuelven a conectar con el acceso nuevo (y así cuentan en Inicio, la puerta y «Mi cuenta»).
   const repair = trpc.coproduction.repairOrphans.useMutation({
     onSuccess: (r) => {
+      setRepairResult(r);
       const linked = Object.entries(r.relinked).map(([k, n]) => `${n} ${k}`).join(', ');
       toast.success(r.orphanItems === 0
         ? `Compras aprobadas de PLAYMORE: ${r.approvedOrders}. Ninguna quedó sin acceso: no hay nada que recuperar.`
@@ -776,6 +778,17 @@ function PlaymoreTandas({ slug }: { slug: string }) {
       <div className="space-y-1 border-t border-white/10 pt-3">
         <p className="text-xs text-muted-foreground">Si ya había compras cuando borraste los accesos, esas entradas no se cuentan ni aparecen en la puerta. Después de aplicar las tandas, presiona esto para reconectarlas.</p>
         <Button variant="outline" disabled={repair.isPending} onClick={() => repair.mutate({ slug })}>{repair.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-1.5 h-4 w-4" />} Recuperar compras sin acceso</Button>
+        {repairResult && (
+          <div className="mt-2 space-y-1 rounded-2xl border border-white/15 bg-black/30 p-4 text-sm">
+            <p className="font-semibold">Lo que hay en la base para PLAYMORE</p>
+            <p>Órdenes: {Object.keys(repairResult.ordersByStatus).length ? Object.entries(repairResult.ordersByStatus).map(([k, n]) => `${n} ${k}`).join(' · ') : 'ninguna todavía'}</p>
+            <p>Entradas emitidas: {repairResult.tickets} · sin acceso (huérfanas): {repairResult.orphanTickets} · compras aprobadas sin acceso: {repairResult.orphanItems}</p>
+            {Object.keys(repairResult.relinked).length > 0 && <p className="text-emerald-300">Recuperadas: {Object.entries(repairResult.relinked).map(([k, n]) => `${n} ${k}`).join(', ')}</p>}
+            {repairResult.unresolved.map((u) => <p key={u.orderNumber} className="text-amber-300">Sin resolver {u.orderNumber}: {u.reason}</p>)}
+            <p className="pt-1 text-xs text-muted-foreground">Accesos hoy: {repairResult.accesos.map((a) => `${a.name} (${a.status}, ${a.sold}/${a.stock})`).join(' · ') || 'ninguno'}</p>
+            {repairResult.approvedOrders === 0 && <p className="pt-1 text-muted-foreground">No hay ninguna compra aprobada de PLAYMORE en la base: por eso Inicio y Ajustes muestran 0.</p>}
+          </div>
+        )}
       </div>
     </section>
   );
