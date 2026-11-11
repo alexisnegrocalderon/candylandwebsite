@@ -89,9 +89,9 @@ export function SummaryTabs({ evento, eventoLoading, plata, plataLoading, gente,
     },
     plata: {
       icon: Banknote, label: 'Plata',
-      value: plata?.payables ? short(plata.payables.total) : plataLoading ? '…' : '—',
-      caption: plata?.company ? `por pagar · mes ${short(plata.company.result)}` : 'por pagar',
-      tone: plata?.payables && plata.payables.total > 0 ? 'warn' : undefined,
+      value: plata?.event?.payables ? short(plata.event.payables.total) : (plata as any)?.payables ? short((plata as any).payables.total) : plataLoading ? '…' : '—',
+      caption: plata?.event ? `por pagar del evento · gastos ${short(plata.event.spend?.total ?? 0)}` : (plata as any)?.company ? `por pagar · mes ${short((plata as any).company.result)}` : 'por pagar',
+      tone: (plata?.event?.payables?.total ?? 0) > 0 ? 'warn' : undefined,
     },
     gente: {
       icon: Users, label: 'Gente',

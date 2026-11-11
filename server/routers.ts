@@ -3637,7 +3637,7 @@ export const appRouter = router({
   // dos son conteos y los abre también el invitado de demostración.
   home: router({
     evento: adminReadProcedure.input(z.object({ eventId: z.number().int().positive() })).query(({ input }) => homeSummary.getHomeEvento(input.eventId)),
-    plata: adminProcedure.query(() => homeSummary.getHomePlata()),
+    plata: adminProcedure.input(z.object({ eventId: z.number().int().positive().nullish() }).optional()).query(async ({ input }): Promise<any> => input?.eventId ? { event: await homeSummary.getHomePlataEvento(input.eventId) } : { ...(await homeSummary.getHomePlata()), event: null }),
     gente: adminReadProcedure.input(z.object({ eventId: z.number().int().positive().nullish() }).optional()).query(({ input }) => homeSummary.getHomeGente(input?.eventId ?? null)),
   }),
 

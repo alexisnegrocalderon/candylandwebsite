@@ -101,7 +101,7 @@ export function HomeView({ badgeCounts, onOpen }: { badgeCounts: Record<string, 
   // le pide ni se le muestra.
   const isDemo = useIsDemo();
   const evento = useEvento(eventId);
-  const plata = usePlata(!isDemo);
+  const plata = usePlata(!isDemo, eventId);
   const gente = useGente(eventId);
   const alerts = useMemo(() => buildHomeAlerts({
     liveAlerts: evento.data?.pulse?.alerts ?? null,

@@ -145,10 +145,12 @@ export function groupCommissionsByEvent(
 }
 
 /** Todo lo que hay que pagar o que se le debe a terceros. */
-export async function getPayables() {
+export async function getPayables(opts: { eventId?: number } = {}) {
   const conn = await db.getDb();
   if (!conn) return null;
-  const colab = await colabEventIds(conn);
+  const colabSet = await colabEventIds(conn);
+  // Con eventId: solo ese evento (Inicio). Sin él: todos menos los colab (Finanzas de la empresa).
+  const colab = { has: (id: number) => (opts.eventId != null ? id !== opts.eventId : colabSet.has(id)) };
 
   // Comisiones de embajadores, agrupadas por EVENTO: cada evento es su propia
   // campaña y se paga por separado (un evento que aún no ocurre no se debe).

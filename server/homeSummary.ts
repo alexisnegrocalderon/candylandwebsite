@@ -83,6 +83,37 @@ export async function getHomeEvento(eventId: number) {
 
 /* ─── Plata ──────────────────────────────────────────────── */
 
+/** Plata del evento que viene (Inicio): ingresos, gastos, por pagar y resultado de ESE evento.
+ * Lo de la empresa (deudas de eventos pasados, caja, SII) queda en Finanzas. */
+export async function getHomePlataEvento(eventId: number) {
+  const [pnl, payables, expensesRows] = await Promise.all([
+    part(async () => db.getEventPnl(eventId, { excludeGeneral: true })),
+    part(async () => getPayables({ eventId })),
+    part(async () => (await db.listExpenses({ eventId })) as any[]),
+  ]);
+  const event = await part(async () => db.getEventById(eventId));
+  const rows = (expensesRows ?? []).filter((r) => r.eventId == null || Number(r.eventId) === eventId);
+  return {
+    eventId,
+    title: (event as any)?.title ?? pnl?.title ?? "Evento",
+    eventDate: (event as any)?.eventDate ?? null,
+    income: pnl ? { gross: pnl.grossIncome, cardFee: pnl.cardFeeAmount, net: pnl.netIncome } : null,
+    result: pnl ? { netProfit: pnl.netProfit, margin: pnl.marginPercent } : null,
+    costs: pnl ? { direct: pnl.directExpensesTotal, staff: pnl.staffCostsTotal, commissions: pnl.ambassadorCommissions, extra: pnl.extraCostsTotal, cogs: pnl.cogs } : null,
+    payables: payables ? {
+      staffUnpaidTotal: payables.staffUnpaidTotal, staffUnpaidCount: payables.staffUnpaid.length,
+      ambassadors: payables.ambassadorsPending + payables.ambassadorsPendingFuture,
+      parkingTotal: payables.parkingTotal,
+      total: payables.staffUnpaidTotal + payables.ambassadorsPending + payables.ambassadorsPendingFuture + payables.parkingTotal,
+    } : null,
+    spend: {
+      total: rows.reduce((s, r) => s + Number(r.amountTotal), 0), count: rows.length,
+      byCategory: expensesByCategory(rows).slice(0, 6),
+      latest: rows.slice(0, 5).map((r) => ({ description: r.description as string, amount: Number(r.amountTotal), category: r.category as string, date: r.expenseDate })),
+    },
+  };
+}
+
 export async function getHomePlata(now: Date = new Date()) {
   const monthKey = monthKeyFor(now);
   const year = Number(monthKey.slice(0, 4));
