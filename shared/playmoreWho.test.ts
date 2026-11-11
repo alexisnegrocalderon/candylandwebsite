@@ -61,3 +61,15 @@ describe('whoKeyFor', () => {
     expect(whoKeyFor('otro')).toBeNull();
   });
 });
+
+describe('filas de una tanda cerrada', () => {
+  it('si el duo tiene la tanda anterior agotada y la nueva activa, se ofrece la activa', () => {
+    const types = [
+      { accesoSlug: 'duo', category: 'acceso', status: 'soldout', hasStock: false, price: 40000 },
+      { accesoSlug: 'duo', category: 'acceso', status: 'active', hasStock: true, price: 50000 },
+    ];
+    const pareja = whoAvailable(types).find((o) => o.key === 'pareja');
+    expect(pareja?.type.status).toBe('active');
+    expect(pareja?.type.price).toBe(50000);
+  });
+});

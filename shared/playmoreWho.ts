@@ -37,7 +37,9 @@ type TypeLike = { accesoSlug?: string | null; category?: string | null; status?:
 export function whoAvailable<T extends TypeLike>(types: readonly T[]): (WhoOption & { type: T })[] {
   const out: (WhoOption & { type: T })[] = [];
   for (const o of WHO_OPTIONS) {
-    const type = types.find((t) => t.accesoSlug === o.slug && (t.category === 'acceso' || !t.category) && t.status !== 'hidden');
+    // Entre varias filas del mismo acceso (una tanda cerrada y la activa) gana la activa: la cerrada no es la que se vende.
+    const mine = types.filter((t) => t.accesoSlug === o.slug && (t.category === 'acceso' || !t.category) && t.status !== 'hidden');
+    const type = mine.find((t) => t.status === 'active') ?? mine[0];
     if (type) out.push({ ...o, type });
   }
   return out;

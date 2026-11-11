@@ -20,6 +20,7 @@ import { redeemDisplayCode } from "./caja/redeem";
 import { undoRedeemDisplayCode } from "./caja/undoRedeem";
 import { checkInTicket } from "./caja/checkin";
 import { withPlayTeams } from "./playTeamsDoor";
+import { dropSupersededTickets } from "../shared/liveTickets";
 import { sellParkingAtDoor } from "./caja/parkingPaid";
 import { MAX_TEST_GUESTS, MIN_TEST_GUESTS } from "../shared/playmatchTest";
 import { UNDO_EXPENSE_WINDOW_MS } from "../shared/expenses";
@@ -4826,7 +4827,8 @@ export const appRouter = router({
       const types = event ? await db.getTicketTypesByEventId(event.id) : [];
       // Solo lo que se vende por la web: accesos y extras (estacionamiento). La carta de la fiesta
       // (tragos, comida, merch, guardarropía) es de la caja y no se muestra ni se expone acá.
-      const webTypes = types.filter((t: any) => t.category === 'acceso' || t.category === 'extra');
+      // Sin las filas cerradas de una tanda anterior (quedan 'soldout' junto a la nueva activa): si no, la landing muestra todo agotado.
+      const webTypes = dropSupersededTickets(types.filter((t: any) => t.category === 'acceso' || t.category === 'extra'));
       const visible = webTypes.filter((t: any) => t.status !== 'hidden' && presaleAllows(event, t));
       // Diagnóstico solo para el dueño (vista previa / admin): por qué no aparece un acceso.
       const diag = full && !isLive ? {
