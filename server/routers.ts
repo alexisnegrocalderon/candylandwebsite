@@ -4770,6 +4770,13 @@ export const appRouter = router({
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudieron aplicar las tandas.' });
       }
     }),
+    repairOrphans: adminProcedure.input(z.object({ slug: z.string().max(50) })).mutation(async ({ input }) => {
+      try {
+        return await coproductionSvc.repairPlaymoreOrphans((await requireCoproduction(input.slug)).id);
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo revisar.' });
+      }
+    }),
     approveExpense: adminProcedure.input(z.object({ slug: z.string().max(50), id: z.number().int() })).mutation(async ({ input }) => {
       try {
         await coproductionSvc.approveCoproductionExpense(await requireCoproduction(input.slug), input.id);

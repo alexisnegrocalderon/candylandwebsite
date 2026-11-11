@@ -19,7 +19,7 @@ import { chileDateKey } from '../shared/chileDate';
 import { personasForTicket } from '../shared/mission300';
 import { COLAB_HOSTS } from '../shared/colabHosts';
 import { presaleParkingOnlyFor } from '../shared/colabPlaycard';
-import { buildPlaymorePhases, tandaRowProblem, PLAYMORE_SOLTERO, type PlaymoreTandaRow } from '../shared/playmoreTandas';
+import { buildPlaymorePhases, tandaRowProblem, PLAYMORE_SOLTERO, PLAYMORE_TANDA_ROWS, type PlaymoreTandaRow } from '../shared/playmoreTandas';
 
 const isMissingTable = (err: unknown) => /doesn't exist|no such table|unknown table/i.test(String((err as any)?.message ?? (err as any)?.cause?.message ?? err));
 
@@ -825,6 +825,63 @@ export async function applyPlaymoreTandas(
   return { updated, created, missing, phaseIndex, percents: rows.map((r) => ({ slug: r.slug, ...(({ t1, t2 }) => ({ t1, t2 }))(exactPercents(r)) })) };
 }
 
+
+/** Recupera las compras de PLAYMORE cuyo acceso se borró del panel: la entrada sigue existiendo pero apunta a un acceso que ya no
+ * está, y por eso no se cuenta (Inicio, Ajustes), no aparece en la puerta ni en «Mi cuenta». Cada una se reconecta con el acceso
+ * nuevo del mismo tipo, deduciéndolo del precio pagado y de cuántas personas son (1 = Soltera o Soltero, 2 = Dúo o Dos mujeres,
+ * 3 = Trío). Es idempotente: sin compras huérfanas no cambia nada. */
+export async function repairPlaymoreOrphans(coproductionId: number): Promise<{
+  approvedOrders: number; orphanItems: number; relinked: Record<string, number>; unresolved: { orderNumber: string; reason: string }[];
+}> {
+  const db = await getDb();
+  if (!db) throw new Error('Database not available');
+  const cp = await getCoproductionById(coproductionId);
+  if (!cp?.eventId) throw new Error('Primero enlaza el evento en Configuración.');
+  const eventId = cp.eventId;
+  const approved = await db.select().from(orders).where(and(eq(orders.eventId, eventId), eq(orders.paymentStatus, 'approved')));
+  const types = await db.select().from(ticketTypes).where(eq(ticketTypes.eventId, eventId));
+  const typeIds = new Set(types.map((t) => t.id));
+  const liveBySlug = new Map<string, number>();
+  for (const t of types) if (t.category === 'acceso' && t.accesoSlug && t.status === 'active') liveBySlug.set(t.accesoSlug, t.id);
+  const orderIds = approved.map((o) => o.id);
+  const items = orderIds.length ? await db.select().from(orderItems).where(inArray(orderItems.orderId, orderIds)) : [];
+  const orphans = items.filter((i) => !typeIds.has(i.ticketTypeId));
+
+  const priceSets: Record<string, Set<number>> = {};
+  for (const r of PLAYMORE_TANDA_ROWS) priceSets[r.slug] = new Set([r.general, r.t1, r.t2]);
+  priceSets[PLAYMORE_SOLTERO.slug] = new Set([PLAYMORE_SOLTERO.price]);
+  const slugFor = (price: number, persons: number): string | null => {
+    const candidates = persons >= 3 ? ['trio'] : persons === 2 ? ['duo', 'duo_mujeres'] : ['soltera', 'soltero'];
+    const hits = candidates.filter((slug) => priceSets[slug]?.has(price));
+    return hits.length === 1 ? hits[0] : null;
+  };
+
+  const relinked: Record<string, number> = {};
+  const unresolved: { orderNumber: string; reason: string }[] = [];
+  const touched = new Set<number>();
+  for (const item of orphans) {
+    const order = approved.find((o) => o.id === item.orderId)!;
+    const persons = Math.max(1, parseAttendees(order.attendeeData).length);
+    const price = Number(item.unitPrice);
+    const slug = slugFor(price, persons);
+    const target = slug ? liveBySlug.get(slug) : undefined;
+    if (!slug || !target) {
+      unresolved.push({ orderNumber: order.orderNumber, reason: slug ? `falta el acceso «${slug}»` : `no calza el precio $${price.toLocaleString('es-CL')} con ${persons} persona(s)` });
+      continue;
+    }
+    await db.update(orderItems).set({ ticketTypeId: target }).where(eq(orderItems.id, item.id));
+    await db.update(tickets).set({ ticketTypeId: target }).where(and(eq(tickets.orderItemId, item.id), eq(tickets.eventId, eventId)));
+    relinked[slug] = (relinked[slug] ?? 0) + 1;
+    touched.add(target);
+  }
+  // El contador de vendidos de cada acceso reconectado = entradas realmente compradas (órdenes aprobadas).
+  const afterItems = orderIds.length ? await db.select().from(orderItems).where(inArray(orderItems.orderId, orderIds)) : [];
+  for (const id of Array.from(touched)) {
+    const sold = afterItems.filter((i) => i.ticketTypeId === id).reduce((n, i) => n + Number(i.quantity), 0);
+    await db.update(ticketTypes).set({ soldCount: sold }).where(eq(ticketTypes.id, id));
+  }
+  return { approvedOrders: approved.length, orphanItems: orphans.length, relinked, unresolved };
+}
 
 // ── Códigos de descuento del evento ─────────────────────────────────────────
 // Siempre atados al evento de la co-producción: el socio nunca elige otro evento.

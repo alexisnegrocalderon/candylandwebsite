@@ -724,6 +724,17 @@ function PlaymoreTandas({ slug }: { slug: string }) {
     },
     onError,
   });
+  // Compras hechas antes de borrar los accesos: se vuelven a conectar con el acceso nuevo (y así cuentan en Inicio, la puerta y «Mi cuenta»).
+  const repair = trpc.coproduction.repairOrphans.useMutation({
+    onSuccess: (r) => {
+      const linked = Object.entries(r.relinked).map(([k, n]) => `${n} ${k}`).join(', ');
+      toast.success(r.orphanItems === 0
+        ? `Compras aprobadas de PLAYMORE: ${r.approvedOrders}. Ninguna quedó sin acceso: no hay nada que recuperar.`
+        : `Compras aprobadas: ${r.approvedOrders}. Recuperadas: ${linked || 'ninguna'}.${r.unresolved.length ? ` Sin resolver: ${r.unresolved.map((u) => `${u.orderNumber} (${u.reason})`).join('; ')}.` : ''}`, { duration: 15000 });
+      void utils.events.invalidate(); void utils.tickets.invalidate();
+    },
+    onError,
+  });
   const set = (i: number, k: 'general' | 't1' | 't2', v: string) => setRows(rows.map((r, j) => (j === i ? { ...r, [k]: Math.round(Number(v) || 0) } : r)));
   const problem = rows.map(tandaRowProblem).find(Boolean) ?? null;
   const run = (force: boolean) => apply.mutate({
@@ -762,6 +773,10 @@ function PlaymoreTandas({ slug }: { slug: string }) {
       <p className="text-xs text-muted-foreground">Sin fecha, la tanda avanza al cerrarla a mano (“Cerrar tanda” en Eventos) o al agotarse su cupo.</p>
       {problem && <p className="text-xs text-red-400">{problem}</p>}
       <Button disabled={!!problem || apply.isPending} onClick={() => run(false)}>{apply.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Check className="mr-1.5 h-4 w-4" />} Aplicar tandas al evento (y crear los accesos que falten)</Button>
+      <div className="space-y-1 border-t border-white/10 pt-3">
+        <p className="text-xs text-muted-foreground">Si ya había compras cuando borraste los accesos, esas entradas no se cuentan ni aparecen en la puerta. Después de aplicar las tandas, presiona esto para reconectarlas.</p>
+        <Button variant="outline" disabled={repair.isPending} onClick={() => repair.mutate({ slug })}>{repair.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-1.5 h-4 w-4" />} Recuperar compras sin acceso</Button>
+      </div>
     </section>
   );
 }
