@@ -779,7 +779,7 @@ export function checkoutPreviewAccess(
 export async function applyPlaymoreTandas(
   coproductionId: number, rows: PlaymoreTandaRow[], until: (string | null)[],
   solteroPrice: number, solteroStock: number, force: boolean,
-): Promise<{ updated: string[]; missing: string[]; percents: { slug: string; t1: number; t2: number }[] }> {
+): Promise<{ updated: string[]; created: string[]; missing: string[]; phaseIndex: number; percents: { slug: string; t1: number; t2: number }[] }> {
   const db = await getDb();
   if (!db) throw new Error('Database not available');
   const cp = await getCoproductionById(coproductionId);
@@ -789,21 +789,40 @@ export async function applyPlaymoreTandas(
   const tts = (await db.select().from(ticketTypes).where(and(eq(ticketTypes.eventId, cp.eventId), eq(ticketTypes.category, 'acceso'), eq(ticketTypes.status, 'active'))));
   const sold = tts.filter((t) => t.soldCount > 0);
   if (sold.length && !force) throw new Error('Ya hay entradas vendidas en este evento: aplicar las tandas de nuevo pisaría la tanda en curso. Confirma para forzarlo.');
-  const updated: string[] = []; const missing: string[] = [];
+
+  // La tanda vigente HOY según las fechas (la primera cuyo cierre todavía no pasó); sin fechas, la 1ª.
+  const phases = buildPlaymorePhases(rows, until);
+  const nowMs = Date.now();
+  let phaseIndex = phases.findIndex((ph) => !ph.untilDate || new Date(ph.untilDate).getTime() > nowMs);
+  if (phaseIndex < 0) phaseIndex = phases.length - 1;
+  const priceNow = (slug: string, fallback: number) => phases[phaseIndex].prices?.[slug] ?? fallback;
+
+  const updated: string[] = []; const created: string[] = []; const missing: string[] = [];
+  let sortOrder = 0;
+  const NAMES: Record<string, string> = { soltera: 'ACCESO SOLTERA', soltero: 'ACCESO SOLTERO', duo: 'ACCESO DÚO', duo_mujeres: 'ACCESO DOS MUJERES', trio: 'ACCESO TRÍO' };
+  const DEFAULT_STOCK = 150;
+  const create = async (slug: string, price: number, originalPrice: number | null, totalStock: number) => {
+    await db.insert(ticketTypes).values({
+      eventId: cp.eventId!, name: NAMES[slug] ?? slug.toUpperCase(), category: 'acceso', accesoSlug: slug,
+      price: String(price), originalPrice: originalPrice != null ? String(originalPrice) : null,
+      totalStock, soldCount: 0, maxPerOrder: 1, sortOrder: sortOrder++, status: 'active',
+    } as any);
+    created.push(slug);
+  };
   for (const r of rows) {
     const tt = tts.find((t) => t.accesoSlug === r.slug);
-    if (!tt) { missing.push(r.slug); continue; }
-    await db.update(ticketTypes).set({ price: String(r.t1), originalPrice: String(r.general) }).where(eq(ticketTypes.id, tt.id));
+    if (!tt) { await create(r.slug, priceNow(r.slug, r.t1), r.general, DEFAULT_STOCK); continue; }
+    await db.update(ticketTypes).set({ price: String(priceNow(r.slug, r.t1)), originalPrice: String(r.general) }).where(eq(ticketTypes.id, tt.id));
     updated.push(r.slug);
   }
   const sol = tts.find((t) => t.accesoSlug === PLAYMORE_SOLTERO.slug);
   if (sol) {
     await db.update(ticketTypes).set({ price: String(solteroPrice), originalPrice: null, totalStock: Math.max(solteroStock, sol.soldCount) }).where(eq(ticketTypes.id, sol.id));
     updated.push(sol.accesoSlug!);
-  } else missing.push(PLAYMORE_SOLTERO.slug);
-  await db.update(events).set({ tandaDiscountSchedule: buildPlaymorePhases(rows, until) as any, tandaPhaseIndex: 0 }).where(eq(events.id, cp.eventId));
+  } else await create(PLAYMORE_SOLTERO.slug, solteroPrice, null, solteroStock);
+  await db.update(events).set({ tandaDiscountSchedule: phases as any, tandaPhaseIndex: phaseIndex }).where(eq(events.id, cp.eventId));
   const { exactPercents } = await import('../shared/playmoreTandas');
-  return { updated, missing, percents: rows.map((r) => ({ slug: r.slug, ...(({ t1, t2 }) => ({ t1, t2 }))(exactPercents(r)) })) };
+  return { updated, created, missing, phaseIndex, percents: rows.map((r) => ({ slug: r.slug, ...(({ t1, t2 }) => ({ t1, t2 }))(exactPercents(r)) })) };
 }
 
 

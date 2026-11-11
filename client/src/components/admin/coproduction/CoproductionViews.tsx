@@ -719,7 +719,7 @@ function PlaymoreTandas({ slug }: { slug: string }) {
   const [until, setUntil] = useState<string[]>(['2026-11-08T23:59', '2026-11-22T23:59', '2026-12-05T06:00']);
   const apply = trpc.coproduction.applyTandas.useMutation({
     onSuccess: (r) => {
-      toast.success(`Tandas aplicadas${r.missing.length ? ` (sin entrada para: ${r.missing.join(', ')})` : ''}`);
+      toast.success(`Listo: tanda ${r.phaseIndex + 1} vigente.${r.created.length ? ` Accesos creados: ${r.created.join(', ')}.` : ''}${r.updated.length ? ` Actualizados: ${r.updated.join(', ')}.` : ''}`);
       void utils.events.invalidate(); void utils.tickets.invalidate();
     },
     onError,
@@ -761,7 +761,7 @@ function PlaymoreTandas({ slug }: { slug: string }) {
       </div>
       <p className="text-xs text-muted-foreground">Sin fecha, la tanda avanza al cerrarla a mano (“Cerrar tanda” en Eventos) o al agotarse su cupo.</p>
       {problem && <p className="text-xs text-red-400">{problem}</p>}
-      <Button disabled={!!problem || apply.isPending} onClick={() => run(false)}>{apply.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Check className="mr-1.5 h-4 w-4" />} Aplicar tandas al evento</Button>
+      <Button disabled={!!problem || apply.isPending} onClick={() => run(false)}>{apply.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Check className="mr-1.5 h-4 w-4" />} Aplicar tandas al evento (y crear los accesos que falten)</Button>
     </section>
   );
 }
