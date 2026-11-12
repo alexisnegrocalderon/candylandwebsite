@@ -17,12 +17,17 @@ import {
   MOTION_STYLE_LABEL, MOTION_STYLES, MOTION_TEMPLATE_LABEL, MOTION_TEMPLATES, emptyScene, motionTimeline, normalizeMotionSpec, voiceSays,
   type MotionScene, type MotionSpec,
 } from '@shared/motionSpec';
+import { applyKeyword } from '@shared/motionSpec';
+import { AI_MODELS, AI_MODEL_LABEL, motionCallEstimateUsd, type AiModel } from '@shared/studioAi';
+import { MOTION_CUSTOM_BG, MOTION_CUSTOM_BG_LABEL, MOTION_CUSTOM_ENTRY, MOTION_CUSTOM_ENTRY_LABEL, MOTION_CUSTOM_FONTS, MOTION_CUSTOM_FONT_LABEL, normalizeCustom } from '@shared/motionSpec';
 import { specHash } from '@shared/studioRender';
 import { LAYOUT_AUTO, LAYOUTS, randomSeed, resolveLayouts } from '@shared/motionVariety';
 import { chileIsoDate } from '@shared/contentPlan';
 import { TTS_VOICE_KEYS, TTS_VOICES, voiceScriptHash, type TtsVoice } from '@shared/studioVoice';
 import { MotionPreview } from './MotionPreview';
 import { PackPanel } from './PackPanel';
+import { PublicacionControls } from './PublicacionControls';
+import { saveVideoFile } from './saveVideo';
 
 /* Editor del Estudio Motion: la vista previa a la izquierda (se actualiza al
  * instante, sin IA) y la receta a la derecha. Guardar, grabar a MP4 y mandar
@@ -78,6 +83,21 @@ export function MotionEditor({ id: initialId, initial, onBack }: { id: number | 
   });
   const { data: renderCfg } = trpc.motionStudio.renderConfig.useQuery();
   const { data: voiceCfg } = trpc.motionStudio.voiceConfig.useQuery();
+  const { data: canCustom } = trpc.motionStudio.canUseCustomStyle.useQuery();
+  // Guion con IA para este video: reemplaza las escenas (sin guardar hasta pulsar Guardar).
+  const [guionTema, setGuionTema] = useState('');
+  const [guionDensidad, setGuionDensidad] = useState<'pocas' | 'medias' | 'muchas'>('medias');
+  const [guionModelo, setGuionModelo] = useState<AiModel>('claude-sonnet-5-5');
+  const [guionEscenas, setGuionEscenas] = useState<number | null>(null);
+  const guion = trpc.motionStudio.generate.useMutation({
+    onSuccess: (r) => {
+      const v = r.variants[0] as MotionSpec | undefined;
+      if (!v) return;
+      setSpec({ scenes: v.scenes, caption: v.caption });
+      toast.success(`Guion listo (≈ US$ ${r.costUsd.toFixed(3).replace('.', ',')}). Revísalo y guarda.`);
+    },
+    onError: (e) => toast.error(e.message),
+  });
   const { data: eventsData } = trpc.events.listAll.useQuery();
   const events = (eventsData ?? []).filter((e: any) => new Date(e.eventDate).getTime() > Date.now() - 86_400_000);
 
@@ -102,9 +122,18 @@ export function MotionEditor({ id: initialId, initial, onBack }: { id: number | 
     },
     onError: (e) => toast.error(e.message),
   });
-  const send = trpc.ambassadorContent.sendDesigns.useMutation({
-    onSuccess: (r) => toast.success(r.skipped.length ? r.skipped[0].reason : 'Enviado a «Por aprobar» de embajadores.'),
+  // Cola de la marca (@mansionplayroom): aprobar, quitar la aprobación y publicar como Reel.
+  const approve = trpc.motionStudio.approve.useMutation({
+    onSuccess: () => { utils.motionStudio.get.invalidate({ id: id ?? 0 }); utils.motionStudio.list.invalidate(); toast.success('Aprobado. Ya puedes publicarlo en Instagram.'); },
     onError: (e) => toast.error(e.message),
+  });
+  const unapprove = trpc.motionStudio.unapprove.useMutation({
+    onSuccess: () => { utils.motionStudio.get.invalidate({ id: id ?? 0 }); utils.motionStudio.list.invalidate(); toast.success('Vuelve a «Por aprobar».'); },
+    onError: (e) => toast.error(e.message),
+  });
+  const publish = trpc.motionStudio.publish.useMutation({
+    onSuccess: () => { utils.motionStudio.get.invalidate({ id: id ?? 0 }); utils.motionStudio.list.invalidate(); toast.success('Publicado como Reel en @mansionplayroom.'); },
+    onError: (e) => { utils.motionStudio.get.invalidate({ id: id ?? 0 }); toast.error(e.message); },
   });
 
   // Ctrl/Cmd+S guarda.
@@ -166,11 +195,18 @@ export function MotionEditor({ id: initialId, initial, onBack }: { id: number | 
           {renderState.status === 'listo' && renderState.url && (
             <>
               <span>{mp4Fresh ? 'MP4 listo.' : 'Hay un MP4, pero es de una versión anterior: vuelve a grabar.'}</span>
-              <a href={renderState.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-medium underline"><Download className="h-4 w-4" /> Descargar</a>
-              {id != null && mp4Fresh && (
-                <WriteButton size="sm" variant="outline" disabled={send.isPending} onClick={() => send.mutate({ ids: [id] })}>
-                  <Send className="mr-1 h-4 w-4" /> Mandar a embajadores
-                </WriteButton>
+              <Button size="sm" variant="outline" onClick={() => void saveVideoFile(renderState.url!, clean.title)}><Download className="mr-1 h-4 w-4" /> Descargar / Guardar video</Button>
+              {id != null && stored?.publicacion && (
+                <PublicacionControls
+                  estado={stored.publicacion.estadoActual}
+                  igMediaId={stored.publicacion.igMediaId}
+                  error={stored.publicacion.error}
+                  mp4Fresh={mp4Fresh}
+                  busy={approve.isPending || unapprove.isPending || publish.isPending}
+                  onApprove={() => approve.mutate({ id })}
+                  onUnapprove={() => unapprove.mutate({ id })}
+                  onPublish={() => publish.mutate({ id })}
+                />
               )}
             </>
           )}
@@ -199,7 +235,32 @@ export function MotionEditor({ id: initialId, initial, onBack }: { id: number | 
           <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
             <CardContent className="grid gap-3 pt-6 sm:grid-cols-2">
               <Field label="Plantilla"><Pick value={spec.template} options={MOTION_TEMPLATES} labels={MOTION_TEMPLATE_LABEL} onChange={(template) => setSpec({ template })} /></Field>
-              <Field label="Estilo"><Pick value={spec.style} options={MOTION_STYLES} labels={MOTION_STYLE_LABEL} onChange={(style) => setSpec({ style })} /></Field>
+              <div className="space-y-3 rounded-xl border border-border/60 p-3">
+                <p className="text-xs font-semibold text-muted-foreground">Escribir guion con IA</p>
+                <Textarea rows={2} maxLength={2000} value={guionTema} onChange={(e) => setGuionTema(e.target.value)} placeholder="Ej: explicar cómo funciona el Playmatch y qué llevar a la fiesta." />
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <Field label="Texto por escena"><Pick value={guionDensidad} options={['pocas', 'medias', 'muchas'] as const} labels={{ pocas: 'Pocas palabras', medias: 'Medias', muchas: 'Muchas palabras' }} onChange={setGuionDensidad} /></Field>
+                  <Field label="Escenas"><Pick value={guionEscenas == null ? 'auto' : String(guionEscenas)} options={['auto', '3', '4', '5', '6', '7'] as const} labels={{ auto: 'Automático', '3': '3', '4': '4', '5': '5', '6': '6', '7': '7' }} onChange={(v) => setGuionEscenas(v === 'auto' ? null : Number(v))} /></Field>
+                  <Field label="Modelo"><Pick value={guionModelo} options={AI_MODELS} labels={Object.fromEntries(AI_MODELS.map((m) => [m, `${AI_MODEL_LABEL[m]} · ≈ US$ ${motionCallEstimateUsd(m).toFixed(3).replace('.', ',')}`])) as Record<AiModel, string>} onChange={setGuionModelo} /></Field>
+                </div>
+                <div className="flex flex-wrap items-center gap-3">
+                  <WriteButton size="sm" disabled={guion.isPending || guionTema.trim().length < 3} onClick={() => guion.mutate({ brief: guionTema, format: spec.format, keyword: spec.keyword, model: guionModelo, density: guionDensidad, escenas: guionEscenas, style: spec.style, template: null, eventId: spec.eventId, media: [] })}>
+                    {guion.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null} Escribir guion
+                  </WriteButton>
+                  <span className="text-xs text-muted-foreground">Reemplaza las escenas actuales (las fotos asignadas se quitan).</span>
+                </div>
+              </div>
+              <Field label="Estilo"><Pick value={spec.style} options={MOTION_STYLES.filter((st) => st !== 'custom' || !!canCustom)} labels={MOTION_STYLE_LABEL} onChange={(style) => setSpec({ style })} /></Field>
+              {spec.style === 'custom' && (
+                <div className="space-y-3 rounded-xl border border-border/60 p-3">
+                  <p className="text-xs font-semibold text-muted-foreground">Estilo personalizado</p>
+                  <Field label="Fuente"><Pick value={spec.custom.font} options={MOTION_CUSTOM_FONTS} labels={MOTION_CUSTOM_FONT_LABEL} onChange={(font) => setSpec({ custom: { ...spec.custom, font } })} /></Field>
+                  <Field label="Fondo"><Pick value={spec.custom.bg} options={MOTION_CUSTOM_BG} labels={MOTION_CUSTOM_BG_LABEL} onChange={(bg) => setSpec({ custom: { ...spec.custom, bg } })} /></Field>
+                  <Field label="Entrada del texto"><Pick value={spec.custom.entry} options={MOTION_CUSTOM_ENTRY} labels={MOTION_CUSTOM_ENTRY_LABEL} onChange={(entry) => setSpec({ custom: { ...spec.custom, entry } })} /></Field>
+                  <Field label="Velocidad (0,6 a 1,6)"><Input type="number" step={0.1} min={0.6} max={1.6} value={spec.custom.speed} onChange={(e) => setSpec({ custom: normalizeCustom({ ...spec.custom, speed: Number(e.target.value) }) })} /></Field>
+                  <Field label="Solo mayúsculas"><Switch checked={spec.custom.uppercase} onCheckedChange={(uppercase) => setSpec({ custom: { ...spec.custom, uppercase } })} /></Field>
+                </div>
+              )}
               <Field label="Composición" hint="Cada escena usa una composición distinta del estilo; «Variar» prueba otras (gratis, sin IA).">
                 <Button type="button" variant="outline" className="w-full justify-start" onClick={() => setSpec({ seed: randomSeed() })}>
                   <Dices className="mr-2 h-4 w-4" /> Variar composiciones
@@ -230,8 +291,9 @@ export function MotionEditor({ id: initialId, initial, onBack }: { id: number | 
               {spec.outro && spec.template !== 'sting' && (
                 <Field label="Cierre"><Pick value={clean.closing} options={MOTION_CLOSINGS} labels={MOTION_CLOSING_LABEL} onChange={(closing) => setSpec({ closing })} /></Field>
               )}
+              <Field label="Palabra clave de comentarios"><Input value={spec.keyword} maxLength={20} onChange={(e) => setSpecRaw((s) => applyKeyword(s, e.target.value))} placeholder="INFO" /></Field>
               {(spec.outro || spec.template === 'sting') && (
-                <Field label="Frase bajo el logo"><Input value={spec.outroLine} maxLength={60} onChange={(e) => setSpec({ outroLine: e.target.value })} placeholder="Entradas en la bio" /></Field>
+                <Field label="Frase bajo el logo"><Input value={spec.outroLine} maxLength={60} onChange={(e) => setSpec({ outroLine: e.target.value })} placeholder="Comenta INFO" /></Field>
               )}
               {spec.template === 'countdown' && (
                 <div className="grid grid-cols-2 gap-3 sm:col-span-2">

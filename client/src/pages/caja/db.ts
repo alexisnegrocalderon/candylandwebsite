@@ -23,7 +23,7 @@ export interface CajaAttendee {
    * capturado. `docType` indica si ese valor es un RUT chileno o un
    * pasaporte (selector elegido en el checkout, ver Checkout.tsx). */
   attendees: { name: string; rut: string | null; docType: 'rut' | 'passport' }[];
-  access: { ticketCode: string; status: string; typeName: string; accesoSlug: string | null; groupSize: number | null }[];
+  access: { ticketCode: string; status: string; typeName: string; accesoSlug: string | null; groupSize: number | null; /** PLAYMORE: el color de pulsera de cada persona del acceso (magenta o azul), en orden. */ teams?: ('magenta' | 'azul')[] }[];
   extras: { displayCode: string | null; status: string; typeName: string; /** Cobrado en la puerta (no era un VIP reservado de antes). */ atDoor?: boolean; /** Código del QR del extra (MP-…). */ ticketCode?: string | null }[];
   /** Compra por el link de una campaña aliada (ej. comunidad electrónica):
    * gente que viene por primera vez. Opcional: snapshots viejos no lo traen. */

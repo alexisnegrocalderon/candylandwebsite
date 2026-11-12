@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { invokeLLM } from './_core/llm';
 import * as db from './db';
 import { buildPlanRequest, buildPlayroomKnowledge, generateContentPlan } from './contentPlanner';
+import { currentDressCode } from '../shared/eventBrand';
 
 vi.mock('./_core/llm', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./_core/llm')>();
@@ -61,7 +62,8 @@ describe('buildPlanRequest', () => {
     expect(userContent).toContain('rige hasta'); // cambio de tanda real
     expect(userContent).toContain('Tono cercano y respetuoso.');
     expect(userContent).toContain('jaja dale');
-    expect(userContent).toContain('Disfraz obligatorio'); // dress code de la marca
+    expect(userContent).toContain(currentDressCode()); // dress code vigente (no el de una fiesta pasada)
+    expect(userContent).not.toContain('Disfraz obligatorio');
     // "comentar" no dispara nada todavía (Meta no aprobó el permiso)
     expect(keywords).toEqual(['ENTRADA', 'GUIA']);
     expect(userContent).toContain('ENTRADA, GUIA');

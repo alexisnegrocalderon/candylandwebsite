@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  BRAND, MOTION_ACCENTS, MOTION_BASES, MOTION_FPS, MOTION_MUSIC_BPM, MOTION_OUTRO_SECS, MOTION_STYLES, MOTION_TEMPLATES, MOTION_VOICE_LEAD, MOTION_VOICE_TAIL,
-  captionWords, cleanMediaUrl, packFileNames, packSlides, motionPalette, motionTimeline, normalizeMotionSpec, starterSpec, voiceSays,
-} from './motionSpec';
+import { BRAND, MOTION_ACCENTS, MOTION_BASES, MOTION_FPS, MOTION_MUSIC_BPM, MOTION_OUTRO_SECS, MOTION_STYLES, MOTION_TEMPLATES, MOTION_VOICE_LEAD, MOTION_VOICE_TAIL, captionWords, cleanMediaUrl, packFileNames, packSlides, motionPalette, motionTimeline, normalizeMotionSpec, starterSpec, voiceSays, applyKeyword, normalizeKeyword, MOTION_CUSTOM_DEFAULT, normalizeCustom } from './motionSpec';
 
 describe('normalizeMotionSpec', () => {
   it('cualquier cosa rota queda en una receta válida', () => {
@@ -107,11 +104,11 @@ describe('motionTimeline', () => {
 describe('subtítulos', () => {
   it('reparten las palabras dentro de cada frase, en orden y sin solaparse', () => {
     const s = normalizeMotionSpec({
-      scenes: [{ text: 'a', say: 'Una noche distinta' }, { text: 'b', say: 'Entradas en la bio' }],
+      scenes: [{ text: 'a', say: 'Una noche distinta' }, { text: 'b', say: 'Comenta INFO' }],
       voice: { url: 'https://x.public.blob.vercel-storage.com/v.wav', secs: [1.2, 1.5] },
     });
     const words = captionWords(s);
-    expect(words.map((w) => w.text)).toEqual(['Una', 'noche', 'distinta', 'Entradas', 'en', 'la', 'bio']);
+    expect(words.map((w) => w.text)).toEqual(['Una', 'noche', 'distinta', 'Comenta', 'INFO']);
     expect(words[0].from).toBe(Math.round(MOTION_VOICE_LEAD * MOTION_FPS));
     for (let i = 1; i < words.length; i++) expect(words[i].from).toBeGreaterThanOrEqual(words[i - 1].to - 1);
   });
@@ -180,3 +177,88 @@ describe('pack (carrusel, post, historia)', () => {
   });
 });
 
+
+import { BRAND as BRAND_ARCADE, motionPalette as paletteArcade, starterSpec as starterArcade } from './motionSpec';
+describe('estilo arcade (PLAYMORE · Player 1 vs Player 2)', () => {
+  it('usa solo colores de la paleta permitida: magenta (P1), celeste (P2) y oro', () => {
+    const p = paletteArcade('arcade', 'magenta');
+    const allowed = new Set(Object.values(BRAND_ARCADE));
+    for (const c of [p.bg, p.bg2, p.display, p.shadow, p.body, p.muted, p.hero, p.accent, p.deep, p.micro, p.surface]) expect(allowed.has(c as any)).toBe(true);
+    expect(p.hero).toBe(BRAND_ARCADE.magenta);
+    expect(p.accent).toBe(BRAND_ARCADE.blue);
+    expect(p.dark).toBe(true);
+  });
+  it('el punto de partida trae el dress code por equipo, +21 y el link de PLAYMORE', () => {
+    const spec = starterArcade('anuncio', 'arcade');
+    expect(spec.style).toBe('arcade');
+    expect(spec.base).toBe('arcade');
+    const all = JSON.stringify(spec);
+    expect(all).toContain('Equipo magenta');
+    expect(all).toContain('Equipo celeste');
+    expect(all).toContain('+21');
+    expect(all).toContain('dalmore.mansionplayroom.cl');
+    expect(all).not.toMatch(/Valpara|\+18/);
+  });
+});
+
+describe('palabra clave de comentarios', () => {
+  it('se normaliza: mayúsculas, sin espacios ni símbolos, y por defecto INFO', () => {
+    expect(normalizeKeyword('play more!')).toBe('PLAYMORE');
+    expect(normalizeKeyword('  ')).toBe('INFO');
+    expect(normalizeKeyword(undefined)).toBe('INFO');
+    expect(normalizeKeyword('a'.repeat(30))).toHaveLength(20);
+  });
+
+  it('la receta trae la palabra clave por defecto', () => {
+    expect(normalizeMotionSpec({}).keyword).toBe('INFO');
+    expect(normalizeMotionSpec({ keyword: 'entrada' }).keyword).toBe('ENTRADA');
+  });
+
+  it('cambiarla actualiza «Comenta X» en escenas, firma y caption, sin tocar el resto', () => {
+    const spec = normalizeMotionSpec({
+      title: 't', caption: 'Mañana. Comenta INFO y te escribimos.',
+      outroLine: 'Comenta INFO',
+      scenes: [
+        { text: 'Una noche distinta', highlight: 'distinta', say: 'Comenta INFO ahora' },
+        { text: 'Comenta INFO', highlight: 'INFO', sub: 'Escribe comenta info' },
+        { text: 'Ven a la fiesta', highlight: 'fiesta' },
+      ],
+    });
+    const next = applyKeyword(spec, 'playmore');
+    expect(next.keyword).toBe('PLAYMORE');
+    expect(next.outroLine).toBe('Comenta PLAYMORE');
+    expect(next.caption).toBe('Mañana. Comenta PLAYMORE y te escribimos.');
+    expect(next.scenes[0].say).toBe('Comenta PLAYMORE ahora');
+    expect(next.scenes[1].text).toBe('Comenta PLAYMORE');
+    expect(next.scenes[1].highlight).toBe('PLAYMORE');
+    expect(next.scenes[1].sub).toBe('Escribe comenta PLAYMORE');
+    expect(next.scenes[2]).toEqual(spec.scenes[2]);
+    expect(next.scenes[0].highlight).toBe('distinta');
+  });
+
+  it('con la misma palabra no cambia nada', () => {
+    const spec = normalizeMotionSpec({ outroLine: 'Comenta INFO' });
+    expect(applyKeyword(spec, 'info')).toBe(spec);
+  });
+});
+
+describe('estilo personalizado', () => {
+  it('sin configurar usa los valores por defecto', () => {
+    expect(normalizeMotionSpec({ style: 'custom' }).custom).toEqual(MOTION_CUSTOM_DEFAULT);
+  });
+
+  it('limita la velocidad a 0,6–1,6 y descarta valores que no existen', () => {
+    expect(normalizeCustom({ speed: 9 }).speed).toBe(1.6);
+    expect(normalizeCustom({ speed: 0.1 }).speed).toBe(0.6);
+    expect(normalizeCustom({ speed: 'rápido' as unknown as number }).speed).toBe(MOTION_CUSTOM_DEFAULT.speed);
+    const c = normalizeCustom({ font: 'comic', bg: 'lava', entry: 'rebote', uppercase: false });
+    expect(c.font).toBe(MOTION_CUSTOM_DEFAULT.font);
+    expect(c.bg).toBe(MOTION_CUSTOM_DEFAULT.bg);
+    expect(c.entry).toBe(MOTION_CUSTOM_DEFAULT.entry);
+    expect(c.uppercase).toBe(false);
+  });
+
+  it('la IA no puede elegir el estilo personalizado por su cuenta', () => {
+    expect(MOTION_STYLES).toContain('custom');
+  });
+});

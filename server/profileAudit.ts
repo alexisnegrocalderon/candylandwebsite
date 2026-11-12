@@ -6,7 +6,7 @@ import { ENV } from './_core/env';
 import { getFeaturedEvent } from './db';
 import { buildEventFacts } from './winback';
 import { buildPlayroomKnowledge } from './contentPlanner';
-import { EVENT_BRAND } from '../shared/eventBrand';
+import { currentDressCode } from '../shared/eventBrand';
 import { AI_PHRASES_PROMPT_LINE } from '../shared/aiPhrasesEs';
 import { getInstagramInsights } from './instagramInsights';
 import { insightsPromptSummary } from '../shared/instagramInsights';
@@ -95,7 +95,7 @@ export async function generateProfileAudit(input: ProfileInput, now: Date = new 
     '',
     'PRÓXIMO EVENTO (datos reales para las bios):',
     facts,
-    `- Dress code: ${EVENT_BRAND.dressCode}`,
+    `- Dress code: ${currentDressCode()}`,
     '',
     ...(insightsSummary ? [insightsSummary, ''] : []),
     'LO QUE PLAYROOM EXPLICA EN SU SITIO (el perfil debe ser coherente con esto):',

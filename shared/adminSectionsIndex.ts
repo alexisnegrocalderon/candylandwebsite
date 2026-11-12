@@ -10,6 +10,7 @@ export const ADMIN_SECTION_INDEX = [
   { id: 'carta', label: 'Carta de la fiesta', what: 'tragos y productos que se venden en la barra' },
   { id: 'insumos', label: 'Stock de barra', what: 'inventario de insumos, recetas, compras y conteos' },
   { id: 'orders-web', label: 'Ventas web', what: 'compras online, devoluciones, upgrades y reenvío de entradas' },
+  { id: 'entradas-pendientes', label: 'Entradas pendientes', what: 'entradas guardadas por una reprogramación: quién las tiene, recordarles y anular las ya devueltas' },
   { id: 'manual-access', label: 'Accesos manuales', what: 'cortesías e invitaciones a mano' },
   { id: 'parking', label: 'Estacionamiento', what: 'reservas de estacionamiento' },
   { id: 'sales-origin', label: 'Ventas por origen', what: 'de qué campaña o red viene cada venta' },
@@ -42,7 +43,9 @@ export const ADMIN_SECTION_INDEX = [
   { id: 'finanzas', label: 'Finanzas', what: 'resultado de la empresa y movimientos' },
   { id: 'sii', label: 'SII', what: 'impuestos y boletas' },
   { id: 'cargar-gasto', label: 'Cargar gasto', what: 'registrar un gasto o boleta' },
-  { id: 'settings', label: 'Ajustes', what: 'configuración, alertas y atajos del iPhone' },
+  { id: 'settings', label: 'Ajustes', what: 'configuración: general, cobros y costos, IA (tope de gasto), atajos del iPhone, seguridad y avisos' },
+  { id: 'ajustes-ia', label: 'Ajustes · IA', what: 'tope mensual y saldo de IA; subirlo cuando el asistente dice que se alcanzó el tope' },
+  { id: 'ajustes-atajos', label: 'Ajustes · Atajos', what: 'atajos del iPhone y iPad: agregar, quitar y ordenar' },
 ] as const;
 
 export type AdminSectionId = (typeof ADMIN_SECTION_INDEX)[number]['id'];

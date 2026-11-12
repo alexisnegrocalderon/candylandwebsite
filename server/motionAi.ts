@@ -4,13 +4,12 @@ import { quickJson } from './studioAi/quickCall';
 import { TONO_DE_VOZ } from './studioAi/brandPack';
 import { AI_PHRASES_PROMPT_LINE } from '../shared/aiPhrasesEs';
 import { ALL_LAYOUT_KEYS, LAYOUT_AUTO, LAYOUTS, randomSeed } from '../shared/motionVariety';
-import { EVENT_BRAND } from '../shared/eventBrand';
 import { chileIsoDate } from '../shared/contentPlan';
 import {
-  MOTION_ACCENTS, MOTION_BASES, MOTION_CARDS, MOTION_MAX_SCENES, MOTION_MUSIC, MOTION_STYLES, MOTION_TEMPLATES, normalizeMotionSpec,
+  MOTION_ACCENTS, MOTION_BASES, MOTION_CARDS, MOTION_MAX_SCENES, MOTION_MUSIC, MOTION_STYLES, MOTION_TEMPLATES, normalizeKeyword, normalizeMotionSpec,
   type MotionFormat, type MotionMedia, type MotionSpec, type MotionStyle, type MotionTemplate,
 } from '../shared/motionSpec';
-import type { AiUsage } from '../shared/studioAi';
+import type { AiModel, AiUsage } from '../shared/studioAi';
 
 /* Dirección de arte con IA del Estudio Motion: UNA llamada a Sonnet devuelve
  * las 3 variantes (liquid, glitch y editorial) de un mismo video, con guion,
@@ -44,7 +43,7 @@ const SCENE_SCHEMA = {
 const VARIANT_SCHEMA = {
   type: 'object',
   properties: {
-    style: { type: 'string', enum: [...MOTION_STYLES] },
+    style: { type: 'string', enum: MOTION_STYLES.filter((st) => st !== 'custom') },
     base: { type: 'string', enum: [...MOTION_BASES], description: 'Fondo: azul (celeste), rosa o tinta (de marca); perla o niebla (neutros editoriales); noche (PLAYMORE, fiesta).' },
     accent: { type: 'string', enum: [...MOTION_ACCENTS], description: 'Color protagonista (distinto del fondo). Oro solo con noche.' },
     music: { type: 'string', enum: MOTION_MUSIC.filter((m) => m !== 'none') },
@@ -58,11 +57,11 @@ const OUTPUT_SCHEMA = {
   type: 'object',
   properties: {
     title: { type: 'string', description: 'Nombre interno del video (para la lista del panel), ≤ 6 palabras.' },
-    caption: { type: 'string', description: 'Caption para Instagram: 100 a 350 caracteres, sin links (usa "link en la bio"), máx. 1 emoji, 3 a 5 hashtags al final incluido #MansionPlayroom.' },
+    caption: { type: 'string', description: 'Caption para Instagram: 100 a 350 caracteres, sin links ni "en la bio"; para pedir algo, invita a comentar una palabra clave (ej. "comenta INFO") y se envía todo por mensaje. Máx. 1 emoji, 3 a 5 hashtags al final incluido #MansionPlayroom.' },
     template: { type: 'string', enum: [...MOTION_TEMPLATES] },
     countdownValue: { type: 'integer', description: 'Solo countdown: el número grande (días u horas que faltan). 0 en otras plantillas.' },
     countdownUnit: { type: 'string', description: 'Solo countdown: DÍAS u HORAS. Vacío en otras.' },
-    outroLine: { type: 'string', description: 'Línea corta bajo el logo en la firma final (ej. "Entradas en la bio", "Sábado 14 · Valparaíso"), ≤ 5 palabras.' },
+    outroLine: { type: 'string', description: 'Línea corta bajo el logo en la firma final (ej. "Comenta INFO", "Sábado 14 · Valparaíso"), ≤ 5 palabras. Nunca "en la bio" ni "link en la bio".' },
     variants: { type: 'array', items: VARIANT_SCHEMA, description: 'Exactamente 3, cada una con un estilo DISTINTO: los 3 que mejor calcen con el pedido. Mismo mensaje, distinto guion y ritmo según el estilo.' },
   },
   required: ['title', 'caption', 'template', 'countdownValue', 'countdownUnit', 'outroLine', 'variants'],
@@ -82,22 +81,23 @@ export const MOTION_SYSTEM = [
   'TONO DE MARCA (respétalo al pie de la letra):',
   TONO_DE_VOZ,
   '',
-  'REGLAS DE CONTENIDO: nada sexual explícito ni doble sentido grueso. Respeto, consentimiento y libertad. Nunca inventes shows, invitados, premios, precios ni horarios: usa SOLO los datos entregados. Nunca publiques la dirección exacta (di "Valparaíso" o "dirección al comprar").',
+  'REGLAS DE CONTENIDO: solo hablas de la fiesta que aparece en DATOS REALES DEL EVENTO. Nunca menciones disfraces obligatorios, aniversarios, dress codes ni fechas de fiestas anteriores: no existen para este video salvo que estén en esos datos. nada sexual explícito ni doble sentido grueso. Respeto, consentimiento y libertad. Nunca inventes shows, invitados, premios, precios ni horarios: usa SOLO los datos entregados. Nunca publiques la dirección exacta (di "Valparaíso" o "dirección al comprar").',
   '',
   'RITMO (lo que ya funciona en los reels de la marca):',
   '- Gancho en el PRIMER segundo: la escena 1 frena el scroll con una pregunta o una afirmación que rompe un prejuicio.',
   '- Una idea por escena, 5 palabras o menos en `text`. 1,2 a 2,5 s por escena (hasta 3,5 si hay bajada). Total entre 6 y 18 s.',
-  '- Cierre: la última escena es la acción (comprar en la bio, comentar, etiquetar a alguien). Después viene sola la firma animada de la marca: no la escribas como escena.',
+  '- Cierre: la última escena es la acción (invitar a comentar una palabra clave y se les envía todo, etiquetar a alguien). Después viene sola la firma animada de la marca: no la escribas como escena.',
   '- `highlight`: la palabra que carga el sentido, máximo una por escena, y no en todas.',
   '',
   'BIBLIOTECA:',
   '- Plantillas: anuncio (texto cinético sobre fondo de marca; para anunciar evento, explicar, invitar), countdown (escena 1 = número grande con su unidad, `text` de la escena 1 es la frase bajo el número, ej. "para la noche"; `kicker` = "FALTAN"; usa los días reales hasta el evento), montaje (fotos/clips reales de fondo con texto abajo; asigna cada foto entregada con `mediaIndex`, una por escena, sin repetir), sting (solo la firma de marca, 1 escena con `sub` como frase).',
   '- Estilos (eliges 3 distintos de 5; si el pedido es hablar de un tema, explicar o educar, kinetic va SIEMPRE): kinetic = tipografía cinética editorial: cada escena es una frase de 5 a 14 palabras que se arma palabra a palabra, conectores chicos y UNA palabra enorme (`highlight`); el estilo para temas, opiniones y frases que paran el scroll; 2,5 a 4 s por escena, 4 a 8 escenas. softui = tarjetas de vidrio flotando en 3D sobre fondo claro (como una app): cada escena puede llevar UNA tarjeta (`card`): evento (texto grande = nombre, `kicker` = fecha, `sub` = ciudad y hora, `items` = 2-3 datos), calendario (marca sola la fecha real del evento; úsala solo si hay evento), checklist (`items` = qué llevar, reglas, pasos), chat (`items` = mensajes cortos, como un DM), entrada (ticket: `text` = acción, `kicker` y `sub` = datos). Ideal para explicar cómo funciona, qué llevar, cómo comprar; 3 a 5 escenas de 3 a 4 s. poster = póster suizo: palabras arriba, la palabra clave GIGANTE abajo (`highlight`, 1 o 2 palabras cortas) y un cubo/corazón 3D de marca girando entre ambas; 2 a 4 escenas de 2,5 a 3,5 s; ideal para anuncios fuertes y portadas. liquid = manchas líquidas y burbujas, letras infladas que rebotan; alegre, cercano; ritmo medio. glitch = señal rota, separación de color, cortes secos; energía de fiesta, urgencia; ritmo rápido (escenas más cortas, textos en mayúsculas se ven bien). editorial = revista premium, revelado con máscara, mucho aire; elegante, confianza, explicar; ritmo más pausado (puede llevar bajadas).',
   `- Composiciones por estilo (campo \`layout\` de cada escena; usa SOLO las de su estilo, alterna entre escenas y no repitas la misma dos veces seguidas; el gancho y la acción final van mejor en las clásicas): ${LAYOUT_CATALOG}.`,
-  '- Fondos: azul = celeste (por defecto en liquid), tinta = azul profundo (por defecto en glitch), perla = blanco roto editorial (por defecto en editorial), rosa, niebla = gris celeste editorial, noche = ciruela casi negra de PLAYMORE (solo para fiestas de noche). Acento: el color protagonista, distinto del fondo. Varía entre variantes.',
+  '- arcade = SOLO para PLAYMORE (Playroom × Dalmore, concepto «Player 1 vs Player 2»): pantalla de arcade futurista, grilla neón, marcador P1 (magenta, mundo Playroom) contra P2 (celeste, mundo Dalmore), palabras que entran en saltos de 8 bits; fondo `arcade`. Úsalo cuando el pedido sea de PLAYMORE, su dress code o sus juegos (dados, ruletas, marcador).',
+  '- Fondos: azul = celeste (por defecto en liquid), tinta = azul profundo (por defecto en glitch), perla = blanco roto editorial (por defecto en editorial), rosa, niebla = gris celeste editorial, noche = ciruela casi negra de PLAYMORE (solo para fiestas de noche), arcade = negro neón de PLAYMORE (con el estilo arcade). Acento: el color protagonista, distinto del fondo. Varía entre variantes.',
   '- Música: pulse (electrónica 120 BPM, versátil), drive (house 124 BPM, la más fiestera), dream (suave 96 BPM, para confianza y explicaciones).',
   '',
-  'EJEMPLO (forma, no contenido): pedido "anunciar fiesta del sábado". liquid: [{kicker:"SE VIENE", text:"Una noche distinta", highlight:"distinta"}, {kicker:"SÁBADO 14", text:"Valparaíso", sub:"Dirección exacta al comprar"}, {text:"Entradas en la bio", highlight:"bio"}]. glitch: [{text:"¿TIENES PLANES?"}, {text:"SÁBADO 14", highlight:"14"}, {text:"NO TE QUEDES AFUERA", highlight:"AFUERA"}, {text:"Entradas en la bio"}]. editorial: [{kicker:"MANSION PLAYROOM", text:"No es solo una fiesta", highlight:"fiesta"}, {text:"Es una experiencia", sub:"Que tú defines, con respeto y libertad"}, {kicker:"SÁBADO 14", text:"Te esperamos", highlight:"esperamos"}].',
+  'EJEMPLO (forma, no contenido): pedido "anunciar fiesta del sábado". liquid: [{kicker:"SE VIENE", text:"Una noche distinta", highlight:"distinta"}, {kicker:"SÁBADO 14", text:"Valparaíso", sub:"Dirección exacta al comprar"}, {text:"Comenta INFO", highlight:"INFO"}]. glitch: [{text:"¿TIENES PLANES?"}, {text:"SÁBADO 14", highlight:"14"}, {text:"NO TE QUEDES AFUERA", highlight:"AFUERA"}, {text:"Comenta INFO"}]. editorial: [{kicker:"MANSION PLAYROOM", text:"No es solo una fiesta", highlight:"fiesta"}, {text:"Es una experiencia", sub:"Que tú defines, con respeto y libertad"}, {kicker:"SÁBADO 14", text:"Te esperamos", highlight:"esperamos"}].',
   '',
   '`say` es la voz en off opcional de cada escena (el dueño decide si la usa): frase hablada natural en chileno, que acompañe el texto sin repetirlo palabra por palabra.',
   'Responde solo con el JSON pedido.',
@@ -105,6 +105,16 @@ export const MOTION_SYSTEM = [
 
 export interface MotionIdeaInput {
   brief: string;
+  /** Cuánto texto va en cada escena: pocas (≤ 4 palabras), medias (≤ 8) o muchas (≤ 14). */
+  density?: 'pocas' | 'medias' | 'muchas' | null;
+  /** Número exacto de escenas (2 a 9). */
+  escenas?: number | null;
+  /** Si viene, se escribe el guion para ese estilo (sin variantes). */
+  style?: MotionStyle | null;
+  /** Modelo de Claude para esta llamada (Haiku, Sonnet u Opus). Por defecto Sonnet. */
+  model?: AiModel | null;
+  /** Palabra clave de la automatización de comentarios. Por defecto INFO. */
+  keyword?: string | null;
   format: MotionFormat;
   template?: MotionTemplate | null;
   eventId?: number | null;
@@ -140,7 +150,7 @@ interface RawOutput {
 const FILL_STYLES: MotionStyle[] = ['editorial', 'kinetic', 'liquid', 'glitch'];
 
 /** Pasa lo que devolvió la IA a 3 recetas limpias, cada una con un estilo distinto. */
-export function variantsFromAi(raw: RawOutput, input: Pick<MotionIdeaInput, 'format' | 'template' | 'eventId' | 'media'> & { eventDate?: string }): MotionSpec[] {
+export function variantsFromAi(raw: RawOutput, input: Pick<MotionIdeaInput, 'format' | 'template' | 'eventId' | 'media' | 'keyword'> & { eventDate?: string }): MotionSpec[] {
   const media = input.media ?? [];
   const template = input.template ?? (MOTION_TEMPLATES as readonly string[]).find((t) => t === raw.template) ?? 'anuncio';
   const list = Array.isArray(raw.variants) ? raw.variants : [];
@@ -178,6 +188,7 @@ export function variantsFromAi(raw: RawOutput, input: Pick<MotionIdeaInput, 'for
       countdown: { value: raw.countdownValue, unit: raw.countdownUnit },
       outro: template !== 'sting',
       outroLine: raw.outroLine,
+      keyword: input.keyword ?? undefined,
       sfx: true,
     });
   });
@@ -188,7 +199,7 @@ async function eventFacts(eventId: number | null | undefined): Promise<{ facts: 
   if (!event) return { facts: 'No hay un evento elegido: no menciones fechas ni precios, y no uses la tarjeta calendario.', eventId: null, eventDate: '' };
   const days = Math.ceil((new Date(event.eventDate).getTime() - Date.now()) / 86_400_000);
   return {
-    facts: ['DATOS REALES DEL EVENTO:', await buildEventFacts(event), `- Dress code: ${EVENT_BRAND.dressCode}`, `- Faltan ${Math.max(0, days)} días.`].join('\n'),
+    facts: ['DATOS REALES DEL EVENTO:', await buildEventFacts(event), `- Faltan ${Math.max(0, days)} días.`].join('\n'),
     eventId: event.id,
     eventDate: chileIsoDate(new Date(event.eventDate)),
   };
@@ -199,12 +210,16 @@ export async function motionVariantsFromIdea(input: MotionIdeaInput): Promise<Mo
   const { facts, eventId, eventDate } = await eventFacts(input.eventId);
   const ask = [
     `PEDIDO DEL DUEÑO: ${input.brief.trim().slice(0, 2000)}`,
-    `Formato: ${input.format === 'reel' ? 'vertical 9:16 (reel/historia)' : input.format === 'feed' ? 'feed 4:5' : 'cuadrado 1:1'}.`,
+    input.density ? `Densidad de texto por escena: ${input.density === 'pocas' ? 'pocas palabras (máximo 4 en text)' : input.density === 'medias' ? 'medias (máximo 8 palabras, con bajada corta)' : 'muchas (hasta 14 palabras, con bajada)'}.` : '',
+    input.escenas ? `Usa exactamente ${Math.min(9, Math.max(2, input.escenas))} escenas.` : '',
+    input.style ? `Estilo obligatorio: ${input.style}. Todas las escenas y la variante son de ese estilo.` : '',
+    `Formato: ${input.format === 'reel' ? 'vertical 9:16 (reel/historia)' : input.format === 'feed' ? 'feed 4:5' : input.format === 'retrato' ? 'feed 3:4 (vertical)' : 'cuadrado 1:1'}.`,
     input.template ? `Plantilla obligatoria: ${input.template}.` : 'Elige la plantilla que mejor sirva.',
+    `Palabra clave de comentarios: ${normalizeKeyword(input.keyword)}. Cuando invites a comentar, usa exactamente "Comenta ${normalizeKeyword(input.keyword)}" en el texto del cierre y en el caption; nunca otra palabra.`,
     media.length ? `Fotos/clips entregados (índice: tipo): ${media.map((m, i) => `${i}: ${m.kind === 'video' ? 'clip' : 'foto'}`).join(', ')}.` : 'No hay fotos: mediaIndex = -1 en todas las escenas.',
   ].join('\n');
   const result = await quickJson<RawOutput>({
-    model: MOTION_AI_MODEL,
+    model: input.model ?? MOTION_AI_MODEL,
     system: MOTION_SYSTEM,
     facts,
     content: ask,
@@ -214,5 +229,10 @@ export async function motionVariantsFromIdea(input: MotionIdeaInput): Promise<Mo
     refusal: 'La IA no quiso escribir ese video. Cambia el pedido.',
     tooLong: 'La respuesta salió demasiado larga. Pide un video más corto.',
   });
-  return { variants: variantsFromAi(result.data, { ...input, eventId, eventDate, media }), usage: result.usage, costUsd: result.costUsd, model: result.model };
+  let variants = variantsFromAi(result.data, { ...input, eventId, eventDate, media });
+  if (input.style) {
+    const one = variants.find((v) => v.style === input.style) ?? { ...variants[0], style: input.style };
+    variants = [one];
+  }
+  return { variants, usage: result.usage, costUsd: result.costUsd, model: result.model };
 }

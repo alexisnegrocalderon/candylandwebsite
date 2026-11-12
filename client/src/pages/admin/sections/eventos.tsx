@@ -921,10 +921,18 @@ export function EventCard({ event, onDeleted, expanded, onToggleExpand }: { even
   };
 
   const handleCreateTicketType = async () => {
-    if (!newTicket.name || !newTicket.price) return;
+    // Con precio general y una escala de tandas con montos, el precio sale solo de la tanda vigente (no hace falta escribirlo).
+    const sched = normalizeTandaSchedule(event.tandaDiscountSchedule);
+    const phaseNow = sched[Math.min(event.tandaPhaseIndex ?? 0, sched.length - 1)];
+    const fromTanda = newTicket.category === 'acceso' && newTicket.accesoSlug && newTicket.originalPrice > 0 && phaseNow?.prices?.[newTicket.accesoSlug] != null
+      ? phasePriceFor(phaseNow, newTicket.accesoSlug, newTicket.originalPrice) : 0;
+    const price = newTicket.price || fromTanda;
+    if (!newTicket.name.trim()) { toast.error('Falta el nombre de la entrada.'); return; }
+    if (!price) { toast.error('Falta el precio (CLP) de la entrada: es lo que paga la persona hoy. El precio general es el tachado.'); return; }
     await createTicketType.mutateAsync({
       eventId: event.id,
       ...newTicket,
+      price,
       accesoSlug: newTicket.category === 'extra' ? undefined : (newTicket.accesoSlug || undefined),
       stockPoolId: newTicket.category === 'extra' ? null : newTicket.stockPoolId,
       originalPrice: newTicket.originalPrice || undefined,

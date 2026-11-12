@@ -21,6 +21,8 @@ export type MeTicket = {
   category?: string; kind?: TicketKind; kindLabel?: string; companions?: { nombre: string; rut: string }[];
   /** El código legible con que se canjea en caja (PIS-AB12-CD34). */
   displayCode?: string | null; usedAt?: string | Date | null; typeName?: string;
+  /** PLAYMORE: el color de pulsera de cada persona del acceso; llega solo cuando ya entró (se revela en la puerta). */
+  teams?: ('magenta' | 'azul')[];
 };
 export type MeLocker = { tagNumber: string; status: string; receivedAt?: string | Date | null; retrievedAt?: string | Date | null };
 export type MeKitchen = { ticketNumber: string; status: string; items: { name: string; quantity: number }[]; createdAt: string | Date; deliveredAt?: string | Date | null };

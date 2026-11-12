@@ -15,7 +15,6 @@ import { ImageUploadField } from '@/components/admin/ImageUploadField';
 import { AdminLoginForm } from '@/components/admin/AdminLoginForm';
 import { formatChileDateTime, formatChileShortDate } from '@shared/chileDate';
 import { onMutationError } from './shared';
-import { IphoneShortcutsCard } from '@/components/admin/IphoneShortcutsCard';
 
 /** Tarjeta de "Ajustes" para administrar passkeys (Face ID/Touch ID) -- camino
  * adicional al login con contraseña+TOTP, no lo reemplaza. Registrar un
@@ -156,7 +155,8 @@ export function WebauthnSecurityCard() {
   );
 }
 
-export function SettingsManager() {
+/** Las pantallas de Ajustes: `general` (sitio, Instagram, imagen para compartir) y `cobros` (recargos, comisiones y costos fijos). */
+export function SettingsManager({ tab = 'general' }: { tab?: 'general' | 'cobros' }) {
   const { data: settings, refetch } = trpc.settings.get.useQuery();
   const updateSettings = trpc.settings.update.useMutation({ onSuccess: () => { refetch(); toast.success('Ajustes guardados'); }, onError: onMutationError });
   // Mismo número que llega en el correo de las 3am -- acá se puede revisar
@@ -221,32 +221,9 @@ export function SettingsManager() {
 
   return (
     <div className="space-y-6">
-      <h2 className="font-heading text-2xl">Ajustes</h2>
-      <IphoneShortcutsCard />
-      <Card className="rounded-2xl border-0 shadow-md shadow-black/5 bg-gradient-to-br from-[#241432]/10 to-transparent">
-        <CardContent className="pt-6">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h3 className="font-heading text-lg">🎃 Modo Halloween</h3>
-              <p className="text-sm text-muted-foreground max-w-xl">
-                Cambia la portada del sitio a la versión Halloween (misma página, con la paleta Halloween y
-                detalles flotando). Al apagarlo vuelve al instante a la portada oficial.
-              </p>
-              <a href="/halloween" target="_blank" rel="noreferrer" className="text-sm text-primary font-semibold hover:underline mt-2 inline-block">
-                Ver vista previa en /halloween →
-              </a>
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <span className="text-xs text-muted-foreground">{settings?.halloweenModeEnabled ? 'Prendido' : 'Apagado'}</span>
-              <Switch
-                checked={!!settings?.halloweenModeEnabled}
-                onCheckedChange={(v) => updateSettings.mutate({ halloweenModeEnabled: v })}
-                disabled={updateSettings.isPending}
-              />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      <h2 className="font-heading text-2xl">{tab === 'general' ? 'General' : 'Cobros y costos'}</h2>
+      {tab === 'general' && (
+        <>
       <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
         <CardHeader><CardTitle>Personas y entradas</CardTitle></CardHeader>
         <CardContent className="space-y-4">
@@ -291,6 +268,24 @@ export function SettingsManager() {
           </div>
         </CardContent>
       </Card>
+      <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+        <CardHeader><CardTitle>Imagen para compartir en redes (OG)</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-muted-foreground text-sm">
+            Se usa cuando alguien comparte el sitio (no un evento puntual) en WhatsApp/Instagram/Facebook. Cada evento
+            usa su propio flyer automáticamente en su página. Si dejas esto vacío, se usa la imagen de siempre.
+          </p>
+          <ImageUploadField value={ogImageUrl} onChange={setOgImageUrl} pathPrefix="site" />
+          <Input value={ogImageUrl} onChange={(e) => setOgImageUrl(e.target.value)} className="mt-2" placeholder="https://..." />
+          <WriteButton onClick={handleSaveOgImage} disabled={updateSettings.isPending} className="interactive">
+            {updateSettings.isPending ? 'Guardando…' : 'Guardar'}
+          </WriteButton>
+        </CardContent>
+      </Card>
+        </>
+      )}
+      {tab === 'cobros' && (
+        <>
       <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
         <CardHeader><CardTitle>Recargo por servicio</CardTitle></CardHeader>
         <CardContent className="space-y-4">
@@ -357,22 +352,8 @@ export function SettingsManager() {
           </WriteButton>
         </CardContent>
       </Card>
-      <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
-        <CardHeader><CardTitle>Imagen para compartir en redes (OG)</CardTitle></CardHeader>
-        <CardContent className="space-y-4">
-          <p className="text-muted-foreground text-sm">
-            Se usa cuando alguien comparte el sitio (no un evento puntual) en WhatsApp/Instagram/Facebook. Cada evento
-            usa su propio flyer automáticamente en su página. Si dejas esto vacío, se usa la imagen de siempre.
-          </p>
-          <ImageUploadField value={ogImageUrl} onChange={setOgImageUrl} pathPrefix="site" />
-          <Input value={ogImageUrl} onChange={(e) => setOgImageUrl(e.target.value)} className="mt-2" placeholder="https://..." />
-          <WriteButton onClick={handleSaveOgImage} disabled={updateSettings.isPending} className="interactive">
-            {updateSettings.isPending ? 'Guardando…' : 'Guardar'}
-          </WriteButton>
-        </CardContent>
-      </Card>
-      <WebauthnSecurityCard />
-      <AlertasCard />
+        </>
+      )}
     </div>
   );
 }
@@ -678,5 +659,16 @@ export function AlertasCard() {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+/** Ajustes → Seguridad y avisos: la llave de este dispositivo y las alertas push y por correo. */
+export function SecurityAndAlerts() {
+  return (
+    <div className="space-y-6">
+      <h2 className="font-heading text-2xl">Seguridad y avisos</h2>
+      <WebauthnSecurityCard />
+      <AlertasCard />
+    </div>
   );
 }

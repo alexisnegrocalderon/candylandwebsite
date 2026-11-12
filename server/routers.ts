@@ -19,6 +19,8 @@ import { generateEnrollCode, enrollCodeExpiry, generateDeviceToken, hashDeviceTo
 import { redeemDisplayCode } from "./caja/redeem";
 import { undoRedeemDisplayCode } from "./caja/undoRedeem";
 import { checkInTicket } from "./caja/checkin";
+import { withPlayTeams } from "./playTeamsDoor";
+import { dropSupersededTickets } from "../shared/liveTickets";
 import { sellParkingAtDoor } from "./caja/parkingPaid";
 import { MAX_TEST_GUESTS, MIN_TEST_GUESTS } from "../shared/playmatchTest";
 import { UNDO_EXPENSE_WINDOW_MS } from "../shared/expenses";
@@ -187,6 +189,7 @@ import { normalizeOrderEmailConfig, type OrderEmailConfig } from "../shared/emai
 import { billingPeriodStart, RESEND_DAILY_DEFAULT, RESEND_MONTHLY_LIMIT } from "../shared/emailQuota";
 import { applyEmailOptOut, decodeEmail as decodeUnsubscribeEmail, verifyUnsubscribe } from "./unsubscribe";
 import { normalizeAdminAlertsConfig } from "../shared/adminAlertsConfig";
+import { DEFAULT_ADMIN_SHORTCUTS, ADMIN_SHORTCUTS_MAX } from "../shared/adminShortcuts";
 import * as customerPush from "./customerPush";
 import { notifyEventLaunch } from "./customerPush";
 import * as appDevices from "./appDevices";
@@ -213,7 +216,7 @@ import { generateProfileAudit } from "./profileAudit";
 import { syncInstagramStats } from "./instagramStats";
 import { getInstagramShowcase } from "./instagramFeed";
 import { refundOrder, refundOrderExtras, listOrderExtras } from "./orderRefund";
-import { cancelGiftPass, issueAccessCreditsForOrder, issueGiftPass, listAccessCredits, listCreditsByOrderIds, listGiftPasses, remindAccessCredit } from "./accessCredit";
+import { cancelGiftPass, cancelPendingCredit, issueAccessCreditsForOrder, issueGiftPass, listAccessCredits, listCreditsByOrderIds, listGiftPasses, listPendingCredits, remindAccessCredit } from "./accessCredit";
 import { AUTOMATION_BUTTON_KINDS, AUTOMATION_BUTTON_TITLE_MAX, isAllowedCustomButtonUrl } from "../shared/automationButton";
 import { normalizeIgHandle } from "../shared/igCustomerLink";
 import { approveComment, restoreSpamComment, suggestOwnComment } from './instagramComments';
@@ -252,12 +255,14 @@ import { previewCustomerMerge, mergeCustomers } from "./customerMerge";
 import { getMemberHistory } from "./memberHistory";
 import { hasSalesLink } from "../shared/staffSales";
 import { deleteAmbassadorItem, ensureAmbassadorDrafts, getUpcomingContentEvents, listAmbassadorItems, notifyAmbassadorsNewContent, saveAmbassadorItem, sendStudioToAmbassadors, setAmbassadorItemStatus } from "./ambassadorContent";
-import { deleteMotionVideo, getMotionVideo, listMotionVideos, loadPlan, saveMotionVideo, savePlan } from "./motionStudio";
+import { ENV } from "./_core/env";
+import { approveMotionVideo, deleteMotionVideo, getMotionVideo, listMotionVideos, loadPlan, publishMotionVideo, saveMotionVideo, savePlan, unapproveMotionVideo } from "./motionStudio";
 import { motionVariantsFromIdea } from "./motionAi";
+import { AI_MODELS } from "../shared/studioAi";
 import { renderMissingConfig, requestVideoRender } from "./studioRender";
 import { generateVoice, voiceMissingConfig } from "./studioVoice";
 import { TTS_VOICE_KEYS, VOICE_MAX_BEATS, VOICE_MAX_SAY } from "../shared/studioVoice";
-import { MOTION_FORMATS, MOTION_TEMPLATES } from "../shared/motionSpec";
+import { MOTION_FORMATS, MOTION_STYLES, MOTION_TEMPLATES } from "../shared/motionSpec";
 import { recordAiUsage, listAiUsageSince } from "./db";
 import { summarizeAiUsage } from "../shared/aiUsage";
 import { loadAiBudget, saveAiBudget } from "./aiBudget";
@@ -1919,6 +1924,17 @@ export const appRouter = router({
   /* Crédito de acceso: dejar el acceso de una compra vigente para un evento futuro. */
   accessCredit: router({
     list: adminReadProcedure.query(() => listAccessCredits()),
+    // «Entradas pendientes»: todas las que quedaron por reprogramación, de todos los eventos, con su estado.
+    listPending: adminReadProcedure.query(() => listPendingCredits()),
+    // Anular una (p. ej. devolución externa): pide la clave de admin y un motivo; solo si sigue disponible.
+    cancel: adminPasswordProcedure.input(z.object({ creditId: z.number().int().positive(), reason: z.string().trim().min(3, 'Escribe el motivo').max(200) })).mutation(async ({ input, ctx }) => {
+      try {
+        await cancelPendingCredit(input.creditId, input.reason, { by: ctx.user.email ?? ctx.user.name ?? 'admin', ip: clientIp(ctx) });
+        return { ok: true as const };
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo anular.' });
+      }
+    }),
     createFromOrder: adminPasswordProcedure.input(z.object({ orderId: z.number() })).mutation(async ({ input, ctx }) => {
       try {
         return await issueAccessCreditsForOrder(input.orderId, { ip: clientIp(ctx) });
@@ -2551,7 +2567,7 @@ export const appRouter = router({
     // Mismo snapshot que la caja: la puerta lo guarda en el mismo IndexedDB
     // y por eso funciona sin señal.
     snapshot: doorProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
-      const snapshot = await db.getCajaSnapshot(input.eventId);
+      const snapshot = await withPlayTeams(await db.getCajaSnapshot(input.eventId));
       if (!snapshot) return snapshot;
       // Precio del estacionamiento y lo del local por auto: la puerta cobra
       // estacionamiento y tiene que mostrar el monto antes de cobrar.
@@ -3632,7 +3648,7 @@ export const appRouter = router({
   // dos son conteos y los abre también el invitado de demostración.
   home: router({
     evento: adminReadProcedure.input(z.object({ eventId: z.number().int().positive() })).query(({ input }) => homeSummary.getHomeEvento(input.eventId)),
-    plata: adminProcedure.query(() => homeSummary.getHomePlata()),
+    plata: adminProcedure.input(z.object({ eventId: z.number().int().positive().nullish() }).optional()).query(async ({ input }): Promise<any> => input?.eventId ? { event: await homeSummary.getHomePlataEvento(input.eventId) } : { ...(await homeSummary.getHomePlata()), event: null }),
     gente: adminReadProcedure.input(z.object({ eventId: z.number().int().positive().nullish() }).optional()).query(({ input }) => homeSummary.getHomeGente(input?.eventId ?? null)),
   }),
 
@@ -3711,10 +3727,22 @@ export const appRouter = router({
       // Modo evento (solo avisos urgentes durante la fiesta). Opcional: un panel viejo no lo manda y se conserva.
       eventModeQuiet: z.boolean().optional(),
     })).mutation(async ({ input }) => {
-      // Los datos del gasto de IA se editan en el Estudio: no se pierden al guardar Ajustes.
+      // Los datos del gasto de IA (Ajustes → IA) y los atajos no se pierden al guardar las alertas.
       const current = normalizeAdminAlertsConfig(((await db.getSiteSettings()) as any)?.adminAlertsConfig);
-      const { aiCapUsd, aiBalanceUsd, aiBalanceAt, aiAlertSent, aiSpentOffsetUsd, aiSpentOffsetMonth } = current;
-      return db.updateSiteSettings({ adminAlertsConfig: normalizeAdminAlertsConfig({ ...input, eventModeQuiet: input.eventModeQuiet ?? current.eventModeQuiet, aiCapUsd, aiBalanceUsd, aiBalanceAt, aiAlertSent, aiSpentOffsetUsd, aiSpentOffsetMonth }) });
+      const { aiCapUsd, aiBalanceUsd, aiBalanceAt, aiAlertSent, aiSpentOffsetUsd, aiSpentOffsetMonth, shortcuts } = current;
+      return db.updateSiteSettings({ adminAlertsConfig: normalizeAdminAlertsConfig({ ...input, eventModeQuiet: input.eventModeQuiet ?? current.eventModeQuiet, aiCapUsd, aiBalanceUsd, aiBalanceAt, aiAlertSent, aiSpentOffsetUsd, aiSpentOffsetMonth, shortcuts }) });
+    }),
+    // Atajos para iPhone/iPad: la lista que arma el dueño (Ajustes → Atajos). Sin editar, devuelve la de siempre.
+    getShortcuts: adminReadProcedure.query(async () => {
+      const cfg = normalizeAdminAlertsConfig(((await db.getSiteSettings()) as any)?.adminAlertsConfig);
+      return { shortcuts: cfg.shortcuts ?? DEFAULT_ADMIN_SHORTCUTS, isDefault: cfg.shortcuts == null };
+    }),
+    saveShortcuts: adminProcedure.input(z.object({
+      shortcuts: z.array(z.object({ label: z.string().trim().min(1).max(60), section: z.string().regex(/^[a-z0-9-]{1,40}$/) })).max(ADMIN_SHORTCUTS_MAX),
+    }).nullable()).mutation(async ({ input }) => {
+      const current = normalizeAdminAlertsConfig(((await db.getSiteSettings()) as any)?.adminAlertsConfig);
+      await db.updateSiteSettings({ adminAlertsConfig: normalizeAdminAlertsConfig({ ...current, shortcuts: input ? input.shortcuts : null }) });
+      return { success: true };
     }),
     // La clave pública VAPID no es secreta (viaja al navegador para armar la
     // suscripción), pero igual queda detrás de admin para no publicarla sin
@@ -3954,10 +3982,15 @@ export const appRouter = router({
       return video;
     }),
     // La forma fina la valida y recorta normalizeMotionSpec (shared/motionSpec.ts).
+    // Solo la cuenta dueña (OWNER_OPEN_ID) ve y guarda el estilo «Personalizado».
+    canUseCustomStyle: adminProcedure.query(({ ctx }) => ctx.user.openId === ENV.ownerOpenId),
     save: adminProcedure.input(z.object({
       id: z.number().int().positive().optional(),
       spec: z.record(z.string(), z.unknown()),
-    })).mutation(async ({ input }) => {
+    })).mutation(async ({ input, ctx }) => {
+      if (input.spec.style === 'custom' && ctx.user.openId !== ENV.ownerOpenId) {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'El estilo personalizado es solo para la cuenta dueña.' });
+      }
       try {
         return { id: await saveMotionVideo(input.id, input.spec) };
       } catch (err) {
@@ -3968,9 +4001,31 @@ export const appRouter = router({
       await deleteMotionVideo(input.id);
       return { success: true } as const;
     }),
+    // Cola de la marca (Instagram @mansionplayroom): por aprobar → aprobado → publicado como Reel.
+    approve: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => {
+      try { await approveMotionVideo(input.id); } catch (err) { throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo aprobar.' }); }
+      return { success: true } as const;
+    }),
+    unapprove: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => {
+      try { await unapproveMotionVideo(input.id); } catch (err) { throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo quitar la aprobación.' }); }
+      return { success: true } as const;
+    }),
+    // Sale hacia Instagram público: el servidor exige que esté aprobado (publishMotionVideo); la UI pide confirmar.
+    publish: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => {
+      try {
+        return await publishMotionVideo(input.id);
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo publicar en Instagram.' });
+      }
+    }),
     // Desde una idea (o una pieza del plan): 3 variantes, una por estilo. No guarda: el dueño elige.
     generate: adminProcedure.input(z.object({
       brief: z.string().trim().min(3, 'Escribe qué quieres contar').max(2000),
+      keyword: z.string().max(40).nullable().optional(),
+      model: z.enum(AI_MODELS).nullable().optional(),
+      density: z.enum(['pocas', 'medias', 'muchas']).nullable().optional(),
+      escenas: z.number().int().min(2).max(9).nullable().optional(),
+      style: z.enum(MOTION_STYLES).nullable().optional(),
       format: z.enum(MOTION_FORMATS).default('reel'),
       template: z.enum(MOTION_TEMPLATES).nullable().optional(),
       eventId: z.number().int().positive().nullable().optional(),
@@ -4572,6 +4627,49 @@ export const appRouter = router({
     split: partnerProcedure.input(coproductionScopeInput).query(async ({ input, ctx }) => {
       return coproductionSvc.getCoproductionSplit(await scopedCoproduction(ctx, input));
     }),
+    // Lee la foto de una boleta o factura (misma IA de la calculadora de gastos) para precargar el gasto.
+    scanReceipt: partnerProcedure.input(coproductionScopeBase.extend({ imageUrl: z.string().url().max(600) })).mutation(async ({ input, ctx }) => {
+      await scopedCoproduction(ctx, input);
+      if (!/^https:\/\/[^/]+\.public\.blob\.vercel-storage\.com\/coproduction\//.test(input.imageUrl)) throw new TRPCError({ code: 'BAD_REQUEST', message: 'La foto no es válida.' });
+      try {
+        return await scanReceiptImage(input.imageUrl);
+      } catch (err) {
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'No se pudo leer la foto. Completa el gasto a mano.', cause: err });
+      }
+    }),
+    // Códigos de descuento del evento (el socio solo ve y crea los de SU evento).
+    discounts: partnerProcedure.input(coproductionScopeInput).query(async ({ input, ctx }) => {
+      return coproductionSvc.listCoproductionDiscounts(await scopedCoproduction(ctx, input));
+    }),
+    createDiscount: partnerProcedure.input(coproductionScopeBase.extend({
+      code: z.string().trim().min(3).max(40),
+      description: z.string().trim().max(255).optional(),
+      discountType: z.enum(['percentage', 'fixed']),
+      discountValue: z.number().int().min(1).max(10_000_000),
+      maxUses: z.number().int().min(1).max(100_000).optional(),
+      validUntil: z.string().max(40).optional(),
+    })).mutation(async ({ input, ctx }) => {
+      const cp = await scopedCoproduction(ctx, input);
+      try {
+        const r = await coproductionSvc.createCoproductionDiscount(cp, input);
+        await auditColab(cp, 'discount', `Código de descuento creado: ${r.code}`, ctx);
+        return r;
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo crear el código.' });
+      }
+    }),
+    setDiscountActive: partnerProcedure.input(coproductionScopeBase.extend({ id: z.number().int(), active: z.boolean() })).mutation(async ({ input, ctx }) => {
+      await coproductionSvc.setCoproductionDiscountActive(await scopedCoproduction(ctx, input), input.id, input.active);
+      return { success: true };
+    }),
+    // Pasar compradores y acompañantes a la base de clientes de Playroom: solo el dueño.
+    addToClients: adminProcedure.input(z.object({ slug: z.string().max(50), orderIds: z.array(z.number().int()).max(5000).optional() })).mutation(async ({ input }) => {
+      try {
+        return await coproductionSvc.addAttendeesToClients(await requireCoproduction(input.slug), input.orderIds);
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo pasar a Clientes.' });
+      }
+    }),
     // Planilla de contactos del socio (aparte de los Clientes de Playroom).
     contacts: partnerProcedure.input(coproductionScopeInput).query(async ({ input, ctx }) => {
       return coproductionSvc.listCoproductionContacts(await scopedCoproduction(ctx, input));
@@ -4683,6 +4781,13 @@ export const appRouter = router({
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudieron aplicar las tandas.' });
       }
     }),
+    repairOrphans: adminProcedure.input(z.object({ slug: z.string().max(50) })).mutation(async ({ input }) => {
+      try {
+        return await coproductionSvc.repairPlaymoreOrphans((await requireCoproduction(input.slug)).id);
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo revisar.' });
+      }
+    }),
     approveExpense: adminProcedure.input(z.object({ slug: z.string().max(50), id: z.number().int() })).mutation(async ({ input }) => {
       try {
         await coproductionSvc.approveCoproductionExpense(await requireCoproduction(input.slug), input.id);
@@ -4740,7 +4845,8 @@ export const appRouter = router({
       const types = event ? await db.getTicketTypesByEventId(event.id) : [];
       // Solo lo que se vende por la web: accesos y extras (estacionamiento). La carta de la fiesta
       // (tragos, comida, merch, guardarropía) es de la caja y no se muestra ni se expone acá.
-      const webTypes = types.filter((t: any) => t.category === 'acceso' || t.category === 'extra');
+      // Sin las filas cerradas de una tanda anterior (quedan 'soldout' junto a la nueva activa): si no, la landing muestra todo agotado.
+      const webTypes = dropSupersededTickets(types.filter((t: any) => t.category === 'acceso' || t.category === 'extra'));
       const visible = webTypes.filter((t: any) => t.status !== 'hidden' && presaleAllows(event, t));
       // Diagnóstico solo para el dueño (vista previa / admin): por qué no aparece un acceso.
       const diag = full && !isLive ? {
@@ -8203,8 +8309,8 @@ export const appRouter = router({
         status,
       };
     }),
-    salesDripRunNow: adminProcedure.mutation(async () => {
-      return runSalesDripDaily();
+    salesDripRunNow: adminProcedure.input(z.object({ cap: z.number().int().min(1).max(5000).optional() }).optional()).mutation(async ({ input }) => {
+      return runSalesDripDaily(new Date(), { cap: input?.cap });
     }),
   }),
 

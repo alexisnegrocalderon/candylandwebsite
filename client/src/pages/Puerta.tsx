@@ -10,6 +10,7 @@ import { AreaGuard, TerminalFrame, TerminalLogin, TerminalSpinner, loginErrorToa
 import { OPERATOR_ROLE_LABELS } from '@shared/cajaRoles';
 import { parseTicketCodeFromQr } from '@shared/qr';
 import { personasForTicket } from '@shared/mission300';
+import { PLAY_TEAM_META, describeTeams, type PlayTeam } from '@shared/playTeams';
 import { cashChange, doorParkingScript, summarizeDoorParking, type DoorParkingCharge, type DoorParkingMethod, type DoorParkingOption } from '@shared/parking';
 import {
   saveSnapshot, getLocalEvent, searchLocal, enqueueOp, getPendingOps, findLocalStaff,
@@ -51,6 +52,8 @@ type Ficha = {
   partnerBadge?: { label: string; emoji: string; refLabel: string | null } | null;
   /** Lista de bloqueados: `block` = no permitir ingreso; `review` = posible (solo el nombre). */
   blockedAlert?: CajaAttendee['blockedAlert'];
+  /** PLAYMORE: el color de pulsera de cada persona (Player 1 magenta / Player 2 azul). Vacío en los demás eventos. */
+  teams?: PlayTeam[];
 };
 
 type Tab = 'escanear' | 'buscar' | 'ingresos';
@@ -154,7 +157,7 @@ function Scanner({ operatorName, operatorRole }: { operatorName: string; operato
   const [muted, setMuted] = useState(() => localStorage.getItem(SOUND_MUTED_KEY) === '1');
   const [torch, setTorch] = useState(false);
   const [torchSupported, setTorchSupported] = useState(false);
-  const [flash, setFlash] = useState<{ names: string; personas: number } | null>(null);
+  const [flash, setFlash] = useState<{ names: string; personas: number; teams: PlayTeam[] } | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
   const [parkingInfo, setParkingInfo] = useState<ParkingInfo | null>(null);
@@ -296,6 +299,7 @@ function Scanner({ operatorName, operatorRole }: { operatorName: string; operato
       buyerName: attendee.buyerName,
       partnerBadge: attendee.partnerBadge ?? null,
       blockedAlert: attendee.blockedAlert ?? null,
+      teams: acc.teams ?? [],
     };
   }, []);
 
@@ -351,7 +355,7 @@ function Scanner({ operatorName, operatorRole }: { operatorName: string; operato
     setFicha(null);
     setTab('escanear');
     // Destello verde con el nombre y la cámara queda lista para el siguiente.
-    setFlash({ names: names.join(' · ') || f.buyerName, personas });
+    setFlash({ names: names.join(' · ') || f.buyerName, personas, teams: f.teams ?? [] });
     setTimeout(() => setFlash(null), FLASH_MS);
   };
 
@@ -507,12 +511,15 @@ function Scanner({ operatorName, operatorRole }: { operatorName: string; operato
         {tab === 'ingresos' && <IngresosPanel history={history} pendingIds={pendingIds} parking={parkingRecords} venueFee={parkingInfo?.venueFeePerCarClp ?? 3000} />}
 
         {flash && (
-          <div role="status" className="pointer-events-none absolute inset-x-6 top-4 z-30 flex items-center gap-3 rounded-2xl bg-emerald-500 px-4 py-3 text-black shadow-[0_0_30px_-4px_rgba(16,185,129,0.9)]">
-            <Check className="h-7 w-7 shrink-0" />
-            <div className="min-w-0">
-              <p className="text-sm font-bold">Acceso dado · {flash.personas} {flash.personas === 1 ? 'persona' : 'personas'}</p>
-              <p className="truncate text-base font-extrabold">{flash.names}</p>
+          <div role="status" className="pointer-events-none absolute inset-x-6 top-4 z-30 space-y-2">
+            <div className="flex items-center gap-3 rounded-2xl bg-emerald-500 px-4 py-3 text-black shadow-[0_0_30px_-4px_rgba(16,185,129,0.9)]">
+              <Check className="h-7 w-7 shrink-0" />
+              <div className="min-w-0">
+                <p className="text-sm font-bold">Acceso dado · {flash.personas} {flash.personas === 1 ? 'persona' : 'personas'}</p>
+                <p className="truncate text-base font-extrabold">{flash.names}</p>
+              </div>
             </div>
+            <PulseraBanner teams={flash.teams} compact />
           </div>
         )}
       </main>
@@ -624,6 +631,26 @@ function StaffCredencial({ scan, eventId, isOnline, onCerrar }: { scan: { code: 
 
 /* --- Ficha de verificación ------------------------------------------------ */
 
+/** PLAYMORE · Player 1 vs Player 2: la pulsera que se le entrega a cada persona (la sortea el sistema; nadie elige). */
+function PulseraBanner({ teams, compact = false }: { teams: PlayTeam[]; compact?: boolean }) {
+  if (!teams.length) return null;
+  return (
+    <div className={compact ? 'rounded-2xl bg-black/85 p-3 shadow-xl' : 'mb-4 rounded-3xl border border-white/15 bg-white/[0.04] p-4'}>
+      <p className={`font-bold uppercase tracking-widest ${compact ? 'text-[11px] text-white/70' : 'text-xs text-white/60'}`}>
+        {teams.length === 1 ? 'Entrega esta pulsera' : `Entrega ${teams.length} pulseras · ${describeTeams(teams)}`}
+      </p>
+      <div className={`mt-2 grid gap-2 ${teams.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`}>
+        {teams.map((t, i) => (
+          <div key={i} className="rounded-2xl px-4 py-3 text-center font-heading font-extrabold text-black" style={{ background: PLAY_TEAM_META[t].hex, boxShadow: `0 0 26px ${PLAY_TEAM_META[t].hex}99` }}>
+            <p className={compact ? 'text-xl leading-none' : 'text-3xl leading-none'}>{PLAY_TEAM_META[t].label.toUpperCase()}</p>
+            <p className="mt-1 text-xs font-bold tracking-widest">{PLAY_TEAM_META[t].player.toUpperCase()}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function FichaVerificacion({ ficha, onAceptar, onCerrar, onAvisar, onVetar, parkingInfo, onCobrarEstacionamiento }: {
   ficha: Ficha;
   onAceptar: () => void;
@@ -713,6 +740,7 @@ function FichaVerificacion({ ficha, onAceptar, onCerrar, onAvisar, onVetar, park
         </div>
 
         <div className="mx-auto w-full max-w-lg px-5 pb-4">
+          <PulseraBanner teams={ficha.teams ?? []} />
           {/* Solo el nombre coincide con alguien bloqueado: puede ser un homónimo,
            * así que se avisa y decide el equipo (los datos duros ya frenan arriba). */}
           {ficha.blockedAlert?.level === 'review' && (

@@ -38,8 +38,8 @@ import { DARK_CHROME_BG, isDarkRoute } from "@/lib/darkChrome";
 import { colabSlugForHost, isColabHost } from "@shared/colabHosts";
 import { lockZoom } from "@/lib/lockZoom";
 // La portada "/" pasa por HalloweenHome: renderiza la Home oficial tal cual,
-// y solo le agrega la paleta Halloween si el switch del admin está prendido
-// (o siempre en /halloween, la vista previa).
+// y solo le agrega la paleta Halloween en /halloween (la vista previa);
+// ya no hay interruptor en el panel.
 const HalloweenHome = lazy(() => import("./pages/HalloweenHome"));
 const AppHome = lazy(() => import("./pages/AppHome"));
 const AppEvents = lazy(() => import("./pages/AppEvents"));
@@ -78,6 +78,7 @@ const DressCodeArticle = lazy(() => import("./pages/DressCodeArticle"));
 const CostumeOracle = lazy(() => import("./pages/CostumeOracle"));
 const Recargar = lazy(() => import("./pages/Recargar"));
 const Puerta = lazy(() => import("./pages/Puerta"));
+const Ronda = lazy(() => import("./pages/Ronda"));
 const Cocina = lazy(() => import("./pages/Cocina"));
 const Barra = lazy(() => import("./pages/Barra"));
 const Guardarropia = lazy(() => import("./pages/Guardarropia"));
@@ -251,6 +252,7 @@ function Router() {
           <Route path="/embajador" component={Ambassador} />
           <Route path="/embajador/:code" component={Ambassador} />
           <Route path="/puerta" component={Puerta} />
+          <Route path="/ronda" component={Ronda} />
           <Route path="/cocina" component={Cocina} />
           <Route path="/barra" component={Barra} />
           <Route path="/guardarropia" component={Guardarropia} />
@@ -311,7 +313,9 @@ function App() {
   // La landing de la co-producción con Dalmore tiene su propio botón de
   // compra: la navbar ("Comprar entradas" del evento de Playroom) confundiría.
   const isCoproLanding = location === '/playroomdalmore' || ((location === '/' || location.startsWith('/pago/') || location.startsWith('/checkout/')) && !!colabSlugForHost(window.location.hostname));
-  const hideChrome = isPoster || isCaja || isAdmin || isParty || isPuerta || isCocina || isGuardarropia || isGastos || isTicket;
+  // /ronda (juegos en vivo de PLAYMORE, para el anfitrión) es una pantalla propia, sin el menú del sitio.
+  const isPlayGame = location === '/ronda';
+  const hideChrome = isPlayGame || isPoster || isCaja || isAdmin || isParty || isPuerta || isCocina || isGuardarropia || isGastos || isTicket;
   // Ni el cursor ni el scroll suave hacen nada en touch (ver isFinePointer),
   // así que en celular no se pide su chunk -- antes se importaban eager en
   // App.tsx y Lenis viajaba igual aunque nunca fuera a correr.

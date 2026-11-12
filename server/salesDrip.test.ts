@@ -205,3 +205,27 @@ describe("runSalesDripDaily", () => {
     expect(await runSalesDripDaily(NOW)).toMatchObject({ ran: true });
   });
 });
+
+describe('buildSalesDripContent: último día de la preventa', () => {
+  const schedule = [
+    { percent: 0, untilDate: '2026-11-08T23:59:00-03:00', prices: { duo: 40000, soltera: 10000 } },
+    { percent: 0, untilDate: '2026-11-22T23:59:00-03:00', prices: { duo: 50000, soltera: 12500 } },
+    { percent: 0, untilDate: '2026-12-05T06:00:00-03:00', prices: { duo: 70000, soltera: 15000 } },
+  ];
+  const event = { id: 1, title: 'PLAYMORE', slug: 'playmore', eventDate: '2026-12-04T23:00:00-03:00', venue: 'Providencia', tandaPhaseIndex: 0, tandaDiscountSchedule: schedule } as any;
+  const offer = { prices: [{ accesoSlug: 'duo', price: 40000, originalPrice: 70000 }, { accesoSlug: 'soltera', price: 10000, originalPrice: 15000 }], priceFrom: 10000, remaining: null } as any;
+
+  it('el último día avisa que termina hoy y que a las 00:00 sube', () => {
+    const content = buildSalesDripContent(event, offer, new Date('2026-11-08T15:00:00-03:00'));
+    expect(content.subject).toContain('último día del precio preventa');
+    expect(content.headline).toContain('último día');
+    expect(content.paragraphs.join(' ')).toContain('A las 00:00 sube a $12.500');
+    expect(content.highlightLabel).toBe('Último día');
+  });
+
+  it('un día antes no dice nada de último día', () => {
+    const content = buildSalesDripContent(event, offer, new Date('2026-11-07T15:00:00-03:00'));
+    expect(content.subject).not.toContain('último día');
+    expect(content.paragraphs.join(' ')).toContain('rige hasta');
+  });
+});

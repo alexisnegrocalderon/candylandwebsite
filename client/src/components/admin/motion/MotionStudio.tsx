@@ -8,19 +8,21 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
+import { AI_MODELS, AI_MODEL_LABEL, motionCallEstimateUsd, type AiModel } from '@shared/studioAi';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ImageUploadField } from '@/components/admin/ImageUploadField';
 import { ConfirmDeleteButton } from '@/components/admin/ConfirmDeleteButton';
 import { formatChileDate, formatChileDateTime } from '@shared/chileDate';
 import { chileIsoDate, type ContentPiece } from '@shared/contentPlan';
 import {
-  MOTION_FORMAT_LABEL, MOTION_FORMATS, MOTION_STYLE_LABEL, MOTION_TEMPLATE_LABEL, MOTION_TEMPLATES, starterSpec,
+  MOTION_FORMAT_LABEL, MOTION_FORMATS, MOTION_STYLE_LABEL, MOTION_TEMPLATE_LABEL, MOTION_TEMPLATES, normalizeKeyword, starterSpec,
   type MotionFormat, type MotionMedia, type MotionSpec, type MotionStyle, type MotionTemplate,
 } from '@shared/motionSpec';
+import { saveVideoFile } from './saveVideo';
 import { MotionEditor } from './MotionEditor';
 import { MotionPreview } from './MotionPreview';
 import { PlanPanel } from './PlanPanel';
-import { AiUsageCard } from './AiUsageCard';
 import { randomSeed } from '@shared/motionVariety';
 import { takeStudioEvent } from './handoff';
 
@@ -45,6 +47,7 @@ const TEMPLATE_HINT: Record<MotionTemplate, string> = {
 
 /** Puntos de partida sin IA: cada plantilla con el estilo que mejor la luce. */
 const STARTERS: Array<{ key: string; template: MotionTemplate; style: MotionStyle; label: string; hint: string }> = [
+  { key: 'playmore', template: 'anuncio', style: 'arcade', label: 'PLAYMORE · Player 1 vs Player 2', hint: 'El concepto arcade neón y el dress code por equipo: reel, carrusel, post e historia.' },
   { key: 'tema', template: 'anuncio', style: 'kinetic', label: 'Tema (kinetic)', hint: 'Frases que se arman palabra a palabra para hablar de un tema y parar el scroll.' },
   { key: 'anuncio', template: 'anuncio', style: 'editorial', label: MOTION_TEMPLATE_LABEL.anuncio, hint: TEMPLATE_HINT.anuncio },
   { key: 'countdown', template: 'countdown', style: 'glitch', label: MOTION_TEMPLATE_LABEL.countdown, hint: TEMPLATE_HINT.countdown },
@@ -67,6 +70,8 @@ export function MotionStudio() {
   const [template, setTemplate] = useState<MotionTemplate | 'auto'>('auto');
   const [format, setFormat] = useState<MotionFormat>('reel');
   const [media, setMedia] = useState<MotionMedia[]>([]);
+  const [keyword, setKeyword] = useState('INFO');
+  const [model, setModel] = useState<AiModel>('claude-sonnet-5-5');
 
   const generate = trpc.motionStudio.generate.useMutation({
     onSuccess: (r) => setView({ kind: 'variants', variants: r.variants as MotionSpec[], costUsd: r.costUsd }),
@@ -74,7 +79,7 @@ export function MotionStudio() {
   });
 
   const create = (opts: { brief: string; template: MotionTemplate | null }) =>
-    generate.mutate({ brief: opts.brief, template: opts.template, format, eventId, media });
+    generate.mutate({ brief: opts.brief, template: opts.template, format, eventId, media, keyword, model });
 
   const fromPiece = (p: ContentPiece) => {
     const text = [`Gancho: ${p.hook}`, `Caption: ${p.caption}`, p.visual && `Qué se graba: ${p.visual}`, p.interaction && `Qué pedir: ${p.interaction}`].filter(Boolean).join('\n');
@@ -145,6 +150,25 @@ export function MotionStudio() {
                 <Textarea id="motion-brief" rows={3} maxLength={2000} value={brief} onChange={(e) => setBrief(e.target.value)}
                   placeholder="Ej: anunciar la fiesta del sábado con foco en que es la primera vez de mucha gente y que el consentimiento es lo primero." />
               </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Modelo de IA</Label>
+                <Select value={model} onValueChange={(v) => setModel(v as AiModel)}>
+                  <SelectTrigger className="max-w-md"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {AI_MODELS.map((m) => (
+                      <SelectItem key={m} value={m}>{AI_MODEL_LABEL[m]} · ≈ US$ {motionCallEstimateUsd(m).toFixed(3).replace('.', ',')} por video</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">El precio es una estimación por video; al crear, se muestra el costo real de esa llamada.</p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="motion-keyword" className="text-xs">Palabra clave para comentarios</Label>
+                <Input id="motion-keyword" className="max-w-xs" maxLength={20} value={keyword}
+                  onChange={(e) => setKeyword(normalizeKeyword(e.target.value))}
+                  placeholder="INFO" />
+                <p className="text-xs text-muted-foreground">Es la palabra que la gente comenta para recibir todo por mensaje. Se escribe «Comenta {keyword || 'INFO'}» en el video.</p>
+              </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-1.5">
                   <Label className="text-xs">Plantilla</Label>
@@ -197,7 +221,7 @@ export function MotionStudio() {
                 const spec = { ...starterSpec(template, style), format, eventId, eventDate, seed: (baseSeed + k * 7919) % 1_000_000 };
                 return (
                   <button key={key} type="button" className="group space-y-2 text-left" onClick={() => setView({ kind: 'edit', id: null, spec })}>
-                    <MotionPreview spec={spec} controls={false} autoPlay maxHeight={300} className="transition-transform group-hover:scale-[1.02]" />
+                    <MotionPreview spec={spec} controls={false} still maxHeight={300} className="transition-transform group-hover:scale-[1.02]" />
                     <p className="text-sm font-medium">{label}</p>
                     <p className="text-xs text-muted-foreground">{hint}</p>
                   </button>
@@ -217,7 +241,6 @@ export function MotionStudio() {
           <VideoList onOpen={(id, spec) => setView({ kind: 'edit', id, spec })} onNew={() => setView({ kind: 'edit', id: null, spec: { ...starterSpec('anuncio'), eventId, eventDate, seed: randomSeed() } })} />
         </TabsContent>
       </Tabs>
-      <AiUsageCard />
       {generate.isPending && (
         <div className="fixed inset-x-0 bottom-6 z-50 mx-auto w-fit rounded-full bg-black/85 px-5 py-2.5 text-sm text-white shadow-xl">
           <Loader2 className="mr-2 inline h-4 w-4 animate-spin" /> Claude está dirigiendo las 3 variantes…
@@ -229,7 +252,7 @@ export function MotionStudio() {
 
 function VideoList({ onOpen, onNew }: { onOpen: (id: number, spec: MotionSpec) => void; onNew: () => void }) {
   const utils = trpc.useUtils();
-  const { data, isLoading } = trpc.motionStudio.list.useQuery();
+  const { data, isLoading, error, refetch } = trpc.motionStudio.list.useQuery();
   const [opening, setOpening] = useState<number | null>(null);
   const del = trpc.motionStudio.delete.useMutation({
     onSuccess: () => { utils.motionStudio.list.invalidate(); toast.success('Video borrado.'); },
@@ -250,7 +273,13 @@ function VideoList({ onOpen, onNew }: { onOpen: (id: number, spec: MotionSpec) =
   return (
     <div className="space-y-3">
       <Button variant="outline" size="sm" onClick={onNew}><Plus className="mr-1 h-4 w-4" /> Video en blanco</Button>
-      {!data?.length && <p className="text-sm text-muted-foreground">Todavía no guardas ningún video.</p>}
+      {error && (
+        <p className="text-sm text-red-600">
+          No se pudo cargar la lista de videos: {error.message}{' '}
+          <button type="button" className="underline" onClick={() => refetch()}>Reintentar</button>
+        </p>
+      )}
+      {!error && !data?.length && <p className="text-sm text-muted-foreground">Todavía no guardas ningún video.</p>}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {data?.map((v) => (
           <Card key={v.id} className="rounded-2xl border-0 shadow-md shadow-black/5">
@@ -264,11 +293,14 @@ function VideoList({ onOpen, onNew }: { onOpen: (id: number, spec: MotionSpec) =
                 <p className="text-[11px] text-muted-foreground">
                   {formatChileDateTime(v.updatedAt)} · {v.render.status === 'listo' ? (v.renderFresh ? 'MP4 listo' : 'MP4 viejo') : v.render.status === 'grabando' ? 'Grabando…' : v.render.status === 'error' ? 'Error al grabar' : 'Sin MP4'}
                 </p>
+                <p className={`mt-0.5 inline-block rounded-full px-2 py-0.5 text-[11px] font-medium ${v.publicacion === 'publicado' ? 'bg-emerald-500/15 text-emerald-700' : v.publicacion === 'aprobado' ? 'bg-sky-500/15 text-sky-700' : 'bg-amber-500/15 text-amber-700'}`}>
+                  {v.publicacion === 'publicado' ? 'Publicado en Instagram' : v.publicacion === 'aprobado' ? 'Aprobado' : 'Por aprobar'}
+                </p>
                 <div className="mt-2 flex gap-2">
                   <Button size="sm" variant="outline" disabled={opening === v.id} onClick={() => open(v.id)}>
                     {opening === v.id ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null} Abrir
                   </Button>
-                  {v.render.status === 'listo' && v.render.url && <a className="inline-flex items-center text-xs underline" href={v.render.url} target="_blank" rel="noreferrer">MP4</a>}
+                  {v.render.status === 'listo' && v.render.url && <button type="button" className="inline-flex items-center text-xs underline" onClick={() => void saveVideoFile(v.render.url!, v.title)}>Guardar MP4</button>}
                   <ConfirmDeleteButton description={`el video «${v.title}»`} onConfirm={(adminPassword) => del.mutateAsync({ id: v.id, adminPassword })} />
                 </div>
               </div>

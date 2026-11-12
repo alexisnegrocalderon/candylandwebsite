@@ -11,7 +11,7 @@ import { and, asc, eq, gte, inArray, isNull, or, sql } from 'drizzle-orm';
 import { customers, discountCodes, events, orderItems, orders, partnerCampaigns, partnerOrders, ticketTypes, tickets, type PartnerCampaign } from '../drizzle/schema';
 import { getDb } from './db';
 import { buildPartnerReminderEmail, buildPartnerThanksEmail, sendEmail } from './email';
-import { EVENT_BRAND } from '../shared/eventBrand';
+import { currentDressCode } from '../shared/eventBrand';
 import { formatChileDate } from '../shared/chileDate';
 import { normalizeRut } from '../shared/rut';
 import { personasForAccesoSlug } from '../shared/mission300';
@@ -300,7 +300,7 @@ export async function sendPartnerReminders(slug: string) {
       setTimeText: campaign.setTimeText,
       eventTitle: event.title,
       eventDate: formatChileDate(new Date(event.eventDate)),
-      dressCode: EVENT_BRAND.dressCode,
+      dressCode: currentDressCode(),
       rules,
       ticketCode: ticket?.ticketCode,
     });

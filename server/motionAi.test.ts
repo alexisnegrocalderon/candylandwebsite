@@ -15,7 +15,7 @@ const media = [
 describe('variantsFromAi', () => {
   it('siempre devuelve 3 variantes con estilos distintos, en el orden de la IA y completando si manda menos', () => {
     const raw = {
-      title: 'Anuncio', caption: 'Te esperamos', template: 'anuncio', countdownValue: 0, countdownUnit: '', outroLine: 'Entradas en la bio',
+      title: 'Anuncio', caption: 'Te esperamos', template: 'anuncio', countdownValue: 0, countdownUnit: '', outroLine: 'Comenta INFO',
       variants: [
         { style: 'editorial', base: 'rosa', music: 'dream', scenes: [{ text: 'Uno', mediaIndex: -1 }] },
         { style: 'liquid', base: 'azul', music: 'pulse', scenes: [{ text: 'Dos', mediaIndex: -1 }] },
@@ -25,7 +25,7 @@ describe('variantsFromAi', () => {
     expect(out.map((v) => v.style)).toEqual(['editorial', 'liquid', 'kinetic']);
     expect(out[0].scenes[0].text).toBe('Uno');
     expect(out[1].scenes[0].text).toBe('Dos');
-    expect(out.every((v) => v.eventId === 3 && v.outroLine === 'Entradas en la bio')).toBe(true);
+    expect(out.every((v) => v.eventId === 3 && v.outroLine === 'Comenta INFO')).toBe(true);
   });
 
   it('asigna las fotos por índice y descarta índices inventados', () => {

@@ -20,7 +20,7 @@ export const MOTION_TEMPLATE_LABEL: Record<MotionTemplate, string> = {
   sting: 'Intro / outro de marca',
 };
 
-export const MOTION_STYLES = ['liquid', 'glitch', 'editorial', 'kinetic', 'poster', 'softui'] as const;
+export const MOTION_STYLES = ['liquid', 'glitch', 'editorial', 'kinetic', 'poster', 'softui', 'arcade', 'custom'] as const;
 export type MotionStyle = (typeof MOTION_STYLES)[number];
 export const MOTION_STYLE_LABEL: Record<MotionStyle, string> = {
   liquid: 'Liquid',
@@ -29,25 +29,29 @@ export const MOTION_STYLE_LABEL: Record<MotionStyle, string> = {
   kinetic: 'Kinetic (para temas)',
   poster: 'Póster 3D',
   softui: 'Soft UI (tarjetas)',
+  arcade: 'Arcade neón (PLAYMORE · Player 1 vs Player 2)',
+  custom: 'Personalizado',
 };
 
-export const MOTION_FORMATS = ['reel', 'feed', 'square'] as const;
+export const MOTION_FORMATS = ['reel', 'feed', 'retrato', 'square'] as const;
 export type MotionFormat = (typeof MOTION_FORMATS)[number];
 export const MOTION_FORMAT_LABEL: Record<MotionFormat, string> = {
   reel: 'Reel / Historia 9:16',
   feed: 'Feed 4:5',
+  retrato: 'Feed 3:4 (el de Instagram ahora)',
   square: 'Cuadrado 1:1',
 };
 export const MOTION_SIZES: Record<MotionFormat, { width: number; height: number }> = {
   reel: { width: 1080, height: 1920 },
   feed: { width: 1080, height: 1350 },
+  retrato: { width: 1080, height: 1440 },
   square: { width: 1080, height: 1080 },
 };
 
 /** Fondo de la pieza. Los de marca (celeste, rosa, tinta) a todo el
  * sangrado; los neutros (perla, niebla) para el look editorial con un solo
  * acento de marca; y noche (la paleta de PLAYMORE) para fiestas. */
-export const MOTION_BASES = ['azul', 'rosa', 'tinta', 'perla', 'niebla', 'noche'] as const;
+export const MOTION_BASES = ['azul', 'rosa', 'tinta', 'perla', 'niebla', 'noche', 'arcade'] as const;
 export type MotionBase = (typeof MOTION_BASES)[number];
 export const MOTION_BASE_LABEL: Record<MotionBase, string> = {
   azul: 'Celeste de marca',
@@ -56,6 +60,7 @@ export const MOTION_BASE_LABEL: Record<MotionBase, string> = {
   perla: 'Perla (editorial)',
   niebla: 'Niebla (editorial)',
   noche: 'Noche (PLAYMORE)',
+  arcade: 'Arcade (PLAYMORE · negro neón)',
 };
 
 /** El color protagonista de la pieza (el «círculo rojo» de las referencias). */
@@ -69,7 +74,7 @@ export const MOTION_ACCENT_LABEL: Record<MotionAccent, string> = {
   oro: 'Oro (PLAYMORE)',
 };
 export const MOTION_DEFAULT_ACCENT: Record<MotionBase, MotionAccent> = {
-  azul: 'rosa', rosa: 'tinta', tinta: 'rosa', perla: 'magenta', niebla: 'celeste', noche: 'rosa',
+  azul: 'rosa', rosa: 'tinta', tinta: 'rosa', perla: 'magenta', niebla: 'celeste', noche: 'rosa', arcade: 'magenta',
 };
 
 /** Colores permitidos (server/studioAi/brandPack.ts + neutros editoriales +
@@ -129,7 +134,7 @@ export interface MotionPalette {
 export function motionPalette(base: MotionBase, accent: MotionAccent = MOTION_DEFAULT_ACCENT[base]): MotionPalette {
   let hero = ACCENT_HEX[accent];
   // Un acento igual al fondo no se ve: se usa el de por defecto.
-  const bgOf: Record<MotionBase, string> = { azul: BRAND.blue, rosa: BRAND.pink, tinta: BRAND.ink, perla: BRAND.pearl, niebla: BRAND.mist, noche: BRAND.plum };
+  const bgOf: Record<MotionBase, string> = { azul: BRAND.blue, rosa: BRAND.pink, tinta: BRAND.ink, perla: BRAND.pearl, niebla: BRAND.mist, noche: BRAND.plum, arcade: BRAND.black };
   if (hero === bgOf[base]) hero = ACCENT_HEX[MOTION_DEFAULT_ACCENT[base]];
   const solid = (p: Omit<MotionPalette, 'hero' | 'heroFill' | 'bg2'> & { bg2?: string; heroFill?: string }): MotionPalette => ({ ...p, bg2: p.bg2 ?? p.bg, hero, heroFill: p.heroFill ?? hero });
   switch (base) {
@@ -146,6 +151,12 @@ export function motionPalette(base: MotionBase, accent: MotionAccent = MOTION_DE
         bg: BRAND.plum, bg2: BRAND.night, display: BRAND.cream, shadow: BRAND.night, body: BRAND.cream, muted: BRAND.gold,
         accent: BRAND.gold, deep: BRAND.night, micro: BRAND.gold, surface: BRAND.cream, dark: true,
         heroFill: accent === 'oro' ? `linear-gradient(90deg, ${BRAND.gold}, ${BRAND.cream})` : `linear-gradient(90deg, ${BRAND.orchid}, ${BRAND.gold})`,
+      });
+    case 'arcade':
+      // PLAYMORE · Player 1 vs Player 2: negro con luz ciruela; magenta (P1) protagonista, celeste (P2) de acento y oro de puntaje.
+      return solid({
+        bg: BRAND.plum, bg2: BRAND.black, display: BRAND.white, shadow: BRAND.magenta, body: BRAND.white, muted: BRAND.blue,
+        accent: hero === BRAND.blue ? BRAND.magenta : BRAND.blue, deep: BRAND.black, micro: BRAND.gold, surface: BRAND.white, dark: true,
       });
     default:
       return solid({ bg: BRAND.blue, display: BRAND.white, shadow: BRAND.ink, body: BRAND.white, muted: BRAND.white, accent: BRAND.magenta, deep: BRAND.ink, micro: BRAND.white, surface: BRAND.white, dark: false });
@@ -220,6 +231,46 @@ export interface MotionVoice {
   secs: number[];
 }
 
+/* Estilo personalizado (admin → Estudio): los valores que el kit «custom»
+ * usa para dibujar el fondo, la entrada del texto y la fuente. Solo fuentes y
+ * entradas que ya existen en el motor, para no depender de archivos nuevos. */
+export const MOTION_CUSTOM_FONTS = ['unbounded', 'gliker', 'anton', 'syne', 'grotesk', 'inter', 'allura'] as const;
+export type MotionCustomFont = (typeof MOTION_CUSTOM_FONTS)[number];
+export const MOTION_CUSTOM_FONT_LABEL: Record<MotionCustomFont, string> = {
+  unbounded: 'Unbounded (ancha, urbana)', gliker: 'Gliker (burbuja de marca)', anton: 'Anton (condensada, impacto)',
+  syne: 'Syne (editorial ancha)', grotesk: 'Space Grotesk (técnica)', inter: 'Inter (limpia)', allura: 'Allura (script)',
+};
+export const MOTION_CUSTOM_BG = ['solido', 'rejilla', 'sol', 'degradado'] as const;
+export type MotionCustomBg = (typeof MOTION_CUSTOM_BG)[number];
+export const MOTION_CUSTOM_BG_LABEL: Record<MotionCustomBg, string> = { solido: 'Sólido', rejilla: 'Rejilla en perspectiva', sol: 'Sol con franjas', degradado: 'Degradado' };
+export const MOTION_CUSTOM_ENTRY = ['elastica', 'pixel', 'deslizar'] as const;
+export type MotionCustomEntry = (typeof MOTION_CUSTOM_ENTRY)[number];
+export const MOTION_CUSTOM_ENTRY_LABEL: Record<MotionCustomEntry, string> = { elastica: 'Elástica (rebota)', pixel: 'Pixelada (a saltos)', deslizar: 'Desliza desde abajo' };
+
+export interface MotionCustom {
+  font: MotionCustomFont;
+  bg: MotionCustomBg;
+  entry: MotionCustomEntry;
+  /** 0.6 (lento) a 1.6 (rápido). Multiplica la velocidad de las entradas. */
+  speed: number;
+  uppercase: boolean;
+}
+
+export const MOTION_CUSTOM_DEFAULT: MotionCustom = { font: 'unbounded', bg: 'rejilla', entry: 'elastica', speed: 1, uppercase: true };
+
+export function normalizeCustom(raw: unknown): MotionCustom {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Partial<MotionCustom>;
+  const pick = <T extends string>(v: unknown, list: readonly T[], fallback: T): T => (list as readonly string[]).includes(String(v)) ? (v as T) : fallback;
+  const speed = typeof r.speed === 'number' && Number.isFinite(r.speed) ? Math.min(1.6, Math.max(0.6, r.speed)) : MOTION_CUSTOM_DEFAULT.speed;
+  return {
+    font: pick(r.font, MOTION_CUSTOM_FONTS, MOTION_CUSTOM_DEFAULT.font),
+    bg: pick(r.bg, MOTION_CUSTOM_BG, MOTION_CUSTOM_DEFAULT.bg),
+    entry: pick(r.entry, MOTION_CUSTOM_ENTRY, MOTION_CUSTOM_DEFAULT.entry),
+    speed: Math.round(speed * 10) / 10,
+    uppercase: r.uppercase !== false,
+  };
+}
+
 export interface MotionSpec {
   v: 1;
   title: string;
@@ -244,8 +295,12 @@ export interface MotionSpec {
   /** Cierra con la firma animada de la marca (o la tarjeta del @). */
   outro: boolean;
   closing: MotionClosing;
-  /** Línea bajo el logo en la firma («Entradas en la bio»). */
+  /** Línea bajo el logo en la firma («Comenta INFO»). */
   outroLine: string;
+  /** Palabra clave de la automatización de comentarios (ej. INFO). Va en el texto del cierre y en el caption. */
+  keyword: string;
+  /** Solo para el estilo «custom»: fuente, fondo, entrada y velocidad. */
+  custom: MotionCustom;
   music: MotionMusic;
   sfx: boolean;
   voice: MotionVoice | null;
@@ -253,7 +308,7 @@ export interface MotionSpec {
 }
 
 /** Fondo con que parte cada estilo. */
-export const MOTION_DEFAULT_BASE: Record<MotionStyle, MotionBase> = { liquid: 'azul', glitch: 'tinta', editorial: 'perla', kinetic: 'perla', poster: 'perla', softui: 'niebla' };
+export const MOTION_DEFAULT_BASE: Record<MotionStyle, MotionBase> = { liquid: 'azul', glitch: 'tinta', editorial: 'perla', kinetic: 'perla', poster: 'perla', softui: 'niebla', arcade: 'arcade', custom: 'tinta' };
 
 export const MOTION_MAX_SCENES = 10;
 export const MOTION_SCENE_SECS = { min: 1, max: 8 } as const;
@@ -368,6 +423,8 @@ export function normalizeMotionSpec(raw: unknown): MotionSpec {
     outro: template === 'sting' ? false : r.outro !== false,
     closing: pick(r.closing, MOTION_CLOSINGS, 'firma'),
     outroLine: str(r.outroLine, 60),
+    keyword: normalizeKeyword(r.keyword),
+    custom: normalizeCustom(r.custom),
     music: pick(r.music, MOTION_MUSIC, 'pulse'),
     sfx: r.sfx !== false,
     voice,
@@ -471,6 +528,40 @@ export function voiceSays(spec: MotionSpec): string[] {
 }
 
 /** Un video de partida para cada plantilla (el editor empieza de acá). */
+export const DEFAULT_KEYWORD = 'INFO';
+
+/** La palabra clave tal como la automatización la reconoce: mayúsculas, sin espacios ni símbolos, máximo 20. */
+export function normalizeKeyword(raw: unknown): string {
+  const clean = String(raw ?? '').toUpperCase().replace(/[^A-Z0-9ÁÉÍÓÚÑÜ]/g, '').slice(0, 20);
+  return clean || DEFAULT_KEYWORD;
+}
+
+/** Cambia la palabra clave y actualiza donde aparezca «comenta X»: escenas, subtítulos, firma y caption.
+ * Solo toca la frase de comentar y el resaltado que es la palabra clave; el resto del texto no se mueve. */
+export function applyKeyword(spec: MotionSpec, raw: string): MotionSpec {
+  const from = spec.keyword;
+  const to = normalizeKeyword(raw);
+  if (from === to) return spec;
+  const esc = from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const phrase = new RegExp(`comenta\\s+${esc}\\b`, 'giu');
+  const word = new RegExp(`^${esc}$`, 'iu');
+  const swap = (t: string | undefined) => (t ? t.replace(phrase, (m) => m.replace(/\S+$/, to)) : t);
+  const swapWord = (t: string | undefined) => (t && word.test(t.trim()) ? to : t);
+  return {
+    ...spec,
+    keyword: to,
+    outroLine: swap(spec.outroLine) ?? spec.outroLine,
+    caption: swap(spec.caption) ?? spec.caption,
+    scenes: spec.scenes.map((sc) => ({
+      ...sc,
+      text: swap(sc.text) ?? sc.text,
+      sub: swap(sc.sub) ?? sc.sub,
+      say: swap(sc.say) ?? sc.say,
+      highlight: swapWord(sc.highlight) ?? sc.highlight,
+    })),
+  };
+}
+
 export function starterSpec(template: MotionTemplate, style: MotionStyle = 'liquid'): MotionSpec {
   const scenes: Partial<MotionScene>[] =
     template === 'countdown'
@@ -484,13 +575,22 @@ export function starterSpec(template: MotionTemplate, style: MotionStyle = 'liqu
                 { kicker: '¿Primera vez?', text: 'Te lo contamos fácil', highlight: 'fácil', secs: 2.4 },
                 { text: 'Anótalo', card: 'calendario', sub: 'Sábado desde las 22:00', secs: 3 },
                 { text: 'Qué llevar', card: 'checklist', items: ['Tu entrada en el celular', 'Carnet (+18)', 'Ganas de pasarlo bien'], secs: 3.4 },
-                { text: 'Entradas en la bio', highlight: 'bio', card: 'entrada', kicker: 'Mansion Playroom', sub: 'Valparaíso · +18', secs: 3 },
+                { text: 'Comenta INFO', highlight: 'INFO', card: 'entrada', kicker: 'Mansion Playroom', sub: 'Valparaíso · +18', secs: 3 },
               ]
           : style === 'poster'
             ? [
                 { kicker: 'Mansion Playroom', text: 'Crush on Playroom', highlight: 'Playroom', sub: 'Sábado · Valparaíso · +18', secs: 3 },
                 { text: 'Una noche distinta', highlight: 'distinta', secs: 2.6 },
-                { text: 'Entradas en la bio', highlight: 'bio', secs: 2.6 },
+                { text: 'Comenta INFO', highlight: 'INFO', secs: 2.6 },
+              ]
+          : style === 'arcade'
+            ? [
+                // PLAYMORE · Player 1 vs Player 2: el concepto y el dress code (qué ponerse según tu equipo).
+                { kicker: 'PLAYMORE · INSERT COIN', text: 'P1 vs P2', highlight: 'vs', sub: 'Player 1 o Player 2: elige tu equipo y vístete para ganar', secs: 3 },
+                { kicker: 'PLAYER 1 · MUNDO PLAYROOM', text: 'Equipo magenta', highlight: 'magenta', sub: 'Base negra, vinilo, malla, lentes espejados y luces LED', secs: 3.2 },
+                { kicker: 'PLAYER 2 · MUNDO DALMORE', text: 'Equipo celeste', highlight: 'celeste', sub: 'Cromo, tech-wear, guantes, visor y delineado neón', secs: 3.2 },
+                { kicker: 'DADOS · RULETAS · MARCADOR', text: 'Gana tu equipo', highlight: 'equipo', sub: 'Rondas toda la noche. Todo opcional, siempre con respeto', secs: 3 },
+                { kicker: 'VIERNES 4 DIC · PROVIDENCIA · +21', text: 'Press start', highlight: 'start', sub: 'Entradas en dalmore.mansionplayroom.cl', secs: 2.8 },
               ]
           : style === 'kinetic'
             ? [
@@ -502,8 +602,14 @@ export function starterSpec(template: MotionTemplate, style: MotionStyle = 'liqu
             : [
               { kicker: 'SE VIENE', text: 'Una noche distinta', highlight: 'distinta', secs: 2.2 },
               { kicker: 'SÁBADO', text: 'Valparaíso', sub: 'Dirección exacta al comprar', secs: 2.4 },
-              { text: 'Entradas en la bio', highlight: 'bio', secs: 2.4 },
+              { text: 'Comenta INFO', highlight: 'INFO', secs: 2.4 },
             ];
+  if (style === 'arcade' && template === 'anuncio') {
+    return normalizeMotionSpec({
+      template, style, scenes, base: 'arcade', accent: 'magenta', music: 'drive', outroLine: 'dalmore.mansionplayroom.cl', title: 'PLAYMORE · Player 1 vs Player 2',
+      caption: 'PLAYMORE: Player 1 vs Player 2 🕹️\nElige tu equipo: magenta (Player 1 · mundo Playroom) o celeste (Player 2 · mundo Dalmore). Base negra + tu color neón y ven a ganar.\nDados, ruletas y un marcador gigante toda la noche.\n\nViernes 4 de diciembre · Providencia · +21\nEntradas en dalmore.mansionplayroom.cl\n\n#PLAYMORE #Player1vsPlayer2 #MansionPlayroom #Dalmore',
+    });
+  }
   return normalizeMotionSpec({ template, style, scenes, outroLine: 'mansionplayroom.cl', title: MOTION_TEMPLATE_LABEL[template] });
 }
 

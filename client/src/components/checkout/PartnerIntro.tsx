@@ -1,4 +1,5 @@
 import { Calendar, CalendarClock } from 'lucide-react';
+import { eventBrandActive } from '@shared/eventBrand';
 
 /* Portada del link de la comunidad en la app: quién te invita, la fiesta, la cuenta regresiva y lo
  * importante en filas de vidrio. El precio especial NO sale acá: se ve recién después de validar el
@@ -15,7 +16,7 @@ function facts(edadMinima: number): Fact[] {
     { emoji: '🚗', title: 'Estacionamiento privado', text: 'Dentro del recinto, con cupos limitados: lo reservas al final de la compra.' },
     { emoji: '🍔', title: 'Comida y barra', text: 'Stand de comida, tiendas y barra completa toda la noche.' },
     { emoji: '🛡️', title: 'Un espacio seguro', text: 'Respeto y consentimiento son la regla. Nada es obligatorio.' },
-    { emoji: '🎭', title: 'Disfraz obligatorio', text: 'Es Halloween y nuestro aniversario.' },
+    ...(eventBrandActive() ? [{ emoji: '🎭', title: 'Disfraz obligatorio', text: 'Es Halloween y nuestro aniversario.' }] : []),
     { emoji: '🪪', title: `Evento +${edadMinima}`, text: 'Trae tu carnet o pasaporte.' },
   ];
 }

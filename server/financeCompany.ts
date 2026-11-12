@@ -7,7 +7,7 @@
  * eventos. Sin esa resta, esa plata no aparecía en ningún resultado.
  */
 import { and, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
-import { ambassadorCommissions, events, exclusiveAmbassadors, expenses, staffMembers, staffShifts, customers } from "../drizzle/schema";
+import { ambassadorCommissions, coproductions, events, exclusiveAmbassadors, expenses, staffMembers, staffShifts, customers } from "../drizzle/schema";
 import { sql } from "drizzle-orm";
 import * as db from "./db";
 import { expenseCostForPnl } from "../shared/expenses";
@@ -59,10 +59,19 @@ export function buildMonthRows(p: {
   return rows;
 }
 
+/** Eventos de colab (PLAYMORE…): llevan su propia cuenta de plata, aparte de la empresa. */
+async function colabEventIds(conn: NonNullable<Awaited<ReturnType<typeof db.getDb>>>): Promise<Set<number>> {
+  try {
+    const rows = await conn.select({ eventId: coproductions.eventId }).from(coproductions).where(isNotNull(coproductions.eventId));
+    return new Set((rows as any[]).map((r) => Number(r.eventId)));
+  } catch { return new Set(); }
+}
+
 export async function getCompanyYear(year: number) {
   const conn = await db.getDb();
   if (!conn) return null;
-  const comparison = await db.getPnlComparison();
+  const colab = await colabEventIds(conn);
+  const comparison = (await db.getPnlComparison() as any[]).filter((e) => !colab.has(Number(e.eventId)));
   const evs = (comparison as any[]).map((e) => ({
     id: e.eventId as number, title: e.title as string, monthKey: e.monthKey as string,
     grossIncome: e.grossIncome as number, netProfit: e.netProfit as number,
@@ -136,9 +145,12 @@ export function groupCommissionsByEvent(
 }
 
 /** Todo lo que hay que pagar o que se le debe a terceros. */
-export async function getPayables() {
+export async function getPayables(opts: { eventId?: number } = {}) {
   const conn = await db.getDb();
   if (!conn) return null;
+  const colabSet = await colabEventIds(conn);
+  // Con eventId: solo ese evento (Inicio). Sin él: todos menos los colab (Finanzas de la empresa).
+  const colab = { has: (id: number) => (opts.eventId != null ? id !== opts.eventId : colabSet.has(id)) };
 
   // Comisiones de embajadores, agrupadas por EVENTO: cada evento es su propia
   // campaña y se paga por separado (un evento que aún no ocurre no se debe).
@@ -149,7 +161,7 @@ export async function getPayables() {
   }).from(ambassadorCommissions)
     .leftJoin(exclusiveAmbassadors, eq(exclusiveAmbassadors.id, ambassadorCommissions.ambassadorId))
     .leftJoin(events, eq(events.id, ambassadorCommissions.eventId));
-  const ambassadorEvents = groupCommissionsByEvent(comm as any[], new Date());
+  const ambassadorEvents = groupCommissionsByEvent((comm as any[]).filter((r) => !colab.has(Number(r.eventId))), new Date());
   const ambassadorsPending = ambassadorEvents.filter((e) => !e.isFuture).reduce((sum, e) => sum + e.pending, 0);
   const ambassadorsPendingFuture = ambassadorEvents.filter((e) => e.isFuture).reduce((sum, e) => sum + e.pending, 0);
 
@@ -163,7 +175,7 @@ export async function getPayables() {
     .innerJoin(events, eq(events.id, staffShifts.eventId));
   const staffUnpaid: { eventId: number; eventTitle: string; name: string; amountClp: number }[] = [];
   const retentionByEvent = new Map<number, { eventId: number; eventTitle: string; eventDate: string | null; retention: number; boletas: number; dueDate: string | null }>();
-  for (const r of staffRows as any[]) {
+  for (const r of (staffRows as any[]).filter((x) => !colab.has(Number(x.eventId)))) {
     const year = Number(monthKeyFor(r.eventDate).slice(0, 4));
     const pay = honorariosBreakdown({ amount: Number(r.amountClp), paymentType: r.paymentType, amountMode: r.amountMode, year });
     if (!r.paid) staffUnpaid.push({ eventId: r.eventId, eventTitle: r.title, name: r.name, amountClp: pay.net });
@@ -182,7 +194,7 @@ export async function getPayables() {
   // Estacionamiento al local: de los eventos más recientes.
   const recent = await conn.select({ id: events.id, title: events.title }).from(events).orderBy(desc(events.eventDate)).limit(6);
   const parking: { eventId: number; eventTitle: string; amount: number }[] = [];
-  for (const e of recent as any[]) {
+  for (const e of (recent as any[]).filter((x) => !colab.has(Number(x.id)))) {
     const r = await db.getParkingReport(e.id);
     if (r && r.amountOwedToVenueClp > 0) parking.push({ eventId: e.id, eventTitle: e.title, amount: r.amountOwedToVenueClp });
   }

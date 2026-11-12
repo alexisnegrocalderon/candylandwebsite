@@ -475,6 +475,13 @@ export async function getTicketStockHistory(ticketTypeId: number) {
 export async function deleteTicketType(id: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
+  // Un acceso con compras NO se borra: las entradas vendidas quedarían apuntando a un tipo que ya no existe y dejarían de contarse
+  // (Inicio, puerta, «Mi cuenta»). Para sacarlo de la venta se oculta (estado «hidden») o se cierra la tanda.
+  const [used] = await db.select({ n: sql<number>`count(*)` }).from(tickets).where(eq(tickets.ticketTypeId, id));
+  const [itemsUsed] = await db.select({ n: sql<number>`count(*)` }).from(orderItems).where(eq(orderItems.ticketTypeId, id));
+  if (Number(used?.n ?? 0) > 0 || Number(itemsUsed?.n ?? 0) > 0) {
+    throw new Error('Este acceso ya tiene compras y no se puede borrar (dejaría esas entradas sin acceso). Ocúltalo o ciérralo en vez de borrarlo.');
+  }
   await db.delete(ticketTypes).where(eq(ticketTypes.id, id));
   return { success: true };
 }

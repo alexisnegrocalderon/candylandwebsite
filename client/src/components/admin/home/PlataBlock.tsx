@@ -13,14 +13,15 @@ const shortDate = (iso: string) => { const [y, m, d] = iso.split('-'); return y 
 
 export type PlataData = ReturnType<typeof usePlata>['data'];
 
-export function usePlata(enabled: boolean) {
-  return trpc.home.plata.useQuery(undefined, { enabled, refetchInterval: 300_000, refetchIntervalInBackground: false, retry: false });
+export function usePlata(enabled: boolean, eventId?: number | null) {
+  return trpc.home.plata.useQuery(eventId ? { eventId } : undefined, { enabled, refetchInterval: 300_000, refetchIntervalInBackground: false, retry: false });
 }
 
 export function PlataBlock({ data, loading, onOpen, onClose }: { data: PlataData; loading: boolean; onOpen: (s: string) => void; onClose?: () => void }) {
   if (loading && !data) return <HomeBlock onClose={onClose} id="plata" title="Plata" subtitle="Cargando…" icon={Banknote}><p className="text-sm text-muted-foreground">Cargando…</p></HomeBlock>;
   if (!data) return null;
-  const { cash, payables, sii, company, spend } = data;
+  if (data.event) return <PlataEvento ev={data.event} onOpen={onOpen} onClose={onClose} />;
+  const { cash, payables, sii, company, spend } = data as any;
   const mp = cash?.balances.find((b: any) => b.source === 'mercadopago');
   const bank = cash?.balances.find((b: any) => b.source === 'banco');
   const maxCat = Math.max(1, ...(spend?.byCategory ?? []).map((c: any) => c.amount));
@@ -96,6 +97,53 @@ export function PlataBlock({ data, loading, onOpen, onClose }: { data: PlataData
             <div>
               <p className="mb-1 text-xs text-muted-foreground">Últimos cargados</p>
               {spend.latest.map((g: any, i: number) => <ListRow key={i} left={g.description} right={clp(g.amount)} />)}
+            </div>
+          </div>
+        )}
+      </Widget>
+    </HomeBlock>
+  );
+}
+
+/** Plata del evento que viene: arranca en cero y solo suma lo de ESE evento. La plata de la empresa vive en Finanzas. */
+function PlataEvento({ ev, onOpen, onClose }: { ev: any; onOpen: (s: string) => void; onClose?: () => void }) {
+  const maxCat = Math.max(1, ...(ev.spend?.byCategory ?? []).map((c: any) => c.amount));
+  const p = ev.payables;
+  return (
+    <HomeBlock onClose={onClose} id="plata" title="Plata del evento" subtitle={`${ev.title} · solo lo de este evento (la plata de Playroom está en Finanzas)`} icon={Banknote}>
+      <Widget title="Ingresos" onMore={() => onOpen('finanzas')}>
+        {!ev.income ? <Unavailable /> : (
+          <div className="grid grid-cols-2 gap-3">
+            <MiniStat label="Recaudado" value={clp(ev.income.gross)} />
+            <MiniStat label="Comisión de pago" value={clp(ev.income.cardFee)} />
+            <MiniStat label="Resultado estimado" value={clp(ev.result?.netProfit ?? 0)} tone={(ev.result?.netProfit ?? 0) < 0 ? 'bad' : 'good'} />
+          </div>
+        )}
+      </Widget>
+      <Widget title="Por pagar del evento" onMore={() => onOpen('finanzas')}>
+        {!p ? <Unavailable /> : (
+          <div className="space-y-1">
+            <MiniStat label="Total por pagar" value={clp(p.total)} tone={p.total > 0 ? 'warn' : 'good'} />
+            <div className="pt-2">
+              <ListRow left={`Staff sin pagar${p.staffUnpaidCount ? ` (${p.staffUnpaidCount})` : ''}`} right={clp(p.staffUnpaidTotal)} onClick={() => onOpen('finanzas')} />
+              <ListRow left="Comisiones de embajadores" right={clp(p.ambassadors)} />
+              <ListRow left="Estacionamiento al local" right={clp(p.parkingTotal)} onClick={() => onOpen('parking')} />
+            </div>
+          </div>
+        )}
+      </Widget>
+      <Widget title="Gastos del evento" onMore={() => onOpen('gastos-hoy')} className="md:col-span-2 xl:col-span-2">
+        {!ev.spend || ev.spend.count === 0 ? <p className="text-sm text-muted-foreground">Sin gastos cargados todavía. Parte en cero: carga staff, equipos y arriendo a medida que los tengas.</p> : (
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <MiniStat label={`${ev.spend.count} gastos`} value={clp(ev.spend.total)} />
+              {ev.spend.byCategory.map((c: any) => (
+                <ProgressRow key={c.category} label={`${CAT.get(c.category)?.emoji ?? ''} ${CAT.get(c.category)?.label ?? c.category}`} right={clp(c.amount)} pct={(c.amount / maxCat) * 100} />
+              ))}
+            </div>
+            <div>
+              <p className="mb-1 text-xs text-muted-foreground">Últimos cargados</p>
+              {ev.spend.latest.map((g: any, i: number) => <ListRow key={i} left={g.description} right={clp(g.amount)} />)}
             </div>
           </div>
         )}

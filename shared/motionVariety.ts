@@ -26,6 +26,14 @@ export const LAYOUTS: Record<MotionStyle, LayoutOption[]> = {
     { key: 'gigante', label: 'Palabra gigante' },
     { key: 'partido', label: 'Partido (arriba y abajo)' },
   ],
+  custom: [
+    { key: 'abajo', label: 'Texto abajo' },
+    { key: 'arriba', label: 'Texto arriba' },
+    { key: 'centro', label: 'Texto al centro' },
+    { key: 'derecha', label: 'Alineado a la derecha' },
+    { key: 'gigante', label: 'Palabra gigante' },
+    { key: 'partido', label: 'Partido (arriba y abajo)' },
+  ],
   editorial: [
     { key: 'abajo', label: 'Texto abajo' },
     { key: 'arriba', label: 'Texto arriba' },
@@ -51,6 +59,13 @@ export const LAYOUTS: Record<MotionStyle, LayoutOption[]> = {
     { key: 'centro', label: 'Centrado' },
     { key: 'bajo', label: 'Abajo' },
     { key: 'alto', label: 'Arriba' },
+    { key: 'izquierda', label: 'A la izquierda' },
+    { key: 'derecha', label: 'A la derecha' },
+  ],
+  arcade: [
+    { key: 'centro', label: 'Centrado' },
+    { key: 'alto', label: 'Arriba' },
+    { key: 'bajo', label: 'Abajo' },
     { key: 'izquierda', label: 'A la izquierda' },
     { key: 'derecha', label: 'A la derecha' },
   ],

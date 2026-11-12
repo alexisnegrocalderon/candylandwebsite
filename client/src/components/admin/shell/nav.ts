@@ -81,6 +81,7 @@ export const SECTION_KEYWORDS: Record<string, string> = {
   'cuenta-demo': 'cuenta de prueba demo probar app staff',
   contests: 'concurso sorteo instagram ganadores participantes',
   'orders-web': 'entradas tickets ordenes compras online',
+  'entradas-pendientes': 'reprogramacion reprogramadas creditos credito pendientes guardadas devolucion anular',
   'orders-caja': 'ordenes puerta efectivo',
   'sales-origin': 'utm atribucion canal campañas',
   'sales-strategy': 'ia estrategia director',
@@ -124,10 +125,10 @@ export const SECTION_KEYWORDS: Record<string, string> = {
   'gastos-hoy': 'gastos hoy cargados lista boletas',
   settings: 'ajustes configuracion alertas push seguridad',
   'copro-resumen': 'dalmore playmore coproduccion socio hipodromo',
-  'copro-asistentes': 'dalmore asistentes lista',
-  'copro-cortesias': 'dalmore cortesias invitaciones',
+  'copro-asistentes': 'dalmore asistentes lista acompañantes agregar clientes',
+  'copro-descuentos': 'dalmore descuento codigo cupon promo',
   'copro-gastos': 'dalmore gastos aprobar boletas',
-  'copro-reparto': 'dalmore reparto utilidad 50/50',
+  'copro-reparto': 'dalmore cierre reparto utilidad 50/50 finanzas ventas ingresos',
   'copro-config': 'dalmore configuracion landing clave activar lanzar',
 };
 

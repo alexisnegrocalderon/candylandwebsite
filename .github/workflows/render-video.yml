@@ -42,6 +42,7 @@ jobs:
           sparse-checkout: |
             motion/
             shared/motionSpec.ts
+            shared/motionVariety.ts
             scripts/render-studio-video.mjs
             client/public/studio/
             client/public/motion/

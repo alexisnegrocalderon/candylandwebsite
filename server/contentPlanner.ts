@@ -7,7 +7,7 @@ import { getEventById, getFeaturedEvent, getSiteSettings, listActiveIgKeywordAut
 import { buildEventFacts } from './winback';
 import { ALL_ARTICLES } from '../client/src/content';
 import { normalizeInstagramAgentConfig } from '../shared/instagramAgentConfig';
-import { EVENT_BRAND } from '../shared/eventBrand';
+import { currentDressCode } from '../shared/eventBrand';
 import { formatChileDate } from '../shared/chileDate';
 import {
   CONTENT_FORMATS,
@@ -117,7 +117,7 @@ const COMMUNITY_TOPICS = [
 const LOYALTY_IDEAS = [
   'FIDELIZACIÓN (para que quien ya vino vuelva y traiga a otros):',
   '- Que se sientan parte: agradecer a "los de siempre" sin nombrar a nadie, historias de "lo que más se vivió", encuestas para que opinen de la próxima fiesta.',
-  '- Programas que ya existen en el sitio, para mencionar SIN inventar sus beneficios concretos (para el detalle: "link en la bio"): PlayCard con QR, saldo y Playcoins; programa de embajadores y referidos; beneficios para cumpleañeros; el Oráculo de Disfraces y el quiz del dress code.',
+  '- Programas que ya existen en el sitio, para mencionar SIN inventar sus beneficios concretos (para el detalle: que comenten una palabra clave y se les envía): PlayCard con QR, saldo y Playcoins; programa de embajadores y referidos; beneficios para cumpleañeros; el Oráculo de Disfraces y el quiz del dress code.',
   '- Participación que genera comunidad: desafíos, preguntas, votaciones sobre la temática, "etiqueta a quien debería venir contigo".',
 ].join('\n');
 
@@ -135,7 +135,7 @@ const SYSTEM_PROMPT = [
   'Urgencia: solo si es real (el precio de la tanda sube en una fecha concreta, quedan cupos limitados) y dicha como un dato útil, una o dos veces en todo el plan -- nunca "última oportunidad" en cada pieza ni desesperación.',
   `Ritmo: unas 4 o 5 piezas por semana, máximo ${CONTENT_PLAN_MAX_PER_DAY} por día y solo en la última semana (cuenta regresiva). Mezcla reels (para que llegue gente nueva), carruseles (para que guarden y compartan), historias (cercanía, encuestas y urgencia) y posts.`,
   'Arco: las primeras semanas, awareness, confianza e interacción (cómo es la fiesta, consentimiento, primera vez, desafíos, ideas de disfraz); la última semana, urgencia y conversión sin dejar de interactuar; el día del evento, la pieza de "es hoy".',
-  'Captions: entre 100 y 400 caracteres, sin ninguna URL ni dirección web (si hay que mandar a comprar o a leer algo, di "link en la bio"). Sin markdown. Como mucho un emoji por pieza.',
+  'Captions: entre 100 y 400 caracteres, sin ninguna URL ni dirección web (si hay que mandar a comprar o a leer algo, invita a comentar una palabra clave y se les envía el link por mensaje). Sin markdown. Como mucho un emoji por pieza.',
   'Palabras clave de automatización: SOLO en historias, y SOLO de la lista entregada (se activan cuando la persona RESPONDE a la historia con esa palabra y le llega un DM automático). En posts, reels y carruseles NO uses una palabra clave tipo "comenta ENTRADA y te mando el link": esa automatización por comentarios todavía no funciona. Pedir comentarios para PARTICIPAR ("comenta cuántas acertaste", "etiqueta a alguien") SÍ está bien y es lo que más interacción genera. Si la lista está vacía, deja `keyword` vacío en todas.',
   'Las fechas de cada pieza tienen que estar DENTRO de la ventana indicada y en formato YYYY-MM-DD.',
   'VIDEO: cada reel, historia o post que pueda ser video lleva `motionTemplate` y `motionStyle`: el Estudio Motion lo arma con motion graphics de marca (texto animado, cuenta regresiva o montaje de fotos reales). Usa countdown en la última semana, montaje cuando `visual` pide grabar algo real, y anuncio para el resto. Alterna estilos para que el feed no se vea repetido.',
@@ -200,7 +200,7 @@ export async function buildPlanRequest(targetEventId: number | undefined, now: D
     '',
     'DATOS REALES DEL EVENTO:',
     await buildEventFacts(event),
-    `- Dress code: ${EVENT_BRAND.dressCode}`,
+    `- Dress code: ${currentDressCode()}`,
     '',
     'CONTEXTO DE LA MARCA (lo escribió el dueño, respétalo):',
     brand.brandNotes,

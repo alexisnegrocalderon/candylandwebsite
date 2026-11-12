@@ -15,7 +15,7 @@ import { requestAssistant } from '@/components/assistant/assistantRequest';
 import { useHideSplashOnMount } from '@/lib/splash';
 import { useSeo } from '@/hooks/useSeo';
 import { useInstallableApp } from '@/hooks/useInstallableApp';
-import { Home, Flame, Calendar, DollarSign, Ticket, Users, Plus, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, Contact, Mail, History, Gift, MessageCircle, Crown, Martini, Instagram, UserPlus, Ban, Receipt, Compass, Sparkles, Car, Send, ShieldAlert, Zap, Cake, Calculator, Star, FlaskConical, Palette, UserCheck, Banknote, Landmark, Headphones, ListChecks, PartyPopper, BellRing, Wine, Smartphone, Bot, TrendingUp, Link2, FileText, ShieldCheck, Plane } from 'lucide-react';
+import { Home, Flame, Calendar, DollarSign, Ticket, Users, Plus, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, Contact, Mail, History, Gift, MessageCircle, Crown, Martini, Instagram, UserPlus, Ban, Receipt, Compass, Sparkles, Car, Send, ShieldAlert, Zap, Cake, Calculator, Star, FlaskConical, Palette, UserCheck, Banknote, Landmark, Headphones, ListChecks, PartyPopper, BellRing, Wine, Smartphone, Bot, TrendingUp, Link2, FileText, ShieldCheck, Plane, CalendarClock } from 'lucide-react';
 import { AdminLoginForm } from '@/components/admin/AdminLoginForm';
 import { OPEN_SECTION_EVENT } from '@/components/admin/shell/nav';
 import { parseAdminDeepLink } from '@shared/adminDeepLink';
@@ -48,7 +48,7 @@ const FinanzasView = lazy(() => import('./Finanzas'));
 const SiiView = lazy(() => import('./Sii'));
 const CoproResumen = lazy(() => import('@/components/admin/coproduction/CoproductionViews').then((m) => ({ default: m.CoproResumen })));
 const CoproAsistentes = lazy(() => import('@/components/admin/coproduction/CoproductionViews').then((m) => ({ default: m.CoproAsistentes })));
-const CoproCortesias = lazy(() => import('@/components/admin/coproduction/CoproductionViews').then((m) => ({ default: m.CoproCortesias })));
+const CoproDescuentos = lazy(() => import('@/components/admin/coproduction/CoproductionViews').then((m) => ({ default: m.CoproDescuentos })));
 const CoproGastos = lazy(() => import('@/components/admin/coproduction/CoproductionViews').then((m) => ({ default: m.CoproGastos })));
 const CoproMovimientos = lazy(() => import('@/components/admin/coproduction/CoproductionViews').then((m) => ({ default: m.CoproMovimientos })));
 const CoproContactos = lazy(() => import('@/components/admin/coproduction/CoproductionViews').then((m) => ({ default: m.CoproContactos })));
@@ -82,6 +82,9 @@ const PlaymatchControlView = lazy(() => import('./sections/playmatchAdmin').then
 const ReferralsView = lazy(() => import('./sections/comunidad').then((m) => ({ default: m.ReferralsView })));
 const SalesByOriginView = lazy(() => import('./sections/ventas').then((m) => ({ default: m.SalesByOriginView })));
 const SettingsManager = lazy(() => import('./sections/ajustes').then((m) => ({ default: m.SettingsManager })));
+const SecurityAndAlerts = lazy(() => import('./sections/ajustes').then((m) => ({ default: m.SecurityAndAlerts })));
+const AiSettings = lazy(() => import('@/components/admin/motion/AiUsageCard').then((m) => ({ default: m.AiSettings })));
+const IphoneShortcutsCard = lazy(() => import('@/components/admin/IphoneShortcutsCard').then((m) => ({ default: m.IphoneShortcutsCard })));
 
 // El Estudio trae sus propias fuentes, html-to-image y jszip: se carga recién
 // cuando se abre, para no sumarle peso al resto del panel.
@@ -90,6 +93,7 @@ const AmbassadorContentAdmin = lazy(() => import('@/components/admin/studio/Amba
 const CrossCheckView = lazy(() => import('@/components/admin/crossCheck/CrossCheckView').then((m) => ({ default: m.CrossCheckView })));
 const CompraFiestaView = lazy(() => import('@/components/admin/insumos/CompraFiestaView').then((m) => ({ default: m.CompraFiestaView })));
 const AutomationsView = lazy(() => import('@/components/admin/AutomationsView').then((m) => ({ default: m.AutomationsView })));
+const PendingTicketsView = lazy(() => import('@/components/admin/PendingTicketsView').then((m) => ({ default: m.PendingTicketsView })));
 const PilotView = lazy(() => import('@/components/admin/crossCheck/PilotView').then((m) => ({ default: m.PilotView })));
 const AssistantSection = lazy(() => import('@/components/assistant/AssistantSection').then((m) => ({ default: m.AssistantSection })));
 
@@ -142,7 +146,7 @@ function MailingHub() {
 }
 
 /** Pantallas que se juntaron en otra: los avisos y atajos viejos que las nombran siguen funcionando. */
-const MERGED_SECTIONS: Record<string, string> = { 'mailing-history': 'mailing', 'email-templates': 'mailing' };
+const MERGED_SECTIONS: Record<string, string> = { 'mailing-history': 'mailing', 'email-templates': 'mailing', 'copro-cortesias': 'copro-asistentes' };
 
 /** Atajos de la hoja del «+» en el celular (solo los de secciones visibles). */
 const ADMIN_QUICK_ACTIONS: AdminQuickAction[] = [
@@ -183,14 +187,15 @@ const ADMIN_SECTIONS = [
   // Co-producción (Playroom × Dalmore): aparece junto a la preparación porque se arma con el evento.
   { id: 'copro-resumen', label: 'Resumen', hub: 'coproduccion', icon: LayoutDashboard, render: () => <CoproResumen /> },
   { id: 'copro-asistentes', label: 'Asistentes', hub: 'coproduccion', icon: Users, render: () => <CoproAsistentes /> },
-  { id: 'copro-cortesias', label: 'Cortesías', hub: 'coproduccion', icon: Gift, render: () => <CoproCortesias /> },
   { id: 'copro-gastos', label: 'Gastos', hub: 'coproduccion', icon: Receipt, render: () => <CoproGastos /> },
+  { id: 'copro-descuentos', label: 'Descuentos', hub: 'coproduccion', icon: Ticket, render: () => <CoproDescuentos /> },
   { id: 'copro-contactos', label: 'Contactos', hub: 'coproduccion', icon: Contact, render: () => <CoproContactos /> },
   { id: 'copro-movimientos', label: 'Movimientos', hub: 'coproduccion', icon: ListChecks, render: () => <CoproMovimientos /> },
-  { id: 'copro-reparto', label: 'Reparto', hub: 'coproduccion', icon: DollarSign, render: () => <CoproReparto /> },
+  { id: 'copro-reparto', label: 'Cierre', hub: 'coproduccion', icon: DollarSign, render: () => <CoproReparto /> },
   { id: 'copro-config', label: 'Configuración', hub: 'coproduccion', icon: SettingsIcon, render: () => <CoproConfig /> },
   // 2 · Vender: las ventas del evento, cortesías y lo que trae ventas (concursos, embajadores, referidos).
   { id: 'orders-web', label: 'Ventas Web', hub: 'vender', icon: Ticket, render: () => <OrdersView channel="web" /> },
+  { id: 'entradas-pendientes', label: 'Entradas pendientes', hub: 'vender', icon: CalendarClock, render: () => <PendingTicketsView /> },
   // Escondida del menú: «Regalar» (invitar y regalar), «Transferencia» (vender cobrado por transferencia) y la invitación instantánea
   // de la hoja Regalar cubren lo que hacía. No se borra: el buscador (Ctrl K) todavía la encuentra.
   { id: 'manual-access', label: 'Accesos Manuales', hub: 'vender', icon: Gift, hidden: true, render: () => <ManualAccessSection /> },
@@ -259,8 +264,13 @@ const ADMIN_SECTIONS = [
   { id: 'cargar-gasto', label: 'Cargar gasto', hub: 'finanzas', icon: Plus, render: () => <ExpenseTerminal inShell /> },
   { id: 'gastos-hoy', label: 'Hoy', hub: 'finanzas', icon: ListChecks, render: () => <ExpensesTodaySection /> },
   { id: 'event-budget', label: 'Simulador de Evento', hub: 'finanzas', hidden: true, icon: Calculator, render: () => <EventBudgetSimulatorView /> },
+  // Ajustes: todo lo que se configura a mano en el panel, por temas (cada uno es una pestaña).
+  { id: 'settings', label: 'General', hub: 'ajustes', icon: SettingsIcon, render: () => <SettingsManager tab="general" /> },
+  { id: 'ajustes-cobros', label: 'Cobros y costos', hub: 'ajustes', icon: Banknote, render: () => <SettingsManager tab="cobros" /> },
+  { id: 'ajustes-ia', label: 'IA', hub: 'ajustes', icon: Sparkles, render: () => <AiSettings /> },
+  { id: 'ajustes-atajos', label: 'Atajos', hub: 'ajustes', icon: Smartphone, render: () => <IphoneShortcutsCard /> },
+  { id: 'ajustes-seguridad', label: 'Seguridad y avisos', hub: 'ajustes', icon: ShieldCheck, render: () => <SecurityAndAlerts /> },
   { id: 'supervisoras', label: 'Supervisoras', hub: 'ajustes', icon: Users, render: () => <SupervisorAccessManager /> },
-  { id: 'settings', label: 'Ajustes', hub: 'ajustes', icon: SettingsIcon, render: () => <SettingsManager /> },
 ] as const satisfies readonly (ShellSection & { render: () => ReactNode })[];
 
 export default function AdminDashboard() {

@@ -17,13 +17,15 @@ import { useDemoProps } from '@/lib/demoMode';
  * - Expone `analyzing` (controlado por quien lo usa) para mostrar el paso
  *   "leyendo la foto…" después de que terminó de subir. */
 export function CameraCaptureField({
-  label, pathPrefix, onScanned, analyzing, buttonClassName, hidePreview, maxSide,
+  label, pathPrefix, onScanned, analyzing, buttonClassName, hidePreview, maxSide, uploadUrl = '/api/admin/blob/upload',
 }: {
   label: string; pathPrefix: string; onScanned: (url: string) => void; analyzing?: boolean; buttonClassName?: string;
   /** Si viene, la foto se achica en el navegador a este lado máximo (px) y se sube como JPEG liviano. */
   maxSide?: number;
   /** Quien lo usa muestra su propia miniatura (ej. el terminal de gastos). */
   hidePreview?: boolean;
+  /** Endpoint que autoriza la subida (el socio de una co-producción usa el suyo). */
+  uploadUrl?: string;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -44,7 +46,7 @@ export function CameraCaptureField({
       const name = maxSide ? safeName.replace(/\.[a-z0-9]+$/i, '') + '.jpg' : safeName;
       const blob = await upload(`${pathPrefix}/${Date.now()}-${name}`, body, {
         access: 'public',
-        handleUploadUrl: '/api/admin/blob/upload',
+        handleUploadUrl: uploadUrl,
       });
       onScanned(blob.url);
     } catch (err) {
