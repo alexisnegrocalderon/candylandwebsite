@@ -49,6 +49,21 @@ if (mode === 'video') {
   const composition = await selectComposition({ serveUrl, id: 'Motion', inputProps, browserExecutable, chromiumOptions });
   await renderMedia({ composition, serveUrl, codec: 'h264', crf: 17, outputLocation: b ?? 'out.mp4', inputProps, browserExecutable, chromiumOptions });
   console.log('Listo:', b ?? 'out.mp4');
+} else if (mode === 'recipe') {
+  // pnpm tsx scripts/motion/preview.mts recipe receta.json [salida]  → un cuadro asentado por escena (+ cierre), con ACCENT=, BASE=, SEED= opcionales
+  const out = b ?? 'motion-recipe';
+  mkdirSync(out, { recursive: true });
+  const raw = JSON.parse(readFileSync(a, 'utf8'));
+  const spec = normalizeMotionSpec({ ...raw, ...(process.env.ACCENT ? { accent: process.env.ACCENT } : {}), ...(process.env.BASE ? { base: process.env.BASE } : {}), ...(process.env.SEED ? { seed: Number(process.env.SEED) } : {}) });
+  const tl = motionTimeline(spec);
+  const frames = [...tl.scenes.map((t) => t.from + t.frames - 12), ...(tl.outroFrom != null ? [tl.outroFrom + 50] : [])];
+  const tag = process.env.TAG ?? 'r';
+  for (let i = 0; i < frames.length; i++) {
+    const inputProps = { spec };
+    const composition = await selectComposition({ serveUrl, id: 'Motion', inputProps, browserExecutable, chromiumOptions });
+    await renderStill({ composition, serveUrl, output: join(out, `${tag}-${String(i + 1).padStart(2, '0')}.png`), frame: frames[i], inputProps, browserExecutable, chromiumOptions });
+  }
+  console.log(tag, frames.length, 'cuadros');
 } else if (mode === 'layouts') {
   const out = a ?? 'motion-layouts';
   mkdirSync(out, { recursive: true });

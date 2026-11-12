@@ -32,7 +32,7 @@ const Cut: React.FC = () => {
   if (frame < 3 || frame > 9) return null;
   return (
     <AbsoluteFill style={{ pointerEvents: 'none' }}>
-      <div style={{ position: 'absolute', top: 0, bottom: 0, left: x, width, background: palette.hero }} />
+      <div style={{ position: 'absolute', top: 0, bottom: 0, left: x, width, background: palette.heroFill }} />
     </AbsoluteFill>
   );
 };

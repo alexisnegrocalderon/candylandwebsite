@@ -74,7 +74,9 @@ export const AccentCircle: React.FC<{ x: number; y: number; r: number; delay?: n
     <div
       style={{
         position: 'absolute', left: x - r, top: y - r, width: r * 2, height: r * 2, borderRadius: '50%',
-        background: ring ? 'transparent' : c, border: ring ? `3px solid ${c}` : undefined,
+        // En «noche» el círculo de acento lleva el degradé rosa→oro de PLAYMORE (en diagonal); en los demás, color plano.
+        background: ring ? 'transparent' : color === undefined && palette.heroFill.startsWith('linear-gradient') ? palette.heroFill.replace('90deg', '135deg') : c,
+        border: ring ? `3px solid ${c}` : undefined,
         transform: `scale(${p * breathe})`, opacity: interpolate(p, [0, 0.3], [0, 1], clamp),
       }}
     />
