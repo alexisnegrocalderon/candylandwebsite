@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { ArrowDown, ArrowLeft, ArrowUp, Copy, Dices, Download, Film, ImagePlus, Loader2, Mic, Plus, Save, Send, Trash2, X } from 'lucide-react';
+import { ArrowDown, ArrowLeft, ArrowUp, Copy, Dices, Download, Eye, EyeOff, Film, ImagePlus, Loader2, Mic, Plus, Save, Trash2, X } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
 import { WriteButton } from '@/components/admin/WriteButton';
@@ -28,6 +28,9 @@ import { MotionPreview } from './MotionPreview';
 import { PackPanel } from './PackPanel';
 import { PublicacionControls } from './PublicacionControls';
 import { saveVideoFile } from './saveVideo';
+import { patchDraft } from './draft';
+import { setLeaveGuard } from '@/components/admin/shell/leaveGuard';
+import { useIsMobile } from '@/hooks/useMobile';
 
 /* Editor del Estudio Motion: la vista previa a la izquierda (se actualiza al
  * instante, sin IA) y la receta a la derecha. Guardar, grabar a MP4 y mandar
@@ -63,11 +66,22 @@ async function copyText(text: string) {
   }
 }
 
-export function MotionEditor({ id: initialId, initial, onBack }: { id: number | null; initial: MotionSpec; onBack: () => void }) {
+export function MotionEditor({ id: initialId, initial, restored, onBack }: {
+  id: number | null;
+  initial: MotionSpec;
+  /** El editor se reabrió desde el borrador del teléfono (draft.ts); `dirty` = tenía cambios sin guardar. */
+  restored?: { dirty: boolean };
+  onBack: () => void;
+}) {
   const utils = trpc.useUtils();
   const [id, setId] = useState<number | null>(initialId);
   const [spec, setSpecRaw] = useState<MotionSpec>(initial);
-  const [savedHash, setSavedHash] = useState<string | null>(initialId ? JSON.stringify(initial) : null);
+  const [savedHash, setSavedHash] = useState<string | null>(initialId && !restored?.dirty ? JSON.stringify(initial) : null);
+  // Celular: la vista previa es una ventanita flotante que se abre y se cierra desde la barra de abajo (así se ve el cambio
+  // sin subir y bajar la pantalla). Cerrada no existe: es lo que más memoria gasta, y un iPhone sin memoria recarga la página.
+  // Por eso mismo, al volver de una recarga parte cerrada.
+  const isMobile = useIsMobile();
+  const [previewOpen, setPreviewOpen] = useState(!restored);
   const [view, setView] = useState<'video' | 'laminas'>('video');
   const [voiceKey, setVoiceKey] = useState<TtsVoice>((initial.voice?.voice as TtsVoice) || 'catalina');
   // Lo que se escribe queda tal cual (con sus espacios) mientras se edita; la
@@ -76,6 +90,24 @@ export function MotionEditor({ id: initialId, initial, onBack }: { id: number | 
   const setScene = (i: number, patch: Partial<MotionScene>) => setSpecRaw((s) => ({ ...s, scenes: s.scenes.map((sc, k) => (k === i ? { ...sc, ...patch } : sc)) }));
   const clean = useMemo(() => normalizeMotionSpec(spec), [spec]);
   const dirty = savedHash !== JSON.stringify(spec);
+
+  // Borrador en el teléfono: cada cambio queda guardado (con una pausa corta) para reabrir acá mismo tras una recarga.
+  useEffect(() => {
+    const t = window.setTimeout(() => patchDraft({ edit: { id, spec, dirty } }), 400);
+    return () => window.clearTimeout(t);
+  }, [id, spec, dirty]);
+  // Y al ir a segundo plano se guarda al tiro: iOS puede cerrar la página sin avisar mientras estás en otra app.
+  useEffect(() => {
+    const flush = () => { if (document.visibilityState === 'hidden') patchDraft({ edit: { id, spec, dirty } }); };
+    document.addEventListener('visibilitychange', flush);
+    window.addEventListener('pagehide', flush);
+    return () => { document.removeEventListener('visibilitychange', flush); window.removeEventListener('pagehide', flush); };
+  }, [id, spec, dirty]);
+  // Con cambios sin guardar, el panel pregunta antes de abrir otra sección (barra de abajo, pestañas, buscador).
+  useEffect(() => {
+    if (!dirty) return;
+    return setLeaveGuard(() => window.confirm('Este video tiene cambios sin guardar. Quedan como borrador en este teléfono y los recuperas al volver al Estudio.\n\n¿Salir igual?'));
+  }, [dirty]);
 
   const { data: stored } = trpc.motionStudio.get.useQuery({ id: id ?? 0 }, {
     enabled: id != null,
@@ -164,21 +196,25 @@ export function MotionEditor({ id: initialId, initial, onBack }: { id: number | 
     setSpec({ scenes, voice: null });
   };
 
+  const doSave = () => save.mutate({ id: id ?? undefined, spec: clean as unknown as Record<string, unknown> });
+  const recording = renderState?.status === 'grabando' || render.isPending;
+  const cannotRender = id == null || dirty || render.isPending || renderState?.status === 'grabando' || !!renderCfg?.missing.length;
+
   return (
-    <div className="space-y-4">
+    <div className="motion-studio space-y-4 pb-16 md:pb-0">
       <div className="flex flex-wrap items-center gap-2">
-        <Button variant="ghost" size="sm" onClick={() => { if (!dirty || confirm('Hay cambios sin guardar. ¿Salir igual?')) onBack(); }}>
+        <Button variant="ghost" size="sm" onClick={() => { if (!dirty || confirm('Hay cambios sin guardar. Si sales, se descartan. ¿Salir igual?')) onBack(); }}>
           <ArrowLeft className="mr-1 h-4 w-4" /> Volver
         </Button>
-        <Input className="h-9 max-w-xs font-medium" value={spec.title} maxLength={200} onChange={(e) => setSpec({ title: e.target.value })} />
+        <Input className="h-9 min-w-0 flex-1 font-medium sm:max-w-xs" value={spec.title} maxLength={200} aria-label="Nombre del video" onChange={(e) => setSpec({ title: e.target.value })} />
         <span className="text-xs text-muted-foreground">{secs.toFixed(1)} s · {MOTION_TEMPLATE_LABEL[clean.template]} · {MOTION_STYLE_LABEL[clean.style]}</span>
-        <div className="ml-auto flex flex-wrap gap-2">
+        <div className="ml-auto hidden flex-wrap gap-2 md:flex">
           <WriteButton size="sm" variant={dirty ? 'default' : 'outline'} disabled={save.isPending} onClick={() => save.mutate({ id: id ?? undefined, spec: clean as unknown as Record<string, unknown> })}>
             {save.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Save className="mr-1 h-4 w-4" />} {dirty ? 'Guardar' : 'Guardado'}
           </WriteButton>
           <WriteButton
             size="sm"
-            disabled={id == null || dirty || render.isPending || renderState?.status === 'grabando' || !!renderCfg?.missing.length}
+            disabled={cannotRender}
             title={renderCfg?.missing.length ? `Falta configurar: ${renderCfg.missing.join(', ')}` : dirty ? 'Guarda antes de grabar' : undefined}
             onClick={() => id != null && render.mutate({ id })}
           >
@@ -228,7 +264,13 @@ export function MotionEditor({ id: initialId, initial, onBack }: { id: number | 
               </button>
             ))}
           </div>
-          {view === 'video' ? <MotionPreview spec={clean} maxHeight={720} /> : <PackPanel spec={clean} />}
+          {view !== 'video' ? <PackPanel spec={clean} />
+            : !isMobile ? <MotionPreview spec={clean} maxHeight={720} />
+              : (
+                <p className="rounded-xl bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+                  La vista previa va en una ventanita flotante: ábrela o ciérrala con el ojo de la barra de abajo.
+                </p>
+              )}
         </div>
 
         <div className="space-y-4">
@@ -313,9 +355,9 @@ export function MotionEditor({ id: initialId, initial, onBack }: { id: number | 
                       {spec.template === 'sting' ? 'Firma' : spec.template === 'countdown' && i === 0 ? 'Escena 1 · número grande' : `Escena ${i + 1}`}
                     </span>
                     <div className="ml-auto flex gap-1">
-                      <Button size="icon" variant="ghost" className="h-7 w-7" disabled={i === 0} onClick={() => moveScene(i, -1)}><ArrowUp className="h-4 w-4" /></Button>
-                      <Button size="icon" variant="ghost" className="h-7 w-7" disabled={i === spec.scenes.length - 1} onClick={() => moveScene(i, 1)}><ArrowDown className="h-4 w-4" /></Button>
-                      <Button size="icon" variant="ghost" className="h-7 w-7" disabled={spec.scenes.length <= 1} onClick={() => setSpec({ scenes: spec.scenes.filter((_, k) => k !== i), voice: null })}><Trash2 className="h-4 w-4" /></Button>
+                      <Button size="icon" variant="ghost" className="h-7 w-7 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11" disabled={i === 0} onClick={() => moveScene(i, -1)}><ArrowUp className="h-4 w-4" /></Button>
+                      <Button size="icon" variant="ghost" className="h-7 w-7 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11" disabled={i === spec.scenes.length - 1} onClick={() => moveScene(i, 1)}><ArrowDown className="h-4 w-4" /></Button>
+                      <Button size="icon" variant="ghost" className="h-7 w-7 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11" disabled={spec.scenes.length <= 1} onClick={() => setSpec({ scenes: spec.scenes.filter((_, k) => k !== i), voice: null })}><Trash2 className="h-4 w-4" /></Button>
                     </div>
                   </div>
                   {spec.template === 'sting' ? (
@@ -335,7 +377,7 @@ export function MotionEditor({ id: initialId, initial, onBack }: { id: number | 
                           </SelectContent>
                         </Select>
                       </Field>
-                      <div className="grid gap-3 sm:grid-cols-[1fr_2fr_90px]">
+                      <div className="grid grid-cols-2 gap-3 sm:grid-cols-[1fr_2fr_90px] [&>*:nth-child(2)]:col-span-2 sm:[&>*:nth-child(2)]:col-span-1 [&>*:nth-child(2)]:order-last sm:[&>*:nth-child(2)]:order-none">
                         <Field label="Palabra destacada"><Input value={scene.highlight} maxLength={40} onChange={(e) => setScene(i, { highlight: e.target.value })} /></Field>
                         <Field label="Bajada"><Input value={scene.sub} maxLength={140} onChange={(e) => setScene(i, { sub: e.target.value })} /></Field>
                         <Field label="Segundos"><Input type="number" step={0.1} min={1} max={8} value={scene.secs} disabled={!!spec.voice} onChange={(e) => setScene(i, { secs: Number(e.target.value) })} /></Field>
@@ -389,7 +431,7 @@ export function MotionEditor({ id: initialId, initial, onBack }: { id: number | 
                 <div className="flex flex-wrap items-end gap-3">
                   <Field label="Voz">
                     <Select value={voiceKey} onValueChange={(v) => setVoiceKey(v as TtsVoice)}>
-                      <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="w-full sm:w-56"><SelectValue /></SelectTrigger>
                       <SelectContent>{TTS_VOICE_KEYS.map((k) => <SelectItem key={k} value={k}>{TTS_VOICES[k].label}</SelectItem>)}</SelectContent>
                     </Select>
                   </Field>
@@ -426,6 +468,33 @@ export function MotionEditor({ id: initialId, initial, onBack }: { id: number | 
           <p className="flex items-center gap-1 text-xs text-muted-foreground"><ImagePlus className="h-3.5 w-3.5" /> Editar textos, fotos y estilos no gasta IA. Ctrl/⌘+S guarda.</p>
         </div>
       </div>
+
+      {/* ── Celular: ventanita flotante con la vista previa y barra fija con las acciones ──
+          Van sobre la barra inferior del panel, a la izquierda del botón del Asistente. */}
+      {isMobile && view === 'video' && previewOpen && (
+        <div className="fixed left-3 z-40 w-[54vw] max-w-[240px] bottom-[calc(env(safe-area-inset-bottom)+10.5rem)]">
+          <MotionPreview spec={clean} maxHeight={430} className="ring-1 ring-white/20" />
+          <button type="button" aria-label="Ocultar la vista previa" onClick={() => setPreviewOpen(false)}
+            className="absolute -right-3 -top-3 grid h-9 w-9 place-items-center rounded-full bg-black/80 text-white ring-1 ring-white/25">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+      {isMobile && (
+        <div className="motion-actionbar fixed left-3 right-[4.75rem] z-40 flex items-center gap-1.5 rounded-full p-1.5 bottom-[calc(env(safe-area-inset-bottom)+6.75rem)]">
+          <button type="button" aria-pressed={previewOpen && view === 'video'} aria-label={previewOpen && view === 'video' ? 'Ocultar la vista previa' : 'Ver la vista previa'} onClick={() => { setView('video'); setPreviewOpen(view === 'video' ? !previewOpen : true); }}
+            className="flex h-10 shrink-0 items-center gap-1.5 rounded-full px-3 text-sm font-medium text-white/90 active:bg-white/10">
+            {previewOpen && view === 'video' ? <EyeOff className="h-4 w-4" /> : <><Eye className="h-4 w-4" /> Ver</>}
+          </button>
+          <WriteButton size="sm" className="h-10 min-w-0 flex-1 rounded-full" variant={dirty ? 'default' : 'outline'} disabled={save.isPending} onClick={doSave}>
+            {save.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Save className="mr-1 h-4 w-4" />} {dirty ? 'Guardar' : 'Guardado'}
+          </WriteButton>
+          <WriteButton size="sm" className="h-10 min-w-0 flex-1 rounded-full" disabled={cannotRender}
+            onClick={() => (id != null && !dirty ? render.mutate({ id }) : toast.info('Guarda antes de grabar el MP4.'))}>
+            {recording ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Film className="mr-1 h-4 w-4" />} {renderState?.status === 'grabando' ? 'Grabando…' : 'MP4'}
+          </WriteButton>
+        </div>
+      )}
     </div>
   );
 }

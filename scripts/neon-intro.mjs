@@ -18,7 +18,10 @@ export function neonIntroStageHtml() {
     + '<div class="neon-intro-bloom"></div>'
     + '<div class="neon-intro-logo"><div class="neon-intro-base"></div><div class="neon-intro-reveal"><div class="neon-intro-light"></div></div></div>'
     + `<div class="neon-intro-word font-heading">${letters}</div>`
-    + '</div></div>';
+    + '</div></div>'
+    // La luz del borde de la pantalla. Va fuera de la cámara (ocupa toda la pantalla, no el escenario) y con su posición en
+    // línea: así no entra al flujo del splash ni mueve el isotipo aunque todavía no haya llegado la hoja de estilos.
+    + '<div class="neon-intro-edge" aria-hidden="true" style="position:absolute;inset:0;pointer-events:none"></div>';
 }
 
 /** Decide si toca la intro y, si toca, la enciende (clase `neon-intro` en el splash). Corre en el HTML, antes del primer cuadro.

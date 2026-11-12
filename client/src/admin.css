@@ -544,3 +544,18 @@ html[data-admin-theme="dark-glass"] textarea { font-size: max(1rem, 16px); }
 @media (prefers-reduced-motion: reduce) {
   .admin-enter::before, .admin-enter > :only-child > *, .admin-enter > :not(:only-child), .admin-title-in { animation: none !important; }
 }
+
+
+/* ── Estudio en el celular ────────────────────────────────────────────────
+ * Los selectores ocupan todo el ancho de su columna (de fábrica miden lo que su texto y quedaban disparejos), y la
+ * barra fija del editor (Ver · Guardar · MP4) es de vidrio oscuro como la barra inferior del panel. */
+@media (max-width: 767px) {
+  .motion-studio [data-slot="select-trigger"] { width: 100%; }
+}
+.motion-actionbar {
+  background: rgba(22, 20, 28, 0.82);
+  backdrop-filter: blur(18px) saturate(1.4);
+  -webkit-backdrop-filter: blur(18px) saturate(1.4);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+}

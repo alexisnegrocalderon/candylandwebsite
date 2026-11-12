@@ -13,6 +13,8 @@ import { requestInventarioPdf } from '@/components/admin/insumos/requestInventar
 import { requestGift } from '@/components/gifts/giftRequest';
 import { requestAssistant } from '@/components/assistant/assistantRequest';
 import { useHideSplashOnMount } from '@/lib/splash';
+import { canLeave } from '@/components/admin/shell/leaveGuard';
+import { markStudioOpen, wasStudioOpen } from '@/components/admin/motion/studioOpen';
 import { useSeo } from '@/hooks/useSeo';
 import { useInstallableApp } from '@/hooks/useInstallableApp';
 import { Home, Flame, Calendar, DollarSign, Ticket, Users, Plus, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, Contact, Mail, History, Gift, MessageCircle, Crown, Martini, Instagram, UserPlus, Ban, Receipt, Compass, Sparkles, Car, Send, ShieldAlert, Zap, Cake, Calculator, Star, FlaskConical, Palette, UserCheck, Banknote, Landmark, Headphones, ListChecks, PartyPopper, BellRing, Wine, Smartphone, Bot, TrendingUp, Link2, FileText, ShieldCheck, Plane, CalendarClock } from 'lucide-react';
@@ -293,11 +295,16 @@ export default function AdminDashboard() {
     : isSupervisor
       ? SUPERVISOR_SECTION_IDS.map((id) => ADMIN_SECTIONS.find((s) => s.id === id)!).filter(Boolean)
       : ADMIN_SECTIONS.filter((s) => s.id !== 'sup-home');
-  const [activeSection, setActiveSection] = useState<typeof ADMIN_SECTIONS[number]['id']>('home');
+  // Si el panel se recargó solo con el Estudio abierto (el teléfono se quedó sin memoria, o se publicó una versión nueva),
+  // vuelve al Estudio --que reabre su borrador-- y no a Inicio.
+  const [activeSection, setActiveSection] = useState<typeof ADMIN_SECTIONS[number]['id']>(() => (wasStudioOpen() ? 'studio' : 'home'));
+  useEffect(() => { markStudioOpen(activeSection === 'studio'); }, [activeSection]);
   const { counts: badgeCounts, markSeen } = useAdminBadges(!!user && !isPartner && !isSupervisor);
 
   const openSection = (rawId: typeof ADMIN_SECTIONS[number]['id']) => {
     const id = (MERGED_SECTIONS[rawId] ?? rawId) as typeof ADMIN_SECTIONS[number]['id'];
+    // La pantalla abierta puede tener trabajo sin guardar (el editor del Estudio): pregunta antes de salir.
+    if (id !== activeSection && !canLeave()) return;
     setActiveSection(id);
     markSeen(id);
   };
