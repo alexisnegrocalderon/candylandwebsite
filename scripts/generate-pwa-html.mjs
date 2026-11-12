@@ -86,6 +86,9 @@ function applyDarkSplash(html) {
   const markup = html.match(/<!--initial-loader-->[\s\S]*?<!--\/initial-loader-->/);
   if (!style || !markup) throw new Error('No encontré el loader inicial en dist/public/index.html -- revisa client/index.html');
   return html
+    // El panel y las terminales no muestran el hero de la landing: sin sus precargas, el teléfono no baja esas imágenes
+    // (con prioridad alta) justo mientras llegan el CSS y el JS de la app.
+    .replace(/\s*<link rel="preload" as="image" href="\/candyland\/poster-hero[^>]*>/g, '')
     .replace(style[0], DARK_SPLASH_STYLE)
     .replace(markup[0], DARK_SPLASH_MARKUP)
     .replace(/<html([^>]*)>/, '<html$1 data-splash="dark">');

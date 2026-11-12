@@ -2,7 +2,7 @@
  *
  * La intro en sí (el escenario y su animación) ya viene en el HTML del splash y corre desde el primer cuadro
  * (scripts/neon-intro.mjs, client/src/neonIntro.css): acá no se dibuja nada ni se reemplaza nada, solo se decide CUÁNDO se va.
- * Dura 2 segundos (1,7 s de luz y 0,3 s de salida). Si la app se demora más, el letrero queda encendido hasta que esté lista;
+ * Dura unos 2 segundos (1,7 s de luz y 0,46 s de salida). Si la app se demora más, el letrero queda encendido hasta que esté lista;
  * si ya estaba lista, espera a que termine la luz. Sin «toca para entrar»: se abre sola (un toque igual la salta). */
 
 import '@/neonIntro.css';
@@ -11,7 +11,9 @@ import '@/neonIntro.css';
 const LIGHT_MS = 1700;
 const SHORT_FACTOR = 0.6;
 const STILL_MS = 900;
-const OUT_MS = 320;
+const OUT_MS = 460;
+/** Cuánto lleva <html> la marca `splash-reveal` (la app sube desde atrás; neonIntro.css). */
+const REVEAL_MS = 900;
 /** Tope absoluto: pase lo que pase, la intro no se queda pegada. */
 const MAX_WAIT_MS = 2600;
 
@@ -34,6 +36,10 @@ export function finishNeonIntro(el: HTMLElement, done: () => void): void {
     timers.forEach((t) => window.clearTimeout(t));
     window.removeEventListener('keydown', onKey);
     el.classList.add('neon-intro--out');
+    // La app entra mientras la intro se disuelve. Se quita sola: si quedara puesta no pasa nada (la animación corre una vez).
+    const root = document.documentElement;
+    root.classList.add('splash-reveal');
+    window.setTimeout(() => root.classList.remove('splash-reveal'), REVEAL_MS);
     window.setTimeout(() => { el.remove(); done(); }, OUT_MS);
   };
 

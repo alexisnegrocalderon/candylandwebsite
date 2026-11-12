@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { ArrowLeft, Check, Clapperboard, Film, Loader2, Plus, Sparkles, Wand2, X } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
@@ -25,6 +25,7 @@ import { MotionPreview } from './MotionPreview';
 import { PlanPanel } from './PlanPanel';
 import { randomSeed } from '@shared/motionVariety';
 import { takeStudioEvent } from './handoff';
+import { loadDraft, patchDraft } from './draft';
 
 /* Estudio Motion (admin → Contenido → Estudio). Todo el contenido en un lugar:
  *  - Plan: el calendario hasta el evento; cada pieza → «Crear video».
@@ -56,7 +57,19 @@ const STARTERS: Array<{ key: string; template: MotionTemplate; style: MotionStyl
 ];
 
 export function MotionStudio() {
-  const [view, setView] = useState<View>({ kind: 'home' });
+  // El borrador del teléfono (draft.ts): si el panel se recargó o saliste, el Estudio abre donde quedó.
+  const [draft] = useState(loadDraft);
+  // Solo el primer editor que se abre viene del borrador; los que se abran después son videos nuevos.
+  const [restoredEdit, setRestoredEdit] = useState(() => !!draft?.edit);
+  const [view, setView] = useState<View>(() =>
+    draft?.edit ? { kind: 'edit', id: draft.edit.id, spec: draft.edit.spec }
+      : draft?.variants ? { kind: 'variants', ...draft.variants }
+        : { kind: 'home' });
+  useEffect(() => {
+    if (draft?.edit) toast.info(draft.edit.dirty ? 'Recuperé tu video donde lo dejaste. Tiene cambios sin guardar.' : 'Volviste al video que estabas editando.');
+    else if (draft?.variants) toast.info('Recuperé las 3 variantes que habías creado.');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // Una semilla por visita: cada punto de partida sale con su propia composición (y no cambian al volver a dibujar).
   const [baseSeed] = useState(randomSeed);
   const { data: eventsData } = trpc.events.listAll.useQuery();
@@ -66,12 +79,23 @@ export function MotionStudio() {
   const pickedEvent = upcoming.find((e: any) => e.id === eventId);
   const eventDate = pickedEvent ? chileIsoDate(new Date(pickedEvent.eventDate)) : '';
 
-  const [brief, setBrief] = useState('');
-  const [template, setTemplate] = useState<MotionTemplate | 'auto'>('auto');
-  const [format, setFormat] = useState<MotionFormat>('reel');
-  const [media, setMedia] = useState<MotionMedia[]>([]);
-  const [keyword, setKeyword] = useState('INFO');
-  const [model, setModel] = useState<AiModel>('claude-sonnet-5-5');
+  const f = draft?.form;
+  const [brief, setBrief] = useState(() => (typeof f?.brief === 'string' ? f.brief : ''));
+  const [template, setTemplate] = useState<MotionTemplate | 'auto'>(() => (f && (MOTION_TEMPLATES as readonly string[]).includes(f.template) ? f.template : 'auto'));
+  const [format, setFormat] = useState<MotionFormat>(() => (f && (MOTION_FORMATS as readonly string[]).includes(f.format) ? f.format : 'reel'));
+  const [media, setMedia] = useState<MotionMedia[]>(() => (Array.isArray(f?.media) ? f.media.filter((m) => m && typeof m.url === 'string').slice(0, 12) : []));
+  const [keyword, setKeyword] = useState(() => (typeof f?.keyword === 'string' ? f.keyword : 'INFO'));
+  const [model, setModel] = useState<AiModel>(() => (f && (AI_MODELS as readonly string[]).includes(f.model) ? f.model : 'claude-sonnet-5-5'));
+  // Lo que se va escribiendo queda en el teléfono (con una pausa corta, para no escribir en cada tecla).
+  useEffect(() => {
+    const t = window.setTimeout(() => patchDraft({ form: { brief, template, format, media, keyword, model } }), 400);
+    return () => window.clearTimeout(t);
+  }, [brief, template, format, media, keyword, model]);
+  // Las variantes ya se pagaron a la IA: quedan guardadas hasta elegir una o volver.
+  useEffect(() => {
+    if (view.kind === 'variants') patchDraft({ variants: { variants: view.variants, costUsd: view.costUsd }, edit: null });
+    else if (view.kind === 'home') patchDraft({ variants: null, edit: null });
+  }, [view]);
 
   const generate = trpc.motionStudio.generate.useMutation({
     onSuccess: (r) => setView({ kind: 'variants', variants: r.variants as MotionSpec[], costUsd: r.costUsd }),
@@ -89,12 +113,20 @@ export function MotionStudio() {
   };
 
   if (view.kind === 'edit') {
-    return <MotionEditor key={view.id ?? 'new'} id={view.id} initial={view.spec} onBack={() => setView({ kind: 'home' })} />;
+    return (
+      <MotionEditor
+        key={view.id ?? 'new'}
+        id={view.id}
+        initial={view.spec}
+        restored={restoredEdit ? { dirty: !!draft?.edit?.dirty } : undefined}
+        onBack={() => { setRestoredEdit(false); setView({ kind: 'home' }); }}
+      />
+    );
   }
 
   if (view.kind === 'variants') {
     return (
-      <div className="space-y-4">
+      <div className="motion-studio space-y-4">
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="ghost" size="sm" onClick={() => setView({ kind: 'home' })}><ArrowLeft className="mr-1 h-4 w-4" /> Volver</Button>
           <h2 className="font-heading text-xl">Elige una dirección</h2>
@@ -119,7 +151,7 @@ export function MotionStudio() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="motion-studio space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="flex items-center gap-2 font-heading text-2xl"><Clapperboard className="h-6 w-6" /> Estudio</h2>
@@ -129,14 +161,14 @@ export function MotionStudio() {
         </div>
         {upcoming.length > 0 && (
           <Select value={eventId != null ? String(eventId) : undefined} onValueChange={(v) => setEventPick(Number(v))}>
-            <SelectTrigger className="w-72"><SelectValue placeholder="Evento" /></SelectTrigger>
+            <SelectTrigger className="w-full sm:w-72"><SelectValue placeholder="Evento" /></SelectTrigger>
             <SelectContent>{upcoming.map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.title} · {formatChileDate(e.eventDate)}</SelectItem>)}</SelectContent>
           </Select>
         )}
       </div>
 
       <Tabs defaultValue="crear">
-        <TabsList>
+        <TabsList className="w-full sm:w-auto">
           <TabsTrigger value="crear">Crear</TabsTrigger>
           <TabsTrigger value="plan">Plan de contenido</TabsTrigger>
           <TabsTrigger value="videos">Mis videos</TabsTrigger>
@@ -153,7 +185,7 @@ export function MotionStudio() {
               <div className="space-y-1.5">
                 <Label className="text-xs">Modelo de IA</Label>
                 <Select value={model} onValueChange={(v) => setModel(v as AiModel)}>
-                  <SelectTrigger className="max-w-md"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="w-full max-w-md"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {AI_MODELS.map((m) => (
                       <SelectItem key={m} value={m}>{AI_MODEL_LABEL[m]} · ≈ US$ {motionCallEstimateUsd(m).toFixed(3).replace('.', ',')} por video</SelectItem>
@@ -206,7 +238,7 @@ export function MotionStudio() {
                 )}
               </div>
               <div className="flex flex-wrap items-center gap-3">
-                <WriteButton disabled={generate.isPending || brief.trim().length < 3} onClick={() => create({ brief, template: template === 'auto' ? null : template })}>
+                <WriteButton className="w-full sm:w-auto" disabled={generate.isPending || brief.trim().length < 3} onClick={() => create({ brief, template: template === 'auto' ? null : template })}>
                   {generate.isPending ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Dirigiendo 3 variantes…</> : <><Sparkles className="mr-2 h-4 w-4" /> Crear 3 variantes</>}
                 </WriteButton>
                 <span className="text-xs text-muted-foreground">Una sola llamada a Claude Sonnet (≈ US$ 0,01–0,02).</span>
@@ -216,7 +248,7 @@ export function MotionStudio() {
 
           <div>
             <h3 className="mb-3 flex items-center gap-2 font-medium"><Wand2 className="h-4 w-4" /> O parte de una plantilla, sin IA</h3>
-            <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-5">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
               {STARTERS.map(({ key, template, style, label, hint }, k) => {
                 const spec = { ...starterSpec(template, style), format, eventId, eventDate, seed: (baseSeed + k * 7919) % 1_000_000 };
                 return (
@@ -242,7 +274,7 @@ export function MotionStudio() {
         </TabsContent>
       </Tabs>
       {generate.isPending && (
-        <div className="fixed inset-x-0 bottom-6 z-50 mx-auto w-fit rounded-full bg-black/85 px-5 py-2.5 text-sm text-white shadow-xl">
+        <div className="fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+6.75rem)] z-50 mx-auto w-fit max-w-[calc(100vw-1.5rem)] md:bottom-6 rounded-full bg-black/85 px-5 py-2.5 text-sm text-white shadow-xl">
           <Loader2 className="mr-2 inline h-4 w-4 animate-spin" /> Claude está dirigiendo las 3 variantes…
         </div>
       )}

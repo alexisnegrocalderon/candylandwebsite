@@ -5,8 +5,9 @@
  *   0,05 – 0,95 s  la luz sube por el isotipo, de abajo hacia arriba, y se enciende con brillo rosa y azul (sin estroboscopio)
  *   0,15 – 1,40 s  el resplandor del fondo se abre
  *   0,80 – 1,50 s  PLAYROOM aparece letra por letra
+ *   0,15 – 1,25 s  el borde de la pantalla se enciende: la luz sube por los dos costados y se cierra arriba
  *   0 – 2,00 s     la cámara se acerca despacio (un 5 %)
- *   1,70 s         la intro termina sola y se abre la app (0,3 s de salida): 2 segundos en total
+ *   1,70 s         la intro termina sola: el isotipo se viene encima y se disuelve, y la app sube desde atrás (0,46 s)
  *
  * Todos los tiempos van en `--u` (1 = panel y sitio, 0,6 = terminales): la versión corta es la misma coreografía, más rápida.
  * El primer cuadro es idéntico a la imagen de arranque de iOS (isotipo a color, 64 px, 15 px sobre el centro). */
@@ -20,7 +21,7 @@
 
 #initial-loader.neon-intro {
   --u: 1;
-  transition: opacity 0.32s ease;
+  transition: opacity 0.46s cubic-bezier(0.4, 0, 0.2, 1);
   -webkit-tap-highlight-color: transparent;
   /* Reloj de la intro (no se ve): dura lo que la luz; client/src/lib/neonIntro.ts espera a que termine para abrir la app. */
   animation: neon-clock calc(1.7s * var(--u)) linear;
@@ -33,9 +34,35 @@
 /* El escenario: el isotipo en el mismo lugar que la imagen de arranque (15 px sobre el centro). La salida se acerca un poco más. */
 #initial-loader.neon-intro .neon-intro-stage {
   position: relative; width: 64px; translate: 0 -15px;
-  transition: transform 0.32s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.46s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.24s ease-out;
 }
-#initial-loader.neon-intro--out .neon-intro-stage { transform: scale(1.08); }
+/* Salida: el isotipo se viene hacia la cámara y se apaga ANTES que el fondo, así nunca queda como un fantasma encima de la app. */
+#initial-loader.neon-intro--out .neon-intro-stage { transform: scale(1.45); opacity: 0; }
+
+/* La luz del borde: un resplandor de neón pegado al marco del teléfono. Sube desde abajo por los dos costados (la misma
+ * máscara en degradé que enciende el isotipo) y se cierra arriba; después queda latiendo suave. Solo sombras interiores:
+ * no tapa nada ni recibe toques. */
+#initial-loader .neon-intro-edge { display: none; }
+#initial-loader.neon-intro .neon-intro-edge {
+  display: block; border-radius: var(--ni-r, 0px);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 160, 228, 0.55),
+    inset 0 0 12px 2px rgba(255, 79, 195, 0.7),
+    inset 0 0 44px 6px rgba(255, 79, 195, 0.26),
+    inset 0 0 96px 14px rgba(59, 130, 246, 0.22);
+  -webkit-mask-image: linear-gradient(to top, #000 0%, #000 33.33%, transparent 50%, transparent 100%);
+  mask-image: linear-gradient(to top, #000 0%, #000 33.33%, transparent 50%, transparent 100%);
+  -webkit-mask-size: 100% 300%; mask-size: 100% 300%;
+  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+  -webkit-mask-position: 0 0%; mask-position: 0 0%;
+  animation:
+    neon-charge calc(1.1s * var(--u)) cubic-bezier(0.45, 0, 0.25, 1) calc(0.15s * var(--u)) forwards,
+    neon-edge-hum 2.4s ease-in-out calc(1.3s * var(--u)) infinite;
+}
+/* Instalada en un teléfono la pantalla tiene las esquinas redondas: la línea de luz las sigue. */
+@media (display-mode: standalone) and (pointer: coarse) and (max-width: 500px) {
+  #initial-loader.neon-intro .neon-intro-edge { --ni-r: 46px; }
+}
 
 /* Resplandor del fondo, detrás del isotipo. */
 #initial-loader.neon-intro .neon-intro-bloom {
@@ -93,6 +120,7 @@
 @keyframes neon-charge { to { -webkit-mask-position: 0 100%; mask-position: 0 100%; } }
 /* Se enciende con dos latidos suaves, no con un estroboscopio. */
 @keyframes neon-ignite { 0% { opacity: 0.4; } 45% { opacity: 1; } 62% { opacity: 0.86; } 82%, 100% { opacity: 1; } }
+@keyframes neon-edge-hum { 0%, 100% { opacity: 1; } 50% { opacity: 0.72; } }
 @keyframes neon-hum { 0%, 100% { opacity: 1; } 50% { opacity: 0.9; } }
 @keyframes neon-letter { to { opacity: 1; transform: none; filter: blur(0); } }
 
@@ -102,8 +130,24 @@
 #initial-loader.neon-intro--still .neon-intro-bloom,
 #initial-loader.neon-intro--still .neon-intro-reveal,
 #initial-loader.neon-intro--still .neon-intro-light,
+#initial-loader.neon-intro--still .neon-intro-edge,
 #initial-loader.neon-intro--still .neon-intro-letter { animation: none; }
+#initial-loader.neon-intro--still .neon-intro-edge { -webkit-mask-image: none; mask-image: none; opacity: 0.8; }
 #initial-loader.neon-intro--still .neon-intro-bloom { opacity: 0.55; scale: 1; }
 #initial-loader.neon-intro--still .neon-intro-reveal { -webkit-mask-image: none; mask-image: none; }
 #initial-loader.neon-intro--still .neon-intro-light { opacity: 1; }
 #initial-loader.neon-intro--still .neon-intro-letter { opacity: 1; transform: none; filter: none; }
+
+/* ─── La app entra desde atrás ────────────────────────────────────────────────────────────────────────────────────────
+ * Mientras la intro se disuelve, <html> lleva `splash-reveal` (client/src/lib/neonIntro.ts) y el panel sube a su lugar en vez
+ * de aparecer de golpe debajo de un fundido. `backwards`: al terminar no queda ninguna transformación puesta (las barras fijas
+ * y las hojas no se descuadran). La barra de abajo solo cambia de opacidad: moverla descuadraría su posición fija. */
+@media (prefers-reduced-motion: no-preference) {
+  html.splash-reveal .admin-shell main,
+  html.splash-reveal [data-admin-theme="dark-glass"]:not(.admin-shell) > .z-10 > * { animation: splash-reveal-rise 0.55s cubic-bezier(0.2, 0.7, 0.2, 1) backwards; }
+  html.splash-reveal .admin-shell .admin-topbar { animation: splash-reveal-drop 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) backwards; }
+  html.splash-reveal .admin-shell .admin-tabbar { animation: splash-reveal-fade 0.5s ease-out 0.1s backwards; }
+}
+@keyframes splash-reveal-rise { from { opacity: 0; transform: translateY(18px) scale(0.975); } }
+@keyframes splash-reveal-drop { from { opacity: 0; transform: translateY(-14px); } }
+@keyframes splash-reveal-fade { from { opacity: 0; } }
