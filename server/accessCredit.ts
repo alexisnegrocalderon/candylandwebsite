@@ -174,6 +174,61 @@ export async function listAccessCredits(): Promise<AccessCreditRow[]> {
   }
 }
 
+export interface PendingCreditRow extends AccessCreditRow {
+  /** Estado crudo: `reserved` = alguien lo está canjeando en un checkout ahora mismo. */
+  status: string;
+  originOrderNumber: string | null;
+  buyerPhone: string | null;
+  note: string | null;
+}
+
+/** Las entradas que quedaron pendientes por una reprogramación (créditos de una compra: `originOrderId > 0`), de todos los
+ * eventos, con su estado. No incluye los pases regalados ni los premios de sellos (esos tienen `originOrderId = 0`). */
+export async function listPendingCredits(): Promise<PendingCreditRow[]> {
+  try {
+    const db = await getDb();
+    if (!db) return [];
+    const credits = (await db.select().from(accessCredits).where(sql`${accessCredits.originOrderId} > 0`).orderBy(desc(accessCredits.createdAt)).limit(1000))
+      .filter((c) => !parseGiftNote(c.note));
+    const base = await withAvailability(credits);
+    const orderIds = Array.from(new Set(credits.map((c) => c.originOrderId)));
+    const origin = orderIds.length ? await db.select({ id: orders.id, orderNumber: orders.orderNumber, buyerPhone: orders.buyerPhone }).from(orders).where(inArray(orders.id, orderIds)) : [];
+    const originById = new Map(origin.map((o) => [o.id, o]));
+    return base.map((b) => {
+      const c = credits.find((x) => x.id === b.id)!;
+      const o = originById.get(c.originOrderId);
+      return { ...b, status: c.status, originOrderNumber: o?.orderNumber ?? null, buyerPhone: o?.buyerPhone ?? null, note: c.note };
+    });
+  } catch {
+    return [];
+  }
+}
+
+/** Anula una entrada pendiente (por ejemplo, porque ya se le devolvió el dinero por fuera): deja de servir en el checkout. Solo toca
+ * la fila del crédito: la entrada original ya se canceló y el cupo ya volvió a la venta cuando se dejó el crédito. Es atómico igual que
+ * el canje (`claimAccessCredit`): si alguien lo está canjeando justo ahora, no se anula. */
+export async function cancelPendingCredit(creditId: number, reason: string, actor: { by: string; ip?: string | null }): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error('Base de datos no disponible');
+  const why = reason.trim();
+  if (why.length < 3) throw new Error('Escribe el motivo (por ejemplo: devolución por transferencia).');
+  const [credit] = await db.select().from(accessCredits).where(eq(accessCredits.id, creditId)).limit(1);
+  if (!credit || credit.originOrderId <= 0 || parseGiftNote(credit.note)) throw new Error('No encontré esa entrada pendiente.');
+  const order = credit.usedOrderId ? (await db.select({ paymentStatus: orders.paymentStatus, createdAt: orders.createdAt }).from(orders).where(eq(orders.id, credit.usedOrderId)).limit(1))[0] ?? null : null;
+  const state = creditAvailability(credit, order);
+  if (state === 'cancelled') return;
+  if (state === 'used') throw new Error('Esta entrada ya se usó o se está comprando ahora mismo: no se puede anular.');
+  // Mismo criterio que `claimAccessCredit`: solo si sigue exactamente como la vimos (disponible, o con una reserva ya vencida).
+  const observed = credit.status === 'available'
+    ? eq(accessCredits.status, 'available')
+    : and(eq(accessCredits.status, 'reserved'), credit.usedOrderId ? eq(accessCredits.usedOrderId, credit.usedOrderId) : sql`${accessCredits.usedOrderId} IS NULL`);
+  const stamp = new Date().toLocaleDateString('es-CL', { timeZone: 'America/Santiago', day: 'numeric', month: 'short' });
+  const note = `${credit.note ?? ''} · Anulada ${stamp}: ${why}`.slice(0, 500);
+  const [result] = await db.update(accessCredits).set({ status: 'cancelled', note }).where(and(eq(accessCredits.id, creditId), observed));
+  if ((result as unknown as { affectedRows: number }).affectedRows !== 1) throw new Error('Esta entrada cambió justo ahora (alguien la está usando). Actualiza la lista y revisa.');
+  await recordAdminAudit({ action: 'accessCredit.cancel', targetType: 'accessCredit', targetId: creditId, eventId: credit.originEventId, ip: actor.ip ?? null, payload: { by: actor.by, code: credit.code, email: credit.buyerEmail, reason: why } });
+}
+
 /** Reenvía el aviso (con recordatorio de la preventa) de todos los créditos aún disponibles de esa persona. */
 export async function remindAccessCredit(creditId: number): Promise<{ sent: boolean }> {
   const db = await getDb();

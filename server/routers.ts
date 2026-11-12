@@ -216,7 +216,7 @@ import { generateProfileAudit } from "./profileAudit";
 import { syncInstagramStats } from "./instagramStats";
 import { getInstagramShowcase } from "./instagramFeed";
 import { refundOrder, refundOrderExtras, listOrderExtras } from "./orderRefund";
-import { cancelGiftPass, issueAccessCreditsForOrder, issueGiftPass, listAccessCredits, listCreditsByOrderIds, listGiftPasses, remindAccessCredit } from "./accessCredit";
+import { cancelGiftPass, cancelPendingCredit, issueAccessCreditsForOrder, issueGiftPass, listAccessCredits, listCreditsByOrderIds, listGiftPasses, listPendingCredits, remindAccessCredit } from "./accessCredit";
 import { AUTOMATION_BUTTON_KINDS, AUTOMATION_BUTTON_TITLE_MAX, isAllowedCustomButtonUrl } from "../shared/automationButton";
 import { normalizeIgHandle } from "../shared/igCustomerLink";
 import { approveComment, restoreSpamComment, suggestOwnComment } from './instagramComments';
@@ -1924,6 +1924,17 @@ export const appRouter = router({
   /* Crédito de acceso: dejar el acceso de una compra vigente para un evento futuro. */
   accessCredit: router({
     list: adminReadProcedure.query(() => listAccessCredits()),
+    // «Entradas pendientes»: todas las que quedaron por reprogramación, de todos los eventos, con su estado.
+    listPending: adminReadProcedure.query(() => listPendingCredits()),
+    // Anular una (p. ej. devolución externa): pide la clave de admin y un motivo; solo si sigue disponible.
+    cancel: adminPasswordProcedure.input(z.object({ creditId: z.number().int().positive(), reason: z.string().trim().min(3, 'Escribe el motivo').max(200) })).mutation(async ({ input, ctx }) => {
+      try {
+        await cancelPendingCredit(input.creditId, input.reason, { by: ctx.user.email ?? ctx.user.name ?? 'admin', ip: clientIp(ctx) });
+        return { ok: true as const };
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo anular.' });
+      }
+    }),
     createFromOrder: adminPasswordProcedure.input(z.object({ orderId: z.number() })).mutation(async ({ input, ctx }) => {
       try {
         return await issueAccessCreditsForOrder(input.orderId, { ip: clientIp(ctx) });

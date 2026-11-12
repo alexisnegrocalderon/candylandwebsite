@@ -10,6 +10,7 @@ export const ADMIN_SECTION_INDEX = [
   { id: 'carta', label: 'Carta de la fiesta', what: 'tragos y productos que se venden en la barra' },
   { id: 'insumos', label: 'Stock de barra', what: 'inventario de insumos, recetas, compras y conteos' },
   { id: 'orders-web', label: 'Ventas web', what: 'compras online, devoluciones, upgrades y reenvío de entradas' },
+  { id: 'entradas-pendientes', label: 'Entradas pendientes', what: 'entradas guardadas por una reprogramación: quién las tiene, recordarles y anular las ya devueltas' },
   { id: 'manual-access', label: 'Accesos manuales', what: 'cortesías e invitaciones a mano' },
   { id: 'parking', label: 'Estacionamiento', what: 'reservas de estacionamiento' },
   { id: 'sales-origin', label: 'Ventas por origen', what: 'de qué campaña o red viene cada venta' },
