@@ -81,6 +81,7 @@ export const SECTION_KEYWORDS: Record<string, string> = {
   'cuenta-demo': 'cuenta de prueba demo probar app staff',
   contests: 'concurso sorteo instagram ganadores participantes',
   'orders-web': 'entradas tickets ordenes compras online',
+  'entradas-pendientes': 'reprogramacion reprogramadas creditos credito pendientes guardadas devolucion anular',
   'orders-caja': 'ordenes puerta efectivo',
   'sales-origin': 'utm atribucion canal campañas',
   'sales-strategy': 'ia estrategia director',

@@ -15,7 +15,7 @@ import { requestAssistant } from '@/components/assistant/assistantRequest';
 import { useHideSplashOnMount } from '@/lib/splash';
 import { useSeo } from '@/hooks/useSeo';
 import { useInstallableApp } from '@/hooks/useInstallableApp';
-import { Home, Flame, Calendar, DollarSign, Ticket, Users, Plus, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, Contact, Mail, History, Gift, MessageCircle, Crown, Martini, Instagram, UserPlus, Ban, Receipt, Compass, Sparkles, Car, Send, ShieldAlert, Zap, Cake, Calculator, Star, FlaskConical, Palette, UserCheck, Banknote, Landmark, Headphones, ListChecks, PartyPopper, BellRing, Wine, Smartphone, Bot, TrendingUp, Link2, FileText, ShieldCheck, Plane } from 'lucide-react';
+import { Home, Flame, Calendar, DollarSign, Ticket, Users, Plus, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, Contact, Mail, History, Gift, MessageCircle, Crown, Martini, Instagram, UserPlus, Ban, Receipt, Compass, Sparkles, Car, Send, ShieldAlert, Zap, Cake, Calculator, Star, FlaskConical, Palette, UserCheck, Banknote, Landmark, Headphones, ListChecks, PartyPopper, BellRing, Wine, Smartphone, Bot, TrendingUp, Link2, FileText, ShieldCheck, Plane, CalendarClock } from 'lucide-react';
 import { AdminLoginForm } from '@/components/admin/AdminLoginForm';
 import { OPEN_SECTION_EVENT } from '@/components/admin/shell/nav';
 import { parseAdminDeepLink } from '@shared/adminDeepLink';
@@ -93,6 +93,7 @@ const AmbassadorContentAdmin = lazy(() => import('@/components/admin/studio/Amba
 const CrossCheckView = lazy(() => import('@/components/admin/crossCheck/CrossCheckView').then((m) => ({ default: m.CrossCheckView })));
 const CompraFiestaView = lazy(() => import('@/components/admin/insumos/CompraFiestaView').then((m) => ({ default: m.CompraFiestaView })));
 const AutomationsView = lazy(() => import('@/components/admin/AutomationsView').then((m) => ({ default: m.AutomationsView })));
+const PendingTicketsView = lazy(() => import('@/components/admin/PendingTicketsView').then((m) => ({ default: m.PendingTicketsView })));
 const PilotView = lazy(() => import('@/components/admin/crossCheck/PilotView').then((m) => ({ default: m.PilotView })));
 const AssistantSection = lazy(() => import('@/components/assistant/AssistantSection').then((m) => ({ default: m.AssistantSection })));
 
@@ -194,6 +195,7 @@ const ADMIN_SECTIONS = [
   { id: 'copro-config', label: 'Configuración', hub: 'coproduccion', icon: SettingsIcon, render: () => <CoproConfig /> },
   // 2 · Vender: las ventas del evento, cortesías y lo que trae ventas (concursos, embajadores, referidos).
   { id: 'orders-web', label: 'Ventas Web', hub: 'vender', icon: Ticket, render: () => <OrdersView channel="web" /> },
+  { id: 'entradas-pendientes', label: 'Entradas pendientes', hub: 'vender', icon: CalendarClock, render: () => <PendingTicketsView /> },
   // Escondida del menú: «Regalar» (invitar y regalar), «Transferencia» (vender cobrado por transferencia) y la invitación instantánea
   // de la hoja Regalar cubren lo que hacía. No se borra: el buscador (Ctrl K) todavía la encuentra.
   { id: 'manual-access', label: 'Accesos Manuales', hub: 'vender', icon: Gift, hidden: true, render: () => <ManualAccessSection /> },
