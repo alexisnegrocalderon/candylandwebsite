@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatRutLive, normalizeRut, isValidRut, isValidPassport } from "./rut";
+import { formatRutLive, normalizeRut, isValidRut, isValidPassport, findRepeatedDocuments } from "./rut";
 
 describe("isValidPassport", () => {
   it("acepta pasaportes alfanuméricos de largo razonable", () => {
@@ -73,5 +73,19 @@ describe("formatRutLive", () => {
       expect(normalizeRut(formatted)).toBe(rut.toUpperCase());
       expect(isValidRut(formatted)).toBe(isValidRut(rut));
     }
+  });
+});
+
+describe("findRepeatedDocuments", () => {
+  it("marca al acompañante que repite el RUT del comprador o de otro acompañante", () => {
+    expect(findRepeatedDocuments({
+      buyer__rut: "13.451.986-K",
+      acceso__acomp1_rut: "13451986-k",
+      acceso__acomp2_rut: "13451986K",
+    })).toEqual(["acceso__acomp1_rut", "acceso__acomp2_rut"]);
+  });
+
+  it("deja pasar documentos distintos y campos vacíos", () => {
+    expect(findRepeatedDocuments({ buyer__rut: "12.345.678-5", acceso__acomp1_rut: "AB123456", acceso__acomp2_rut: "" })).toEqual([]);
   });
 });
