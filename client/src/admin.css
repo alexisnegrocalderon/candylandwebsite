@@ -418,13 +418,13 @@ html[data-admin-theme="dark-glass"] body {
 /* Colores fijos pensados para fondo claro (texto -600/-700/-800, superficies
  * blancas o negras al 5%): en oscuro quedan ilegibles o invisibles. Se
  * re-mapean acá en vez de tocar cada una de las ~150 clases del panel. */
-[data-admin-theme="dark-glass"] :is(.text-red-600, .text-red-700, .text-red-800) { color: #fca5a5; }
-[data-admin-theme="dark-glass"] :is(.text-green-600, .text-green-700, .text-green-800) { color: #86efac; }
-[data-admin-theme="dark-glass"] :is(.text-emerald-600, .text-emerald-700, .text-emerald-800) { color: #6ee7b7; }
-[data-admin-theme="dark-glass"] :is(.text-amber-600, .text-amber-700, .text-amber-800) { color: #fcd34d; }
-[data-admin-theme="dark-glass"] :is(.text-yellow-600, .text-yellow-700, .text-yellow-800) { color: #fde68a; }
+[data-admin-theme="dark-glass"] :is(.text-red-600, .text-red-700, .text-red-800) { color: var(--ps-bad); }
+[data-admin-theme="dark-glass"] :is(.text-green-600, .text-green-700, .text-green-800) { color: var(--ps-ok); }
+[data-admin-theme="dark-glass"] :is(.text-emerald-600, .text-emerald-700, .text-emerald-800) { color: var(--ps-ok); }
+[data-admin-theme="dark-glass"] :is(.text-amber-600, .text-amber-700, .text-amber-800) { color: var(--ps-warn); }
+[data-admin-theme="dark-glass"] :is(.text-yellow-600, .text-yellow-700, .text-yellow-800) { color: var(--ps-warn); }
 [data-admin-theme="dark-glass"] :is(.text-orange-600, .text-orange-700, .text-orange-800) { color: #fdba74; }
-[data-admin-theme="dark-glass"] :is(.text-sky-600, .text-sky-700, .text-sky-800) { color: #7dd3fc; }
+[data-admin-theme="dark-glass"] :is(.text-sky-600, .text-sky-700, .text-sky-800) { color: var(--ps-info); }
 [data-admin-theme="dark-glass"] :is(.text-blue-600, .text-blue-700, .text-blue-800) { color: #93c5fd; }
 [data-admin-theme="dark-glass"] :is(.text-cyan-600, .text-cyan-700, .text-cyan-800) { color: #67e8f9; }
 [data-admin-theme="dark-glass"] :is(.text-purple-600, .text-purple-700, .text-violet-600, .text-violet-700) { color: #c4b5fd; }
@@ -559,3 +559,96 @@ html[data-admin-theme="dark-glass"] textarea { font-size: max(1rem, 16px); }
   border: 1px solid rgba(255, 255, 255, 0.14);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
 }
+
+
+/* ── Sistema visual Playroom (Fase 4) ─────────────────────────────────────
+ * La propuesta aprobada: grises neutros, el rosa de la marca como único acento, cuatro colores con significado fijo,
+ * letra del sistema (San Francisco en iPad/iPhone, Inter en el resto) en siete tamaños, y cuatro radios.
+ * Solo modo oscuro por ahora; los valores viven en variables para sumar el claro después sin tocar las pantallas.
+ *
+ * Dos capas: los CIMIENTOS (letra, radios, paleta, tarjetas) valen para todo el panel y las terminales, y se declaran al final
+ * de esta sección. El PILOTO (`.ps-scope`, hoy solo Inicio: escala de tamaños, títulos, cifras) se extiende pantalla por
+ * pantalla con aprobación. La landing y el checkout no llevan el atributo del tema: no cambian. */
+[data-admin-theme="dark-glass"] {
+  --ps-surface: #18181b; --ps-surface-2: #222226; --ps-sep: rgba(255, 255, 255, 0.10);
+  --ps-text: #f5f5f7; --ps-text-2: rgba(235, 235, 245, 0.64); --ps-text-3: rgba(235, 235, 245, 0.40);
+  --ps-accent: #f25fae; --ps-accent-ink: #1a0611; --ps-accent-soft: rgba(242, 95, 174, 0.16);
+  --ps-ok: #30d158; --ps-ok-soft: rgba(48, 209, 88, 0.16);
+  --ps-warn: #ff9f0a; --ps-warn-soft: rgba(255, 159, 10, 0.16);
+  --ps-bad: #ff453a; --ps-bad-soft: rgba(255, 69, 58, 0.16);
+  --ps-info: #64d2ff; --ps-info-soft: rgba(100, 210, 255, 0.16);
+  --ps-r-control: 12px; --ps-r-card: 18px; --ps-r-sheet: 26px;
+  --ps-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, system-ui, sans-serif;
+  --ps-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 12px 32px -16px rgba(0, 0, 0, 0.7);
+}
+[data-admin-theme="dark-glass"] .ps-scope {
+  font-family: var(--ps-font);
+  color: var(--ps-text);
+}
+/* Tipografía: la letra del sistema también en los títulos, y la escala de siete tamaños (mínimo 13). */
+[data-admin-theme="dark-glass"] .ps-scope .font-heading { font-family: inherit; font-weight: 700; letter-spacing: -0.02em; }
+[data-admin-theme="dark-glass"] .ps-scope :is(.text-xs, .text-\[10px\], .text-\[11px\], .text-\[12px\]) { font-size: 0.8125rem; line-height: 1.125rem; }
+[data-admin-theme="dark-glass"] .ps-scope .text-sm { font-size: 0.9375rem; line-height: 1.25rem; }
+[data-admin-theme="dark-glass"] .ps-scope h3 { font-size: 1.375rem; line-height: 1.2; }
+[data-admin-theme="dark-glass"] .ps-scope h4 { font-size: 1.0625rem; line-height: 1.3; }
+[data-admin-theme="dark-glass"] .ps-scope .ps-title { font-size: 1.75rem; line-height: 1.12; font-weight: 700; letter-spacing: -0.022em; }
+[data-admin-theme="dark-glass"] .ps-scope .ps-figure { font-size: 1.75rem; line-height: 1.1; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+[data-admin-theme="dark-glass"] .ps-scope .ps-eyebrow { font-size: 0.8125rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ps-accent); }
+@media (min-width: 768px) { [data-admin-theme="dark-glass"] .ps-scope .ps-title { font-size: 2.125rem; } }
+/* Superficies, radios y colores de estado: ya son globales (más abajo, «cimientos»). Acá queda solo lo propio de Inicio. */
+[data-admin-theme="dark-glass"] .ps-scope :is(.bg-white\/5, .bg-white\/8, .bg-white\/10) { background-color: var(--ps-surface-2); }
+/* Piezas propias del sistema. */
+.ps-btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; min-height: 44px; padding: 0 1.125rem; border-radius: var(--ps-r-control); font-size: 1.0625rem; font-weight: 600; transition: transform 0.2s ease-out, opacity 0.2s ease-out; }
+.ps-btn:active { transform: scale(0.97); }
+.ps-btn-primary { background: var(--ps-accent); color: var(--ps-accent-ink); }
+.ps-badge { display: inline-flex; align-items: center; gap: 0.25rem; border-radius: 999px; padding: 0.125rem 0.5rem; font-size: 0.8125rem; font-weight: 600; }
+.ps-badge-ok { background: var(--ps-ok-soft); color: var(--ps-ok); }
+.ps-badge-bad { background: var(--ps-bad-soft); color: var(--ps-bad); }
+@media (prefers-reduced-motion: reduce) { .ps-btn { transition: none; } }
+
+
+/* ── Sistema visual Playroom: cimientos para todo el panel (Fase 4.4 A) ───────────────────────────────────────────────
+ * Se cambian las VARIABLES del tema (letra, radios y paleta de estados) en vez de clase por clase: cada pantalla que ya usa
+ * `font-heading`, `rounded-2xl`, `text-amber-300`, `bg-primary`… las recibe sin rediseñarse. Va en <html> porque el panel,
+ * caja, puerta y gastos lo marcan ahí (useDarkGlassDocument), y los diálogos y menús de Radix se montan fuera del shell.
+ * La landing y el checkout no llevan ese atributo: no cambian. No toca tamaños de letra (hay modo «letra grande») ni
+ * el gris secundario, por la misma razón. Las pantallas se rediseñan una por una (la primera fue Inicio, `.ps-scope`). */
+html[data-admin-theme="dark-glass"] {
+  /* Letra del sistema (San Francisco en iPad y iPhone, Inter en el resto), también en los títulos. */
+  --font-sans: var(--ps-font);
+  --font-heading: var(--ps-font);
+  /* Cuatro radios: 12 controles y fichas, 18 tarjetas (abajo), 26 hojas y paneles grandes, píldora. */
+  --radius-md: var(--ps-r-control);
+  --radius-lg: var(--ps-r-control);
+  --radius-xl: var(--ps-r-control);
+  --radius-2xl: var(--ps-r-control);
+  --radius-3xl: var(--ps-r-sheet);
+  /* Un solo acento: el rosa de la marca, con tinta oscura encima (contraste ~7:1; el blanco daba ~3:1). */
+  --color-primary: var(--ps-accent);
+  --color-primary-foreground: var(--ps-accent-ink);
+  --color-ring: var(--ps-accent);
+  /* Colores con significado fijo: todos los tonos 300-500 de cada tono caen en el mismo color de estado. */
+  --color-emerald-300: var(--ps-ok);  --color-emerald-400: var(--ps-ok);  --color-emerald-500: var(--ps-ok);
+  --color-green-300: var(--ps-ok);    --color-green-400: var(--ps-ok);    --color-green-500: var(--ps-ok);
+  --color-amber-300: var(--ps-warn);  --color-amber-400: var(--ps-warn);  --color-amber-500: var(--ps-warn);
+  --color-yellow-300: var(--ps-warn); --color-yellow-400: var(--ps-warn); --color-yellow-500: var(--ps-warn);
+  --color-red-300: var(--ps-bad);     --color-red-400: var(--ps-bad);     --color-red-500: var(--ps-bad);
+  --color-rose-300: var(--ps-bad);    --color-rose-400: var(--ps-bad);    --color-rose-500: var(--ps-bad);
+  --color-sky-300: var(--ps-info);    --color-sky-400: var(--ps-info);    --color-sky-500: var(--ps-info);
+}
+html[data-admin-theme="dark-glass"] body { font-family: var(--ps-font); }
+/* Tarjetas: sólidas y de 18 (el vidrio queda para barras y hojas). */
+[data-admin-theme="dark-glass"] .admin-clay {
+  background: var(--ps-surface);
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+  border: 0; border-radius: var(--ps-r-card);
+  box-shadow: var(--ps-shadow);
+}
+[data-admin-theme="dark-glass"] [data-slot="card"] { border-radius: var(--ps-r-card); }
+[data-admin-theme="dark-glass"] :is(.admin-tile, .admin-tab) { background: var(--ps-surface-2); border-color: transparent; }
+[data-admin-theme="dark-glass"] :is(.admin-tile, .admin-tab):hover { background: #2a2a2f; }
+/* Los íconos en degradé rosa-violeta pasan a un tinte plano del acento y las barras de avance a color sólido.
+ * Solo los que parten de `primary` (los de color propio, como el botón del asistente, no se tocan). */
+[data-admin-theme="dark-glass"] [class*="bg-gradient-to-br"][class*="from-primary"]:not([class*="from-primary/"]) { background-image: none; background-color: var(--ps-accent-soft); color: var(--ps-accent); }
+[data-admin-theme="dark-glass"] [class*="bg-gradient-to-br"][class*="from-primary"]:not([class*="from-primary/"]) svg { color: var(--ps-accent); }
+[data-admin-theme="dark-glass"] [class*="bg-gradient-to-r"][class*="from-primary"] { background-image: none; background-color: var(--ps-accent); }

@@ -37,7 +37,8 @@ function Tile({ icon: Icon, label, value, caption, tone, open, onClick, reorder,
         className={`admin-clay flex h-full w-full min-w-0 flex-col items-start gap-1 p-3 text-left transition-transform hover:-translate-y-0.5 md:p-4 ${open ? 'ring-2 ring-primary' : ''}`}
       >
         <span className="flex w-full items-center gap-2">
-          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-[oklch(0.6_0.2_290)] text-white md:h-8 md:w-8"><Icon className="h-4 w-4" /></span>
+          {/* En celular y iPad vertical las tres tarjetas van lado a lado: sin el ícono, el nombre («Evento», «Gente») cabe entero. */}
+          <span className="hidden h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-[oklch(0.6_0.2_290)] text-white lg:flex lg:h-8 lg:w-8"><Icon className="h-4 w-4" /></span>
           <span className="min-w-0 flex-1 truncate font-heading text-base leading-tight">{label}</span>
           <ChevronDown className={`hidden h-4 w-4 shrink-0 text-muted-foreground transition-transform md:block ${open ? 'rotate-180' : ''}`} />
         </span>
