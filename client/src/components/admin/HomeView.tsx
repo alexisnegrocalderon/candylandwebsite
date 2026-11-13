@@ -130,27 +130,30 @@ export function HomeView({ badgeCounts, onOpen }: { badgeCounts: Record<string, 
   const originMax = Math.max(1, ...origins.map((o) => o.revenue));
 
   return (
-    <div className="space-y-5">
+    // `ps-scope`: Inicio es la pantalla piloto del sistema visual (admin.css, «Sistema visual Playroom»).
+    <div className="ps-scope space-y-4">
       {/* Héroe: el próximo evento */}
-      <section className="admin-clay relative overflow-hidden p-5 md:p-7">
-        <div className="pointer-events-none absolute -right-20 -top-24 h-64 w-64 rounded-full bg-[oklch(0.65_0.25_340/0.35)] blur-3xl" aria-hidden="true" />
-        <div className="relative flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
+      <section className="admin-clay p-5 md:p-7">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">{currentIsPast ? 'Último evento' : 'Próximo evento'}</p>
-            <h2 className="mt-1 truncate font-heading text-2xl md:text-3xl">{current?.title ?? 'Sin eventos todavía'}</h2>
+            <p className="ps-eyebrow">{currentIsPast ? 'Último evento' : 'Próximo evento'}</p>
+            <h2 className="ps-title mt-1 text-balance break-words">{current?.title ?? 'Sin eventos todavía'}</h2>
             {current && (
               <p className="mt-1 flex items-center gap-1.5 text-sm text-muted-foreground">
-                <CalendarClock className="h-4 w-4" />
-                {formatChileDate(current.eventDate)}
-                {daysLeft != null && daysLeft > 0 && <> · faltan <strong className="text-foreground">{daysLeft} día{daysLeft === 1 ? '' : 's'}</strong></>}
-                {daysLeft != null && daysLeft <= 0 && daysLeft > -1 && <> · <strong className="text-foreground">¡es hoy!</strong></>}
+                <CalendarClock className="h-4 w-4 shrink-0" />
+                {/* Un solo bloque de texto: suelto, cada trozo era una columna aparte y «9 días» quedaba partido en el celular. */}
+                <span className="min-w-0">
+                  {formatChileDate(current.eventDate)}
+                  {daysLeft != null && daysLeft > 0 && <> · faltan <strong className="text-foreground">{daysLeft} día{daysLeft === 1 ? '' : 's'}</strong></>}
+                  {daysLeft != null && daysLeft <= 0 && daysLeft > -1 && <> · <strong className="text-foreground">¡es hoy!</strong></>}
+                </span>
               </p>
             )}
           </div>
           <button
             type="button"
             onClick={() => onOpen(current ? 'overview' : 'events')}
-            className="admin-tab flex h-11 shrink-0 items-center justify-center gap-2 self-start rounded-full px-5 text-sm font-semibold md:self-auto"
+            className="ps-btn ps-btn-primary w-full shrink-0 lg:w-auto"
           >
             {current ? 'Ver la noche en vivo' : 'Crear el primer evento'} <ArrowRight className="h-4 w-4" />
           </button>
@@ -225,8 +228,8 @@ export function HomeView({ badgeCounts, onOpen }: { badgeCounts: Record<string, 
                 <AreaChart data={chart} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="homeSales" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="oklch(0.72 0.2 342)" stopOpacity={0.55} />
-                      <stop offset="100%" stopColor="oklch(0.72 0.2 342)" stopOpacity={0} />
+                      <stop offset="0%" stopColor="#f25fae" stopOpacity={0.4} />
+                      <stop offset="100%" stopColor="#f25fae" stopOpacity={0} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.08)" />
@@ -234,11 +237,11 @@ export function HomeView({ badgeCounts, onOpen }: { badgeCounts: Record<string, 
                   <YAxis tick={{ fill: 'rgba(255,255,255,0.6)', fontSize: 12 }} axisLine={false} tickLine={false} width={56}
                     tickFormatter={(v: number) => (v >= 1_000_000 ? `${(v / 1_000_000).toFixed(1)}M` : v >= 1000 ? `${Math.round(v / 1000)}k` : String(v))} />
                   <Tooltip
-                    contentStyle={{ background: 'rgba(30,19,42,0.96)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: 12, color: 'white' }}
+                    contentStyle={{ background: '#222226', border: '1px solid rgba(255,255,255,0.10)', borderRadius: 12, color: '#f5f5f7' }}
                     formatter={(v: number, name: string) => (name === 'revenue' ? [clp(v), 'Recaudado'] : [v, 'Compras'])}
                     labelStyle={{ color: 'rgba(255,255,255,0.7)' }}
                   />
-                  <Area type="monotone" dataKey="revenue" stroke="oklch(0.78 0.18 342)" strokeWidth={2.5} fill="url(#homeSales)" />
+                  <Area type="monotone" dataKey="revenue" stroke="#f25fae" strokeWidth={2.5} fill="url(#homeSales)" />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
@@ -313,20 +316,21 @@ function Kpi({ icon: Icon, tone, label, value, delta, deltaHint, onClick }: {
   deltaHint?: string;
   onClick: () => void;
 }) {
+  // Pieza «cifra» del sistema visual: etiqueta arriba, número grande y el cambio como estado con texto.
+  // `tone` (el degradé de antes) ya no pinta nada: un solo acento por pantalla.
+  void tone;
   return (
-    <button type="button" onClick={onClick} className="admin-clay flex min-w-0 flex-col items-start gap-3 p-4 text-left transition-transform hover:-translate-y-0.5 md:p-5">
-      <span className={`flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br ${tone} md:h-11 md:w-11`}>
-        <Icon className="h-5 w-5 text-white" />
+    <button type="button" onClick={onClick} className="admin-clay flex min-w-0 flex-col items-start gap-1.5 p-4 text-left active:opacity-80 md:p-5">
+      <span className="flex w-full items-center justify-between gap-2">
+        <span className="min-w-0 truncate text-xs text-muted-foreground">{label}</span>
+        <Icon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
       </span>
-      <span className="w-full min-w-0">
-        <span className="block truncate font-heading text-xl tabular-nums leading-tight md:text-3xl">{value}</span>
-        <span className="mt-1 block text-xs text-muted-foreground md:text-sm">{label}</span>
-        {delta != null && (
-          <span className={`mt-1.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${delta >= 0 ? 'bg-emerald-400/15 text-emerald-300' : 'bg-red-400/15 text-red-300'}`} title={deltaHint}>
-            {delta >= 0 ? '+' : ''}{delta}%{deltaHint ? <span className="hidden font-normal opacity-80 sm:inline"> {deltaHint}</span> : null}
-          </span>
-        )}
-      </span>
+      <span className="ps-figure block w-full truncate">{value}</span>
+      {delta != null && (
+        <span className={`ps-badge ${delta >= 0 ? 'ps-badge-ok' : 'ps-badge-bad'}`} title={deltaHint}>
+          {delta >= 0 ? '+' : ''}{delta}%{deltaHint ? <span className="hidden font-normal opacity-80 sm:inline"> {deltaHint}</span> : null}
+        </span>
+      )}
     </button>
   );
 }
