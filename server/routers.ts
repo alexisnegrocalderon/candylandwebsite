@@ -13,7 +13,7 @@ import * as db from "./db";
 import { getMission300Status, evaluateMission300, processCardPaymentForOrder, confirmFreeOrder, resendConfirmationEmail, approveMissionTopupWithoutPayment, settleUpgradeAndNotify, settleAddonAndNotify } from "./webhooks";
 import { getPendingUpgradesByOrderIds, previewUpgrade, createUpgradeRequest, sendUpgradeRequestEmail, cancelUpgrade } from "./orderUpgrade";
 import { getPendingAddonsByOrderIds, previewAddons, createAddonRequest, sendAddonRequestEmail, cancelAddon, orderIdFromTicketCode, customerAddonView } from "./orderAddon";
-import { isValidRut, isValidPassport, formatRutLive } from "../shared/rut";
+import { isValidRut, isValidPassport, formatRutLive, findRepeatedDocuments } from "../shared/rut";
 import { hashPin, verifyPin, signOperatorSession } from "./caja/auth";
 import { generateEnrollCode, enrollCodeExpiry, generateDeviceToken, hashDeviceToken, signDeviceSession, DEVICE_SESSION_MS } from "./caja/deviceAuth";
 import { redeemDisplayCode } from "./caja/redeem";
@@ -2024,6 +2024,15 @@ export const appRouter = router({
       const minAge = target && await coproductionSvc.isEventColab(target.id) ? COLAB_MIN_AGE : 18;
       if (!checkoutConfirmedAdult(input.attendeeData)) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: `Debes confirmar que eres mayor de ${minAge} años para comprar.` });
+      }
+      // Un acceso doble/triple es un cupo por persona: el mismo documento no puede repetirse en la compra.
+      if (input.attendeeData) {
+        try {
+          const campos = JSON.parse(input.attendeeData)?.campos;
+          if (campos && typeof campos === 'object' && findRepeatedDocuments(campos).length > 0) {
+            throw new TRPCError({ code: 'BAD_REQUEST', message: 'El comprador y los acompañantes deben tener documentos distintos: cada persona ingresa el suyo.' });
+          }
+        } catch (err) { if (err instanceof TRPCError) throw err; }
       }
       if (target && await coproductionSvc.isEventHiddenByCoproduction(target.id)) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'Las entradas de este evento todavía no están a la venta.' });
