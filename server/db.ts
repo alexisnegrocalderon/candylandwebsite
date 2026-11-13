@@ -55,6 +55,7 @@ import { generateDisplayCode, fallbackInternalCode } from './caja/displayCode';
 import { filterShiftSales, computeExpectedTotals, shiftCashDiff, expectedCashWithOpening, findPossibleDuplicateSales, cardTotals } from './caja/shiftMath';
 import { hashPin, verifyPin } from './caja/auth';
 import { normalizeEventDates } from './eventDates';
+import { resolveDatabaseUrl, usingPreviewDatabase } from './databaseUrl';
 import { PLAYMATCH_TEST_SLUG, PLAYMATCH_TEST_TITLE, clampTestGuestCount, isTestTicketCode, testEventWindow, testTicketCode } from '../shared/playmatchTest';
 import { isTopupProduct, topupChargeForLines } from '../shared/prepaid';
 import { hasPartnerAcceptance, normalizePartnerRef, priceForPartnerOrder, PARTNER_EXISTING_CUSTOMER_MESSAGE } from '../shared/partnerCampaign';
@@ -63,17 +64,20 @@ import { getPartnerBadgesByOrderIds, getPartnerCampaignBySlug, getPartnerCampaig
 let _db: ReturnType<typeof drizzle> | null = null;
 
 export async function getDb() {
-  if (!_db && process.env.DATABASE_URL) {
+  // Producción y todo lo demás: DATABASE_URL. Un Preview con PREVIEW_DATABASE_URL: la base de pruebas (server/databaseUrl.ts).
+  const databaseUrl = resolveDatabaseUrl();
+  if (!_db && databaseUrl) {
     try {
       // mysql2 no soporta ssl={"rejectUnauthorized":true} embebido en la URI
       // (solo perfiles con nombre tipo "Amazon RDS") — proveedores como TiDB
       // exigen TLS, así que se pasa como opción separada del pool.
       _db = drizzle({
         connection: {
-          uri: process.env.DATABASE_URL,
+          uri: databaseUrl,
           ssl: { minVersion: "TLSv1.2", rejectUnauthorized: true },
         },
       });
+      if (usingPreviewDatabase()) console.log('[Database] Preview: usando la base de PRUEBAS (PREVIEW_DATABASE_URL), no la de producción.');
     } catch (error) {
       console.warn("[Database] Failed to connect:", error);
       _db = null;
