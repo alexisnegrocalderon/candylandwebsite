@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Player, Thumbnail, type PlayerRef } from '@remotion/player';
 import { MotionVideo } from '@motion/MotionVideo';
+import { isTouchDevice } from './touch';
 import { MOTION_FPS, MOTION_SIZES, motionTimeline, type MotionSpec } from '@shared/motionSpec';
 
 /* iPhone: cada vista previa es una composición de 1080×1920 con filtros y capas, y un celular se queda sin memoria si hay
@@ -8,8 +9,7 @@ import { MOTION_FPS, MOTION_SIZES, motionTimeline, type MotionSpec } from '@shar
  * la pantalla de inicio son CUADROS quietos, no videos; (2) cada vista previa se monta solo cuando está a la vista y se
  * desmonta al alejarse; (3) en pantallas táctiles nada parte solo: se da play a una. */
 
-/** Pantalla táctil (celular o tablet): ahí nada se reproduce solo. */
-const isTouch = () => typeof window !== 'undefined' && (window.matchMedia?.('(pointer: coarse)').matches || navigator.maxTouchPoints > 0);
+const isTouch = isTouchDevice;
 
 /** true mientras el elemento está (o casi está) en pantalla. */
 function useInView(ref: React.RefObject<HTMLElement | null>): boolean {

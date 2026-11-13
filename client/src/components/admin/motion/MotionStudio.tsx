@@ -26,6 +26,7 @@ import { PlanPanel } from './PlanPanel';
 import { randomSeed } from '@shared/motionVariety';
 import { takeStudioEvent } from './handoff';
 import { loadDraft, patchDraft } from './draft';
+import { isTouchDevice } from './touch';
 
 /* Estudio Motion (admin → Contenido → Estudio). Todo el contenido en un lugar:
  *  - Plan: el calendario hasta el evento; cada pieza → «Crear video».
@@ -56,7 +57,19 @@ const STARTERS: Array<{ key: string; template: MotionTemplate; style: MotionStyl
   { key: 'sting', template: 'sting', style: 'liquid', label: MOTION_TEMPLATE_LABEL.sting, hint: TEMPLATE_HINT.sting },
 ];
 
+/** Color de cada estilo para las tarjetas livianas del celular (la vista previa real se ve al abrir la plantilla). */
+const STYLE_CARD: Partial<Record<MotionStyle, string>> = {
+  liquid: 'linear-gradient(160deg,#00A3FF,#0066CC)',
+  glitch: 'linear-gradient(160deg,#0010DF,#05005E)',
+  editorial: 'linear-gradient(160deg,#EF8DFF,#9B3BB8)',
+  kinetic: 'linear-gradient(160deg,#111,#3a3a3a)',
+  arcade: 'linear-gradient(160deg,#ff2bd6,#3b0a6b)',
+};
+
 export function MotionStudio() {
+  // Celular/tablet: las plantillas son tarjetas livianas. Cada vista previa de Remotion es una composición de 1080×1920 con
+  // filtros: con 4-6 a la vez el iPhone se queda sin memoria y recarga la página (justo al entrar a Contenido).
+  const [lightCards] = useState(isTouchDevice);
   // El borrador del teléfono (draft.ts): si el panel se recargó o saliste, el Estudio abre donde quedó.
   const [draft] = useState(loadDraft);
   // Solo el primer editor que se abre viene del borrador; los que se abran después son videos nuevos.
@@ -253,7 +266,14 @@ export function MotionStudio() {
                 const spec = { ...starterSpec(template, style), format, eventId, eventDate, seed: (baseSeed + k * 7919) % 1_000_000 };
                 return (
                   <button key={key} type="button" className="group space-y-2 text-left" onClick={() => setView({ kind: 'edit', id: null, spec })}>
-                    <MotionPreview spec={spec} controls={false} still maxHeight={300} className="transition-transform group-hover:scale-[1.02]" />
+                    {lightCards ? (
+                      <div className="mx-auto flex aspect-[9/14] max-h-[300px] w-full flex-col items-center justify-center gap-2 rounded-2xl text-white shadow-xl shadow-black/20" style={{ background: STYLE_CARD[style] ?? STYLE_CARD.liquid }}>
+                        <Film className="h-8 w-8 opacity-90" />
+                        <span className="px-2 text-center text-[11px] font-semibold uppercase tracking-wider opacity-80">{MOTION_STYLE_LABEL[style].split(' ')[0]}</span>
+                      </div>
+                    ) : (
+                      <MotionPreview spec={spec} controls={false} still maxHeight={300} className="transition-transform group-hover:scale-[1.02]" />
+                    )}
                     <p className="text-sm font-medium">{label}</p>
                     <p className="text-xs text-muted-foreground">{hint}</p>
                   </button>

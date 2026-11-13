@@ -2,6 +2,8 @@
  * Archivo aparte y sin imports: lo lee el panel al arrancar, sin traerse el código del Estudio. */
 
 const OPEN_KEY = 'motion-studio.open';
+/** La misma llave que draft.ts (archivo aparte para no traer el código del Estudio al arrancar el panel). */
+const DRAFT_KEY = 'motion-studio.draft.v1';
 const RESTORED_KEY = 'motion-studio.restored-at';
 /** Dos recargas seguidas dentro de este plazo = el Estudio está botando la página en este teléfono: se vuelve a Inicio. */
 const LOOP_MS = 45_000;
@@ -19,6 +21,10 @@ export function wasStudioOpen(): boolean {
   try {
     const s = window.sessionStorage;
     if (s.getItem(OPEN_KEY) !== '1') return false;
+    // Solo vale la pena volver si hay un video en edición o variantes por elegir. Si estaba mirando la portada del Estudio,
+    // lo más pesado del panel, una recarga lo devolvería justo ahí: mejor abrir Inicio.
+    const d = JSON.parse(window.localStorage.getItem(DRAFT_KEY) ?? 'null');
+    if (!d || !(d.edit || d.variants?.variants?.length) || !(Date.now() - Number(d.at) < 14 * 86_400_000)) return false;
     const last = Number(s.getItem(RESTORED_KEY) || 0);
     if (Date.now() - last < LOOP_MS) { s.removeItem(OPEN_KEY); return false; }
     s.setItem(RESTORED_KEY, String(Date.now()));
