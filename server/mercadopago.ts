@@ -6,6 +6,7 @@ import { orders } from '../drizzle/schema';
 import { COLAB_HOSTS } from '../shared/colabHosts';
 import { getDb } from './db';
 import { getEventColabBrand } from './coproduction';
+import { logCardPaymentFailure } from './mpErrorLog';
 
 let mpClient: MercadoPagoConfig | null = null;
 
@@ -224,7 +225,9 @@ export async function createCardPayment(input: {
   const baseUrl = process.env.APP_URL || 'https://mansionplayroom.cl';
   const payment = new Payment(client);
 
-  const result = await payment.create({
+  let result;
+  try {
+    result = await payment.create({
     body: {
       transaction_amount: input.amount,
       token: input.token,
@@ -244,7 +247,12 @@ export async function createCardPayment(input: {
       },
     },
     requestOptions: { idempotencyKey: `${input.orderNumber}-${Date.now()}` },
-  });
+    });
+  } catch (err) {
+    // Solo deja constancia en el log y vuelve a lanzar el MISMO error: el comportamiento hacia el cliente no cambia.
+    await logCardPaymentFailure(err, { orderNumber: input.orderNumber, paymentMethodId: input.paymentMethodId }, process.env.MERCADOPAGO_ACCESS_TOKEN);
+    throw err;
+  }
 
   return {
     status: (result.status as 'approved' | 'rejected' | 'in_process' | 'pending') ?? 'pending',
