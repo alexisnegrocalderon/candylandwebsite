@@ -13,7 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { CANDYLAND, EVENTO, CAMPOS_COMPRADOR, formatCLP, whatsappComunidadLink, type Acceso, type CampoForm } from '@/config/candyland';
 import { isMissionActiveForEvent, missionDepositPrice, missionCutoff, missionCapPrice } from '@shared/mission300';
-import { isValidRut, isValidPassport, isValidChileanPhone, formatRutLive } from '@shared/rut';
+import { isValidRut, isValidPassport, isValidChileanPhone, formatRutLive, findRepeatedDocuments } from '@shared/rut';
 import { isTopupProduct } from '@shared/prepaid';
 import { ANY_ACCESS_SLUG } from '@shared/accessCredit';
 import { computeCodeDiscount } from '@shared/discountCode';
@@ -217,6 +217,12 @@ function buildSchema(fields: { key: string; field: CampoForm }[]) {
           message: tipo === 'passport' ? 'Pasaporte inválido' : 'RUT inválido',
         });
       }
+    }
+    // Cada persona del acceso (comprador y acompañantes) con su propio documento.
+    const orden = new Map(rutKeys.map((k, i) => [k, i]));
+    const campos = Object.fromEntries([...rutKeys].sort((a, b) => (orden.get(a)! - orden.get(b)!)).map((k) => [k, (values as Record<string, unknown>)[k]]));
+    for (const key of findRepeatedDocuments(campos)) {
+      ctx.addIssue({ code: 'custom', path: [key], message: 'Este documento ya está en la compra: cada persona debe ingresar el suyo' });
     }
   });
 }

@@ -59,3 +59,25 @@ export function formatRutLive(raw: string): string {
   const groupedBody = body.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
   return `${groupedBody}-${dv}`;
 }
+
+/** Documento reducido para comparar: sin puntos, guiones ni espacios, en mayúsculas
+ * ("13.451.986-k" y "13451986K" son el mismo; también sirve para pasaportes). */
+export function documentKey(value: string): string {
+  return value.replace(/[^0-9a-zA-Z]/g, '').toUpperCase();
+}
+
+/** Claves de `campos` (comprador `buyer__rut` y acompañantes `acceso__acompN_rut`)
+ * cuyo documento ya apareció antes en la misma compra. Un acceso doble/triple
+ * vende un cupo por persona: repetir el documento sería comprar uno y entrar dos. */
+export function findRepeatedDocuments(campos: Record<string, unknown>): string[] {
+  const seen = new Set<string>();
+  const repeated: string[] = [];
+  for (const [key, value] of Object.entries(campos)) {
+    if (!/(^|_)rut$/.test(key) || typeof value !== 'string') continue;
+    const doc = documentKey(value);
+    if (!doc) continue;
+    if (seen.has(doc)) repeated.push(key);
+    else seen.add(doc);
+  }
+  return repeated;
+}
