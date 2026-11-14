@@ -33,16 +33,17 @@ concurrency:
 jobs:
   render:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 35
     steps:
-      # Solo lo que necesita la grabación: la composición, la receta compartida,
-      # las fuentes, la música, los efectos y el logo.
+      # Solo lo que necesita la grabación: la composición, TODO `shared/` (la composición importa varios archivos de ahí:
+      # motionSpec, motionVariety, motionSong, motionMascot, motionChat, motionSfx…; una lista a mano se quedaba atrás cada
+      # vez que se sumaba uno y la grabación fallaba con «Module not found»), las fuentes, la música, los efectos y el logo.
+      # shared/motionRender.test.ts revisa que esta lista cubra todo lo que importa motion/.
       - uses: actions/checkout@v4
         with:
           sparse-checkout: |
             motion/
-            shared/motionSpec.ts
-            shared/motionVariety.ts
+            shared/
             scripts/render-studio-video.mjs
             client/public/studio/
             client/public/motion/
@@ -80,8 +81,10 @@ jobs:
               || { sudo timeout 60 apt-get update -qq && sudo timeout 100 apt-get install -y -qq --no-install-recommends fonts-noto-color-emoji; }
           fi
 
+      # Un video de 20 s con un estilo pesado puede tardar más de 10 minutos en una máquina de GitHub (el repo es público: los
+      # minutos no cuestan). El panel da la grabación por fallida a los 25 min sin respuesta.
       - name: Grabar y subir
-        timeout-minutes: 10
+        timeout-minutes: 25
         env:
           VIDEO_ID: ${{ inputs.video_id }}
           JOB_ID: ${{ inputs.job_id }}
