@@ -110,8 +110,19 @@ export const Hud: React.FC = () => {
 export const Camera: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const frame = useCurrentFrame();
   const { durationInFrames } = useVideoConfig();
+  const { look, timeline, spec } = useMotion();
   const p = interpolate(frame, [0, durationInFrames], [0, 1], { easing: ease.inOut, ...clamp });
-  return <AbsoluteFill style={{ transform: `scale(${1 + 0.035 * p}) translateY(${-14 * p}px)` }}>{children}</AbsoluteFill>;
+  let transform: string | undefined;
+  if (look.camera === 'empuje') transform = `scale(${1 + 0.035 * p}) translateY(${-14 * p}px)`;
+  else if (look.camera === 'alejar') transform = `scale(${1.045 - 0.04 * p})`;
+  else if (look.camera === 'deriva') transform = `scale(1.035) translateX(${(spec.seed % 2 ? 1 : -1) * (16 - 32 * p)}px)`;
+  else if (look.camera === 'latido') {
+    // Un golpecito en cada pulso de la música (sin música, uno por segundo) que se apaga rápido.
+    const beat = timeline.beatFrames ?? 30;
+    const since = frame % beat;
+    transform = `scale(${1 + 0.02 * p + 0.014 * Math.exp(-since / 3.5)})`;
+  }
+  return <AbsoluteFill style={transform ? { transform } : undefined}>{children}</AbsoluteFill>;
 };
 
 /** Cierre con el @ (como las referencias): nombre, ícono que entra con resorte y el handle. */

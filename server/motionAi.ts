@@ -3,7 +3,7 @@ import { buildEventFacts } from './winback';
 import { quickJson } from './studioAi/quickCall';
 import { TONO_DE_VOZ } from './studioAi/brandPack';
 import { AI_PHRASES_PROMPT_LINE } from '../shared/aiPhrasesEs';
-import { ALL_LAYOUT_KEYS, LAYOUT_AUTO, LAYOUTS, randomSeed } from '../shared/motionVariety';
+import { ALL_LAYOUT_KEYS, LAYOUT_AUTO, LAYOUTS, LOOK_ALL_AUTO, freshSeed, lookSignature } from '../shared/motionVariety';
 import { chileIsoDate } from '../shared/contentPlan';
 import {
   MOTION_ACCENTS, MOTION_BASES, MOTION_CARDS, MOTION_MAX_SCENES, MOTION_MUSIC, MOTION_STYLES, MOTION_TEMPLATES, normalizeKeyword, normalizeMotionSpec,
@@ -160,6 +160,8 @@ export function variantsFromAi(raw: RawOutput, input: Pick<MotionIdeaInput, 'for
     if (st && !styles.includes(st)) styles.push(st);
   }
   for (const st of FILL_STYLES) if (styles.length < 3 && !styles.includes(st)) styles.push(st);
+  // Looks ya usados por las variantes de esta misma tanda: cada una sale con una combinación distinta.
+  const taken: string[] = [];
   return styles.slice(0, 3).map((style: MotionStyle) => {
     const v = list.find((x) => x?.style === style) ?? list[0] ?? {};
     const used = new Set<number>();
@@ -171,6 +173,10 @@ export function variantsFromAi(raw: RawOutput, input: Pick<MotionIdeaInput, 'for
       if (m) used.add(idx);
       return { ...s, media: m };
     });
+    // Cada variante parte con su propia semilla y su propio look (transición, entrada, trama, adornos, cámara):
+    // aunque dos tengan el mismo estilo, no se ven iguales.
+    const seed = freshSeed({ style, look: LOOK_ALL_AUTO }, taken);
+    taken.unshift(lookSignature({ style, look: LOOK_ALL_AUTO, seed }));
     return normalizeMotionSpec({
       title: raw.title,
       caption: raw.caption,
@@ -179,8 +185,8 @@ export function variantsFromAi(raw: RawOutput, input: Pick<MotionIdeaInput, 'for
       template,
       style,
       format: input.format,
-      // Cada variante parte con su propia semilla: aunque dos tengan el mismo estilo, no se ven iguales.
-      seed: randomSeed(),
+      seed,
+      look: LOOK_ALL_AUTO,
       base: v.base,
       accent: v.accent,
       music: v.music,

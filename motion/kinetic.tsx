@@ -6,6 +6,7 @@ import { AccentCircle, clamp } from './kits/shared';
 import { syneWidth } from './measure';
 import { heroWords, Kicker } from './scenes';
 import { useMagazine } from './layouts';
+import { SceneDeco } from './look';
 import { ease, fonts, safeInsets, springs } from './theme';
 
 /* Escena del estilo KINETIC (referencia A): una frase que se arma palabra a
@@ -153,6 +154,8 @@ export const KineticScene: React.FC<{ scene: MotionScene; index: number; frames:
           <AccentCircle x={cx} y={cy} r={r} delay={2} />
         )
       )}
+
+      <SceneDeco scene={scene} index={index} frames={frames} />
 
       {/* El texto. */}
       <AbsoluteFill

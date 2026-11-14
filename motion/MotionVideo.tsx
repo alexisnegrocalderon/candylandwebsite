@@ -1,13 +1,14 @@
 import { useMemo } from 'react';
 import { AbsoluteFill, Html5Audio, interpolate, Sequence, staticFile, useCurrentFrame, useVideoConfig } from 'remotion';
 import { captionWords, motionPalette, motionTimeline, normalizeMotionSpec, type MotionSpec } from '../shared/motionSpec';
-import { resolveLayouts } from '../shared/motionVariety';
+import { resolveLayouts, resolveLook } from '../shared/motionVariety';
 import { MotionContext, useMotion, type MotionCtx, type MotionSlideInfo } from './context';
 import { useBrandFonts } from './fonts';
 import { KITS } from './kits';
 import { Camera, HandleCard, Hud } from './hud';
 import { Thread } from './thread';
 import { Grade, Grain, Vignette } from './layers';
+import { LOOK_CUT_FRAMES, LookCut, Texture } from './look';
 import { KineticScene } from './kinetic';
 import { PosterScene } from './poster';
 import { SoftUiScene } from './softui';
@@ -102,13 +103,15 @@ const Captions: React.FC = () => {
 };
 
 const Body: React.FC = () => {
-  const { spec, timeline } = useMotion();
+  const { spec, timeline, look } = useMotion();
   const kit = KITS[spec.style];
   const last = spec.scenes.length - 1;
   return (
     <>
       {/* 1. Fondo (continuo entre escenas). */}
       <kit.Background />
+      {/* La trama del look (puntos, rayas, ondas…) sobre el fondo del estilo. */}
+      <Texture />
       {/* El hilo del carrusel: una forma que cruza de una lámina a la siguiente. */}
       <Thread />
       {/* 2-3. Fotos, gráfica y texto por escena, con un empuje lento de cámara. */}
@@ -147,10 +150,16 @@ const Body: React.FC = () => {
       {spec.hud && <Hud />}
       <Captions />
       {/* Transiciones encima de todo el contenido, centradas en cada corte. */}
-      {[...timeline.scenes.slice(1).map((t) => t.from), ...(timeline.outroFrom != null ? [timeline.outroFrom] : [])].map((cut) => (
-        <Sequence key={`cut-${cut}`} from={cut - beats.cut / 2} durationInFrames={beats.cut} name="Corte">
-          <kit.Cut />
-        </Sequence>
+      {[...timeline.scenes.slice(1).map((t) => t.from), ...(timeline.outroFrom != null ? [timeline.outroFrom] : [])].map((cut, n) => (
+        look.cut === 'estilo' ? (
+          <Sequence key={`cut-${cut}`} from={cut - beats.cut / 2} durationInFrames={beats.cut} name="Corte">
+            <kit.Cut />
+          </Sequence>
+        ) : (
+          <Sequence key={`cut-${cut}`} from={cut - LOOK_CUT_FRAMES / 2} durationInFrames={LOOK_CUT_FRAMES} name="Corte">
+            <LookCut kind={look.cut} n={n} />
+          </Sequence>
+        )
       ))}
       {/* 4-5. Grade, grano y viñeta. */}
       <Grade opacity={kit.grade} />
@@ -166,7 +175,7 @@ export const MotionVideo: React.FC<MotionVideoProps> = ({ spec: raw, slide = nul
   const { width, height } = useVideoConfig();
   const ctx = useMemo<MotionCtx>(() => {
     const spec = normalizeMotionSpec(raw);
-    return { spec, palette: motionPalette(spec.base, spec.accent), timeline: motionTimeline(spec), width, height, captionsOn: spec.captions && !!spec.voice, layouts: resolveLayouts(spec), slide };
+    return { spec, palette: motionPalette(spec.base, spec.accent), timeline: motionTimeline(spec), width, height, captionsOn: spec.captions && !!spec.voice, layouts: resolveLayouts(spec), look: resolveLook(spec), slide };
   }, [raw, width, height, slide]);
   return (
     <MotionContext.Provider value={ctx}>
