@@ -5,15 +5,22 @@
  * Acá vive solo lo PURO: la forma, la limpieza y los momentos clave (para la composición, el sonido y los tests). */
 import { songHitFrames, type MotionSong } from './motionSong';
 
-export const MASCOT_KINDS = ['perrito'] as const;
+export const MASCOT_KINDS = ['perrito', 'pareja'] as const;
 export type MascotKind = (typeof MASCOT_KINDS)[number];
+export const MASCOT_KIND_LABEL: Record<MascotKind, string> = {
+  perrito: 'Un perrito',
+  pareja: 'La pareja (rosa y celeste, frente a frente)',
+};
 
-export const MASCOT_COLORS = ['magenta', 'rosa', 'celeste', 'oro', 'plata'] as const;
+export const MASCOT_COLORS = ['magenta', 'rosa', 'celeste', 'rojo', 'amarillo', 'multi', 'oro', 'plata'] as const;
 export type MascotColor = (typeof MASCOT_COLORS)[number];
 export const MASCOT_COLOR_LABEL: Record<MascotColor, string> = {
   magenta: 'Magenta (el clásico)',
   rosa: 'Rosa',
   celeste: 'Celeste',
+  rojo: 'Rojo brillante',
+  amarillo: 'Amarillo',
+  multi: 'Multicolor (cada burbuja de un color)',
   oro: 'Oro',
   plata: 'Plata espejo',
 };
@@ -22,8 +29,11 @@ export const MASCOT_COLOR_HEX: Record<MascotColor, string> = {
   magenta: '#FF1E9A',
   rosa: '#F49BFF',
   celeste: '#2BB5FF',
-  oro: '#E3B54A',
-  plata: '#DCE2EA',
+  rojo: '#FF2D3A',
+  amarillo: '#FFD23F',
+  multi: '#FF1E9A',
+  oro: '#F2C14E',
+  plata: '#E6ECF5',
 };
 
 export const MASCOT_SIZES = ['grande', 'chico'] as const;

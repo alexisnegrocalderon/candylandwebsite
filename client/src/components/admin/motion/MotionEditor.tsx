@@ -27,7 +27,7 @@ import { TTS_VOICE_KEYS, TTS_VOICES, voiceScriptHash, type TtsVoice } from '@sha
 import { MotionPreview } from './MotionPreview';
 import { PackPanel } from './PackPanel';
 import { SongPanel } from './SongPanel';
-import { MASCOT_COLOR_LABEL, MASCOT_COLORS, MASCOT_SIZE_LABEL, MASCOT_SIZES, type MotionMascot } from '@shared/motionMascot';
+import { MASCOT_COLOR_LABEL, MASCOT_COLORS, MASCOT_KIND_LABEL, MASCOT_KINDS, MASCOT_SIZE_LABEL, MASCOT_SIZES, type MotionMascot } from '@shared/motionMascot';
 import { LookPanel } from './LookPanel';
 import { rememberLook } from './lookMemory';
 import { PublicacionControls } from './PublicacionControls';
@@ -430,7 +430,8 @@ export function MotionEditor({ id: initialId, initial, restored, onBack }: {
                   return (
                     <>
                       <div className="grid gap-3 sm:grid-cols-2">
-                        <Field label="Color del globo"><Pick value={m.color} options={MASCOT_COLORS} labels={MASCOT_COLOR_LABEL} onChange={(color) => setM({ color })} /></Field>
+                        <Field label="Cuántos"><Pick value={m.kind} options={MASCOT_KINDS} labels={MASCOT_KIND_LABEL} onChange={(kind) => setM({ kind })} /></Field>
+                        {m.kind === 'perrito' && <Field label="Color del globo"><Pick value={m.color} options={MASCOT_COLORS} labels={MASCOT_COLOR_LABEL} onChange={(color) => setM({ color })} /></Field>}
                         <Field label="Tamaño y lugar"><Pick value={m.size} options={MASCOT_SIZES} labels={MASCOT_SIZE_LABEL} onChange={(size) => setM({ size })} /></Field>
                       </div>
                       <ToggleRow label={spec.outro ? 'Revienta en confeti y deja la firma' : 'Revienta en confeti al final'} checked={m.pop} onChange={(pop) => setM({ pop })} />

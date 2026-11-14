@@ -11,6 +11,10 @@ describe('normalizeMascot', () => {
     expect(normalizeMascot({ kind: 'gato' })).toBeNull();
     expect(normalizeMotionSpec({}).mascot).toBeNull();
   });
+  it('acepta la pareja y los colores nuevos', () => {
+    expect(normalizeMascot({ kind: 'pareja' })).toMatchObject({ kind: 'pareja', color: 'magenta' });
+    for (const color of ['rojo', 'amarillo', 'multi', 'oro', 'plata']) expect(normalizeMascot({ kind: 'perrito', color })!.color).toBe(color);
+  });
   it('limpia lo que llega', () => {
     expect(normalizeMascot({ kind: 'perrito', color: 'verde', size: 'gigante' })).toEqual({ kind: 'perrito', color: 'magenta', size: 'grande', pop: true });
     expect(normalizeMascot({ ...dog, pop: false })).toMatchObject({ color: 'oro', size: 'chico', pop: false });

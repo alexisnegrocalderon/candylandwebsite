@@ -69,6 +69,7 @@ export const Mascot: React.FC = () => {
   const mascot = spec.mascot;
   if (!mascot) return null;
 
+  const pair = mascot.kind === 'pareja';
   const inset = safeInsets(width, height);
   const big = mascot.size === 'grande';
   const size = Math.round(big ? Math.min(width * 0.9, height * 0.5) : width * 0.46);
@@ -88,9 +89,11 @@ export const Mascot: React.FC = () => {
   }
   // Una vuelta entera en cada corte.
   const spin = times.spins.reduce((acc, c) => acc + interpolate(frame, [c - MASCOT_SPIN.before, c + MASCOT_SPIN.after], [0, Math.PI * 2], { easing: ease.inOut, ...clamp }), 0);
-  const rotY = -0.6 + Math.sin(frame / 38) * 0.32 + spin;
-  // Con música se aplasta en el pulso y salta en los golpes; sin música, flota.
+  const rotY = (pair ? -0.2 : -0.6) + Math.sin(frame / 38) * (pair ? 0.16 : 0.32) + spin;
+  // Con música se aplasta en el pulso y salta en los golpes; sin música, flota. En la pareja se aplastan por turnos
+  // (uno en los pulsos pares, el otro en los impares).
   const squash = b.has ? b.pulse * (0.45 + 0.55 * b.energy) : 0;
+  const even = b.index % 2 === 0;
   const hop = b.has ? b.hit * size * 0.05 : 0;
   const bob = Math.sin(frame / 22) * size * 0.012;
   const lift = hop + bob;
@@ -111,7 +114,17 @@ export const Mascot: React.FC = () => {
             }}
           />
           <div style={{ position: 'absolute', left: cx - size / 2, top: cy - size / 2 - lift, width: size, height: size, transform: `scale(${swell})` }}>
-            <BalloonDog size={size} color={color} metal={mascot.color === 'plata' || mascot.color === 'oro'} inflate={inflate} squash={squash} rotY={rotY} />
+            <BalloonDog
+              size={size}
+              variant={pair ? 'pareja' : 'uno'}
+              color={color}
+              multi={mascot.color === 'multi'}
+              metal={mascot.color === 'plata' || mascot.color === 'oro'}
+              inflate={inflate}
+              squash={pair ? (even ? squash : squash * 0.3) : squash}
+              squash2={pair ? (even ? squash * 0.3 : squash) : 0}
+              rotY={rotY}
+            />
           </div>
         </>
       )}
