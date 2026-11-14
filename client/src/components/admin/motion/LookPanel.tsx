@@ -67,7 +67,7 @@ export function LookPanel({ clean, onChange }: {
   };
 
   return (
-    <div className="space-y-3 rounded-xl border border-border/60 p-3 sm:col-span-2">
+    <div className="space-y-3 rounded-xl border border-border/60 p-3">
       <div className="flex flex-wrap items-center gap-2">
         <p className="mr-auto flex items-center gap-1.5 text-sm font-semibold"><Sparkles className="h-4 w-4" /> Look del video</p>
         <Button type="button" size="sm" className="h-10" onClick={surprise}><Dices className="mr-1.5 h-4 w-4" /> Sorpréndeme</Button>
