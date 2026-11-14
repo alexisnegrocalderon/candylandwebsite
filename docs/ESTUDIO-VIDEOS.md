@@ -70,6 +70,23 @@ partes, y cada una se fija a mano o queda en **Auto** (la elige la semilla del v
 - Revisar a mano: `ONLY=liquid pnpm tsx scripts/motion/preview.mts looks ./looks` (cada opción) o con `SEEDS=5`
   (cinco semillas al azar, como «Sorpréndeme»).
 
+## Collage y papel, y Pizarra (estilos de dibujo a mano)
+
+- **Collage y papel** (`motion/kits/collage.tsx`): cuatro papeles dentro de un mismo estilo, que se elige en «Papel» o, en
+  «Automático», lo decide la semilla del video (`resolvePaper`): **rasgado** (cada palabra es un recorte con borde dentado que se
+  pega de un golpe y tiembla), **risografía** (dos tintas translúcidas que no calzan del todo, se cruzan en una lente),
+  **scrapbook** (letras recortadas una por una sobre hoja de cuaderno con cinta) y **diario** (titular de prensa, semitono y la
+  palabra clave con resaltador). Todo se mueve «a doses» (cada 2 o 3 cuadros), que es lo que lo hace parecer hecho a mano. La
+  transición es una tira de papel rasgado que cruza el cuadro.
+- **Pizarra** (`motion/kits/pizarra.tsx`): el texto se escribe con marcador de izquierda a derecha (con la punta), la palabra clave se
+  subraya con un trazo que tiembla y cada escena dibuja 3 garabatos (estrella, flecha, círculo, espiral, rayo, corazón…) en las
+  zonas que el texto deja libres (`motion/paper.ts`). Las líneas «hierven» cada 3 cuadros. La transición es un borrador de pizarra.
+  Letra: Permanent Marker (Apache 2.0, `client/public/studio/fonts/`; aviso en `OFL-NOTICE.txt`).
+- Solo colores de la paleta del video (nunca uno nuevo), sin filtros pesados: en celular simulado (CPU 4× más lenta) corren a
+  24–28 fps, igual que Liquid, y graban más rápido que Liquid.
+- Revisar a mano: `pnpm tsx scripts/motion/preview.mts papers ./papers` (los 4 papeles y la pizarra, con cortes).
+- Los dos tienen punto de partida sin IA («Collage de papel» y «Pizarra a mano») y la IA los conoce.
+
 ## Skills de motion, subtítulos, música y ritmo
 
 - **Skills en el repo** (`.claude/skills/`, MIT de iart.ai; ver su `README.md`): animation-principles, beat-sync-editing,

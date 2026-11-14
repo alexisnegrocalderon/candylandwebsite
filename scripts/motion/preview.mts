@@ -7,6 +7,7 @@
  *   pnpm tsx scripts/motion/preview.mts layouts [salida]       # una lámina por composición de cada estilo (ONLY=estilo, FORMAT=reel|feed, BASE=fondo)
  *   pnpm tsx scripts/motion/preview.mts looks [salida]         # el look: cada adorno, trama, etiqueta, entrada y transición (ONLY=estilo, FORMAT, SEEDS=3 para ver semillas al azar)
  *   pnpm tsx scripts/motion/preview.mts captions [salida]      # los 3 estilos de subtítulos sobre cada estilo (ONLY=estilo, BASE=fondo)
+ *   pnpm tsx scripts/motion/preview.mts papers [salida]        # Collage (los 4 papeles) y Pizarra: escenas asentadas y a mitad de transición (BASE=fondo, FORMAT=reel|feed)
  *   pnpm tsx scripts/motion/preview.mts video receta.json out.mp4
  *
  * Usa el Chromium de la máquina si existe (CHROME_PATH o el de Playwright). */
@@ -96,6 +97,26 @@ if (mode === 'video') {
       void tl;
     }
     console.log(style, 'subtítulos listos');
+  }
+} else if (mode === 'papers') {
+  const out = a ?? 'motion-papers';
+  mkdirSync(out, { recursive: true });
+  const runs: Array<{ name: string; style: 'collage' | 'pizarra'; paper: string }> = [
+    ...['rasgado', 'riso', 'scrapbook', 'diario'].map((paper) => ({ name: `collage-${paper}`, style: 'collage' as const, paper })),
+    { name: 'pizarra', style: 'pizarra' as const, paper: 'auto' },
+  ];
+  for (const { name, style, paper } of runs) {
+    if (process.env.ONLY && !name.includes(process.env.ONLY)) continue;
+    const spec = normalizeMotionSpec({ ...starterSpec('anuncio', style), format: process.env.FORMAT ?? 'reel', paper, look: LOOK_CLASSIC, seed: Number(process.env.SEED ?? 21), outro: false, ...(process.env.BASE ? { base: process.env.BASE } : {}) });
+    const tl = motionTimeline(spec);
+    for (const t of tl.scenes) {
+      await still(spec, t.from + t.frames - 10, join(out, `${name}-escena${t.index + 1}.png`));
+      if (t.index === 1) await still(spec, t.from - 3, join(out, `${name}-corte-a.png`));
+      if (t.index === 2) await still(spec, t.from + 1, join(out, `${name}-corte-b.png`));
+    }
+    // El momento en que se escribe/pega el texto de la primera escena.
+    await still(spec, tl.scenes[0].from + 14, join(out, `${name}-entrada.png`));
+    console.log(name, 'listo');
   }
 } else if (mode === 'looks') {
   const out = a ?? 'motion-looks';

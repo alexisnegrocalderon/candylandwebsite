@@ -3,3 +3,7 @@ BarlowCondensed-ExtraBoldItalic.ttf: Copyright 2017 The Barlow Project Authors (
 Ambas con la licencia SIL Open Font License 1.1 (https://openfontlicense.org), que permite usarlas
 y redistribuirlas, también en trabajos comerciales. Se usan en los reels de motion graphics del Estudio
 (shared/studioCountdownHtml.ts).
+
+Permanent Marker (permanent-marker.woff2): Copyright 2010 The Permanent Marker Project Authors
+(https://github.com/googlefonts/permanent-marker). Licencia Apache 2.0 (https://www.apache.org/licenses/LICENSE-2.0),
+que permite usarla y redistribuirla, también en trabajos comerciales. Se usa en el estilo Pizarra del Estudio.

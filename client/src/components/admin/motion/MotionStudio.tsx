@@ -51,6 +51,8 @@ const TEMPLATE_HINT: Record<MotionTemplate, string> = {
 const STARTERS: Array<{ key: string; template: MotionTemplate; style: MotionStyle; label: string; hint: string }> = [
   { key: 'playmore', template: 'anuncio', style: 'arcade', label: 'PLAYMORE · Player 1 vs Player 2', hint: 'El concepto arcade neón y el dress code por equipo: reel, carrusel, post e historia.' },
   { key: 'tema', template: 'anuncio', style: 'kinetic', label: 'Tema (kinetic)', hint: 'Frases que se arman palabra a palabra para hablar de un tema y parar el scroll.' },
+  { key: 'collage', template: 'anuncio', style: 'collage', label: 'Collage de papel', hint: 'Recortes pegados de un golpe: papel rasgado, risografía, scrapbook o diario (cambia con cada video).' },
+  { key: 'pizarra', template: 'anuncio', style: 'pizarra', label: 'Pizarra a mano', hint: 'Explicativo dibujado a mano: el texto se escribe con marcador y los garabatos se trazan solos.' },
   { key: 'anuncio', template: 'anuncio', style: 'editorial', label: MOTION_TEMPLATE_LABEL.anuncio, hint: TEMPLATE_HINT.anuncio },
   { key: 'countdown', template: 'countdown', style: 'glitch', label: MOTION_TEMPLATE_LABEL.countdown, hint: TEMPLATE_HINT.countdown },
   { key: 'montaje', template: 'montaje', style: 'kinetic', label: MOTION_TEMPLATE_LABEL.montaje, hint: TEMPLATE_HINT.montaje },
@@ -64,6 +66,8 @@ const STYLE_CARD: Partial<Record<MotionStyle, string>> = {
   editorial: 'linear-gradient(160deg,#EF8DFF,#9B3BB8)',
   kinetic: 'linear-gradient(160deg,#111,#3a3a3a)',
   arcade: 'linear-gradient(160deg,#ff2bd6,#3b0a6b)',
+  collage: 'linear-gradient(160deg,#F2EFEA,#EF8DFF)',
+  pizarra: 'linear-gradient(160deg,#E6ECF4,#00A3FF)',
 };
 
 export function MotionStudio() {

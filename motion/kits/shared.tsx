@@ -34,7 +34,7 @@ export interface Kit {
   grade: number;
   grain: number;
   vignette: number;
-  cutSfx: 'whoosh' | 'glitch';
+  cutSfx: 'whoosh' | 'glitch' | 'rip';
   /** Cómo sale la escena (0 → 1). */
   exitStyle: (p: number) => React.CSSProperties;
   /** Foto o clip de la escena dibujado como elemento enmarcado (no de fondo). Si no existe, va de fondo. */
