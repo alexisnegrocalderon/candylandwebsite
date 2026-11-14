@@ -70,6 +70,8 @@ export const SECTION_KEYWORDS: Record<string, string> = {
   piloto: 'piloto automatico automatizar evento iniciar pasos recordatorio encuesta anuncio',
   overview: 'evento noche hoy en vivo aforo',
   caja: 'barra tragos turnos cierre',
+  'copro-firma': 'firma firmar contrato dj productor gino alexis',
+  'contratos-dj': 'contrato dj artista firma firmar honorarios boleta pago set faedior line up',
   staff: 'equipo personal cargos pin operadores bartender seguridad puerta agregar staff',
   solteros: 'soltero solteros aprobar aprobacion hombres solos codigo comunidad solicitudes',
   'flash-promo': 'promocion oferta relampago',

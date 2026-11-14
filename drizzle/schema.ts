@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, json, index, uniqueIndex, customType } from "drizzle-orm/mysql-core";
+import { int, mediumtext, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, json, index, uniqueIndex, customType } from "drizzle-orm/mysql-core";
 import { sql } from "drizzle-orm";
 
 /**
@@ -3586,4 +3586,46 @@ export const eventPilots = mysqlTable("eventPilots", {
   status: varchar("status", { length: 8 }).default("on").notNull(),
   startedAt: timestamp("startedAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+// Contrato digital de un DJ/artista para un evento (shared/djContract.ts, server/djContract.ts): se envía por link
+// privado, se firma desde el celular y deja el texto exacto que se firmó, su hash y la constancia (fecha, IP, firma).
+// Se crea sola la primera vez, igual que drizzle/0151_dj_contracts.sql.
+export const djContracts = mysqlTable("djContracts", {
+  id: int("id").autoincrement().primaryKey(),
+  eventId: int("eventId").notNull(),
+  // borrador | enviado | visto | firmado | anulado
+  status: varchar("status", { length: 10 }).default("borrador").notNull(),
+  artistName: varchar("artistName", { length: 120 }).notNull(),
+  email: varchar("email", { length: 320 }).notNull(),
+  phone: varchar("phone", { length: 40 }),
+  // DjContractTerms: horarios, monto y cláusulas opcionales.
+  terms: json("terms").notNull(),
+  // Lo que escribe quien firma.
+  legalName: varchar("legalName", { length: 160 }),
+  rut: varchar("rut", { length: 20 }),
+  bank: varchar("bank", { length: 300 }),
+  clauseVersion: varchar("clauseVersion", { length: 16 }),
+  clauseHash: varchar("clauseHash", { length: 64 }),
+  bodyText: mediumtext("bodyText"),
+  signatureImage: mediumtext("signatureImage"),
+  signedAt: timestamp("signedAt"),
+  signedIp: varchar("signedIp", { length: 64 }),
+  signedUserAgent: varchar("signedUserAgent", { length: 255 }),
+  staffShiftId: int("staffShiftId"),
+  // Firmas de Alexis y Gino estampadas al enviar (ProducersStamp): se copian, así un cambio posterior no altera lo enviado.
+  producersSig: mediumtext("producersSig"),
+  sentAt: timestamp("sentAt"),
+  viewedAt: timestamp("viewedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (t) => [index("dj_contracts_event_idx").on(t.eventId)]);
+
+export type DjContractRow = typeof djContracts.$inferSelect;
+
+// Firma dibujada de cada productor (Alexis, Gino): se firma una sola vez en el panel y se estampa en cada contrato al enviarlo.
+export const producerSignatures = mysqlTable("producerSignatures", {
+  key: varchar("key", { length: 16 }).primaryKey(),
+  image: mediumtext("image").notNull(),
+  signedAt: timestamp("signedAt").defaultNow().notNull(),
 });

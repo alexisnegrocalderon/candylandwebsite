@@ -84,6 +84,21 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // Contrato firmado de un DJ: el link lleva el id firmado con HMAC (server/djContract.ts); solo existe una vez firmado.
+  app.get("/api/contrato/:token", async (req: Request, res: Response) => {
+    try {
+      const out = await (await import("./djContract")).djContractPdf(String(req.params.token ?? ""));
+      if (!out) { res.status(404).type("text/plain; charset=utf-8").send("Este contrato no existe o todavía no está firmado."); return; }
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Cache-Control", "private, no-store");
+      res.setHeader("Content-Disposition", `inline; filename="${out.fileName}"`);
+      res.send(out.pdf);
+    } catch (e) {
+      console.error("[djContractPdf]", e);
+      res.status(500).type("text/plain; charset=utf-8").send("No se pudo generar el contrato");
+    }
+  });
+
   // Inventario en PDF: mismo tipo de link firmado. El PDF se arma en el momento con lo que hay en la base, así que siempre sale actualizado.
   app.get("/api/inventario/:token", async (req: Request, res: Response) => {
     const t = verificarInventario(String(req.params.token ?? ""));
