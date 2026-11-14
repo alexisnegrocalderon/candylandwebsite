@@ -11,6 +11,8 @@ export interface DjContractPdfInput {
   } | null;
   /** «Enviado por la Producción el …» */
   sentAtText?: string | null;
+  /** La firma estampada de cada productor (sin firma = «Se firma al enviar»). */
+  producers?: { name: string; role: string; signaturePng: Buffer | null; signedAtText: string | null }[];
 }
 
 const INK = "#1b1a17";
@@ -54,25 +56,28 @@ export async function buildDjContractPdf(input: DjContractPdfInput): Promise<Buf
     doc.moveDown(0.3);
   }
 
-  // Firmas (en una página aparte si no caben)
+  // Firmas (en una página aparte si no caben): la artista y los dos productores, lado a lado.
   if (doc.y > doc.page.height - 250) doc.addPage();
   doc.moveDown(0.8).fillColor(INK).font("Helvetica-Bold").fontSize(11.5).text("Firmas");
   doc.moveDown(0.6);
   const top = doc.y;
-  const colW = (w - 20) / 2;
-  const block = (left: number, label: string, name: string, lines: string[], png?: Buffer | null) => {
-    doc.fillColor(MUTED).font("Helvetica-Bold").fontSize(8.5).text(label.toUpperCase(), left, top, { width: colW });
-    if (png) { try { doc.image(png, left, top + 14, { fit: [colW - 20, 56] }); } catch { /* firma ilegible: queda la línea */ } }
-    doc.moveTo(left, top + 76).lineTo(left + colW - 10, top + 76).strokeColor("#b9ae92").lineWidth(0.8).stroke();
-    doc.fillColor(INK).font("Helvetica-Bold").fontSize(10).text(name, left, top + 82, { width: colW });
-    doc.fillColor(MUTED).font("Helvetica").fontSize(8.5).text(lines.join("\n"), left, doc.y + 1, { width: colW });
+  const gap = 14;
+  const colW = (w - gap * 2) / 3;
+  const block = (col: number, label: string, name: string, lines: string[], png?: Buffer | null) => {
+    const left = x + col * (colW + gap);
+    doc.fillColor(MUTED).font("Helvetica-Bold").fontSize(8).text(label.toUpperCase(), left, top, { width: colW, lineBreak: false });
+    if (png) { try { doc.image(png, left, top + 14, { fit: [colW - 14, 54] }); } catch { /* firma ilegible: queda la línea */ } }
+    doc.moveTo(left, top + 74).lineTo(left + colW - 8, top + 74).strokeColor("#b9ae92").lineWidth(0.8).stroke();
+    doc.fillColor(INK).font("Helvetica-Bold").fontSize(9.5).text(name, left, top + 80, { width: colW - 6 });
+    doc.fillColor(MUTED).font("Helvetica").fontSize(8).text(lines.join("\n"), left, doc.y + 1, { width: colW - 6 });
+    return doc.y;
   };
   const s = input.signer;
-  block(x, "La Artista", s?.legalName ?? "Sin firmar", s ? [`RUT ${s.rut}`, `Firmado electrónicamente el ${s.signedAtText}`] : ["Pendiente de firma"], s?.signaturePng);
-  const afterLeft = doc.y;
-  block(x + colW + 20, "La Producción", PRODUCERS.map((p) => p.name).join(" y "), [PRODUCERS.map((p) => p.role).join(" · "), s ? "Aprobado y enviado por la Producción" : "Se contrafirma al enviar"]);
+  const ends = [block(0, "La Artista", s?.legalName ?? "Sin firmar", s ? [`RUT ${s.rut}`, `Firmado el ${s.signedAtText}`] : ["Pendiente de firma"], s?.signaturePng)];
+  const prods = input.producers?.length ? input.producers : PRODUCERS.map((p) => ({ name: p.name, role: p.role, signaturePng: null, signedAtText: null }));
+  prods.forEach((p, i) => { ends.push(block(i + 1, "La Producción", p.name, [p.role, p.signedAtText ? `Firmado el ${p.signedAtText}` : "Se firma al enviar"], p.signaturePng)); });
   doc.x = x;
-  doc.y = Math.max(doc.y, afterLeft) + 20;
+  doc.y = Math.max(...ends) + 20;
 
   if (s) {
     doc.fillColor(MUTED).font("Helvetica").fontSize(7.5).text(

@@ -40,9 +40,15 @@ export interface DjContract {
 }
 
 export const PRODUCERS = [
-  { name: 'Alexis Calderón', role: 'Productor de Playroom', company: 'Mansión Playroom' },
-  { name: 'Gino Pérez', role: 'Productor de Dalmore', company: 'Dalmore Music & Experiences' },
+  { key: 'alexis', name: 'Alexis Calderón', role: 'Productor de Playroom', company: 'Mansión Playroom' },
+  { key: 'gino', name: 'Gino Pérez', role: 'Productor de Dalmore', company: 'Dalmore Music & Experiences' },
 ] as const;
+export type ProducerKey = (typeof PRODUCERS)[number]['key'];
+
+/** Las firmas de la Producción que se estampan en el contrato al enviarlo (la imagen y cuándo se estampó). */
+export type ProducersStamp = Record<ProducerKey, { image: string; at: string }>;
+
+export const isSignaturePng = (s: unknown): s is string => typeof s === 'string' && /^data:image\/png;base64,[A-Za-z0-9+/=]{200,}$/.test(s) && s.length <= 400_000;
 
 const clp = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
 

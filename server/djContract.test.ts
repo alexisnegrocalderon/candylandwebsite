@@ -71,4 +71,15 @@ describe('PDF', () => {
     expect(signed.length).toBeGreaterThan(blank.length / 2);
     expect(signed.subarray(0, 5).toString()).toBe('%PDF-');
   });
+  it('con las firmas de los dos productores también se arma', async () => {
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
+    const pdf = await buildDjContractPdf({
+      contract: buildDjContract(terms),
+      producers: [
+        { name: 'Alexis Calderón', role: 'Productor de Playroom', signaturePng: png, signedAtText: '14-11-2026 17:00' },
+        { name: 'Gino Pérez', role: 'Productor de Dalmore', signaturePng: png, signedAtText: '14-11-2026 17:01' },
+      ],
+    });
+    expect(pdf.subarray(0, 5).toString()).toBe('%PDF-');
+  });
 });

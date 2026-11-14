@@ -7,14 +7,14 @@
  *     horario, marcar el pago) también espera «Reportar». */
 import { createHash, createHmac, timingSafeEqual } from "crypto";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
-import { djContracts, type DjContractRow } from "../drizzle/schema";
+import { djContracts, producerSignatures, type DjContractRow } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 import { getDb } from "./db";
 import { CrossCheckRetry, requestCrossCheck, endOfChileDay } from "./crossCheck";
 import { buildAnniversaryBlastEmail } from "./emailAniversario";
 import { EMAIL_BASE_URL } from "./emailLayout";
 import { buildDjContractPdf } from "./djContractPdf";
-import { buildDjContract, djContractPlainText, djPayment, validateSignature, type DjContract, type DjContractTerms } from "../shared/djContract";
+import { PRODUCERS, buildDjContract, djContractPlainText, djPayment, isSignaturePng, validateSignature, type DjContract, type DjContractTerms, type ProducerKey, type ProducersStamp } from "../shared/djContract";
 import { isValidRut, normalizeRut } from "../shared/rut";
 import { chileDateKey, formatChileDate, formatChileDateTime, startOfChileDay } from "../shared/chileDate";
 
@@ -31,7 +31,8 @@ async function dbReady() {
   const db = await getDb();
   if (!db) throw new Error("Base de datos no disponible");
   if (!tableOk) {
-    await db.execute(sql`CREATE TABLE IF NOT EXISTS \`djContracts\` (\`id\` int AUTO_INCREMENT NOT NULL, \`eventId\` int NOT NULL, \`status\` varchar(10) NOT NULL DEFAULT 'borrador', \`artistName\` varchar(120) NOT NULL, \`email\` varchar(320) NOT NULL, \`phone\` varchar(40), \`terms\` json NOT NULL, \`legalName\` varchar(160), \`rut\` varchar(20), \`bank\` varchar(300), \`clauseVersion\` varchar(16), \`clauseHash\` varchar(64), \`bodyText\` mediumtext, \`signatureImage\` mediumtext, \`signedAt\` timestamp NULL, \`signedIp\` varchar(64), \`signedUserAgent\` varchar(255), \`staffShiftId\` int, \`sentAt\` timestamp NULL, \`viewedAt\` timestamp NULL, \`createdAt\` timestamp NOT NULL DEFAULT (now()), \`updatedAt\` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP, CONSTRAINT \`djContracts_id\` PRIMARY KEY(\`id\`), KEY \`dj_contracts_event_idx\` (\`eventId\`))`);
+    await db.execute(sql`CREATE TABLE IF NOT EXISTS \`djContracts\` (\`id\` int AUTO_INCREMENT NOT NULL, \`eventId\` int NOT NULL, \`status\` varchar(10) NOT NULL DEFAULT 'borrador', \`artistName\` varchar(120) NOT NULL, \`email\` varchar(320) NOT NULL, \`phone\` varchar(40), \`terms\` json NOT NULL, \`legalName\` varchar(160), \`rut\` varchar(20), \`bank\` varchar(300), \`clauseVersion\` varchar(16), \`clauseHash\` varchar(64), \`bodyText\` mediumtext, \`signatureImage\` mediumtext, \`signedAt\` timestamp NULL, \`signedIp\` varchar(64), \`signedUserAgent\` varchar(255), \`staffShiftId\` int, \`producersSig\` mediumtext, \`sentAt\` timestamp NULL, \`viewedAt\` timestamp NULL, \`createdAt\` timestamp NOT NULL DEFAULT (now()), \`updatedAt\` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP, CONSTRAINT \`djContracts_id\` PRIMARY KEY(\`id\`), KEY \`dj_contracts_event_idx\` (\`eventId\`))`);
+    await db.execute(sql`CREATE TABLE IF NOT EXISTS \`producerSignatures\` (\`key\` varchar(16) NOT NULL, \`image\` mediumtext NOT NULL, \`signedAt\` timestamp NOT NULL DEFAULT (now()), CONSTRAINT \`producerSignatures_key\` PRIMARY KEY(\`key\`))`);
     tableOk = true;
   }
   return db;
@@ -55,6 +56,35 @@ export function contractIdFromToken(token: string): number | null {
 }
 export const contractUrl = (id: number) => `${EMAIL_BASE_URL}/contrato/${contractToken(id)}`;
 export const contractPdfPath = (id: number) => `/api/contrato/${contractToken(id)}.pdf`;
+
+/* ── Firma de la Producción (Alexis y Gino firman una vez en el panel) ───── */
+
+export async function listProducerSignatures() {
+  const db = await dbReady();
+  const rows = await db.select().from(producerSignatures);
+  return PRODUCERS.map((p) => {
+    const r = rows.find((x) => x.key === p.key);
+    return { key: p.key as ProducerKey, name: p.name, role: p.role, signed: !!r, signedAt: r?.signedAt ?? null, image: r?.image ?? null };
+  });
+}
+
+export async function saveProducerSignature(key: string, image: string): Promise<void> {
+  if (!PRODUCERS.some((p) => p.key === key)) throw new Error("Productor desconocido.");
+  if (!isSignaturePng(image)) throw new Error("Dibuja la firma en el recuadro.");
+  const db = await dbReady();
+  await db.insert(producerSignatures).values({ key, image, signedAt: new Date() }).onDuplicateKeyUpdate({ set: { image, signedAt: new Date() } });
+}
+
+/** Las firmas vigentes de los dos productores, o un error claro si falta alguna. */
+async function requireProducerSignatures(): Promise<ProducersStamp> {
+  const sigs = await listProducerSignatures();
+  const missing = sigs.filter((s) => !s.signed).map((s) => s.name);
+  if (missing.length) throw new Error(`Falta la firma de ${missing.join(" y ")}. Fírmala en Contratos DJ → Firma de la Producción.`);
+  const at = new Date().toISOString();
+  return Object.fromEntries(sigs.map((s) => [s.key, { image: s.image!, at }])) as ProducersStamp;
+}
+
+const parseStamp = (raw: string | null): ProducersStamp | null => { try { return raw ? (JSON.parse(raw) as ProducersStamp) : null; } catch { return null; } };
 
 /* ── Crear / editar / listar ───────────────────────────────────────────── */
 
@@ -161,6 +191,7 @@ const kindOf = (k: DjKind) => `${DJ_KIND_PREFIX}${k}`;
 export async function requestSendDjContract(id: number, now: Date = new Date()): Promise<boolean> {
   const row = await getRow(id);
   if (row.status === "firmado" || row.status === "anulado") throw new Error("Este contrato ya no se puede enviar.");
+  await requireProducerSignatures();
   const t = termsOf(row);
   return requestCrossCheck({
     kind: kindOf("send"), dedupeKey: `dj-contract:send:${id}:${chileDateKey(now)}`, eventId: row.eventId,
@@ -297,10 +328,12 @@ export async function executeDjCrossCheck(kind: string, payload: unknown): Promi
   } else if ((k === "send" || k === "remind") && row.status === "firmado") {
     throw new Error("Ya firmó: no hace falta enviarlo.");
   }
+  // Al enviar, la Producción firma: se copian sus firmas al contrato (un cambio posterior no altera lo enviado).
+  const stamp = k === "send" ? await requireProducerSignatures() : null;
   const { subject, html } = buildDjEmail(k, row, t);
   const res = await sendEmail({ to: row.email, subject, html, replyTo: REPLY_TO, cc: k === "pay" ? undefined : REPLY_TO });
   if (!res.success) throw new CrossCheckRetry(`No se pudo enviar el correo a ${row.email}. Toca Reportar para reintentar.`);
-  if (k === "send") await db.update(djContracts).set({ status: row.status === "visto" ? "visto" : "enviado", sentAt: new Date() }).where(eq(djContracts.id, id));
+  if (k === "send") await db.update(djContracts).set({ status: row.status === "visto" ? "visto" : "enviado", sentAt: new Date(), producersSig: JSON.stringify(stamp) }).where(eq(djContracts.id, id));
   return k === "pay" ? `Pago marcado como hecho en Staff y aviso enviado a ${row.email}.` : `Correo enviado a ${row.email}.`;
 }
 
@@ -309,6 +342,14 @@ export async function executeDjCrossCheck(kind: string, payload: unknown): Promi
 export interface PublicContract {
   status: DjContractStatus; canSign: boolean; artistName: string; contract: DjContract;
   signed: { legalName: string; signedAtText: string } | null; pdfPath: string | null;
+  /** La firma de la Producción, estampada al enviar (null mientras es borrador). */
+  producers: { name: string; role: string; image: string; signedAtText: string }[] | null;
+}
+
+function producersView(row: DjContractRow): PublicContract["producers"] {
+  const stamp = parseStamp(row.producersSig);
+  if (!stamp) return null;
+  return PRODUCERS.filter((p) => stamp[p.key]).map((p) => ({ name: p.name, role: p.role, image: stamp[p.key].image, signedAtText: formatChileDateTime(stamp[p.key].at) }));
 }
 
 export async function viewDjContract(token: string): Promise<PublicContract> {
@@ -326,6 +367,7 @@ export async function viewDjContract(token: string): Promise<PublicContract> {
     contract: buildDjContract(termsOf(row), signed ? { legalName: row.legalName, rut: row.rut } : {}),
     signed: signed ? { legalName: row.legalName ?? "", signedAtText: formatChileDateTime(row.signedAt!) } : null,
     pdfPath: signed ? contractPdfPath(id) : null,
+    producers: producersView(row),
   };
 }
 
@@ -387,8 +429,14 @@ export async function djContractPdf(token: string): Promise<{ pdf: Buffer; fileN
   if (row.status !== "firmado" || !row.bodyText) return null;
   const contract = buildDjContract(termsOf(row), { legalName: row.legalName, rut: row.rut });
   const png = row.signatureImage ? Buffer.from(row.signatureImage.replace(/^data:image\/png;base64,/, ""), "base64") : null;
+  const stamp = parseStamp(row.producersSig);
   const pdf = await buildDjContractPdf({
     contract, sentAtText: row.sentAt ? formatChileDateTime(row.sentAt) : null,
+    producers: PRODUCERS.map((p) => ({
+      name: p.name, role: p.role,
+      signaturePng: stamp?.[p.key] ? Buffer.from(stamp[p.key].image.replace(/^data:image\/png;base64,/, ""), "base64") : null,
+      signedAtText: stamp?.[p.key] ? formatChileDateTime(stamp[p.key].at) : null,
+    })),
     signer: { legalName: row.legalName ?? "", rut: row.rut ?? "", signedAtText: formatChileDateTime(row.signedAt!), ip: row.signedIp ?? "", hash: row.clauseHash ?? "", signaturePng: png },
   });
   return { pdf, fileName: `contrato-${row.artistName.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.pdf` };

@@ -5,6 +5,7 @@ import { trpc } from '@/lib/trpc';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { EmptyState } from '@/components/admin/EmptyState';
 import { formatChileDateTime } from '@shared/chileDate';
+import { SignaturePad } from '@/components/contract/SignaturePad';
 
 const STATUS: Record<string, { label: string; cls: string }> = {
   borrador: { label: 'Borrador', cls: 'bg-white/10 text-white/70' },
@@ -38,6 +39,13 @@ export function DjContractsManager() {
     onSuccess: (r) => { toast.success(r.created ? 'Listo: está en Cross check esperando tu «Reportar»' : 'Ya hay un envío esperando hoy en Cross check'); utils.crossCheck.list.invalidate(); utils.adminBadges.invalidate(); },
     onError: (e) => toast.error(e.message),
   });
+  const sigs = trpc.djContract.producerSignatures.useQuery();
+  const [signing, setSigning] = useState<{ key: 'alexis' | 'gino'; name: string } | null>(null);
+  const [drawn, setDrawn] = useState('');
+  const saveSig = trpc.djContract.saveProducerSignature.useMutation({
+    onSuccess: () => { toast.success('Firma guardada'); setSigning(null); setDrawn(''); sigs.refetch(); },
+    onError: (e) => toast.error(e.message),
+  });
   const voidIt = trpc.djContract.void.useMutation({ onSuccess: () => { toast('Contrato anulado'); refresh(); }, onError: (e) => toast.error(e.message) });
 
   const openEdit = (c: NonNullable<typeof data>[number]) => setEditing({
@@ -65,6 +73,21 @@ export function DjContractsManager() {
 
   return (
     <div className="space-y-5">
+      <section className="admin-clay p-4 md:p-5">
+        <h2 className="font-heading text-xl">Firma de la Producción</h2>
+        <p className="mt-1 text-sm text-muted-foreground">Alexis y Gino firman una sola vez con el dedo. La firma se estampa en cada contrato al enviarlo, con fecha y hora. Hay que tener las dos para poder enviar.</p>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          {(sigs.data ?? []).map((s) => (
+            <div key={s.key} className="rounded-2xl border border-white/10 bg-white/5 p-3">
+              <p className="font-semibold">{s.name}</p>
+              <p className="text-xs text-muted-foreground">{s.role}{s.signedAt ? ` · firmó ${formatChileDateTime(s.signedAt)}` : ' · sin firma'}</p>
+              {s.image && <div className="mt-2 grid h-16 place-items-center rounded-xl bg-[#f6f1e4]"><img src={s.image} alt={`Firma de ${s.name}`} className="max-h-14 max-w-full object-contain" /></div>}
+              <button type="button" onClick={() => { setDrawn(''); setSigning({ key: s.key, name: s.name }); }} className="admin-tab mt-2 flex h-10 items-center gap-1.5 rounded-xl px-3 text-sm"><Pencil className="h-4 w-4" /> {s.signed ? 'Firmar de nuevo' : 'Firmar'}</button>
+            </div>
+          ))}
+        </div>
+      </section>
+
       <section className="admin-clay p-4 md:p-5">
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -99,6 +122,19 @@ export function DjContractsManager() {
           ))}
         </div>
       </section>
+
+      <Dialog open={!!signing} onOpenChange={(o) => { if (!o) setSigning(null); }}>
+        <DialogContent className="flex w-[calc(100vw-1.5rem)] max-w-md flex-col gap-3 p-4">
+          <DialogHeader>
+            <DialogTitle className="text-lg">Firma de {signing?.name}</DialogTitle>
+            <DialogDescription className="text-sm">Dibuja tu firma con el dedo. Se guarda y se usa en los contratos que envíes desde ahora.</DialogDescription>
+          </DialogHeader>
+          {signing && <SignaturePad onChange={setDrawn} />}
+          <button type="button" disabled={!drawn || saveSig.isPending} onClick={() => signing && saveSig.mutate({ key: signing.key, signature: drawn })} className="flex h-12 items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 text-base font-semibold text-white disabled:opacity-50">
+            {saveSig.isPending ? <Loader2 className="h-5 w-5 animate-spin" /> : null} Guardar mi firma
+          </button>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!editing} onOpenChange={(o) => { if (!o) setEditing(null); }}>
         <DialogContent className="flex max-h-[92dvh] w-[calc(100vw-1.5rem)] max-w-xl flex-col gap-3 overflow-y-auto p-4">

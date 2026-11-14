@@ -17,10 +17,18 @@ CREATE TABLE IF NOT EXISTS `djContracts` (
 	`signedIp` varchar(64),
 	`signedUserAgent` varchar(255),
 	`staffShiftId` int,
+	`producersSig` mediumtext,
 	`sentAt` timestamp NULL,
 	`viewedAt` timestamp NULL,
 	`createdAt` timestamp NOT NULL DEFAULT (now()),
 	`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
 	CONSTRAINT `djContracts_id` PRIMARY KEY(`id`),
 	KEY `dj_contracts_event_idx` (`eventId`)
+);
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `producerSignatures` (
+	`key` varchar(16) NOT NULL,
+	`image` mediumtext NOT NULL,
+	`signedAt` timestamp NOT NULL DEFAULT (now()),
+	CONSTRAINT `producerSignatures_key` PRIMARY KEY(`key`)
 );

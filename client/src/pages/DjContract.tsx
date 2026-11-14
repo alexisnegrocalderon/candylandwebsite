@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRoute } from 'wouter';
-import { CheckCircle2, Download, Eraser, Loader2 } from 'lucide-react';
+import { CheckCircle2, Download, Loader2 } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { useSeo } from '@/hooks/useSeo';
 import { formatRutLive } from '@shared/rut';
+import { SignaturePad } from '@/components/contract/SignaturePad';
 
 /* /contrato/:token — el contrato de un DJ, pensado para el celular. Lo abre la artista desde el link del correo: lee el
  * resumen y las cláusulas, completa sus datos y firma con el dedo. Look PLAYMORE (negro, dorado y magenta), sin el menú
@@ -11,54 +12,6 @@ import { formatRutLive } from '@shared/rut';
 
 const GOLD = '#d6b25e';
 const MAGENTA = '#E477EA';
-
-function SignaturePad({ onChange }: { onChange: (png: string) => void }) {
-  const ref = useRef<HTMLCanvasElement>(null);
-  const drawing = useRef(false);
-  const last = useRef<{ x: number; y: number } | null>(null);
-  const [hasInk, setHasInk] = useState(false);
-
-  useEffect(() => {
-    const c = ref.current!;
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const { width, height } = c.getBoundingClientRect();
-    c.width = Math.round(width * dpr); c.height = Math.round(height * dpr);
-    const ctx = c.getContext('2d')!;
-    ctx.scale(dpr, dpr); ctx.lineWidth = 2.4; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#141210';
-  }, []);
-
-  const pos = (e: React.PointerEvent) => { const r = ref.current!.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
-  const down = (e: React.PointerEvent) => { e.preventDefault(); ref.current!.setPointerCapture(e.pointerId); drawing.current = true; last.current = pos(e); };
-  const move = (e: React.PointerEvent) => {
-    if (!drawing.current || !last.current) return;
-    const p = pos(e); const ctx = ref.current!.getContext('2d')!;
-    ctx.beginPath(); ctx.moveTo(last.current.x, last.current.y); ctx.lineTo(p.x, p.y); ctx.stroke();
-    last.current = p;
-    if (!hasInk) setHasInk(true);
-  };
-  const up = () => {
-    if (!drawing.current) return;
-    drawing.current = false; last.current = null;
-    onChange(ref.current!.toDataURL('image/png'));
-  };
-  const clear = () => {
-    const c = ref.current!; c.getContext('2d')!.clearRect(0, 0, c.width, c.height);
-    setHasInk(false); onChange('');
-  };
-
-  return (
-    <div>
-      <div className="relative overflow-hidden rounded-2xl border-2 border-dashed" style={{ borderColor: `${GOLD}99`, background: '#f6f1e4' }}>
-        <canvas ref={ref} className="block h-44 w-full touch-none" style={{ touchAction: 'none' }}
-          onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up} onPointerLeave={up} aria-label="Recuadro para dibujar tu firma" />
-        {!hasInk && <p className="pointer-events-none absolute inset-0 grid place-items-center text-sm" style={{ color: '#8b7f63' }}>Dibuja tu firma aquí con el dedo</p>}
-      </div>
-      <button type="button" onClick={clear} className="mt-2 inline-flex items-center gap-1.5 text-sm" style={{ color: GOLD }}>
-        <Eraser className="h-4 w-4" /> Borrar y volver a firmar
-      </button>
-    </div>
-  );
-}
 
 const field = 'h-12 w-full rounded-xl border bg-[#141210] px-4 text-base text-[#f4efe6] placeholder:text-[#7c7260] outline-none focus:border-[#d6b25e]';
 
@@ -143,6 +96,22 @@ export default function DjContract() {
           </section>
         ))}
       </div>
+
+      {d.producers && d.producers.length > 0 && (
+        <section className="mt-8 rounded-2xl border p-4" style={{ borderColor: `${GOLD}44`, background: '#170d1a' }}>
+          <h2 className="text-base font-bold" style={{ color: GOLD }}>Firma de la Producción</h2>
+          <div className="mt-3 grid grid-cols-2 gap-3">
+            {d.producers.map((p) => (
+              <div key={p.name} className="text-center">
+                <div className="grid h-20 place-items-center rounded-xl" style={{ background: '#f6f1e4' }}><img src={p.image} alt={`Firma de ${p.name}`} className="max-h-16 max-w-full object-contain" /></div>
+                <p className="mt-1.5 text-sm font-bold">{p.name}</p>
+                <p className="text-xs text-[#c4b3a6]">{p.role}</p>
+                <p className="text-[11px] text-[#8b7f63]">Firmado el {p.signedAtText}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {d.canSign && !signedNow && (
         <form className="mt-8 space-y-4 rounded-2xl border p-4" style={{ borderColor: `${MAGENTA}66`, background: '#170d1a' }} onSubmit={(e) => { e.preventDefault(); submit(); }}>

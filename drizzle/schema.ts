@@ -3613,6 +3613,8 @@ export const djContracts = mysqlTable("djContracts", {
   signedIp: varchar("signedIp", { length: 64 }),
   signedUserAgent: varchar("signedUserAgent", { length: 255 }),
   staffShiftId: int("staffShiftId"),
+  // Firmas de Alexis y Gino estampadas al enviar (ProducersStamp): se copian, así un cambio posterior no altera lo enviado.
+  producersSig: mediumtext("producersSig"),
   sentAt: timestamp("sentAt"),
   viewedAt: timestamp("viewedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -3620,3 +3622,10 @@ export const djContracts = mysqlTable("djContracts", {
 }, (t) => [index("dj_contracts_event_idx").on(t.eventId)]);
 
 export type DjContractRow = typeof djContracts.$inferSelect;
+
+// Firma dibujada de cada productor (Alexis, Gino): se firma una sola vez en el panel y se estampa en cada contrato al enviarlo.
+export const producerSignatures = mysqlTable("producerSignatures", {
+  key: varchar("key", { length: 16 }).primaryKey(),
+  image: mediumtext("image").notNull(),
+  signedAt: timestamp("signedAt").defaultNow().notNull(),
+});

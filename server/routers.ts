@@ -3721,6 +3721,10 @@ export const appRouter = router({
   djContract: router({
     list: adminReadProcedure.input(z.object({ eventId: z.number().int().positive().optional() }).optional())
       .query(async ({ input }) => (await import("./djContract")).listDjContracts(input?.eventId)),
+    // La firma de Alexis y Gino: se dibuja una sola vez y se estampa en cada contrato al enviarlo.
+    producerSignatures: adminReadProcedure.query(async () => (await import("./djContract")).listProducerSignatures()),
+    saveProducerSignature: adminProcedure.input(z.object({ key: z.enum(['alexis', 'gino']), signature: z.string().max(400_000) }))
+      .mutation(async ({ input }) => { await (await import("./djContract")).saveProducerSignature(input.key, input.signature).catch((e) => { throw new TRPCError({ code: 'BAD_REQUEST', message: e instanceof Error ? e.message : 'No se pudo guardar la firma.' }); }); return { ok: true }; }),
     create: adminProcedure.input(djContractInput).mutation(async ({ input }) => (await import("./djContract")).createDjContract(input)),
     update: adminProcedure.input(z.object({ id: z.number().int().positive() }).merge(djContractInput))
       .mutation(async ({ input: { id, ...rest } }) => { await (await import("./djContract")).updateDjContract(id, rest); return { ok: true }; }),

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildDjContract, djContractPlainText, djPayment, validateSignature, type DjContractTerms } from './djContract';
+import { PRODUCERS, buildDjContract, djContractPlainText, djPayment, isSignaturePng, validateSignature, type DjContractTerms } from './djContract';
 import { isValidRut } from './rut';
 
 const terms: DjContractTerms = {
@@ -62,4 +62,21 @@ describe('validación de la firma', () => {
   it('exige datos bancarios', () => expect(validateSignature({ ...ok, bank: '' }, isValidRut)).toMatch(/bancarios/));
   it('exige aceptar', () => expect(validateSignature({ ...ok, accept: false }, isValidRut)).toMatch(/aceptas/));
   it('exige una firma dibujada', () => expect(validateSignature({ ...ok, signature: '' }, isValidRut)).toMatch(/firma/));
+});
+
+describe('firma de la Producción', () => {
+  it('son Alexis Calderón y Gino Pérez, con su clave', () => {
+    expect(PRODUCERS.map((p) => [p.key, p.name])).toEqual([['alexis', 'Alexis Calderón'], ['gino', 'Gino Pérez']]);
+  });
+  it('solo acepta un PNG real y no demasiado grande', () => {
+    expect(isSignaturePng(`data:image/png;base64,${'A'.repeat(300)}`)).toBe(true);
+    expect(isSignaturePng('data:image/png;base64,AAAA')).toBe(false);
+    expect(isSignaturePng('data:image/jpeg;base64,' + 'A'.repeat(300))).toBe(false);
+    expect(isSignaturePng(`data:image/png;base64,${'A'.repeat(401_000)}`)).toBe(false);
+    expect(isSignaturePng(null)).toBe(false);
+  });
+  it('con 120.000 líquidos la boleta sale por 141.593 (retención 15,25 %)', () => {
+    const p = djPayment({ amountClp: 120_000, amountMode: 'liquido', year: 2026 });
+    expect([p.net, p.gross, p.retention]).toEqual([120_000, 141_593, 21_593]);
+  });
 });
