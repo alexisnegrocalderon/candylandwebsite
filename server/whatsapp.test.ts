@@ -401,6 +401,26 @@ describe('runInstagramAgent por canal', () => {
     expect(result.accessOption).toBe('pareja');
   });
 
+  it('nunca dice el nombre del recinto: reintenta y manda el sector, con el botón', async () => {
+    mockLlmJson({ reply: '¡Hola! 💜 Es en el Hipódromo de Santiago, sector Providencia. ¿Vienes en pareja, en grupo o por tu cuenta?', handoff: false, handoffReason: '', isPersonal: false, isThanks: false, action: 'none' });
+    mockLlmJson({ reply: '¡Hola! 💜 Es en Providencia, Santiago, y la ubicación exacta te llega en el correo de confirmación de tu compra. ¿Vienes en pareja, en grupo o por tu cuenta?', handoff: false, handoffReason: '', isPersonal: false, isThanks: false, action: 'none' });
+    const result = await runInstagramAgent({ incomingText: 'hola donde quedan', history: [], config: {} });
+    expect(JSON.stringify((invokeLLMMock.mock.calls[1][0] as any).messages)).toContain('dijiste el nombre del recinto');
+    expect(result.reply).not.toMatch(/hip[oó]dromo/i);
+    expect(result.reply).toContain('correo de confirmación');
+    // Preguntar dónde queda es señal de compra: lleva el botón.
+    expect(result.action).toBe('buy_link');
+  });
+
+  it('si insiste con el recinto, sale sin esa frase', async () => {
+    const leak = { reply: 'Es en el Hipódromo de Santiago. ¿Vienes en pareja?', handoff: false, handoffReason: '', isPersonal: false, isThanks: false, action: 'none' };
+    mockLlmJson(leak);
+    mockLlmJson(leak);
+    const result = await runInstagramAgent({ incomingText: 'dónde es?', history: [], config: {} });
+    expect(result.reply).not.toMatch(/hip[oó]dromo/i);
+    expect(result.reply).toContain('ubicación exacta');
+  });
+
   it('en Instagram fuerza action a "none" si el modelo pide "event_list" (no soportado en ese canal)', async () => {
     mockLlmJson({ reply: 'hola', handoff: false, handoffReason: '', isPersonal: false, isThanks: false, action: 'event_list' });
     const result = await runInstagramAgent({ incomingText: 'hola', history: [], config: {} });

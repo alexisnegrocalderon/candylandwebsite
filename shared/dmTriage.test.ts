@@ -39,3 +39,10 @@ describe('classifyAttachments', () => {
     expect(classifyAttachments(null)).toBe('other');
   });
 });
+
+describe('asksAddress: dónde queda', () => {
+  it('reconoce «dónde quedan», «dónde queda» y variantes', () => {
+    for (const t of ['hola donde quedan', 'Dónde queda?', 'donde es la fiesta', 'dónde será', 'donde se hará', 'en qué comuna']) expect(asksAddress(t), t).toBe(true);
+    for (const t of ['cuánto sale', 'a qué hora abre', 'hola']) expect(asksAddress(t), t).toBe(false);
+  });
+});

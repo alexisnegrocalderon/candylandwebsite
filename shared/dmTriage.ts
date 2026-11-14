@@ -12,7 +12,7 @@ function norm(text: string): string {
  * compra, nunca algo para derivar. */
 export function asksAddress(raw: string): boolean {
   const t = norm(raw);
-  return /\b(direccion|ubicacion|ubicados?|como llego|como llegar|como se llega|donde (queda|es|esta|estan|son|se hace|hacen)|en que (sector|lugar|parte|comuna)|que direccion|me pasas? la dir|mandame la dir)\b/.test(t);
+  return /\b(direccion|ubicacion|ubicados?|como llego|como llegar|como se llega|donde (quedan?|es|esta|estan|son|se hace|hacen|se hara|sera|va a ser|nos juntamos)|en que (sector|lugar|parte|comuna)|que direccion|me pasas? la dir|mandame la dir)\b/.test(t);
 }
 
 /** Publicidad / spam por DM: seguidores, inversiones, links raros, ofertas
