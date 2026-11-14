@@ -28,7 +28,7 @@ import { TTS_VOICE_KEYS, TTS_VOICES, voiceScriptHash, type TtsVoice } from '@sha
 import { MotionPreview } from './MotionPreview';
 import { PackPanel } from './PackPanel';
 import { SongPanel } from './SongPanel';
-import { MASCOT_COLOR_LABEL, MASCOT_COLORS, MASCOT_KIND_LABEL, MASCOT_KINDS, MASCOT_SIZE_LABEL, MASCOT_SIZES, type MotionMascot } from '@shared/motionMascot';
+import { MASCOT_COLOR_LABEL, MASCOT_COLORS, MASCOT_KIND_LABEL, MASCOT_KINDS, MASCOT_PATTERN_LABEL, MASCOT_PATTERNS, MASCOT_SIZE_LABEL, MASCOT_SIZES, MASCOT_STYLE_LABEL, MASCOT_STYLES, resolveMascotPattern, type MotionMascot } from '@shared/motionMascot';
 import { LookPanel } from './LookPanel';
 import { rememberLook } from './lookMemory';
 import { PublicacionControls } from './PublicacionControls';
@@ -438,11 +438,11 @@ export function MotionEditor({ id: initialId, initial, restored, onBack }: {
                   : <p className="text-xs text-muted-foreground">Dura compases enteros, se funde al fondo al final y la música no se apaga, para que al repetirse el golpe caiga justo.</p>)}
               </Group>
 
-              <Group title="Perrito globo" hint="El objeto de Playroom en 3D: se infla al empezar, rebota con la música, gira en cada corte y puede reventar en confeti. Va detrás del texto.">
+              <Group title="Perrito globo" hint="El perrito de Playroom (el de los vasos): se infla burbuja por burbuja al empezar, rebota con la música, gira en cada corte y puede reventar en confeti. Va detrás del texto.">
                 <ToggleRow
                   label="Agregar el perrito globo"
                   checked={!!spec.mascot}
-                  onChange={(on) => setSpec({ mascot: on ? (spec.mascot ?? { kind: 'perrito', color: 'magenta', size: 'grande', pop: true }) : null })}
+                  onChange={(on) => setSpec({ mascot: on ? (spec.mascot ?? { kind: 'perrito', color: 'magenta', size: 'grande', pop: true, style: 'ilustrado', pattern: 'auto' }) : null })}
                 />
                 {spec.mascot && (() => {
                   const m: MotionMascot = spec.mascot;
@@ -450,8 +450,10 @@ export function MotionEditor({ id: initialId, initial, restored, onBack }: {
                   return (
                     <>
                       <div className="grid gap-3 sm:grid-cols-2">
+                        <Field label="Dibujo"><Pick value={m.style} options={MASCOT_STYLES} labels={MASCOT_STYLE_LABEL} onChange={(style) => setM({ style })} /></Field>
+                        {m.style === 'ilustrado' && <Field label="Estampado" hint={m.pattern === 'auto' ? `Automático: ${MASCOT_PATTERN_LABEL[resolveMascotPattern(m.pattern, spec.seed)].split(' (')[0].toLowerCase()}.` : undefined}><Pick value={m.pattern} options={MASCOT_PATTERNS} labels={MASCOT_PATTERN_LABEL} onChange={(pattern) => setM({ pattern })} /></Field>}
                         <Field label="Cuántos"><Pick value={m.kind} options={MASCOT_KINDS} labels={MASCOT_KIND_LABEL} onChange={(kind) => setM({ kind })} /></Field>
-                        {m.kind === 'perrito' && <Field label="Color del globo"><Pick value={m.color} options={MASCOT_COLORS} labels={MASCOT_COLOR_LABEL} onChange={(color) => setM({ color })} /></Field>}
+                        {(m.kind === 'perrito' || m.style === 'ilustrado') && <Field label={m.kind === 'pareja' ? 'Color del primer perrito' : 'Color del globo'} hint={m.kind === 'pareja' ? 'El segundo va en celeste (o magenta si elegiste celeste), con otro estampado.' : undefined}><Pick value={m.color} options={MASCOT_COLORS} labels={MASCOT_COLOR_LABEL} onChange={(color) => setM({ color })} /></Field>}
                         <Field label="Tamaño y lugar"><Pick value={m.size} options={MASCOT_SIZES} labels={MASCOT_SIZE_LABEL} onChange={(size) => setM({ size })} /></Field>
                       </div>
                       <ToggleRow label={spec.outro ? 'Revienta en confeti y deja la firma' : 'Revienta en confeti al final'} checked={m.pop} onChange={(pop) => setM({ pop })} />

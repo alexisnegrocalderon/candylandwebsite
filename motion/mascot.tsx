@@ -1,10 +1,11 @@
 import { useMemo } from 'react';
 import { AbsoluteFill, interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion';
 import { BRAND } from '../shared/motionSpec';
-import { MASCOT_COLOR_HEX, MASCOT_CONFETTI_FRAMES, MASCOT_INFLATE_FRAMES, MASCOT_SPIN, mascotTimes } from '../shared/motionMascot';
+import { MASCOT_COLOR_HEX, MASCOT_CONFETTI_FRAMES, MASCOT_INFLATE_FRAMES, MASCOT_SPIN, mascotTimes, resolveMascotPattern, type MascotColor } from '../shared/motionMascot';
 import { useBeat } from './beat';
 import { useMotion } from './context';
 import { BalloonDog } from './three/BalloonDog';
+import { DOG_BOX, dogTheme, PlayroomDog } from './playroom/dog';
 import { ease, rand, safeInsets } from './theme';
 
 /* El perrito globo en el video (shared/motionMascot.ts dice cuándo pasa cada cosa). Va detrás del texto y dentro de la
@@ -74,7 +75,8 @@ export const Mascot: React.FC = () => {
   const big = mascot.size === 'grande';
   const size = Math.round(big ? Math.min(width * 0.9, height * 0.5) : width * 0.46);
   const cx = big ? width / 2 : width - inset.side - size * 0.36;
-  const cy = big ? height * 0.63 : height - inset.bottom - size * 0.4 - (captionsOn ? height * 0.1 : 0);
+  // El dibujo ilustrado es más «ruidoso» que el globo 3D (estampados): va más abajo para dejar libre el titular.
+  const cy = big ? height * (mascot.style === 'ilustrado' ? 0.67 : 0.63) : height - inset.bottom - size * 0.4 - (captionsOn ? height * 0.1 : 0);
 
   // Inflarse (con un rebote) y, en loop sin reventar, desinflarse al final.
   let inflate = spring({ frame, fps, config: { damping: 9, stiffness: 110, mass: 0.8 }, durationInFrames: MASCOT_INFLATE_FRAMES + 18 });
@@ -98,7 +100,9 @@ export const Mascot: React.FC = () => {
   const bob = Math.sin(frame / 22) * size * 0.012;
   const lift = hop + bob;
 
-  const color = MASCOT_COLOR_HEX[mascot.color];
+  // El confeti lleva el color del globo (en los dibujos de solo línea, el de la tinta).
+  const dogInk = dogTheme(mascot.color);
+  const color = mascot.style === 'ilustrado' && !dogInk.gloss ? dogInk.ink : MASCOT_COLOR_HEX[mascot.color];
   const feetY = cy - size / 2 + size * 0.83;
   return (
     <AbsoluteFill style={{ pointerEvents: 'none' }}>
@@ -114,17 +118,40 @@ export const Mascot: React.FC = () => {
             }}
           />
           <div style={{ position: 'absolute', left: cx - size / 2, top: cy - size / 2 - lift, width: size, height: size, transform: `scale(${swell})` }}>
-            <BalloonDog
-              size={size}
-              variant={pair ? 'pareja' : 'uno'}
-              color={color}
-              multi={mascot.color === 'multi'}
-              metal={mascot.color === 'plata' || mascot.color === 'oro'}
-              inflate={inflate}
-              squash={pair ? (even ? squash : squash * 0.3) : squash}
-              squash2={pair ? (even ? squash * 0.3 : squash) : 0}
-              rotY={rotY}
-            />
+            {mascot.style === 'ilustrado' ? (
+              // La ilustración de Playroom (la de los vasos). La pareja: dos perritos frente a frente, cada uno con su color y su estampado.
+              pair ? (
+                <>
+                  {[0, 1].map((k) => {
+                    const pw = size * 0.53;
+                    const h = (pw * DOG_BOX.height) / DOG_BOX.width;
+                    const other: MascotColor = mascot.color === 'celeste' || mascot.color === 'linea-celeste' ? 'magenta' : 'celeste';
+                    return (
+                      <div key={k} style={{ position: 'absolute', left: k === 0 ? 0 : size * 0.47, top: size * 0.83 - (DOG_BOX.feet / DOG_BOX.height) * h }}>
+                        <PlayroomDog width={pw} color={k === 0 ? mascot.color : other} pattern={resolveMascotPattern(mascot.pattern, spec.seed, k)} inflate={inflate} squash={(k === 0) === even ? squash : squash * 0.3} turn={spin} flip={k === 0} phase={k * 11} />
+                      </div>
+                    );
+                  })}
+                </>
+              ) : (
+                // Un poco más chico que el cuadro: así el hocico y la cola no tocan los bordes.
+                <div style={{ position: 'absolute', left: size * 0.07, top: size * 0.83 - (DOG_BOX.feet / DOG_BOX.height) * ((size * 0.86 * DOG_BOX.height) / DOG_BOX.width) }}>
+                  <PlayroomDog width={size * 0.86} color={mascot.color} pattern={resolveMascotPattern(mascot.pattern, spec.seed)} inflate={inflate} squash={squash} turn={spin} />
+                </div>
+              )
+            ) : (
+              <BalloonDog
+                size={size}
+                variant={pair ? 'pareja' : 'uno'}
+                color={color}
+                multi={mascot.color === 'multi'}
+                metal={mascot.color === 'plata' || mascot.color === 'oro'}
+                inflate={inflate}
+                squash={pair ? (even ? squash : squash * 0.3) : squash}
+                squash2={pair ? (even ? squash * 0.3 : squash) : 0}
+                rotY={rotY}
+              />
+            )}
           </div>
         </>
       )}

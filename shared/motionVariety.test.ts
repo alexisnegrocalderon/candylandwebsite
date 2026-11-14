@@ -167,3 +167,33 @@ describe('collage y pizarra', () => {
     expect(normalizeMotionSpec({ style: 'collage', paper: 'otro' }).paper).toBe('auto');
   });
 });
+
+import { MASCOT_COLORS, MASCOT_PATTERNS, normalizeMascot, resolveMascotPattern } from './motionMascot';
+describe('perrito ilustrado de Playroom', () => {
+  it('los videos con mascota guardados antes quedan con el globo 3D, y los nuevos con la ilustración', () => {
+    expect(normalizeMascot({ kind: 'perrito', color: 'magenta' })?.style).toBe('globo3d');
+    expect(normalizeMascot({ kind: 'perrito', style: 'ilustrado' })?.style).toBe('ilustrado');
+    expect(normalizeMascot({ kind: 'perrito', style: 'raro', pattern: 'raro' })).toMatchObject({ style: 'globo3d', pattern: 'auto' });
+    expect(normalizeMascot({ kind: 'otro' })).toBeNull();
+  });
+  it('acepta los colores nuevos (menta, violeta, naranja y las tres de solo línea) y limpia los desconocidos', () => {
+    for (const color of ['menta', 'violeta', 'naranja', 'tinta', 'linea-celeste', 'linea-rosa']) {
+      expect(MASCOT_COLORS).toContain(color);
+      expect(normalizeMascot({ kind: 'perrito', color })?.color).toBe(color);
+    }
+    expect(normalizeMascot({ kind: 'perrito', color: 'verde fosforito' })?.color).toBe('magenta');
+  });
+  it('el estampado «auto» sale de la semilla (determinista), nunca es «auto» y varía entre perritos', () => {
+    const seen = new Set<string>();
+    for (let seed = 0; seed < 100; seed++) {
+      const p = resolveMascotPattern('auto', seed);
+      expect(p).not.toBe('auto');
+      expect(MASCOT_PATTERNS).toContain(p);
+      expect(resolveMascotPattern('auto', seed)).toBe(p);
+      seen.add(p);
+    }
+    expect(seen.size).toBeGreaterThanOrEqual(6);
+    expect(resolveMascotPattern('auto', 5, 0)).not.toBe(resolveMascotPattern('auto', 5, 1));
+    expect(resolveMascotPattern('manchas', 5)).toBe('manchas');
+  });
+});
