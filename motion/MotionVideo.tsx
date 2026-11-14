@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
-import { AbsoluteFill, getRemotionEnvironment, Html5Audio, interpolate, Sequence, staticFile, useCurrentFrame, useVideoConfig } from 'remotion';
-import { captionWords, motionPalette, motionTimeline, normalizeMotionSpec, type MotionSpec } from '../shared/motionSpec';
+import { AbsoluteFill, getRemotionEnvironment, Html5Audio, interpolate, Sequence, spring, staticFile, useCurrentFrame, useVideoConfig } from 'remotion';
+import { BRAND, captionPages, captionWords, motionPalette, motionTimeline, normalizeMotionSpec, type MotionSpec } from '../shared/motionSpec';
 import { resolveLayouts, resolveLook } from '../shared/motionVariety';
 import { MotionContext, useMotion, type MotionCtx, type MotionSlideInfo } from './context';
 import { useBrandFonts } from './fonts';
@@ -11,7 +11,7 @@ import { Mascot } from './mascot';
 import { mascotTimes } from '../shared/motionMascot';
 import { Thread } from './thread';
 import { Grade, Grain, Vignette } from './layers';
-import { LOOK_CUT_FRAMES, LookCut, Texture } from './look';
+import { LOOK_CUT_FRAMES, LookCut, onColor, Texture } from './look';
 import { KineticScene } from './kinetic';
 import { PosterScene } from './poster';
 import { SoftUiScene } from './softui';
@@ -33,7 +33,7 @@ const Sfx: React.FC<{ at: number; name: string; volume?: number }> = ({ at, name
 );
 
 const Soundtrack: React.FC = () => {
-  const { spec, timeline } = useMotion();
+  const { spec, timeline, look } = useMotion();
   const { durationInFrames, fps } = useVideoConfig();
   const kit = KITS[spec.style];
   const voiced = !!spec.voice;
@@ -54,6 +54,17 @@ const Soundtrack: React.FC = () => {
       hits.push(<Sfx key="mark" at={timeline.outroFrom} name="bass" volume={0.7 * sfxGain} />);
     }
     if (spec.template === 'sting') hits.push(<Sfx key="pop" at={14} name="pop" volume={0.6} />);
+    // Cada adorno del look suena cuando aparece (en cada escena), igual que se ve.
+    if (spec.template !== 'sting') {
+      timeline.scenes.forEach((t) => {
+        const at = (n: number) => t.from + n;
+        if (look.deco === 'sello') hits.push(<Sfx key={`deco-sello${t.index}`} at={at(10)} name="thud" volume={0.7 * sfxGain} />);
+        else if (look.deco === 'destellos') hits.push(<Sfx key={`deco-sparkle${t.index}`} at={at(4)} name="sparkle" volume={0.5 * sfxGain} />);
+        else if (look.deco === 'cintas') hits.push(<Sfx key={`deco-rip${t.index}`} at={at(3)} name="rip" volume={0.45 * sfxGain} />);
+        else if (look.deco === 'stickers') [5, 9, 13, 17].forEach((n) => hits.push(<Sfx key={`deco-st${t.index}-${n}`} at={at(n)} name="pop" volume={0.32 * sfxGain} />));
+        if (spec.style === 'arcade') hits.push(<Sfx key={`coin${t.index}`} at={at(2)} name="coin" volume={0.4 * sfxGain} />);
+      });
+    }
     // El perrito globo revienta con un «pop».
     const pop = mascotTimes(spec, timeline, fps).popAt;
     if (pop != null) hits.push(<Sfx key="mascot-pop" at={pop} name="pop" volume={0.8} />);
@@ -81,33 +92,105 @@ const Soundtrack: React.FC = () => {
   );
 };
 
-/** Subtítulos palabra por palabra: de a 3, la palabra que suena en el color protagonista. */
+/** Subtítulos palabra por palabra. Tres estilos (spec.captionStyle):
+ *  - clásico: de a 3, la palabra que suena en el color protagonista (como siempre);
+ *  - karaoke: las palabras entran con un salto cuando se dicen y la que suena va en una caja del color protagonista;
+ *  - palabra: una sola palabra, grande, con golpe de zoom.
+ * Zona segura de Reels/TikTok: el bloque queda sobre los ~340 px de abajo que cubre la interfaz, y dentro del 80 % del ancho. */
 const Captions: React.FC = () => {
   const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
   const { spec, palette, width, height } = useMotion();
   const words = useMemo(() => captionWords(spec), [spec]);
+  const style = spec.captionStyle;
+  const pageOf = useMemo(() => (style === 'clasico' ? words.map((_, i) => Math.floor(i / 3)) : captionPages(words, style)), [words, style]);
   if (!words.length) return null;
   const idx = words.findIndex((w) => frame >= w.from && frame < w.to);
   const current = idx >= 0 ? idx : words.findIndex((w) => w.from > frame) - 1;
   if (current < 0 || frame > words[words.length - 1].to + 6) return null;
-  const page = Math.floor(current / 3);
-  const group = words.slice(page * 3, page * 3 + 3);
+  const page = pageOf[current];
+  const group = words.map((w, i) => ({ w, i })).filter(({ i }) => pageOf[i] === page);
+  const bottom = height > 1500 ? 340 : 130;
+  const wrapStyle: React.CSSProperties = { justifyContent: 'flex-end', alignItems: 'center', paddingBottom: bottom, pointerEvents: 'none' };
+
+  if (style === 'clasico') {
+    return (
+      <AbsoluteFill style={{ ...wrapStyle, paddingBottom: height > 1500 ? 330 : 110 }}>
+        <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', justifyContent: 'center', maxWidth: width - 160 }}>
+          {group.map(({ w, i }) => {
+            const on = i === idx;
+            const pop = interpolate(frame - w.from, [0, 4], [0.85, 1], clamp);
+            return (
+              <span
+                key={`${page}-${i}`}
+                style={{
+                  fontFamily: fonts.body, fontWeight: 800, fontSize: 58, textTransform: 'uppercase',
+                  color: on ? palette.hero : palette.display,
+                  transform: `scale(${on ? 1.08 * pop : 1})`,
+                  textShadow: `0 4px 0 ${palette.deep}, 0 0 18px rgba(0,0,0,0.35)`,
+                  padding: '4px 10px', borderRadius: 14,
+                  background: on ? `${palette.deep}55` : 'transparent',
+                }}
+              >
+                {w.text}
+              </span>
+            );
+          })}
+        </div>
+      </AbsoluteFill>
+    );
+  }
+
+  // Contorno grueso por detrás del relleno: se lee sobre cualquier foto o fondo, con el celular al sol y sin sonido.
+  // Si el texto es oscuro (fondos perla y niebla), el contorno va del color del fondo; si es claro, del color profundo.
+  const ink = onColor(palette.display) === BRAND.white ? palette.bg : palette.deep;
+  const stroke = (size: number): React.CSSProperties => ({
+    WebkitTextStroke: `${Math.round(size * 0.16)}px ${ink}`, paintOrder: 'stroke fill',
+    textShadow: `0 ${Math.round(size * 0.07)}px 0 ${ink}, 0 0 24px rgba(0,0,0,${ink === palette.bg ? 0.12 : 0.3})`,
+  });
+
+  if (style === 'palabra') {
+    const { w } = group[0];
+    const p = spring({ frame: frame - w.from, fps, config: { damping: 9, stiffness: 240, mass: 0.6 } });
+    const size = Math.min(150, Math.round(((width - 200) / Math.max(3, w.text.length)) * 1.55));
+    return (
+      <AbsoluteFill style={wrapStyle}>
+        <span
+          style={{
+            fontFamily: fonts.body, fontWeight: 900, fontSize: size, lineHeight: 1, textTransform: 'uppercase',
+            color: current % 2 === 0 ? palette.hero : palette.display,
+            transform: `scale(${interpolate(p, [0, 1], [1.7, 1])}) rotate(${interpolate(p, [0, 1], [current % 2 ? 5 : -5, 0])}deg)`,
+            opacity: interpolate(frame - w.from, [0, 2], [0, 1], clamp),
+            ...stroke(size),
+          }}
+        >
+          {w.text}
+        </span>
+      </AbsoluteFill>
+    );
+  }
+
+  // karaoke
+  const size = 64;
   return (
-    <AbsoluteFill style={{ justifyContent: 'flex-end', alignItems: 'center', paddingBottom: height > 1500 ? 330 : 110, pointerEvents: 'none' }}>
-      <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', justifyContent: 'center', maxWidth: width - 160 }}>
-        {group.map((w, k) => {
-          const on = page * 3 + k === idx;
-          const pop = interpolate(frame - w.from, [0, 4], [0.85, 1], clamp);
+    <AbsoluteFill style={wrapStyle}>
+      <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', justifyContent: 'center', maxWidth: Math.round(width * 0.8), rowGap: 6 }}>
+        {group.map(({ w, i }) => {
+          const entered = frame >= w.from;
+          const on = i === idx;
+          // Entra con un salto cuando se dice; la caja de la palabra activa «cae» con un pequeño rebote.
+          const p = spring({ frame: frame - w.from, fps, config: { damping: 11, stiffness: 220, mass: 0.55 } });
           return (
             <span
-              key={`${page}-${k}`}
+              key={`${page}-${i}`}
               style={{
-                fontFamily: fonts.body, fontWeight: 800, fontSize: 58, textTransform: 'uppercase',
-                color: on ? palette.hero : palette.display,
-                transform: `scale(${on ? 1.08 * pop : 1})`,
-                textShadow: `0 4px 0 ${palette.deep}, 0 0 18px rgba(0,0,0,0.35)`,
-                padding: '4px 10px', borderRadius: 14,
-                background: on ? `${palette.deep}55` : 'transparent',
+                position: 'relative', display: 'inline-block', padding: '2px 16px', borderRadius: 18,
+                fontFamily: fonts.body, fontWeight: 800, fontSize: size, lineHeight: 1.15, textTransform: 'uppercase',
+                opacity: entered ? interpolate(p, [0, 0.4], [0, 1], clamp) : 0,
+                transform: `translateY(${entered ? interpolate(p, [0, 1], [22, 0]) : 22}px) scale(${on ? 1 + 0.08 * Math.min(1, p) : interpolate(p, [0, 1], [0.7, 1])})`,
+                color: on ? onColor(palette.hero) : palette.display,
+                background: on ? palette.hero : 'transparent',
+                ...(on ? { boxShadow: `0 8px 0 ${ink}, 0 0 30px ${palette.hero}66` } : stroke(size)),
               }}
             >
               {w.text}

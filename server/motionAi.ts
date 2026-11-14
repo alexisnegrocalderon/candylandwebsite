@@ -86,6 +86,7 @@ export const MOTION_SYSTEM = [
   'RITMO (lo que ya funciona en los reels de la marca):',
   '- Gancho en el PRIMER segundo: la escena 1 frena el scroll con una pregunta o una afirmación que rompe un prejuicio.',
   '- Una idea por escena, 5 palabras o menos en `text`. 1,2 a 2,5 s por escena (hasta 3,5 si hay bajada). Total entre 6 y 18 s.',
+  '- Ritmo en arco, NUNCA a ritmo de metrónomo: la escena 1 es la más corta y seca (1,2 a 1,8 s); las del medio se van acortando hacia el clímax; la última (la acción) es la más larga (2,5 a 3,5 s) para que respire. Dos escenas seguidas no duran lo mismo. Un cambio visual cada 2 a 4 s.',
   '- Cierre: la última escena es la acción (invitar a comentar una palabra clave y se les envía todo, etiquetar a alguien). Después viene sola la firma animada de la marca: no la escribas como escena.',
   '- `highlight`: la palabra que carga el sentido, máximo una por escena, y no en todas.',
   '',
@@ -95,7 +96,7 @@ export const MOTION_SYSTEM = [
   `- Composiciones por estilo (campo \`layout\` de cada escena; usa SOLO las de su estilo, alterna entre escenas y no repitas la misma dos veces seguidas; el gancho y la acción final van mejor en las clásicas): ${LAYOUT_CATALOG}.`,
   '- arcade = SOLO para PLAYMORE (Playroom × Dalmore, concepto «Player 1 vs Player 2»): pantalla de arcade futurista, grilla neón, marcador P1 (magenta, mundo Playroom) contra P2 (celeste, mundo Dalmore), palabras que entran en saltos de 8 bits; fondo `arcade`. Úsalo cuando el pedido sea de PLAYMORE, su dress code o sus juegos (dados, ruletas, marcador).',
   '- Fondos: azul = celeste (por defecto en liquid), tinta = azul profundo (por defecto en glitch), perla = blanco roto editorial (por defecto en editorial), rosa, niebla = gris celeste editorial, noche = ciruela casi negra de PLAYMORE (solo para fiestas de noche), arcade = negro neón de PLAYMORE (con el estilo arcade). Acento: el color protagonista, distinto del fondo. Varía entre variantes.',
-  '- Música: pulse (electrónica 120 BPM, versátil), drive (house 124 BPM, la más fiestera), dream (suave 96 BPM, para confianza y explicaciones).',
+  '- Música: pulse (electrónica 120 BPM, versátil), drive (house 124 BPM, la más fiestera), dream (suave 96 BPM, para confianza y explicaciones), neon (synthwave 110 BPM, para arcade, PLAYMORE y lo nocturno), latino (dembow 98 BPM, cálida y fiestera, para invitar y el Playroom de siempre), hype (fuerte 140 BPM, para cuenta regresiva, urgencia y anuncios con golpe).',
   '',
   'EJEMPLO (forma, no contenido): pedido "anunciar fiesta del sábado". liquid: [{kicker:"SE VIENE", text:"Una noche distinta", highlight:"distinta"}, {kicker:"SÁBADO 14", text:"Valparaíso", sub:"Dirección exacta al comprar"}, {text:"Comenta INFO", highlight:"INFO"}]. glitch: [{text:"¿TIENES PLANES?"}, {text:"SÁBADO 14", highlight:"14"}, {text:"NO TE QUEDES AFUERA", highlight:"AFUERA"}, {text:"Comenta INFO"}]. editorial: [{kicker:"MANSION PLAYROOM", text:"No es solo una fiesta", highlight:"fiesta"}, {text:"Es una experiencia", sub:"Que tú defines, con respeto y libertad"}, {kicker:"SÁBADO 14", text:"Te esperamos", highlight:"esperamos"}].',
   '',
@@ -196,6 +197,8 @@ export function variantsFromAi(raw: RawOutput, input: Pick<MotionIdeaInput, 'for
       outroLine: raw.outroLine,
       keyword: input.keyword ?? undefined,
       sfx: true,
+      // Subtítulos de karaoke en los videos nuevos (los guardados antes siguen como estaban).
+      captionStyle: 'karaoke',
     });
   });
 }

@@ -6,6 +6,7 @@
  *   pnpm tsx scripts/motion/preview.mts pack [salida]          # láminas del carrusel, post e historia (ONLY=estilo, BASE=fondo)
  *   pnpm tsx scripts/motion/preview.mts layouts [salida]       # una lámina por composición de cada estilo (ONLY=estilo, FORMAT=reel|feed, BASE=fondo)
  *   pnpm tsx scripts/motion/preview.mts looks [salida]         # el look: cada adorno, trama, etiqueta, entrada y transición (ONLY=estilo, FORMAT, SEEDS=3 para ver semillas al azar)
+ *   pnpm tsx scripts/motion/preview.mts captions [salida]      # los 3 estilos de subtítulos sobre cada estilo (ONLY=estilo, BASE=fondo)
  *   pnpm tsx scripts/motion/preview.mts video receta.json out.mp4
  *
  * Usa el Chromium de la máquina si existe (CHROME_PATH o el de Playwright). */
@@ -14,7 +15,7 @@ import { join, resolve } from 'node:path';
 import { bundle } from '@remotion/bundler';
 import { renderMedia, renderStill, selectComposition } from '@remotion/renderer';
 import { LAYOUTS, LOOK_ALL_AUTO, LOOK_CLASSIC, LOOK_CUTS, LOOK_DECOS, LOOK_ENTRIES, LOOK_KICKERS, LOOK_TEXTURES, lookSignature, type MotionLook } from '../../shared/motionVariety';
-import { MOTION_STYLES, MOTION_TEMPLATES, PACK_KINDS, motionTimeline, normalizeMotionSpec, packSlides, starterSpec, type MotionSpec } from '../../shared/motionSpec';
+import { MOTION_STYLES, MOTION_TEMPLATES, PACK_KINDS, captionWords, motionTimeline, normalizeMotionSpec, packSlides, starterSpec, type MotionSpec } from '../../shared/motionSpec';
 
 const ROOT = resolve(import.meta.dirname, '..', '..');
 
@@ -75,6 +76,26 @@ if (mode === 'video') {
       await renderStill({ composition, serveUrl, output: join(out, `${style}-${String(i + 1).padStart(2, '0')}-${keys[i]}.png`), frame: t.from + t.frames - 12, inputProps, browserExecutable, chromiumOptions });
     }
     console.log(style, keys.length, 'composiciones');
+  }
+} else if (mode === 'captions') {
+  const out = a ?? 'motion-captions';
+  mkdirSync(out, { recursive: true });
+  const only = process.env.ONLY?.split(',') ?? ['liquid', 'editorial', 'glitch'];
+  for (const style of MOTION_STYLES) {
+    if (!only.includes(style)) continue;
+    for (const captionStyle of ['clasico', 'karaoke', 'palabra'] as const) {
+      const base = starterSpec('anuncio', style);
+      // Una voz de relleno solo para que haya subtítulos: la duración de cada escena sale de `secs`.
+      const says = ['Una noche distinta, sin juicios y con respeto total', 'El sábado en Valparaíso te esperamos', 'Comenta INFO y te enviamos todo'];
+      const spec = normalizeMotionSpec({ ...base, format: process.env.FORMAT ?? 'reel', ...(process.env.BASE ? { base: process.env.BASE } : {}), captionStyle, captions: true, look: LOOK_CLASSIC,
+        scenes: base.scenes.slice(0, 3).map((sc, i) => ({ ...sc, say: says[i] })), voice: { url: '/motion/sfx/pop.wav', hash: 'x', voice: 'catalina', rate: 0, pitch: 0, secs: [3.4, 2.8, 2.6] } });
+      const tl = motionTimeline(spec);
+      const words = captionWords(spec);
+      // Una palabra a mitad de la primera frase y una de la última (con la caja ya puesta).
+      for (const w of [words[Math.floor(words.length * 0.18)], words[Math.floor(words.length * 0.8)]]) await still(spec, w.from + 4, join(out, `${style}-${captionStyle}-${w.from}.png`));
+      void tl;
+    }
+    console.log(style, 'subtítulos listos');
   }
 } else if (mode === 'looks') {
   const out = a ?? 'motion-looks';

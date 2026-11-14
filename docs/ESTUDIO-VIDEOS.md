@@ -3,8 +3,8 @@
 El Estudio (admin → Contenido → Estudio) hace reels 9:16, posts 4:5 y
 cuadrados 1:1 con **Remotion** (React para video). La misma composición
 (`motion/`) se ve en vivo en el panel (`@remotion/player`) y se graba a MP4 en
-GitHub Actions. Las reglas de movimiento salen de la skill
-`.claude/skills/remotion-motion-graphics` (nada lineal, entradas escalonadas,
+GitHub Actions. Las reglas de movimiento salen de las skills
+de `.claude/skills/` (ver más abajo) (nada lineal, entradas escalonadas,
 salidas más rápidas, 5 capas por escena, Ken Burns, grano, sonido en cada corte).
 
 ## Qué hay
@@ -69,6 +69,27 @@ partes, y cada una se fija a mano o queda en **Auto** (la elige la semilla del v
 - Los adornos van entre el fondo y el texto, en la zona que la composición deja libre; usan solo la paleta del video.
 - Revisar a mano: `ONLY=liquid pnpm tsx scripts/motion/preview.mts looks ./looks` (cada opción) o con `SEEDS=5`
   (cinco semillas al azar, como «Sorpréndeme»).
+
+## Skills de motion, subtítulos, música y ritmo
+
+- **Skills en el repo** (`.claude/skills/`, MIT de iart.ai; ver su `README.md`): animation-principles, beat-sync-editing,
+  short-form-video, caption-animation, kinetic-typography, countdown-video, lower-thirds, logo-animation y otras.
+  Son instrucciones para el agente (Claude Code): al pedir «mejora el timing» o «revisa el gancho» las lee y las aplica sobre
+  `motion/`. No se ejecutan en el sitio.
+- **Subtítulos** (con voz en off), tres estilos seleccionables (`spec.captionStyle`): *clásico* (de a 3, como siempre),
+  *karaoke* (las palabras saltan al decirse y la que suena va en una caja del color protagonista) y *una palabra a la vez*
+  (grande, con golpe de zoom). Páginas de hasta 3 palabras que nunca cruzan un punto o una coma (`captionPages`); contorno
+  que contrasta con el texto (en fondos claros va del color del fondo); bloque sobre los ~340 px que tapa la interfaz de
+  Reels. Los videos guardados antes quedan en «clásico»; los nuevos, en «karaoke».
+- **Música de la casa**, sintetizada en código (`node scripts/motion/gen-audio.mjs`): Pulse 120, Drive 124, Dream 96 y las
+  nuevas **Neon** (synthwave, 110 BPM), **Latino** (dembow, 98 BPM) y **Hype** (140 BPM). Las nuevas se generan al final
+  con su propia semilla, así los WAV anteriores no cambian. Una canción propia (`spec.song`) manda sobre todas.
+- **Efectos por acción**: cada adorno del look suena al aparecer (sello → golpe, destellos → centelleo, cintas → rasgado,
+  stickers → pops) y en arcade suena una moneda en cada escena.
+- **Ritmo en arco** (botón en el editor, sin IA): reparte los mismos segundos con la forma de un reel: gancho corto, escenas
+  del medio cada vez más rápidas y cierre largo (`shapePacing`). La IA recibe la misma regla. Con voz en off manda lo que
+  dura cada frase y el botón se desactiva.
+- Revisar a mano: `pnpm tsx scripts/motion/preview.mts captions ./caps` (los tres estilos de subtítulos).
 
 ## Pack: reel, carrusel, post e historia de una misma idea
 
