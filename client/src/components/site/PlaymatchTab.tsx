@@ -8,6 +8,7 @@ import { trpc } from '@/lib/trpc';
 import { AppScreen, useBackClosable } from '@/components/site/AmbassadorAccount';
 import { PartyAvatar } from '@/components/party/Avatar';
 import { CreateProfile } from '@/components/site/PartyProfileForm';
+import { PartyOnboarding } from '@/components/site/PartyOnboarding';
 import { PartyPhotos } from '@/components/site/PartyPhotos';
 import { ProtectedPhoto } from '@/components/party/ProtectedPhoto';
 
@@ -94,6 +95,8 @@ export function PlaymatchTab({ events, buyHref }: { events: PmEvent[]; buyHref?:
     refetchInterval: openNight ? 15_000 : false,
   });
   const profile = session.data?.profile ?? null;
+  // El perfil paso a paso sigue en pantalla después de crearlo: falta el paso de la foto.
+  const [onboarding, setOnboarding] = useState(false);
   const inside = !!session.data && !session.data.denial;
 
   const sheets = (
@@ -144,15 +147,17 @@ export function PlaymatchTab({ events, buyHref }: { events: PmEvent[]; buyHref?:
   }
 
   // Inscripción (antes de la fiesta) o perfil recién adentro.
-  if (!profile) {
-    if (!inside && !session.data?.preRegister) {
+  if (!profile || onboarding) {
+    if (!profile && !inside && !session.data?.preRegister) {
       return (<div className="space-y-3"><Hero title="Playmatch no está disponible" body="No pudimos usar esta entrada para Playmatch. Si crees que es un error, escríbenos." />{links}{sheets}</div>);
     }
     return (
       <div className="space-y-4">
         {!inside && <Steps active={0} />}
         <div className="account-glass rounded-[26px] px-4 py-6">
-          <CreateProfile embedded mode={inside ? 'inside' : 'pre'} ticketCode={pick.t.ticketCode} onCreated={() => { tapHaptic(); session.refetch(); if (inside) setScreen('fiesta'); }} />
+          <PartyOnboarding embedded mode={inside ? 'inside' : 'pre'} zones={!!session.data?.config?.zones} ticketCode={pick.t.ticketCode}
+            onCreated={() => { tapHaptic(); setOnboarding(true); session.refetch(); }}
+            onDone={() => { setOnboarding(false); session.refetch(); if (inside) setScreen('fiesta'); }} />
         </div>
         {links}
         {sheets}

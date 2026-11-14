@@ -1,5 +1,5 @@
 import '@/admin.css';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRoute, Link } from 'wouter';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
@@ -8,7 +8,7 @@ import { useEntryState } from '@/lib/appNav';
 import { trpc } from '@/lib/trpc';
 import { useMemberSession } from '@/lib/member';
 import { useSeo } from '@/hooks/useSeo';
-import { Mansion, type MansionPerson } from '@/components/party/Mansion';
+import { Crowd, Mansion, type MansionPerson } from '@/components/party/Mansion';
 import { DrinkPicker, GiftInbox } from '@/components/party/Gifts';
 import { MyPhotoPanel } from '@/components/party/MyPhotoPanel';
 import { DiscoverView, MatchCelebration } from '@/components/party/Swipe';
@@ -18,12 +18,12 @@ import { CostumesView } from '@/components/party/Costumes';
 import { LikesSheet, SuperLikeSheet } from '@/components/party/SuperLike';
 import { PersonSheet, type SheetPerson } from '@/components/party/PersonSheet';
 import { ProtectedPhoto } from '@/components/party/ProtectedPhoto';
-import { GlassIconButton, ON_ACCENT, PmSheet, PM_CTA, tap } from '@/components/party/ui';
+import { GlassIconButton, ON_ACCENT, PartyFlagsProvider, PmSheet, PM_CTA, tap } from '@/components/party/ui';
 import { useCostumeVotes } from '@/components/party/costumeVotes';
 import { useHalloweenMode } from '@/lib/halloween';
 import type { PartyGender, PartyZone } from '@shared/party';
 import { rememberTicketCode } from '@/lib/lastTicketCode';
-import { CreateProfile } from '@/components/site/PartyProfileForm';
+import { PartyOnboarding } from '@/components/site/PartyOnboarding';
 import { useInstallableApp } from '@/hooks/useInstallableApp';
 
 
@@ -75,7 +75,16 @@ export function PartyExperience({ ticketCode, onBack }: { ticketCode: string; on
   const [openChat, setOpenChat] = useEntryState<{ connectionId: number; alias: string; otherId: number } | null>('fiesta.chat', null);
   const [selected, setSelected] = useState<SheetPerson | null>(null);
   const [gifting, setGifting] = useState<{ profileId: number; alias: string } | null>(null);
-  const [match, setMatch] = useState<{ connectionId: number; alias: string; otherId: number } | null>(null);
+  const [match, setMatch] = useState<{ connectionId: number; alias: string; otherId: number; theirs?: boolean } | null>(null);
+  // El perfil paso a paso sigue en pantalla después de crearlo (falta la foto), aunque la sesión ya traiga el perfil.
+  const [onboarding, setOnboarding] = useState(false);
+  // «Te escribieron» mientras miras otra cosa: un aviso arriba que abre el chat (se va solo a los 6 s).
+  const [incoming, setIncoming] = useState<{ connectionId: number; alias: string; otherId: number; body: string } | null>(null);
+  useEffect(() => {
+    if (!incoming) return;
+    const t = window.setTimeout(() => setIncoming(null), 6000);
+    return () => window.clearTimeout(t);
+  }, [incoming]);
   const [inboxOpen, setInboxOpen] = useEntryState('fiesta.tragos', false);
   const [notifOpen, setNotifOpen] = useEntryState('fiesta.avisos', false);
   const [photoOpen, setPhotoOpen] = useEntryState('fiesta.foto', false);
@@ -95,25 +104,81 @@ export function PartyExperience({ ticketCode, onBack }: { ticketCode: string; on
   const myGifts = trpc.party.myGifts.useQuery({ ticketCode }, { enabled: inside, refetchInterval: 20_000 });
   const myMatches = trpc.party.myMatches.useQuery({ ticketCode }, { enabled: inside, refetchInterval: 15_000 });
   const utils = trpc.useUtils();
+  // Matches que ya se celebraron o se vieron en este celular: lo nuevo que aparezca es un match que llegó desde el otro lado.
+  const knownMatches = useRef<Set<number> | null>(null);
+  const unreadBy = useRef<Map<number, number> | null>(null);
+  const openChatRef = useRef(openChat);
+  openChatRef.current = openChat;
+  const busyRef = useRef(false);
+  busyRef.current = !!match || !!openChat || onboarding;
+  useEffect(() => {
+    const list = myMatches.data;
+    if (!list || !ticketCode) return;
+    const key = `pm.matches.${ticketCode}`;
+    if (!knownMatches.current) {
+      let saved: number[] | null = null;
+      try { const raw = localStorage.getItem(key); saved = raw ? JSON.parse(raw) : null; } catch { /* sin almacenamiento */ }
+      // Primera vez en este celular: lo que ya hay no se celebra de nuevo.
+      knownMatches.current = new Set(Array.isArray(saved) ? saved : list.map((m) => m.connectionId));
+    }
+    const known = knownMatches.current;
+    // Solo los que todavía no se escriben: si ya hay mensajes, el aviso es el mensaje.
+    const fresh = list.filter((m) => !known.has(m.connectionId));
+    const toShow = fresh.find((m) => !m.last);
+    if (toShow && !busyRef.current) {
+      setSelected(null);
+      setMatch({ connectionId: toShow.connectionId, alias: toShow.other.alias, otherId: toShow.other.id, theirs: true });
+      known.add(toShow.connectionId);
+    }
+    // Los que ya se escriben no se celebran; los demás esperan su turno (se muestran de a uno).
+    for (const m of fresh) if (m.last) known.add(m.connectionId);
+    try { localStorage.setItem(key, JSON.stringify(Array.from(known).slice(-300))); } catch { /* sin almacenamiento */ }
+
+    // Mensajes nuevos mientras miras otra cosa: un aviso arriba que abre el chat.
+    const before = unreadBy.current;
+    unreadBy.current = new Map(list.map((m) => [m.connectionId, m.unread]));
+    if (!before) return;
+    for (const m of list) {
+      if (m.unread > (before.get(m.connectionId) ?? 0) && openChatRef.current?.connectionId !== m.connectionId && m.last && !m.last.mine) {
+        tap();
+        setIncoming({ connectionId: m.connectionId, alias: m.other.alias, otherId: m.other.id, body: m.last.body });
+      }
+    }
+  }, [myMatches.data, ticketCode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const zonesOn = !!session.data?.config?.zones;
+  const flags = useMemo(() => ({ zones: zonesOn, halloween }), [zonesOn, halloween]);
+  // El look de la fiesta: Halloween (interruptor) o el de la colaboración (PLAYMORE).
+  const playmore = !halloween && session.data?.theme === 'playmore';
+  const themeClass = halloween ? 'pm-halloween' : playmore ? 'pm-playmore' : '';
+
   const setZone = trpc.party.setZone.useMutation({
     onSuccess: () => { session.refetch(); utils.party.listMansion.invalidate(); },
     onError: (e) => toast.error(e.message),
   });
 
   if (session.isLoading) {
-    return <div className="account-font grid min-h-dvh place-items-center bg-[#0b0612]"><div className="h-8 w-8 animate-spin rounded-full border-2 border-pink-400 border-t-transparent" /></div>;
+    return (
+      <div className="account-font grid min-h-dvh place-items-center bg-[#0b0612]">
+        <div className="flex flex-col items-center gap-4">
+          <span className="grid h-16 w-16 animate-pulse place-items-center rounded-[20px] bg-gradient-to-br from-pink-500 via-fuchsia-500 to-sky-500 shadow-[0_0_50px_-8px_rgba(236,72,153,0.8)]"><Flame className="h-9 w-9 fill-white text-white" /></span>
+          <p className="text-footnote font-semibold uppercase tracking-[0.3em] text-white/50">Playmatch</p>
+        </div>
+      </div>
+    );
   }
 
   const denial = session.data?.denial;
-  if (denial) return <ClosedDoor denial={denial} eventTitle={session.data?.event?.title} doorsOpen={session.data?.event?.doorsOpen} onBack={onBack} />;
+  if (denial) return <ClosedDoor denial={denial} eventTitle={session.data?.event?.title} doorsOpen={session.data?.event?.doorsOpen} onBack={onBack} themeClass={themeClass} />;
 
-  if (!session.data?.profile) {
-    return <CreateProfile ticketCode={ticketCode} onCreated={() => session.refetch()} />;
+  if (!session.data?.profile || onboarding) {
+    return <PartyOnboarding ticketCode={ticketCode} mode="inside" zones={zonesOn} themeClass={themeClass}
+      onCreated={() => { setOnboarding(true); void session.refetch(); }} onDone={() => { setOnboarding(false); void session.refetch(); utils.party.swipeDeck.invalidate(); }} />;
   }
 
   const profile = session.data.profile;
   // El administrador puede poner Playmatch en pausa en vivo: mientras dure, una pantalla clara en vez de pantallas que fallan.
-  if (session.data.config && !session.data.config.enabled) return <PausedScreen eventTitle={session.data.event?.title} onBack={onBack} />;
+  if (session.data.config && !session.data.config.enabled) return <PausedScreen eventTitle={session.data.event?.title} onBack={onBack} themeClass={themeClass} />;
   // El concurso del mejor disfraz (Modo Halloween): la pestaña se ve mientras el administrador lo tenga prendido; se vota hasta que revele el podio.
   const config = session.data.config;
   const showContest = halloween && !!config?.costumes;
@@ -136,10 +201,15 @@ export function PartyExperience({ ticketCode, onBack }: { ticketCode: string; on
   const openPerson = (p: SheetPerson) => setSelected(p);
   const chatWith = (connectionId: number, alias: string, otherId: number) => { setSelected(null); setMatch(null); setOpenChat({ connectionId, alias, otherId }); };
   const gift = (profileId: number, alias: string) => { setSelected(null); setGifting({ profileId, alias }); };
-  const celebrate = (m: { connectionId: number; alias: string; otherId: number }) => { setSelected(null); setMatch(m); utils.party.listMansion.invalidate(); utils.party.myMatches.invalidate(); };
+  const celebrate = (m: { connectionId: number; alias: string; otherId: number }) => {
+    // Ya celebrado acá: cuando llegue en la lista de matches no se repite.
+    knownMatches.current?.add(m.connectionId);
+    setSelected(null); setMatch(m); utils.party.listMansion.invalidate(); utils.party.myMatches.invalidate();
+  };
 
   return (
-    <div className={`account-font account-tokens relative flex h-dvh flex-col overflow-hidden bg-[color:var(--pm-bg,#0b0612)] text-white ${halloween ? 'pm-halloween' : ''}`}>
+    <PartyFlagsProvider value={flags}>
+    <div className={`account-font account-tokens relative flex h-dvh flex-col overflow-hidden bg-[color:var(--pm-bg,#0b0612)] text-white ${themeClass}`}>
       <div className="account-backdrop" />
       <header className="relative z-10 flex shrink-0 items-center gap-2 px-4 pb-2 pt-[max(12px,env(safe-area-inset-top))]">
         {onBack ? (
@@ -147,9 +217,12 @@ export function PartyExperience({ ticketCode, onBack }: { ticketCode: string; on
         ) : (
           <MemberBackLink />
         )}
-        <h1 className="flex min-w-0 flex-1 items-center gap-1.5 text-title2 font-bold tracking-tight">
-          <span className="grid h-7 w-7 shrink-0 place-items-center rounded-[9px] bg-gradient-to-br from-pink-500 via-fuchsia-500 to-sky-500"><Flame className="h-4 w-4 fill-white text-white" /></span>
-          <span className="truncate">Playmatch</span>
+        <h1 className="flex min-w-0 flex-1 items-center gap-2 text-title2 font-bold tracking-tight">
+          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-[10px] bg-gradient-to-br from-pink-500 via-fuchsia-500 to-sky-500 shadow-[0_6px_18px_-6px_var(--pm-glow,rgba(236,72,153,0.8))]"><Flame className="h-[18px] w-[18px] fill-white text-white" /></span>
+          <span className="flex min-w-0 flex-col leading-none">
+            <span className="truncate">Playmatch</span>
+            {playmore && <span className="pm-gold-text mt-1 text-[0.6rem] font-extrabold uppercase tracking-[0.28em]">Playmore</span>}
+          </span>
         </h1>
         <button type="button" onClick={() => { tap(); setPhotoOpen(true); }} aria-label="Mi foto y mi perfil" className="lg-pill relative grid h-11 w-11 place-items-center overflow-hidden rounded-full">
           {profile.hasPhoto
@@ -180,8 +253,12 @@ export function PartyExperience({ ticketCode, onBack }: { ticketCode: string; on
           )}
           {view === 'fiesta' && (
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-4 pt-1">
-              <Mansion people={people} myZone={profile.zone as PartyZone} onPick={openPerson} onChangeZone={(zone) => setZone.mutate({ ticketCode, zone })}
-                ticketCode={ticketCode} viewerAlias={profile.alias} canPhoto={canPhoto} />
+              {zonesOn ? (
+                <Mansion people={people} myZone={profile.zone as PartyZone} onPick={openPerson} onChangeZone={(zone) => setZone.mutate({ ticketCode, zone })}
+                  ticketCode={ticketCode} viewerAlias={profile.alias} canPhoto={canPhoto} />
+              ) : (
+                <Crowd people={people} loading={mansion.isLoading} onPick={openPerson} ticketCode={ticketCode} viewerAlias={profile.alias} canPhoto={canPhoto} onOpenPhoto={() => setPhotoOpen(true)} />
+              )}
             </div>
           )}
           {view === 'matches' && (
@@ -214,12 +291,26 @@ export function PartyExperience({ ticketCode, onBack }: { ticketCode: string; on
       </nav>
 
       <AnimatePresence>
+        {incoming && !openChat && (
+          <motion.button key="aviso" type="button" initial={{ y: -90, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: -90, opacity: 0 }} transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+            onClick={() => { const m = incoming; setIncoming(null); chatWith(m.connectionId, m.alias, m.otherId); }}
+            className="lg-sheet fixed inset-x-3 top-[max(10px,env(safe-area-inset-top))] z-[95] mx-auto flex max-w-md items-center gap-3 rounded-[22px] border border-white/15 px-3.5 py-3 text-left">
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-gradient-to-br from-pink-500 to-fuchsia-600"><MessageCircle className="h-5 w-5 fill-[color:var(--pm-on-accent,#fff)] text-[color:var(--pm-on-accent,#fff)]" /></span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-subhead font-bold">{incoming.alias} te escribió</span>
+              <span className="block truncate text-footnote text-white/70">{incoming.body}</span>
+            </span>
+            <span className="shrink-0 rounded-full bg-white/10 px-3 py-1.5 text-caption1 font-bold">Abrir</span>
+          </motion.button>
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
         {selected && (
           <PersonSheet key="persona" ticketCode={ticketCode} viewerAlias={profile.alias} canPhoto={canPhoto} person={selected} superLikesLeft={superLikesLeft} voting={contestOpen ? voting : undefined}
             onClose={() => setSelected(null)} onOpenChat={chatWith} onGift={gift} onMatch={celebrate} onBuySuperLike={openBuy} />
         )}
         {match && (
-          <MatchCelebration key="match" ticketCode={ticketCode} alias={profile.alias} myProfileId={profile.id} match={match}
+          <MatchCelebration key="match" ticketCode={ticketCode} alias={profile.alias} myProfileId={profile.id} match={match} theirs={match.theirs}
             onChat={() => chatWith(match.connectionId, match.alias, match.otherId)} onGift={() => { const m = match; setMatch(null); setGifting({ profileId: m.otherId, alias: m.alias }); }} onClose={() => setMatch(null)} />
         )}
         {gifting && (
@@ -247,6 +338,7 @@ export function PartyExperience({ ticketCode, onBack }: { ticketCode: string; on
         )}
       </AnimatePresence>
     </div>
+    </PartyFlagsProvider>
   );
 }
 
@@ -259,9 +351,9 @@ function MemberBackLink() {
 
 /* --- Puerta cerrada ------------------------------------------------------ */
 
-function PausedScreen({ eventTitle, onBack }: { eventTitle?: string | null; onBack?: () => void }) {
+function PausedScreen({ eventTitle, onBack, themeClass = '' }: { eventTitle?: string | null; onBack?: () => void; themeClass?: string }) {
   return (
-    <div className="account-font account-tokens relative grid min-h-dvh place-items-center bg-[#0b0612] px-6 pt-[env(safe-area-inset-top)] text-white">
+    <div className={`account-font account-tokens relative grid min-h-dvh place-items-center bg-[color:var(--pm-bg,#0b0612)] px-6 pt-[env(safe-area-inset-top)] text-white ${themeClass}`}>
       <div className="account-backdrop" />
       <div className="account-glass relative z-10 w-full max-w-sm rounded-[28px] px-6 py-8 text-center">
         <span className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-gradient-to-br from-pink-500/25 to-sky-500/25"><Moon className="h-8 w-8 text-pink-300" /></span>
@@ -278,7 +370,7 @@ function PausedScreen({ eventTitle, onBack }: { eventTitle?: string | null; onBa
   );
 }
 
-function ClosedDoor({ denial, eventTitle, doorsOpen, onBack }: { denial: string; eventTitle?: string | null; doorsOpen?: string | Date | null; onBack?: () => void }) {
+function ClosedDoor({ denial, eventTitle, doorsOpen, onBack, themeClass = '' }: { denial: string; eventTitle?: string | null; doorsOpen?: string | Date | null; onBack?: () => void; themeClass?: string }) {
   const horaApertura = doorsOpen
     ? new Date(doorsOpen).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })
     : null;
@@ -305,7 +397,7 @@ function ClosedDoor({ denial, eventTitle, doorsOpen, onBack }: { denial: string;
   const Icon = copy.icon;
 
   return (
-    <div className="account-font account-tokens relative grid min-h-dvh place-items-center bg-[#0b0612] px-6 pt-[env(safe-area-inset-top)] text-white">
+    <div className={`account-font account-tokens relative grid min-h-dvh place-items-center bg-[color:var(--pm-bg,#0b0612)] px-6 pt-[env(safe-area-inset-top)] text-white ${themeClass}`}>
       <div className="account-backdrop" />
       <div className="account-glass relative z-10 w-full max-w-sm rounded-[28px] px-6 py-8 text-center">
         <span className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-gradient-to-br from-pink-500/25 to-sky-500/25"><Icon className="h-8 w-8 text-pink-300" /></span>

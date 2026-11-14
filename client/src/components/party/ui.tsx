@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { createContext, useContext, type ReactNode } from 'react';
 import { motion, useDragControls } from 'framer-motion';
 import { X } from 'lucide-react';
 import { useBackLayer } from '@/lib/appNav';
@@ -8,6 +8,12 @@ import { ProtectedPhoto } from '@/components/party/ProtectedPhoto';
 
 /* Piezas comunes de Playmatch con el vidrio y la letra de la App (account-glass, lg-pill, lg-sheet,
  * escala text-* de iOS): la hoja que sube, los botones redondos y la foto con el avatar de respaldo. */
+
+/** Lo que cambia según la fiesta: si se usan las zonas del local y si es la noche de Halloween (disfraces). */
+export type PartyFlags = { zones: boolean; halloween: boolean };
+const FlagsContext = createContext<PartyFlags>({ zones: false, halloween: false });
+export const PartyFlagsProvider = FlagsContext.Provider;
+export const usePartyFlags = () => useContext(FlagsContext);
 
 /** Vibración leve al tocar (Android; Safari en iPhone no la permite a las páginas web). */
 export const tap = () => { try { navigator.vibrate?.(8); } catch { /* sin vibración */ } };
@@ -114,5 +120,31 @@ export function VibeChips({ person, zone }: {
         </div>
       )}
     </>
+  );
+}
+
+/** La línea clave de la tarjeta del swipe: afinidad, lo que tienen en común y quién es. El resto (orientación, cómo se
+ * relaciona, qué busca) se ve al abrir el perfil: la foto manda. */
+export function VibeLine({ person, zone }: {
+  person: { gender: string; pairType?: string | null; intents?: readonly string[]; common?: readonly string[]; affinity?: number | null };
+  zone?: ReactNode;
+}) {
+  const common = person.common ?? [];
+  const intents = parseIntents(person.intents ?? []);
+  return (
+    <div className="mt-2 flex max-w-full flex-wrap items-center gap-1.5">
+      {person.affinity != null && (
+        <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-caption1 font-bold ${person.affinity >= 80 ? 'bg-emerald-400 text-[#052e1a] shadow-[0_6px_18px_-6px_rgba(52,211,153,0.9)]' : 'bg-white/[0.2] text-white backdrop-blur-md'}`}>
+          <span aria-hidden>{person.affinity >= 80 ? '🔥' : '💫'}</span> {person.affinity}% afín
+        </span>
+      )}
+      <Chip>{identityLabel(person)}</Chip>
+      {zone}
+      {common.length > 0 ? (
+        <span className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-full bg-gradient-to-r from-pink-500/90 to-fuchsia-500/90 px-2.5 py-1 text-caption1 font-bold text-white">
+          <span aria-hidden>✨</span><span className="truncate">{common.slice(0, 2).join(' · ')}</span>
+        </span>
+      ) : intents.slice(0, 2).map((i) => <Chip key={i} className="bg-white/[0.1]"><span aria-hidden>{INTENT_EMOJI[i]}</span> {INTENT_LABELS[i]}</Chip>)}
+    </div>
   );
 }

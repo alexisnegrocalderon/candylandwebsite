@@ -29,6 +29,8 @@ export interface PlaymatchConfig {
   costumes: boolean;
   /** El podio ya se mostró a todos (hasta entonces el ranking no lo ve nadie, solo el administrador). */
   costumeRevealed: boolean;
+  /** Zonas del local (Living, Piscina…): apagado, nadie elige zona y «Fiesta» muestra a todos juntos. */
+  zones: boolean;
   superLikePrice: number;
   superLikePackSize: number;
   superLikePackPrice: number;
@@ -44,6 +46,7 @@ export const DEFAULT_PLAYMATCH_CONFIG: PlaymatchConfig = {
   likesUnlock: true,
   costumes: true,
   costumeRevealed: false,
+  zones: false,
   superLikePrice: DEFAULT_SUPER_LIKE_PRICE,
   superLikePackSize: DEFAULT_SUPER_LIKE_PACK_SIZE,
   superLikePackPrice: DEFAULT_SUPER_LIKE_PACK_PRICE,
@@ -73,6 +76,7 @@ export function normalizePlaymatchConfig(raw: unknown): PlaymatchConfig {
     likesUnlock: bool(r.likesUnlock, d.likesUnlock),
     costumes: bool(r.costumes, d.costumes),
     costumeRevealed: bool(r.costumeRevealed, d.costumeRevealed),
+    zones: bool(r.zones, d.zones),
     superLikePrice: int(r.superLikePrice, d.superLikePrice, 0, 50_000),
     superLikePackSize: int(r.superLikePackSize, d.superLikePackSize, 2, 50),
     superLikePackPrice: int(r.superLikePackPrice, d.superLikePackPrice, 0, 500_000),
@@ -89,7 +93,7 @@ export function normalizePlaymatchConfig(raw: unknown): PlaymatchConfig {
 /** Lo que el cliente necesita saber de la config (no incluye metas ni nada del equipo). */
 export function publicPlaymatchConfig(c: PlaymatchConfig) {
   return {
-    enabled: c.enabled, superLikes: c.superLikes, likesUnlock: c.likesUnlock, costumes: c.costumes, costumeRevealed: c.costumeRevealed,
+    enabled: c.enabled, superLikes: c.superLikes, likesUnlock: c.likesUnlock, costumes: c.costumes, costumeRevealed: c.costumeRevealed, zones: c.zones,
     superLikePrice: c.superLikePrice, superLikePackSize: c.superLikePackSize, superLikePackPrice: c.superLikePackPrice,
     maxPaidSuperLikes: c.maxPaidSuperLikes, likesUnlockPrice: c.likesUnlockPrice,
   };
@@ -165,7 +169,7 @@ const OPEN: RelationStyle[] = ['abierta', 'no_monogamia', 'poliamor'];
 
 /** Qué tan afines son dos personas, de 30 a 99. `null` si ninguna contó nada con qué comparar (mejor no mostrar un
  * número inventado). Cuenta lo que buscan esta noche (lo que más pesa), cómo se relacionan y si están en la misma zona. */
-export function affinityPercent(a: Match, b: Match): number | null {
+export function affinityPercent(a: Match, b: Match, opts: { zones?: boolean } = {}): number | null {
   const ia = parseIntents(a.intents as string);
   const ib = parseIntents(b.intents as string);
   const ra = cleanRelationStyle(a.relationStyle);
@@ -186,7 +190,8 @@ export function affinityPercent(a: Match, b: Match): number | null {
     else if (ra === 'explorando' || rb === 'explorando') got += 12;
   }
   if (weight === 0) return null;
-  if (a.zone && b.zone) { weight += 15; if (a.zone === b.zone) got += 15; }
+  // Con las zonas apagadas todos quedan en la misma: no cuenta (inflaría el número de todos por igual).
+  if (opts.zones !== false && a.zone && b.zone) { weight += 15; if (a.zone === b.zone) got += 15; }
   return Math.round(30 + 69 * (got / weight));
 }
 

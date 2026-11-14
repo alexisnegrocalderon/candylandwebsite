@@ -1,4 +1,4 @@
-import { Check, MapPin, Star } from 'lucide-react';
+import { Camera, Check, MapPin, Star, Users } from 'lucide-react';
 import { PARTY_ZONES, ZONE_LABELS, isOnline, type PartyGender, type PartyZone } from '@shared/party';
 import { PersonPhoto, tap } from '@/components/party/ui';
 
@@ -89,6 +89,68 @@ export function Mansion({ people, myZone, onPick, onChangeZone, ticketCode, view
           </section>
         );
       })}
+    </div>
+  );
+}
+
+/** La Fiesta sin zonas: todos los que están adentro en una sola grilla, los activos primero. Arriba, lo que pide
+ * respuesta (un Super Like que te mandaron). */
+export function Crowd({ people, loading, onPick, ticketCode, viewerAlias, canPhoto, onOpenPhoto }: {
+  people: MansionPerson[];
+  loading: boolean;
+  onPick: (person: MansionPerson) => void;
+  ticketCode: string;
+  viewerAlias: string;
+  canPhoto: boolean;
+  onOpenPhoto: () => void;
+}) {
+  const now = new Date();
+  const rank = (p: MansionPerson) => (p.pendingForMe ? 0 : isOnline(p.lastSeenAt, now) ? 1 : 2);
+  const sorted = [...people].sort((a, b) => rank(a) - rank(b));
+  const online = people.filter((p) => isOnline(p.lastSeenAt, now)).length;
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-end justify-between gap-3 px-1 pt-1">
+        <div>
+          <h2 className="text-title2 font-bold tracking-tight">En la fiesta</h2>
+          <p className="flex items-center gap-1.5 text-footnote text-white/65">
+            <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)]" aria-hidden />
+            {online === 1 ? '1 persona activa ahora' : `${online} personas activas ahora`} · {people.length} adentro
+          </p>
+        </div>
+      </div>
+      {!canPhoto && (
+        <button type="button" onClick={() => { tap(); onOpenPhoto(); }} className="account-glass flex w-full items-center gap-3 rounded-[22px] px-4 py-3 text-left interactive">
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-pink-500/20"><Camera className="h-5 w-5 text-pink-300" /></span>
+          <span className="min-w-0 flex-1"><span className="block text-subhead font-bold">Pon tu foto para ver las de los demás</span><span className="block text-footnote text-white/65">Mientras tanto ves sus fichas.</span></span>
+        </button>
+      )}
+      {sorted.length === 0 ? (
+        <div className="flex flex-col items-center px-6 py-16 text-center">
+          <span className="grid h-20 w-20 place-items-center rounded-full bg-gradient-to-br from-pink-500/25 to-sky-500/25"><Users className="h-9 w-9 text-pink-300" /></span>
+          <p className="mt-4 text-title3 font-bold">{loading ? 'Buscando gente…' : 'Eres de los primeros'}</p>
+          {!loading && <p className="mt-1 text-subhead text-white/65">A medida que entren a Playmatch van a aparecer acá.</p>}
+        </div>
+      ) : (
+        <div className="grid grid-cols-3 gap-2.5">
+          {sorted.map((p) => {
+            const active = isOnline(p.lastSeenAt, now);
+            return (
+              <button key={p.id} type="button" onClick={() => { tap(); onPick(p); }} aria-label={`Ver a ${p.alias}`}
+                className={`relative aspect-[3/4] overflow-hidden rounded-[20px] border bg-white/[0.04] ${p.pendingForMe ? 'border-2 border-sky-300 shadow-[0_0_20px_-4px_var(--pm-star-glow,rgba(56,189,248,0.7))]' : 'border-white/10'}`}>
+                <PersonPhoto ticketCode={ticketCode} viewerAlias={viewerAlias} canPhoto={canPhoto} person={p} className={`absolute inset-0 h-full w-full ${active ? '' : 'opacity-55 grayscale'}`} />
+                <span className="absolute inset-x-0 bottom-0 flex items-center gap-1 bg-gradient-to-t from-black/90 to-transparent px-2 pb-1.5 pt-7 text-left">
+                  {active && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" aria-label="Activa ahora" />}
+                  <span className="truncate text-caption1 font-bold">{p.alias}</span>
+                </span>
+                {p.pendingForMe && <span className="absolute right-1.5 top-1.5 grid h-6 w-6 place-items-center rounded-full bg-sky-400"><Star className="h-3.5 w-3.5 fill-[#0b0612] text-[#0b0612]" /></span>}
+                {p.connectionStatus === 'accepted' && <span className="absolute left-1.5 top-1.5 rounded-full bg-pink-500 px-1.5 py-0.5 text-[0.625rem] font-bold text-[color:var(--pm-on-accent,#fff)]">Match</span>}
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

@@ -227,12 +227,13 @@ export async function listLikesForMe(profile: { id: number; eventId: number }) {
   const unlocked = !!me.likesUnlocked;
   if (!unlocked) return { count: rows.length, unlocked, people: [] as LikeCard[] };
   const photoCount = await photoCounts(db, rows.map((r: any) => r.id as number));
+  const zones = (await getPartyConfig(me.eventId)).zones;
   const people: LikeCard[] = rows.map((p: any) => ({
     id: p.id as number, alias: p.alias as string, gender: p.gender as PartyGender, avatarId: p.avatarId as number, zone: p.zone as PartyZone,
     costume: (p.costume as string | null) ?? null, photoCount: photoCount.get(p.id) ?? 1,
     ...partyVibe(p),
     common: compatibility(me, p).common,
-    affinity: affinityPercent({ ...me, zone: me.zone }, { ...p, zone: p.zone }),
+    affinity: affinityPercent(me, p, { zones }),
   })).sort((a, b) => (b.affinity ?? 0) - (a.affinity ?? 0));
   return { count: rows.length, unlocked, people };
 }
@@ -544,9 +545,10 @@ export async function notifyAffinityArrival(profileId: number): Promise<number> 
       ne(partyProfiles.id, profileId), gt(partyProfiles.lastSeenAt, recent), sql`${partyProfiles.affinityAlerts} < ${MAX_AFFINITY_ALERTS}`,
     ));
     const hidden = await getPartyHiddenIds(db, profileId);
+    const zones = (await getPartyConfig(arrived.eventId)).zones;
     const candidates = others
       .filter((o: any) => !hidden.has(o.id) && isMutualInterest(arrived, o) && wants(o, arrived))
-      .map((o: any) => ({ o, pct: affinityPercent(arrived, o) }))
+      .map((o: any) => ({ o, pct: affinityPercent(arrived, o, { zones }) }))
       .filter((x) => x.pct !== null && x.pct >= AFFINITY_ALERT_MIN)
       .sort((a, b) => (b.pct ?? 0) - (a.pct ?? 0))
       .slice(0, 5);

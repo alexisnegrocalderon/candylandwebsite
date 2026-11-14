@@ -742,6 +742,47 @@ html {
 .pm-halloween .lg-sheet {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.02) 30%), rgba(24, 24, 24, 0.93);
 }
+/* Playmatch con el look de PLAYMORE (la colaboración): tinta casi negra, orquídea y magenta para los ♥ y los
+   botones, y dorado para el Super Like. Mismo truco que Halloween: se redefinen los colores de Tailwind dentro
+   del contenedor y toda la pantalla cambia junta. */
+.pm-playmore {
+  --pm-bg: #0c0908;
+  --pm-on-accent: #fff;
+  --pm-glow: rgba(214, 70, 222, 0.6);
+  --pm-star-glow: rgba(233, 207, 133, 0.75);
+  --color-pink-200: #f6d3f8;
+  --color-pink-300: #efa8f3;
+  --color-pink-400: #e477ea;
+  --color-pink-500: #d646de;
+  --color-fuchsia-300: #f3c6f5;
+  --color-fuchsia-500: #b32abb;
+  --color-fuchsia-600: #96159d;
+  --color-sky-300: #f7e7a8;
+  --color-sky-400: #e9cf85;
+  --color-sky-500: #7d1184;
+}
+.pm-playmore .account-backdrop {
+  background:
+    radial-gradient(900px 600px at 85% -10%, rgb(150 21 157 / 0.42), transparent 60%),
+    radial-gradient(700px 500px at -10% 40%, rgb(201 162 76 / 0.14), transparent 60%),
+    radial-gradient(900px 700px at 60% 120%, rgb(150 21 157 / 0.3), transparent 60%),
+    #0c0908;
+}
+.pm-playmore .account-backdrop::before { background: radial-gradient(circle, rgb(228 119 234 / 0.4), transparent 65%); }
+.pm-playmore .account-backdrop::after { background: radial-gradient(circle, rgb(214 178 94 / 0.22), transparent 65%); }
+.pm-playmore .lg-sheet {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.02) 30%), rgba(20, 16, 14, 0.94);
+}
+.pm-playmore .lg-pill {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.03) 55%, rgba(255, 255, 255, 0.07)), rgba(22, 17, 15, 0.4);
+}
+/* El dorado de PLAYMORE en letras (la marca junto a «Playmatch»). */
+.pm-gold-text {
+  background: linear-gradient(100deg, #c9a24c 0%, #f7e7a8 45%, #d6b25e 70%, #e9cf85 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
 /* Hojas que suben desde abajo: el mismo vidrio, pero bastante más tintado para que lo de atrás no se lea. */
 .lg-sheet {
   isolation: isolate;

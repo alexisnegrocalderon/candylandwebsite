@@ -11,6 +11,12 @@ Cómo está armado Playmatch (la fiesta dentro del celular) y qué puede cambiar
 - **«Les gustas a N personas»**: el número siempre; quiénes son, tras pagar el desbloqueo de la noche (con botón ♥ para dar match al tiro).
 - **Disfraces**: galería para votar (3 votos, se pueden cambiar). El ranking no lo ve nadie mientras se vota; el administrador **revela el podio**, y ahí se cierra la votación.
 
+- **Perfil paso a paso** (`client/src/components/site/PartyOnboarding.tsx`): una pregunta por pantalla, lo opcional se salta y la foto va dentro del flujo. El formulario largo (`PartyProfileForm.tsx`) queda solo para editar.
+- **Match en vivo para los dos**: quien recibe el ♥ que faltaba también ve «¡Es un Playmatch!» si tiene la app abierta (se detecta en la lista de matches; lo ya celebrado se recuerda en el celular). Un mensaje nuevo estando en otra pestaña sale como aviso arriba.
+- **Zonas** (Living, Playground, Piscina, Barra): apagadas por defecto. Sin zonas, «Fiesta» muestra a todos en una grilla y la afinidad no cuenta la zona. Se prenden por fiesta en Ajustes.
+- **Look de la fiesta**: una colaboración activa (PLAYMORE) viste Playmatch con sus colores (`.pm-playmore` en `client/src/index.css`; lo decide `getSession.theme`). `?tema=halloween` sigue mandando si está.
+- El campo `costume` se muestra como «Cómo encontrarme» fuera de Halloween.
+
 ## Cómo se paga
 
 Playcoins primero y, lo que falte, del saldo PlayCard (1 Playcoin = $1). Si no alcanza entre los dos no se descuenta nada y se ofrece recargar (la misma recarga de siempre, con el código de la entrada).
@@ -25,7 +31,7 @@ Playcoins primero y, lo que falte, del saldo PlayCard (1 Playcoin = $1). Si no a
 - **En vivo**: perfiles, con foto, activos, ♥/✕, Super Likes, matches, chats, mensajes, votos, plata cobrada (Playcoins y saldo por separado) y cobros por hora.
 - **Cobros**: cada compra, regalo, devolución y ajuste, con CSV.
 - **Personas**: regalar Super Likes, devolver uno sin respuesta, poner un tope propio.
-- **Ajustes**: interruptores (Playmatch, Super Likes, «Ver quién me dio ♥», concurso), precios y topes, meta de los anfitriones y la revelación del podio. Se guarda por fiesta en `partyEventConfig` y llega a los celulares en unos 5 segundos.
+- **Ajustes**: interruptores (Playmatch, Super Likes, «Ver quién me dio ♥», concurso, zonas del local), precios y topes, meta de los anfitriones y la revelación del podio. Se guarda por fiesta en `partyEventConfig` y llega a los celulares en unos 5 segundos.
 
 ## Anfitriones de Playmatch
 
