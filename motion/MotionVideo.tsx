@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { AbsoluteFill, getRemotionEnvironment, Html5Audio, interpolate, Sequence, spring, staticFile, useCurrentFrame, useVideoConfig } from 'remotion';
-import { BRAND, captionPages, captionWords, motionPalette, motionTimeline, normalizeMotionSpec, type MotionSpec } from '../shared/motionSpec';
+import { BRAND, captionPages, captionWords, hookApplies, motionPalette, motionTimeline, normalizeMotionSpec, type MotionSpec } from '../shared/motionSpec';
 import { resolveLayouts, resolveLook } from '../shared/motionVariety';
 import { MotionContext, useMotion, type MotionCtx, type MotionSlideInfo } from './context';
 import { useBrandFonts } from './fonts';
@@ -16,6 +16,8 @@ import { KineticScene } from './kinetic';
 import { PosterScene } from './poster';
 import { SoftUiScene } from './softui';
 import { BrandSting, CountdownScene, TextScene } from './scenes';
+import { ChatHookScene } from './chat';
+import { chatMessages, chatSchedule } from '../shared/motionChat';
 import { beats, fonts } from './theme';
 
 /* La composición única del Estudio Motion. Recibe la receta (MotionSpec) y la
@@ -54,6 +56,18 @@ const Soundtrack: React.FC = () => {
       hits.push(<Sfx key="mark" at={timeline.outroFrom} name="bass" volume={0.7 * sfxGain} />);
     }
     if (spec.template === 'sting') hits.push(<Sfx key="pop" at={14} name="pop" volume={0.6} />);
+    // Gancho de chat: ding cuando llega un mensaje, barrido cuando se envía el tuyo, y la notificación hace vibrar el celular.
+    if (spec.hook !== 'ninguno' && hookApplies(spec.template) && timeline.scenes[0]) {
+      const t0 = timeline.scenes[0];
+      const msgs = chatMessages(spec.scenes[0]);
+      chatSchedule(msgs, t0.frames).forEach((b) => {
+        const at = t0.from + b.showAt;
+        if (spec.hook === 'notificacion') {
+          hits.push(<Sfx key={`chat-buzz${b.index}`} at={at} name="buzz" volume={0.55 * sfxGain} />);
+          hits.push(<Sfx key={`chat-ding${b.index}`} at={at + 2} name="ding" volume={0.4 * sfxGain} />);
+        } else hits.push(<Sfx key={`chat${b.index}`} at={at} name={msgs[b.index].mine ? 'send' : 'ding'} volume={(msgs[b.index].mine ? 0.5 : 0.6) * sfxGain} />);
+      });
+    }
     // Cada adorno del look suena cuando aparece (en cada escena), igual que se ve.
     if (spec.template !== 'sting') {
       timeline.scenes.forEach((t) => {
@@ -225,6 +239,9 @@ const Body: React.FC = () => {
         let content: React.ReactNode;
         if (spec.template === 'sting') {
           content = <BrandSting frames={t.frames} tagline={scene.sub || spec.outroLine} />;
+        } else if (spec.hook !== 'ninguno' && hookApplies(spec.template) && t.index === 0) {
+          // Gancho de chat: la escena 1 es una conversación de celular en vez del titular.
+          content = <ChatHookScene scene={scene} frames={t.frames} />;
         } else if (spec.template === 'countdown' && t.index === 0) {
           content = <CountdownScene scene={scene} frames={t.frames} />;
         } else {

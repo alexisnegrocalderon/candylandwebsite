@@ -285,4 +285,32 @@ writeFileSync(join(SFX, 'rip.wav'), wav(fx(0.3, (out, N) => {
   }
 }), 0.5));
 
+// Gancho de chat: llega un mensaje (ding de dos notas), se envía el tuyo (barrido corto hacia arriba) y vibra el celular.
+writeFileSync(join(SFX, 'ding.wav'), wav(fx(0.42, (out, N) => {
+  [[1319, 0], [1760, 0.09]].forEach(([f, at]) => {
+    for (let i = Math.floor(at * SR); i < N; i++) {
+      const t = (i - at * SR) / SR;
+      out[i] += (Math.sin(2 * Math.PI * f * t) + Math.sin(2 * Math.PI * f * 2 * t) * 0.18) * Math.exp(-t * 9) * 0.4;
+    }
+  });
+}), 0.6));
+
+writeFileSync(join(SFX, 'send.wav'), wav(fx(0.16, (out, N) => {
+  let ph = 0;
+  for (let i = 0; i < N; i++) {
+    const t = i / N;
+    ph += (2 * Math.PI * (500 + 700 * t)) / SR;
+    out[i] = Math.sin(ph) * Math.sin(Math.PI * t) * 0.6;
+  }
+}), 0.45));
+
+writeFileSync(join(SFX, 'buzz.wav'), wav(fx(0.32, (out, N) => {
+  // Dos zumbidos graves seguidos, como la vibración del celular sobre una mesa.
+  for (let i = 0; i < N; i++) {
+    const t = i / SR;
+    const on = (t < 0.1 || (t > 0.16 && t < 0.26)) ? 1 : 0;
+    out[i] = (Math.sign(Math.sin(2 * Math.PI * 62 * t)) * 0.5 + Math.sin(2 * Math.PI * 124 * t) * 0.3) * on * Math.min(1, t * 200);
+  }
+}), 0.55));
+
 console.log('Audio escrito en', ROOT);

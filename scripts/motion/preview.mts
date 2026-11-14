@@ -8,6 +8,7 @@
  *   pnpm tsx scripts/motion/preview.mts looks [salida]         # el look: cada adorno, trama, etiqueta, entrada y transición (ONLY=estilo, FORMAT, SEEDS=3 para ver semillas al azar)
  *   pnpm tsx scripts/motion/preview.mts captions [salida]      # los 3 estilos de subtítulos sobre cada estilo (ONLY=estilo, BASE=fondo)
  *   pnpm tsx scripts/motion/preview.mts papers [salida]        # Collage (los 4 papeles) y Pizarra: escenas asentadas y a mitad de transición (BASE=fondo, FORMAT=reel|feed)
+ *   pnpm tsx scripts/motion/preview.mts chat [salida]          # el gancho de chat (WhatsApp, DM, notificaciones): escribiendo, a mitad y al final (ONLY=estilo, FORMAT, BASE)
  *   pnpm tsx scripts/motion/preview.mts video receta.json out.mp4
  *
  * Usa el Chromium de la máquina si existe (CHROME_PATH o el de Playwright). */
@@ -16,7 +17,8 @@ import { join, resolve } from 'node:path';
 import { bundle } from '@remotion/bundler';
 import { renderMedia, renderStill, selectComposition } from '@remotion/renderer';
 import { LAYOUTS, LOOK_ALL_AUTO, LOOK_CLASSIC, LOOK_CUTS, LOOK_DECOS, LOOK_ENTRIES, LOOK_KICKERS, LOOK_TEXTURES, lookSignature, type MotionLook } from '../../shared/motionVariety';
-import { MOTION_STYLES, MOTION_TEMPLATES, PACK_KINDS, captionWords, motionTimeline, normalizeMotionSpec, packSlides, starterSpec, type MotionSpec } from '../../shared/motionSpec';
+import { chatMessages, chatSchedule } from '../../shared/motionChat';
+import { MOTION_STYLES, MOTION_TEMPLATES, PACK_KINDS, captionWords, motionTimeline, starterChat, normalizeMotionSpec, packSlides, starterSpec, type MotionSpec } from '../../shared/motionSpec';
 
 const ROOT = resolve(import.meta.dirname, '..', '..');
 
@@ -97,6 +99,23 @@ if (mode === 'video') {
       void tl;
     }
     console.log(style, 'subtítulos listos');
+  }
+} else if (mode === 'chat') {
+  const out = a ?? 'motion-chat';
+  mkdirSync(out, { recursive: true });
+  const only = process.env.ONLY?.split(',') ?? ['liquid'];
+  for (const style of only as Array<(typeof MOTION_STYLES)[number]>) {
+    for (const hook of ['whatsapp', 'dm', 'notificacion'] as const) {
+      const base = starterChat(style, hook);
+      // STRESS=1: seis mensajes largos (el máximo) para ver que no se desborda nada.
+      const heavy = process.env.STRESS ? { scenes: [{ ...base.scenes[0], text: '¿Ya viste lo que se viene este sábado en Valparaíso?', items: ['No, cuéntame, ¿qué es?', 'Una noche distinta, con respeto, consentimiento y cero juicios para todas las personas', 'Suena bien, ¿y cómo entro?', 'Comentas INFO y te mandamos todo por mensaje', 'Ya, voy a comentar ahora mismo'], secs: 7 }, ...base.scenes.slice(1)] } : {};
+      const spec = normalizeMotionSpec({ ...base, ...heavy, format: process.env.FORMAT ?? 'reel', look: LOOK_CLASSIC, seed: Number(process.env.SEED ?? 21), ...(process.env.BASE ? { base: process.env.BASE } : {}) });
+      const t0 = motionTimeline(spec).scenes[0];
+      const beat = chatSchedule(chatMessages(spec.scenes[0]), t0.frames);
+      const marks: Array<[string, number]> = [['escribiendo', (beat[0].typingAt ?? 0) + 6], ['mitad', beat[1].showAt + 8], ['final', t0.frames - 6]];
+      for (const [label, f] of marks) await still(spec, t0.from + f, join(out, `${style}-${hook}-${label}.png`));
+      console.log(style, hook, 'listo');
+    }
   }
 } else if (mode === 'papers') {
   const out = a ?? 'motion-papers';

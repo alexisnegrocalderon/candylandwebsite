@@ -13,11 +13,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ImageUploadField } from '@/components/admin/ImageUploadField';
 import { CaptionReviewBox } from '@/components/admin/CaptionReview';
 import {
-  MOTION_ACCENT_LABEL, MOTION_ACCENTS, MOTION_PAPER_LABEL, MOTION_PAPERS, MOTION_CAPTION_STYLE_LABEL, MOTION_CAPTION_STYLES, MOTION_CARD_LABEL, MOTION_CARDS, MOTION_BASE_LABEL, MOTION_BASES, MOTION_CLOSING_LABEL, MOTION_CLOSINGS, MOTION_DURATION_PRESETS, MOTION_FORMAT_LABEL, MOTION_FORMATS, MOTION_GLOW_LABEL, MOTION_GLOWS, MOTION_MAX_SCENES, MOTION_MUSIC, MOTION_MUSIC_LABEL,
+  MOTION_ACCENT_LABEL, MOTION_ACCENTS, MOTION_HOOK_LABEL, MOTION_HOOKS, hookApplies, MOTION_PAPER_LABEL, MOTION_PAPERS, MOTION_CAPTION_STYLE_LABEL, MOTION_CAPTION_STYLES, MOTION_CARD_LABEL, MOTION_CARDS, MOTION_BASE_LABEL, MOTION_BASES, MOTION_CLOSING_LABEL, MOTION_CLOSINGS, MOTION_DURATION_PRESETS, MOTION_FORMAT_LABEL, MOTION_FORMATS, MOTION_GLOW_LABEL, MOTION_GLOWS, MOTION_MAX_SCENES, MOTION_MUSIC, MOTION_MUSIC_LABEL,
   MOTION_STYLE_LABEL, MOTION_STYLES, MOTION_TEMPLATE_LABEL, MOTION_TEMPLATES, emptyScene, motionTimeline, shapePacing, normalizeMotionSpec, voiceSays,
   type MotionScene, type MotionSpec,
 } from '@shared/motionSpec';
 import { applyKeyword } from '@shared/motionSpec';
+import { chatMessages, chatMinSecs } from '@shared/motionChat';
 import { AI_MODELS, AI_MODEL_LABEL, motionCallEstimateUsd, type AiModel } from '@shared/studioAi';
 import { MOTION_CUSTOM_BG, MOTION_CUSTOM_BG_LABEL, MOTION_CUSTOM_ENTRY, MOTION_CUSTOM_ENTRY_LABEL, MOTION_CUSTOM_FONTS, MOTION_CUSTOM_FONT_LABEL, normalizeCustom } from '@shared/motionSpec';
 import { specHash } from '@shared/studioRender';
@@ -364,6 +365,20 @@ export function MotionEditor({ id: initialId, initial, restored, onBack }: {
                     />
                   </Field>
                   <Field label="Estilo"><Pick value={spec.style} options={MOTION_STYLES.filter((st) => st !== 'custom' || !!canCustom)} labels={MOTION_STYLE_LABEL} onChange={(style) => setSpec({ style })} /></Field>
+                  {hookApplies(spec.template) && (
+                    <div className="space-y-3 sm:col-span-2">
+                      <Field label="Gancho de chat" hint={spec.hook === 'ninguno' ? 'La escena 1 se dibuja como un celular donde llegan mensajes: frena el scroll en el primer segundo.' : 'La escena 1 es la conversación: el «Texto grande» es el primer mensaje que llega y los mensajes de esa escena (uno por línea) son los siguientes; se alternan (llega, responde, llega…).'}>
+                        <Pick value={spec.hook} options={MOTION_HOOKS} labels={MOTION_HOOK_LABEL} onChange={(hook) => {
+                          // Una conversación necesita tiempo para leerse (con voz, manda la voz).
+                          const need = chatMinSecs(chatMessages(spec.scenes[0] ?? { text: '', items: [] }).length);
+                          setSpec({ hook, ...(hook !== 'ninguno' && !spec.voice && spec.scenes[0] && spec.scenes[0].secs < need ? { scenes: spec.scenes.map((sc, k) => (k === 0 ? { ...sc, secs: need } : sc)) } : {}) });
+                        }} />
+                      </Field>
+                      {spec.hook !== 'ninguno' && (
+                        <Field label="Nombre del contacto" hint="Quien manda los mensajes. Vacío = Mansion Playroom."><Input className="h-11" value={spec.hookName} maxLength={30} onChange={(e) => setSpec({ hookName: e.target.value })} placeholder="Mansion Playroom" /></Field>
+                      )}
+                    </div>
+                  )}
                   {spec.style === 'collage' && (
                     <Field label="Papel" hint={spec.paper === 'auto' ? `Automático: ${MOTION_PAPER_LABEL[resolvePaper(clean)].split(' (')[0]}.` : undefined}>
                       <Pick value={spec.paper} options={MOTION_PAPERS} labels={MOTION_PAPER_LABEL} onChange={(paper) => setSpec({ paper })} />
@@ -517,6 +532,11 @@ export function MotionEditor({ id: initialId, initial, restored, onBack }: {
                           )}
                           {scene.card === 'calendario' && !clean.eventDate && <p className="text-xs text-amber-700 sm:col-span-2">Elige un evento arriba para que el calendario marque su fecha.</p>}
                         </div>
+                      )}
+                      {i === 0 && spec.hook !== 'ninguno' && hookApplies(spec.template) && (
+                        <Field label="Mensajes siguientes del chat (uno por línea)" hint={`El texto grande es el primer mensaje. Con ${chatMessages(scene).length} mensajes la escena necesita al menos ${chatMinSecs(chatMessages(scene).length)} s para leerse.`}>
+                          <Textarea rows={3} value={(scene.items ?? []).join('\n')} onChange={(e) => setScene(i, { items: e.target.value.split('\n').slice(0, 5) })} />
+                        </Field>
                       )}
                       <Field label="Voz en off de esta escena (opcional)"><Input value={scene.say} maxLength={180} onChange={(e) => setScene(i, { say: e.target.value })} placeholder="Si queda vacío, la voz lee el texto grande" /></Field>
                       {scene.media ? (

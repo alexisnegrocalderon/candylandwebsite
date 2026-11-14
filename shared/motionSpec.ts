@@ -7,6 +7,7 @@
  * llega (normalizeMotionSpec) y la línea de tiempo (motionTimeline). Así la
  * composición, el servidor y los tests leen exactamente lo mismo. */
 
+import { chatMinSecs } from './motionChat';
 import { ALL_LAYOUT_KEYS, LAYOUT_AUTO, LOOK_ALL_AUTO, normalizeLook, seedFromText, type MotionLook } from './motionVariety';
 import { normalizeSong, songBeatGrid, type MotionSong } from './motionSong';
 import { normalizeMascot, type MotionMascot } from './motionMascot';
@@ -166,6 +167,19 @@ export function motionPalette(base: MotionBase, accent: MotionAccent = MOTION_DE
       return solid({ bg: BRAND.blue, display: BRAND.white, shadow: BRAND.ink, body: BRAND.white, muted: BRAND.white, accent: BRAND.magenta, deep: BRAND.ink, micro: BRAND.white, surface: BRAND.white, dark: false });
   }
 }
+
+/** Gancho de chat: la escena 1 se dibuja como un celular donde llegan mensajes (en vez del titular). Los videos guardados antes
+ * quedan en «ninguno». Los mensajes son el texto grande de la escena 1 y sus líneas de abajo (se alternan quién habla). */
+export const MOTION_HOOKS = ['ninguno', 'whatsapp', 'dm', 'notificacion'] as const;
+export type MotionHook = (typeof MOTION_HOOKS)[number];
+export const MOTION_HOOK_LABEL: Record<MotionHook, string> = {
+  ninguno: 'Sin gancho de chat',
+  whatsapp: 'Chat tipo WhatsApp',
+  dm: 'Mensaje directo tipo Instagram',
+  notificacion: 'Notificaciones en la pantalla de bloqueo',
+};
+/** El gancho solo existe donde la escena 1 es un titular (no en la cuenta regresiva ni en la firma). */
+export const hookApplies = (template: string): boolean => template === 'anuncio' || template === 'montaje';
 
 /** Papel del estilo Collage. «auto» lo elige la semilla del video (shared/motionVariety.ts → resolvePaper). */
 export const MOTION_PAPERS = ['auto', 'rasgado', 'riso', 'scrapbook', 'diario'] as const;
@@ -359,6 +373,9 @@ export interface MotionSpec {
   captionStyle: MotionCaptionStyle;
   /** Solo estilo Collage: qué papel (o «auto»). */
   paper: MotionPaper;
+  /** Gancho de chat de la escena 1 y el nombre del contacto que lo manda (vacío = la marca). */
+  hook: MotionHook;
+  hookName: string;
 }
 
 /** Fondo con que parte cada estilo. */
@@ -516,6 +533,8 @@ export function normalizeMotionSpec(raw: unknown): MotionSpec {
     captions: !!voice && r.captions !== false,
     captionStyle: pick(r.captionStyle, MOTION_CAPTION_STYLES, 'clasico'),
     paper: pick(r.paper, MOTION_PAPERS, 'auto'),
+    hook: pick(r.hook, MOTION_HOOKS, 'ninguno'),
+    hookName: str(r.hookName, 30),
   };
 }
 
@@ -822,6 +841,19 @@ export function starterSpec(template: MotionTemplate, style: MotionStyle = 'liqu
     });
   }
   return normalizeMotionSpec({ template, style, scenes, look: LOOK_ALL_AUTO, captionStyle: 'karaoke', outroLine: 'mansionplayroom.cl', title: MOTION_TEMPLATE_LABEL[template] });
+}
+
+/** Punto de partida con gancho de chat: la escena 1 es una conversación (llega, responde, llega) y sigue el video normal. */
+export function starterChat(style: MotionStyle = 'liquid', hook: MotionHook = 'whatsapp'): MotionSpec {
+  const first = { text: '¿Ya viste lo del sábado?', items: ['No, ¿qué es?', 'Una noche distinta. Con respeto y cero juicios.'] };
+  return normalizeMotionSpec({
+    template: 'anuncio', style, hook, look: LOOK_ALL_AUTO, captionStyle: 'karaoke', outroLine: 'mansionplayroom.cl', title: 'Gancho de chat',
+    scenes: [
+      { ...first, secs: chatMinSecs(1 + first.items.length) },
+      { kicker: 'SÁBADO', text: 'Valparaíso', sub: 'Dirección exacta al comprar', secs: 2.4 },
+      { text: 'Comenta INFO', highlight: 'INFO', secs: 2.4 },
+    ],
+  });
 }
 
 /* --- Pack: reel + carrusel + post + historia de una misma idea ----------------

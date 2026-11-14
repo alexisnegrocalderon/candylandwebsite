@@ -16,7 +16,7 @@ import { ConfirmDeleteButton } from '@/components/admin/ConfirmDeleteButton';
 import { formatChileDate, formatChileDateTime } from '@shared/chileDate';
 import { chileIsoDate, type ContentPiece } from '@shared/contentPlan';
 import {
-  MOTION_FORMAT_LABEL, MOTION_FORMATS, MOTION_STYLE_LABEL, MOTION_TEMPLATE_LABEL, MOTION_TEMPLATES, normalizeKeyword, starterSpec,
+  MOTION_FORMAT_LABEL, MOTION_FORMATS, MOTION_STYLE_LABEL, MOTION_TEMPLATE_LABEL, MOTION_TEMPLATES, normalizeKeyword, starterChat, starterSpec,
   type MotionFormat, type MotionMedia, type MotionSpec, type MotionStyle, type MotionTemplate,
 } from '@shared/motionSpec';
 import { saveVideoFile } from './saveVideo';
@@ -48,9 +48,10 @@ const TEMPLATE_HINT: Record<MotionTemplate, string> = {
 };
 
 /** Puntos de partida sin IA: cada plantilla con el estilo que mejor la luce. */
-const STARTERS: Array<{ key: string; template: MotionTemplate; style: MotionStyle; label: string; hint: string }> = [
+const STARTERS: Array<{ key: string; template: MotionTemplate; style: MotionStyle; label: string; hint: string; make?: () => MotionSpec }> = [
   { key: 'playmore', template: 'anuncio', style: 'arcade', label: 'PLAYMORE · Player 1 vs Player 2', hint: 'El concepto arcade neón y el dress code por equipo: reel, carrusel, post e historia.' },
   { key: 'tema', template: 'anuncio', style: 'kinetic', label: 'Tema (kinetic)', hint: 'Frases que se arman palabra a palabra para hablar de un tema y parar el scroll.' },
+  { key: 'chat', template: 'anuncio', style: 'liquid', label: 'Gancho de chat', hint: 'Abre con un mensaje de WhatsApp o Instagram que llega al celular: frena el scroll en el primer segundo.', make: () => starterChat('liquid') },
   { key: 'collage', template: 'anuncio', style: 'collage', label: 'Collage de papel', hint: 'Recortes pegados de un golpe: papel rasgado, risografía, scrapbook o diario (cambia con cada video).' },
   { key: 'pizarra', template: 'anuncio', style: 'pizarra', label: 'Pizarra a mano', hint: 'Explicativo dibujado a mano: el texto se escribe con marcador y los garabatos se trazan solos.' },
   { key: 'anuncio', template: 'anuncio', style: 'editorial', label: MOTION_TEMPLATE_LABEL.anuncio, hint: TEMPLATE_HINT.anuncio },
@@ -267,8 +268,8 @@ export function MotionStudio() {
           <div>
             <h3 className="mb-3 flex items-center gap-2 font-medium"><Wand2 className="h-4 w-4" /> O parte de una plantilla, sin IA</h3>
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-              {STARTERS.map(({ key, template, style, label, hint }, k) => {
-                const spec = { ...starterSpec(template, style), format, eventId, eventDate, seed: (baseSeed + k * 7919) % 1_000_000 };
+              {STARTERS.map(({ key, template, style, label, hint, make }, k) => {
+                const spec = { ...(make ? make() : starterSpec(template, style)), format, eventId, eventDate, seed: (baseSeed + k * 7919) % 1_000_000 };
                 return (
                   <button key={key} type="button" className="group space-y-2 text-left" onClick={() => setView({ kind: 'edit', id: null, spec })}>
                     {lightCards ? (
