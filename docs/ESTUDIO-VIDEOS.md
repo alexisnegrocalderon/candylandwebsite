@@ -153,6 +153,18 @@ previa muestra el motivo en vez de un triángulo sobre negro. Al sumar un efecto
   dura cada frase y el botón se desactiva.
 - Revisar a mano: `pnpm tsx scripts/motion/preview.mts captions ./caps` (los tres estilos de subtítulos).
 
+## Video de fondo con texto que se adapta
+
+Se sube UN video (MP4, MOV o WebM, hasta 150 MB y 3 min) en «Video de fondo». Corre continuo detrás de todo el reel y el texto de cada escena se adapta a lo que hay detrás.
+
+- **Análisis en el navegador** (`client/.../videoAnalysis.ts`): cada 0,5 s mide luz y detalle de arriba, centro y abajo, y los cortes de plano. El resultado viaja dentro de la receta (`spec.backdrop`, `shared/motionBackdrop.ts`); la grabación nunca vuelve a analizar. Todo gratis, sin IA.
+- **Adaptación** (`motion/backdrop.tsx`, `shared/motionBackdropPlan.ts`): una decisión por escena (sin parpadeo). Texto claro u oscuro según la luz mediana, y un degradado detrás solo si hace falta para llegar a contraste 4 (tope 0,72). Los colores de marca se conservan; cambia el héroe si no se lee. Opciones: automática, siempre claro, siempre oscuro, sin adaptar.
+- **Tramo y repetición**: `start` (se elige tocando el mapa de luz) y `loop` repetir o congelar si el reel dura más que el tramo. `mix` deja ver el fondo del estilo por encima del video.
+- **Móvil**: un solo `<video>` en la vista previa, sin filtros CSS sobre el video, análisis cancelable con cuadros de 54×96. Medido con iPhone simulado y CPU 4×: ~21 fps con video vs ~23 sin video.
+- **HEVC del iPhone** no se lee en Chrome de escritorio: el panel avisa y pide MP4 (H.264). La grabación en GitHub sí lo decodifica.
+- Subida directa a Blob (`studio-backdrops/`, tope 150 MB en `server/blobUpload.ts`).
+- Falta (próximas etapas): estilos pensados para video, textos en los cortes, guion con IA viendo el video, audio original, texto detrás de la persona.
+
 ## Pack: reel, carrusel, post e historia de una misma idea
 
 El contenido es **uno solo** (las escenas del video). En el editor, la pestaña **Carrusel · Post · Historia** dibuja

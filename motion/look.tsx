@@ -1,10 +1,9 @@
 import { AbsoluteFill, Easing, interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion';
 import { BRAND, type MotionScene, type MotionStyle } from '../shared/motionSpec';
-import { seededRandom, type LookCut as LookCutKind, type LookEntry } from '../shared/motionVariety';
+import { layoutZone, seededRandom, type LookCut as LookCutKind, type LookEntry } from '../shared/motionVariety';
 import { useMotion } from './context';
 import { useSvgId } from './kits/shared';
 import { useExit } from './layers';
-import { CENTERED, MAGAZINE } from './layouts';
 import { beats, ease, fonts, springs } from './theme';
 
 /* El «look» del video: lo que se combina ENCIMA del estilo para que dos piezas
@@ -78,10 +77,7 @@ type Zone = 'top' | 'center' | 'bottom' | 'split';
 
 /** Dónde está el texto en esta composición (los adornos van a la zona que queda libre). */
 export function textZone(style: MotionStyle, layout: string | undefined): Zone {
-  if (style === 'editorial' || style === 'kinetic') return MAGAZINE[layout ?? '']?.anchor ?? 'bottom';
-  if (style === 'poster') return 'split';
-  if (style === 'liquid' || style === 'glitch' || style === 'arcade' || style === 'collage' || style === 'pizarra') return CENTERED[layout ?? '']?.v ?? 'center';
-  return 'center';
+  return layoutZone(style, layout);
 }
 
 /** Alturas libres (fracción del alto) según dónde va el texto. */

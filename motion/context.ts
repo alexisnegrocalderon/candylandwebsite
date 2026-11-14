@@ -1,5 +1,6 @@
 import { createContext, useContext } from 'react';
 import type { MotionPalette, MotionSpec, MotionTimeline } from '../shared/motionSpec';
+import type { BackdropPlan } from '../shared/motionBackdropPlan';
 import type { ResolvedLook } from '../shared/motionVariety';
 
 export interface MotionCtx {
@@ -14,6 +15,8 @@ export interface MotionCtx {
   layouts: string[];
   /** El look del video ya resuelto (shared/motionVariety.ts → resolveLook): transición, entrada, trama, adornos, cámara y etiqueta. */
   look: ResolvedLook;
+  /** Cómo se ve el texto de cada escena sobre el video de fondo (null = sin video de fondo o adaptación apagada). */
+  backdropPlan: BackdropPlan | null;
   /** Dibujo de una lámina quieta del pack (carrusel, post, historia); null = video. */
   slide: MotionSlideInfo | null;
 }

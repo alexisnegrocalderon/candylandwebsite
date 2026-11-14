@@ -1,4 +1,4 @@
-import { AbsoluteFill, Img, interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion';
+import { AbsoluteFill, Img, interpolate, OffthreadVideo, spring, useCurrentFrame, useVideoConfig } from 'remotion';
 import { BRAND } from '../../shared/motionSpec';
 import { sceneJitter } from '../../shared/motionVariety';
 import { useMotion } from '../context';
@@ -51,14 +51,20 @@ const Word: React.FC<WordProps> = ({ word, i, delay, hero, size }) => {
   // Banda de luz que cruza cada palabra despacio (como una luz de cine sobre el titular).
   const sweep = ((frame * 1.1 + i * 26) % 170) - 35;
   const light = `linear-gradient(105deg, transparent ${sweep - 9}%, rgba(255,255,255,0.75) ${sweep}%, transparent ${sweep + 9}%)`;
-  const volume = 'linear-gradient(180deg, rgba(255,255,255,0.42) 0%, rgba(255,255,255,0) 46%, rgba(0,20,90,0.22) 100%)';
+  // Sobre un video de fondo (el texto ya viene claro u oscuro según lo que haya detrás), los brillos blancos y el borde claro se
+  // pierden o ensucian: se dejan solo la luz que cruza y una sombra sobria hacia el lado contrario del texto.
+  const onVideo = !!spec.backdrop && spec.backdrop.adapt !== 'apagada';
+  const volume = onVideo ? 'linear-gradient(180deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0) 100%)' : 'linear-gradient(180deg, rgba(255,255,255,0.42) 0%, rgba(255,255,255,0) 46%, rgba(0,20,90,0.22) 100%)';
+  const edge = onVideo
+    ? (palette.dark ? `drop-shadow(0 ${Math.round(size * 0.05)}px ${Math.round(size * 0.09)}px rgba(0,0,0,0.5))` : `drop-shadow(0 1px 0 rgba(255,255,255,0.7)) drop-shadow(0 ${Math.round(size * 0.03)}px ${Math.round(size * 0.06)}px rgba(255,255,255,0.45))`)
+    : `drop-shadow(-1px -2px 0 rgba(255,255,255,0.7)) drop-shadow(0 ${Math.round(size * 0.06)}px ${Math.round(size * 0.1)}px rgba(0,8,50,0.55))`;
   return (
     <span
       style={{
         display: 'inline-block',
         opacity: interpolate(p, [0, 0.5], [0, 1], clamp),
         transform: `translateY(${interpolate(p, [0, 1], [size * 0.2, 0])}px) scale(${interpolate(p, [0, 1], [0.92, 1])})`,
-        filter: `blur(${interpolate(p, [0, 0.8], [10, 0], clamp)}px) drop-shadow(-1px -2px 0 rgba(255,255,255,0.7)) drop-shadow(0 ${Math.round(size * 0.06)}px ${Math.round(size * 0.1)}px rgba(0,8,50,0.55))`,
+        filter: `blur(${interpolate(p, [0, 0.8], [10, 0], clamp)}px) ${edge}`,
         color: base,
         ...(hero ? { fontFamily: contrast.family, fontWeight: contrast.weight, fontSize: size * contrast.scale, textTransform: contrast.upper ? 'uppercase' : 'none' } : {}),
         backgroundImage: `${light}, ${volume}, linear-gradient(${base}, ${base})`,
@@ -109,7 +115,9 @@ const Framed: React.FC<{ media: { url: string; kind: 'image' | 'video' }; index:
   return (
     <div style={{ position: 'absolute', left: (width - w) / 2, top: height * 0.5 - h / 2 + float, width: w, height: h, borderRadius: 64, background: 'rgba(255,255,255,0.92)', padding: 14, boxSizing: 'border-box', transform: `scale(${1 + 0.03 * p})`, filter: `drop-shadow(0 26px 40px rgba(0,8,50,0.45))` }}>
       <div style={{ position: 'relative', width: '100%', height: '100%', borderRadius: 52, overflow: 'hidden', background: palette.bg }}>
-        <Img src={media.url} style={{ width: '100%', height: '100%', objectFit: 'cover', filter: 'saturate(1.06) contrast(1.05)' }} />
+        {media.kind === 'video'
+          ? <OffthreadVideo src={media.url} muted style={{ width: '100%', height: '100%', objectFit: 'cover', filter: 'saturate(1.06) contrast(1.05)' }} />
+          : <Img src={media.url} style={{ width: '100%', height: '100%', objectFit: 'cover', filter: 'saturate(1.06) contrast(1.05)' }} />}
         <div style={{ position: 'absolute', inset: 0, background: `linear-gradient(105deg, transparent ${sweep - 9}%, rgba(255,255,255,0.45) ${sweep}%, transparent ${sweep + 9}%)` }} />
         <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse 85% 75% at 50% 45%, transparent 55%, rgba(0,8,40,0.45) 100%)' }} />
       </div>

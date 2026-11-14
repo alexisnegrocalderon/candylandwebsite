@@ -94,6 +94,21 @@ export const LAYOUTS: Record<MotionStyle, LayoutOption[]> = {
 
 export const LAYOUT_AUTO = 'auto';
 
+/** En qué franja del cuadro cae el texto de una composición: arriba, al centro, abajo, o partido (arriba y abajo). */
+export type TextZone = 'top' | 'center' | 'bottom' | 'split';
+export function layoutZone(style: MotionStyle, layout: string | undefined): TextZone {
+  if (style === 'editorial' || style === 'kinetic') {
+    const anchor: Record<string, TextZone> = { abajo: 'bottom', arriba: 'top', centro: 'center', derecha: 'bottom', gigante: 'center', partido: 'split' };
+    return anchor[layout ?? ''] ?? 'bottom';
+  }
+  if (style === 'poster') return 'split';
+  if (style === 'softui') return 'center';
+  const centered: Record<string, TextZone> = { centro: 'center', bajo: 'bottom', alto: 'top', izquierda: 'center', derecha: 'center' };
+  return centered[layout ?? ''] ?? 'center';
+}
+/** Las franjas del video (0 arriba, 1 centro, 2 abajo) que cubre cada zona de texto. */
+export const ZONE_STRIPS: Record<TextZone, number[]> = { top: [0], center: [1], bottom: [2], split: [0, 2] };
+
 /** Todas las claves de composición que existen (para validar lo que llega de la IA o de una fila vieja). */
 export const ALL_LAYOUT_KEYS: string[] = Array.from(new Set(Object.values(LAYOUTS).flatMap((list) => list.map((l) => l.key))));
 

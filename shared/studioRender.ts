@@ -56,6 +56,9 @@ export function cleanRenderProject(raw: unknown, siteOrigin: string): RenderProj
       ...spec,
       scenes: spec.scenes.map((s) => (s.media ? { ...s, media: { ...s.media, url: absolute(s.media.url) } } : s)),
       voice: spec.voice ? { ...spec.voice, url: absolute(spec.voice.url) } : null,
+      // El video de fondo y la canción también se bajan en la máquina de GitHub: solo del sitio o de Vercel Blob.
+      backdrop: spec.backdrop ? { ...spec.backdrop, url: absolute(spec.backdrop.url) } : null,
+      song: spec.song ? { ...spec.song, url: absolute(spec.song.url) } : null,
     },
   };
 }

@@ -19,6 +19,7 @@ import {
 } from '@shared/motionSpec';
 import { applyKeyword } from '@shared/motionSpec';
 import { chatMessages, chatMinSecs } from '@shared/motionChat';
+import { backdropPlan, describePlan } from '@shared/motionBackdropPlan';
 import { AI_MODELS, AI_MODEL_LABEL, motionCallEstimateUsd, type AiModel } from '@shared/studioAi';
 import { MOTION_CUSTOM_BG, MOTION_CUSTOM_BG_LABEL, MOTION_CUSTOM_ENTRY, MOTION_CUSTOM_ENTRY_LABEL, MOTION_CUSTOM_FONTS, MOTION_CUSTOM_FONT_LABEL, normalizeCustom } from '@shared/motionSpec';
 import { specHash } from '@shared/studioRender';
@@ -27,6 +28,7 @@ import { chileIsoDate } from '@shared/contentPlan';
 import { TTS_VOICE_KEYS, TTS_VOICES, voiceScriptHash, type TtsVoice } from '@shared/studioVoice';
 import { MotionPreview } from './MotionPreview';
 import { PackPanel } from './PackPanel';
+import { BackdropPanel } from './BackdropPanel';
 import { SongPanel } from './SongPanel';
 import { MASCOT_COLOR_LABEL, MASCOT_COLORS, MASCOT_KIND_LABEL, MASCOT_KINDS, MASCOT_PATTERN_LABEL, MASCOT_PATTERNS, MASCOT_SIZE_LABEL, MASCOT_SIZES, MASCOT_STYLE_LABEL, MASCOT_STYLES, resolveMascotPattern, type MotionMascot } from '@shared/motionMascot';
 import { LookPanel } from './LookPanel';
@@ -234,6 +236,11 @@ export function MotionEditor({ id: initialId, initial, restored, onBack }: {
 
   const secs = useMemo(() => motionTimeline(clean).total / 30, [clean]);
   const resolved = useMemo(() => resolveLayouts(clean), [clean]);
+  // Lo que decidió la adaptación del texto sobre el video de fondo (una frase para el panel).
+  const backdropText = useMemo(() => {
+    const plan = backdropPlan(clean, motionTimeline(clean), resolved);
+    return plan ? describePlan(plan) : null;
+  }, [clean, resolved]);
   const says = voiceSays(clean);
   const voiceFresh = !clean.voice || clean.voice.hash === voiceScriptHash({ says, voice: clean.voice.voice as TtsVoice, rate: clean.voice.rate, pitch: clean.voice.pitch });
   const renderState = stored?.render;
@@ -410,6 +417,10 @@ export function MotionEditor({ id: initialId, initial, restored, onBack }: {
                     <ToggleRow label="Solo mayúsculas" checked={spec.custom.uppercase} onChange={(uppercase) => setSpec({ custom: { ...spec.custom, uppercase } })} />
                   </div>
                 )}
+              </Group>
+
+              <Group title="Video de fondo" hint="Sube un video propio: corre continuo detrás de todo el reel y el texto se adapta a lo que se ve para que siempre se distinga.">
+                <BackdropPanel backdrop={spec.backdrop} reelSecs={secs} planText={backdropText} onChange={(backdrop) => setSpec({ backdrop })} />
               </Group>
 
               <Group title="Look" hint="Lo que hace que cada video se vea distinto. Gratis, sin IA.">
