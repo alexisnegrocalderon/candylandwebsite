@@ -9,6 +9,7 @@
 
 import { ALL_LAYOUT_KEYS, LAYOUT_AUTO, LOOK_ALL_AUTO, normalizeLook, seedFromText, type MotionLook } from './motionVariety';
 import { normalizeSong, songBeatGrid, type MotionSong } from './motionSong';
+import { normalizeMascot, type MotionMascot } from './motionMascot';
 
 export const MOTION_FPS = 30;
 
@@ -319,6 +320,8 @@ export interface MotionSpec {
   song: MotionSong | null;
   /** Luz de fondo que late con la música. */
   glow: MotionGlow;
+  /** El perrito globo de Playroom en 3D (shared/motionMascot.ts), detrás del texto; null = sin perrito. */
+  mascot: MotionMascot | null;
   /** Cuánto debe durar el video (s). Las escenas se reparten ese tiempo en proporción a sus segundos; null = lo que sumen.
    * Con la voz en off manda la voz, y con el audio «tal cual» (song.asIs) sin duración manda el largo del audio. */
   durationSecs: number | null;
@@ -455,6 +458,7 @@ export function normalizeMotionSpec(raw: unknown): MotionSpec {
     music: pick(r.music, MOTION_MUSIC, 'pulse'),
     song: normalizeSong(r.song, cleanMediaUrl),
     glow: pick(r.glow, MOTION_GLOWS, 'ninguna'),
+    mascot: normalizeMascot(r.mascot),
     durationSecs: r.durationSecs == null || r.durationSecs === '' || !Number.isFinite(Number(r.durationSecs))
       ? null
       : Math.round(clampNum(r.durationSecs, MOTION_DURATION_RANGE.min, MOTION_DURATION_RANGE.max, 20) * 10) / 10,
