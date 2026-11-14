@@ -92,6 +92,7 @@ const IphoneShortcutsCard = lazy(() => import('@/components/admin/IphoneShortcut
 // cuando se abre, para no sumarle peso al resto del panel.
 const MotionStudio = lazy(() => import('@/components/admin/motion/MotionStudio').then((m) => ({ default: m.MotionStudio })));
 const AmbassadorContentAdmin = lazy(() => import('@/components/admin/studio/AmbassadorContentAdmin').then((m) => ({ default: m.AmbassadorContentAdmin })));
+const ProducerSignatureCard = lazy(() => import('@/components/admin/djContracts/ProducerSignatureCard').then((m) => ({ default: m.ProducerSignatureCard })));
 const DjContractsManager = lazy(() => import('@/components/admin/djContracts/DjContractsManager').then((m) => ({ default: m.DjContractsManager })));
 const CrossCheckView = lazy(() => import('@/components/admin/crossCheck/CrossCheckView').then((m) => ({ default: m.CrossCheckView })));
 const CompraFiestaView = lazy(() => import('@/components/admin/insumos/CompraFiestaView').then((m) => ({ default: m.CompraFiestaView })));
@@ -196,6 +197,7 @@ const ADMIN_SECTIONS = [
   { id: 'copro-contactos', label: 'Contactos', hub: 'coproduccion', icon: Contact, render: () => <CoproContactos /> },
   { id: 'copro-movimientos', label: 'Movimientos', hub: 'coproduccion', icon: ListChecks, render: () => <CoproMovimientos /> },
   { id: 'copro-reparto', label: 'Cierre', hub: 'coproduccion', icon: DollarSign, render: () => <CoproReparto /> },
+  { id: 'copro-firma', label: 'Firma de contratos', hub: 'coproduccion', icon: FileSignature, render: () => <ProducerSignatureCard /> },
   { id: 'copro-config', label: 'Configuración', hub: 'coproduccion', icon: SettingsIcon, render: () => <CoproConfig /> },
   // 2 · Vender: las ventas del evento, cortesías y lo que trae ventas (concursos, embajadores, referidos).
   { id: 'orders-web', label: 'Ventas Web', hub: 'vender', icon: Ticket, render: () => <OrdersView channel="web" /> },

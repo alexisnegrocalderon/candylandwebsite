@@ -939,6 +939,14 @@ async function scopedCoproduction(ctx: { partnerCoproductionId: number | null },
   return requireCoproduction(input?.slug ?? 'dalmore');
 }
 
+/** Qué productor es quien está conectado: el socio de Dalmore es Gino; el dueño es Alexis. Nadie firma por el otro. */
+async function producerKeyFor(ctx: { partnerCoproductionId: number | null }): Promise<'alexis' | 'gino'> {
+  if (ctx.partnerCoproductionId == null) return 'alexis';
+  const cp = await coproductionSvc.getCoproductionById(ctx.partnerCoproductionId);
+  if (cp?.slug !== 'dalmore') throw new TRPCError({ code: 'FORBIDDEN', message: 'Esta firma es solo para los productores de Playroom × Dalmore.' });
+  return 'gino';
+}
+
 /** Deja en la bitácora (visible al socio en «Movimientos») un cambio que hace Playroom a la venta. */
 async function auditColab(cp: Coproduction, action: string, detail: string, ctx: any) {
   const fwd = ctx.req?.headers?.['x-forwarded-for'];
@@ -3722,9 +3730,18 @@ export const appRouter = router({
     list: adminReadProcedure.input(z.object({ eventId: z.number().int().positive().optional() }).optional())
       .query(async ({ input }) => (await import("./djContract")).listDjContracts(input?.eventId)),
     // La firma de Alexis y Gino: se dibuja una sola vez y se estampa en cada contrato al enviarlo.
-    producerSignatures: adminReadProcedure.query(async () => (await import("./djContract")).listProducerSignatures()),
-    saveProducerSignature: adminProcedure.input(z.object({ key: z.enum(['alexis', 'gino']), signature: z.string().max(400_000) }))
-      .mutation(async ({ input }) => { await (await import("./djContract")).saveProducerSignature(input.key, input.signature).catch((e) => { throw new TRPCError({ code: 'BAD_REQUEST', message: e instanceof Error ? e.message : 'No se pudo guardar la firma.' }); }); return { ok: true }; }),
+    // Cada productor firma SOLO la suya: Gino (socio de Dalmore) desde su panel de socio, Alexis (dueño) desde el admin.
+    mySignature: partnerProcedure.query(async ({ ctx }) => {
+      const who = await producerKeyFor(ctx);
+      const sigs = await (await import("./djContract")).listProducerSignatures();
+      return { who, signatures: sigs.map((x) => ({ ...x, image: x.key === who ? x.image : null })) };
+    }),
+    saveMySignature: partnerProcedure.input(z.object({ signature: z.string().max(400_000) })).mutation(async ({ input, ctx }) => {
+      const who = await producerKeyFor(ctx);
+      try { await (await import("./djContract")).saveProducerSignature(who, input.signature); }
+      catch (e) { throw new TRPCError({ code: 'BAD_REQUEST', message: e instanceof Error ? e.message : 'No se pudo guardar la firma.' }); }
+      return { ok: true, who };
+    }),
     create: adminProcedure.input(djContractInput).mutation(async ({ input }) => (await import("./djContract")).createDjContract(input)),
     update: adminProcedure.input(z.object({ id: z.number().int().positive() }).merge(djContractInput))
       .mutation(async ({ input: { id, ...rest } }) => { await (await import("./djContract")).updateDjContract(id, rest); return { ok: true }; }),
