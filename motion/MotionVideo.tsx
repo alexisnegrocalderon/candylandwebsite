@@ -1,11 +1,12 @@
 import { useMemo } from 'react';
-import { AbsoluteFill, Html5Audio, interpolate, Sequence, staticFile, useCurrentFrame, useVideoConfig } from 'remotion';
+import { AbsoluteFill, getRemotionEnvironment, Html5Audio, interpolate, Sequence, staticFile, useCurrentFrame, useVideoConfig } from 'remotion';
 import { captionWords, motionPalette, motionTimeline, normalizeMotionSpec, type MotionSpec } from '../shared/motionSpec';
 import { resolveLayouts, resolveLook } from '../shared/motionVariety';
 import { MotionContext, useMotion, type MotionCtx, type MotionSlideInfo } from './context';
 import { useBrandFonts } from './fonts';
 import { KITS } from './kits';
 import { Camera, HandleCard, Hud } from './hud';
+import { Glow, LoopFade } from './glow';
 import { Thread } from './thread';
 import { Grade, Grain, Vignette } from './layers';
 import { LOOK_CUT_FRAMES, LookCut, Texture } from './look';
@@ -31,27 +32,38 @@ const Sfx: React.FC<{ at: number; name: string; volume?: number }> = ({ at, name
 
 const Soundtrack: React.FC = () => {
   const { spec, timeline } = useMotion();
-  const { durationInFrames } = useVideoConfig();
+  const { durationInFrames, fps } = useVideoConfig();
   const kit = KITS[spec.style];
   const voiced = !!spec.voice;
+  const song = spec.song;
   const bed = voiced ? 0.11 : 0.3;
+  // Con la canción de fondo los efectos van más bajos (ya trae su propio bombo) y no se agrega el golpe de apertura.
+  const sfxGain = song ? 0.55 : 1;
   const hits: React.ReactNode[] = [];
   if (spec.sfx) {
-    hits.push(<Sfx key="open" at={0} name="bass" volume={0.7} />);
-    timeline.scenes.slice(1).forEach((t) => hits.push(<Sfx key={`cut${t.index}`} at={t.from - beats.cut / 2 - 2} name={kit.cutSfx} volume={kit.cutSfx === 'glitch' ? 0.45 : 0.55} />));
+    if (!song) hits.push(<Sfx key="open" at={0} name="bass" volume={0.7} />);
+    timeline.scenes.slice(1).forEach((t) => hits.push(<Sfx key={`cut${t.index}`} at={t.from - beats.cut / 2 - 2} name={kit.cutSfx} volume={(kit.cutSfx === 'glitch' ? 0.45 : 0.55) * sfxGain} />));
     if (spec.template === 'countdown') {
       for (let f = 4; f < 28; f += 4) hits.push(<Sfx key={`t${f}`} at={f} name="tick" volume={0.4} />);
       hits.push(<Sfx key="slam" at={25} name="pop" volume={0.7} />);
     }
     if (timeline.outroFrom != null) {
-      hits.push(<Sfx key="rise" at={timeline.outroFrom - 26} name="riser" volume={0.4} />);
-      hits.push(<Sfx key="mark" at={timeline.outroFrom} name="bass" volume={0.7} />);
+      hits.push(<Sfx key="rise" at={timeline.outroFrom - 26} name="riser" volume={0.4 * sfxGain} />);
+      hits.push(<Sfx key="mark" at={timeline.outroFrom} name="bass" volume={0.7 * sfxGain} />);
     }
     if (spec.template === 'sting') hits.push(<Sfx key="pop" at={14} name="pop" volume={0.6} />);
   }
   return (
     <>
-      {spec.music !== 'none' && (
+      {song && !(song.muteOnExport && getRemotionEnvironment().isRendering) && (
+        // La canción propia parte en el tiempo 1 del compás elegido (song.start) y manda sobre las pistas de la casa.
+        <Html5Audio
+          src={song.url}
+          trimBefore={Math.round(song.start * fps)}
+          volume={(f) => song.volume * (voiced ? 0.4 : 1) * (spec.loop ? 1 : interpolate(f, [0, 10, durationInFrames - 24, durationInFrames - 1], [0, 1, 1, 0], clamp))}
+        />
+      )}
+      {!song && spec.music !== 'none' && (
         <Html5Audio
           src={staticFile(`motion/audio/${spec.music}.wav`)}
           loop
@@ -110,6 +122,8 @@ const Body: React.FC = () => {
     <>
       {/* 1. Fondo (continuo entre escenas). */}
       <kit.Background />
+      {/* La luz de fondo (halo o haces) que respira con la música. */}
+      <Glow />
       {/* La trama del look (puntos, rayas, ondas…) sobre el fondo del estilo. */}
       <Texture />
       {/* El hilo del carrusel: una forma que cruza de una lámina a la siguiente. */}
@@ -165,6 +179,8 @@ const Body: React.FC = () => {
       <Grade opacity={kit.grade} />
       <Grain opacity={kit.grain} />
       <Vignette strength={kit.vignette} />
+      {/* Loop: se funde al fondo al final y sale de él al inicio. */}
+      <LoopFade />
       <Soundtrack />
     </>
   );

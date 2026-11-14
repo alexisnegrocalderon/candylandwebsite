@@ -262,3 +262,76 @@ describe('estilo personalizado', () => {
     expect(MOTION_STYLES).toContain('custom');
   });
 });
+
+describe('canción propia, luz y loop', () => {
+  const song = {
+    url: 'https://blob.example/a.mp3', name: 'a', bpm: 124, downbeat: 0.3, start: 0.3, duration: 120,
+    energy: Array(1200).fill(60), hits: [0.3, 0.78, 1.26], volume: 0.9, muteOnExport: false,
+  };
+  const withSong = (extra: Record<string, unknown> = {}) => normalizeMotionSpec({
+    template: 'anuncio', outro: true, music: 'none', song,
+    scenes: [{ text: 'Uno', secs: 3 }, { text: 'Dos', secs: 2.4 }, { text: 'Tres', secs: 4 }], ...extra,
+  });
+
+  it('un video viejo no trae canción, luz ni loop', () => {
+    const s = normalizeMotionSpec({});
+    expect(s.song).toBeNull();
+    expect(s.glow).toBe('ninguna');
+    expect(s.loop).toBe(false);
+  });
+
+  it('limpia la canción y la luz que llegan', () => {
+    expect(normalizeMotionSpec({ song: { ...song, url: 'http://x/a.mp3' } }).song).toBeNull();
+    expect(normalizeMotionSpec({ glow: 'haces', loop: true }).glow).toBe('haces');
+    expect(normalizeMotionSpec({ glow: 'neon' }).glow).toBe('ninguna');
+    expect(normalizeMotionSpec({ loop: 'sí' }).loop).toBe(false);
+  });
+
+  it('con canción, cada escena y la firma duran pulsos pares y los cortes caen en el pulso', () => {
+    const tl = motionTimeline(withSong());
+    const beat = (MOTION_FPS * 60) / 124;
+    expect(tl.beatFrames).toBeCloseTo(beat, 5);
+    for (const t of tl.scenes) {
+      const beats = t.frames / beat;
+      expect(Math.abs(beats / 2 - Math.round(beats / 2))).toBeLessThan(0.02);
+      const startBeats = t.from / beat;
+      expect(Math.abs(startBeats - Math.round(startBeats))).toBeLessThan(0.02);
+    }
+    const outroBeats = tl.outroFrames / beat;
+    expect(Math.abs(outroBeats / 2 - Math.round(outroBeats / 2))).toBeLessThan(0.02);
+    expect(tl.outroFrom).toBe(tl.scenes[2].from + tl.scenes[2].frames);
+    expect(tl.total).toBe(tl.outroFrom! + tl.outroFrames);
+  });
+
+  it('con voz, la canción no mueve los cortes (manda la frase)', () => {
+    const voice = { url: 'https://blob.example/v.wav', hash: 'h', voice: 'catalina', rate: 0, pitch: 0, secs: [2, 2, 2] };
+    const withVoice = motionTimeline(withSong({ voice }));
+    const noSong = motionTimeline(withSong({ voice, song: null, music: 'drive' }));
+    expect(withVoice.scenes.map((t) => t.frames)).toEqual(noSong.scenes.map((t) => t.frames));
+  });
+
+  it('loop: dura compases enteros', () => {
+    for (const outro of [true, false]) {
+      const tl = motionTimeline(withSong({ loop: true, outro }));
+      const bars = tl.total / (((MOTION_FPS * 60) / 124) * 4);
+      expect(Math.abs(bars - Math.round(bars))).toBeLessThan(0.01);
+      // Lo que se agrega no se pierde: las escenas y la firma siguen llegando hasta el final.
+      const lastScene = tl.scenes[tl.scenes.length - 1];
+      expect(tl.outroFrom != null ? tl.outroFrom + tl.outroFrames : lastScene.from + lastScene.frames).toBe(tl.total);
+    }
+  });
+
+  it('loop sin pulso (sin música) no cambia nada', () => {
+    const a = motionTimeline(normalizeMotionSpec({ music: 'none', loop: true }));
+    const b = motionTimeline(normalizeMotionSpec({ music: 'none', loop: false }));
+    expect(a.total).toBe(b.total);
+  });
+
+  it('loop con la plantilla de marca (sting) también cae en compás', () => {
+    const tl = motionTimeline(withSong({ template: 'sting', loop: true }));
+    const bars = tl.total / (((MOTION_FPS * 60) / 124) * 4);
+    expect(Math.abs(bars - Math.round(bars))).toBeLessThan(0.01);
+    expect(tl.scenes).toHaveLength(1);
+    expect(tl.scenes[0].frames).toBe(tl.total);
+  });
+});

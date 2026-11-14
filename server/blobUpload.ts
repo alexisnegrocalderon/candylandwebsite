@@ -28,11 +28,13 @@ const ALLOWED_CONTENT_TYPES = [
   "video/quicktime",
   // Música de los videos del Estudio.
   "audio/mpeg",
+  "audio/mp3",
   "audio/mp4",
   "audio/x-m4a",
   "audio/aac",
   "audio/wav",
   "audio/x-wav",
+  "audio/wave",
 ];
 
 // Generoso para fotos de celular sin editar (a veces 8-10MB) y clips cortos

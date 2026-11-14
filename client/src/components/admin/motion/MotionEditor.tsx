@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ImageUploadField } from '@/components/admin/ImageUploadField';
 import { CaptionReviewBox } from '@/components/admin/CaptionReview';
 import {
-  MOTION_ACCENT_LABEL, MOTION_ACCENTS, MOTION_CARD_LABEL, MOTION_CARDS, MOTION_BASE_LABEL, MOTION_BASES, MOTION_CLOSING_LABEL, MOTION_CLOSINGS, MOTION_FORMAT_LABEL, MOTION_FORMATS, MOTION_MAX_SCENES, MOTION_MUSIC, MOTION_MUSIC_LABEL,
+  MOTION_ACCENT_LABEL, MOTION_ACCENTS, MOTION_CARD_LABEL, MOTION_CARDS, MOTION_BASE_LABEL, MOTION_BASES, MOTION_CLOSING_LABEL, MOTION_CLOSINGS, MOTION_FORMAT_LABEL, MOTION_FORMATS, MOTION_GLOW_LABEL, MOTION_GLOWS, MOTION_MAX_SCENES, MOTION_MUSIC, MOTION_MUSIC_LABEL,
   MOTION_STYLE_LABEL, MOTION_STYLES, MOTION_TEMPLATE_LABEL, MOTION_TEMPLATES, emptyScene, motionTimeline, normalizeMotionSpec, voiceSays,
   type MotionScene, type MotionSpec,
 } from '@shared/motionSpec';
@@ -26,6 +26,7 @@ import { chileIsoDate } from '@shared/contentPlan';
 import { TTS_VOICE_KEYS, TTS_VOICES, voiceScriptHash, type TtsVoice } from '@shared/studioVoice';
 import { MotionPreview } from './MotionPreview';
 import { PackPanel } from './PackPanel';
+import { SongPanel } from './SongPanel';
 import { LookPanel } from './LookPanel';
 import { rememberLook } from './lookMemory';
 import { PublicacionControls } from './PublicacionControls';
@@ -381,10 +382,20 @@ export function MotionEditor({ id: initialId, initial, restored, onBack }: {
                 <div className="grid gap-3 sm:grid-cols-2">
                   <Field label="Fondo"><Pick value={spec.base} options={MOTION_BASES} labels={MOTION_BASE_LABEL} onChange={(base) => setSpec({ base })} /></Field>
                   <Field label="Color de acento" hint="El protagonista: un solo elemento por cuadro."><Pick value={clean.accent} options={MOTION_ACCENTS} labels={MOTION_ACCENT_LABEL} onChange={(accent) => setSpec({ accent })} /></Field>
-                  <Field label="Música"><Pick value={spec.music} options={MOTION_MUSIC} labels={MOTION_MUSIC_LABEL} onChange={(music) => setSpec({ music })} /></Field>
+                  {!spec.song && <Field label="Música de la casa"><Pick value={spec.music} options={MOTION_MUSIC} labels={MOTION_MUSIC_LABEL} onChange={(music) => setSpec({ music })} /></Field>}
                 </div>
                 <ToggleRow label="Efectos de sonido en los cortes" checked={spec.sfx} onChange={(sfx) => setSpec({ sfx })} />
                 <ToggleRow label="Micro-textos de revista (bordes)" checked={clean.hud} onChange={(hud) => setSpec({ hud })} />
+              </Group>
+
+              <Group title="Ritmo y luz" hint="Sube una canción y todo el video se mueve a su pulso. La luz respira con la música.">
+                <SongPanel song={spec.song} videoSecs={secs} onChange={(song) => setSpec({ song })} />
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label="Luz de fondo"><Pick value={spec.glow} options={MOTION_GLOWS} labels={MOTION_GLOW_LABEL} onChange={(glow) => setSpec({ glow })} /></Field>
+                </div>
+                <ToggleRow label="Loop: que se repita sin corte" checked={spec.loop} onChange={(loop) => setSpec({ loop })} />
+                {spec.loop && !(spec.song || spec.music !== 'none') && <p className="text-xs text-amber-700">Sin música ni canción no hay pulso: el loop no cambia la duración.</p>}
+                {spec.loop && <p className="text-xs text-muted-foreground">Dura compases enteros, se funde al fondo al final y la música no se apaga, para que al repetirse el golpe caiga justo.</p>}
               </Group>
 
               <Group title="Cierre y comentarios">

@@ -1,5 +1,6 @@
 import { AbsoluteFill, interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion';
 import { MOTION_HANDLE } from '../shared/motionSpec';
+import { useBeat } from './beat';
 import { useMotion } from './context';
 import { ease, fonts, rand, springs, type } from './theme';
 
@@ -97,7 +98,7 @@ export const Hud: React.FC = () => {
         </div>
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 18, opacity: textIn(20) }}>
           <span style={{ ...microStyle, fontVariantNumeric: 'tabular-nums', letterSpacing: '0.1em' }}>
-            {slide ? `${String(slide.index + 1).padStart(2, '0')} / ${String(slide.total).padStart(2, '0')}` : mmss(frame, fps)}
+            {slide ? `${String(slide.index + 1).padStart(2, '0')} / ${String(slide.total).padStart(2, '0')}` : `${mmss(frame, fps)}${spec.song ? ` · ${Math.round(spec.song.bpm)} BPM` : ''}`}
           </span>
           <Barcode color={palette.micro} height={34} />
         </div>
@@ -111,6 +112,7 @@ export const Camera: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const frame = useCurrentFrame();
   const { durationInFrames } = useVideoConfig();
   const { look, timeline, spec } = useMotion();
+  const b = useBeat();
   const p = interpolate(frame, [0, durationInFrames], [0, 1], { easing: ease.inOut, ...clamp });
   let transform: string | undefined;
   if (look.camera === 'empuje') transform = `scale(${1 + 0.035 * p}) translateY(${-14 * p}px)`;
@@ -121,6 +123,11 @@ export const Camera: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     const beat = timeline.beatFrames ?? 30;
     const since = frame % beat;
     transform = `scale(${1 + 0.02 * p + 0.014 * Math.exp(-since / 3.5)})`;
+  }
+  // Con canción propia, la cámara también late con el bombo real (más fuerte cuanto más intensa la música).
+  if (spec.song && look.camera !== 'latido') {
+    const kick = 0.006 + 0.014 * b.energy;
+    transform = `${transform ?? ''} scale(${1 + kick * b.pulse + 0.012 * b.hit})`.trim();
   }
   return <AbsoluteFill style={transform ? { transform } : undefined}>{children}</AbsoluteFill>;
 };
