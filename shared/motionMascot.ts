@@ -12,10 +12,47 @@ export const MASCOT_KIND_LABEL: Record<MascotKind, string> = {
   pareja: 'La pareja (rosa y celeste, frente a frente)',
 };
 
-export const MASCOT_COLORS = ['magenta', 'rosa', 'celeste', 'rojo', 'amarillo', 'multi', 'oro', 'plata'] as const;
+/** Cómo se dibuja el perrito: la ilustración de Playroom (la de los vasos: línea y estampados) o el globo 3D con reflejos. Los videos
+ * guardados antes de que existiera la ilustración quedan con el 3D. */
+export const MASCOT_STYLES = ['ilustrado', 'globo3d'] as const;
+export type MascotStyle = (typeof MASCOT_STYLES)[number];
+export const MASCOT_STYLE_LABEL: Record<MascotStyle, string> = {
+  ilustrado: 'Ilustrado (el de los vasos de Playroom)',
+  globo3d: 'Globo 3D con reflejos',
+};
+
+/** Estampado del globo ilustrado. «auto» lo elige la semilla del video. */
+export const MASCOT_PATTERNS = ['auto', 'puntos', 'corazones', 'cuadricula', 'manchas', 'rayas', 'cuadros', 'estrellas', 'liso'] as const;
+export type MascotPattern = (typeof MASCOT_PATTERNS)[number];
+export const MASCOT_PATTERN_LABEL: Record<MascotPattern, string> = {
+  auto: 'Automático (lo elige la semilla)',
+  puntos: 'Puntos',
+  corazones: 'Corazones',
+  cuadricula: 'Cuadrícula (rombos)',
+  manchas: 'Manchas (dálmata)',
+  rayas: 'Rayas',
+  cuadros: 'Cuadros (bola disco)',
+  estrellas: 'Estrellas',
+  liso: 'Liso',
+};
+const REAL_PATTERNS = MASCOT_PATTERNS.filter((p) => p !== 'auto');
+
+/** El estampado que se dibuja: el elegido o, en «auto», uno de la semilla (el segundo perrito de la pareja, otro distinto). */
+export function resolveMascotPattern(pattern: MascotPattern, seed: number, index = 0): Exclude<MascotPattern, 'auto'> {
+  if (pattern !== 'auto') return pattern;
+  return REAL_PATTERNS[(Math.abs(Math.floor(seed)) * 7 + index * 3 + 1) % REAL_PATTERNS.length] as Exclude<MascotPattern, 'auto'>;
+}
+
+export const MASCOT_COLORS = ['magenta', 'rosa', 'celeste', 'rojo', 'amarillo', 'menta', 'violeta', 'naranja', 'multi', 'tinta', 'linea-celeste', 'linea-rosa', 'oro', 'plata'] as const;
 export type MascotColor = (typeof MASCOT_COLORS)[number];
 export const MASCOT_COLOR_LABEL: Record<MascotColor, string> = {
   magenta: 'Magenta (el clásico)',
+  menta: 'Menta',
+  violeta: 'Violeta',
+  naranja: 'Naranja',
+  tinta: 'Solo línea negra (como el vaso)',
+  'linea-celeste': 'Solo línea celeste (como el vaso)',
+  'linea-rosa': 'Solo línea rosa (como el vaso)',
   rosa: 'Rosa',
   celeste: 'Celeste',
   rojo: 'Rojo brillante',
@@ -34,6 +71,12 @@ export const MASCOT_COLOR_HEX: Record<MascotColor, string> = {
   multi: '#FF1E9A',
   oro: '#F2C14E',
   plata: '#E6ECF5',
+  menta: '#4FD9A8',
+  violeta: '#8A5CFF',
+  naranja: '#FF8A3D',
+  tinta: '#FFFFFF',
+  'linea-celeste': '#FFFFFF',
+  'linea-rosa': '#FFFFFF',
 };
 
 export const MASCOT_SIZES = ['grande', 'chico'] as const;
@@ -47,6 +90,10 @@ export interface MotionMascot {
   kind: MascotKind;
   color: MascotColor;
   size: MascotSize;
+  /** Ilustrado (vasos de Playroom) o globo 3D. */
+  style: MascotStyle;
+  /** Estampado del globo ilustrado. */
+  pattern: MascotPattern;
   /** Revienta en confeti al final (en el golpe más cercano a la firma). */
   pop: boolean;
 }
@@ -62,6 +109,9 @@ export function normalizeMascot(raw: unknown): MotionMascot | null {
     kind: r.kind as MascotKind,
     color: pick(r.color, MASCOT_COLORS, 'magenta'),
     size: pick(r.size, MASCOT_SIZES, 'grande'),
+    // Sin estilo guardado (videos de antes de la ilustración) = el globo 3D de siempre.
+    style: pick(r.style, MASCOT_STYLES, 'globo3d'),
+    pattern: pick(r.pattern, MASCOT_PATTERNS, 'auto'),
     pop: r.pop !== false,
   };
 }

@@ -9,6 +9,7 @@
  *   pnpm tsx scripts/motion/preview.mts captions [salida]      # los 3 estilos de subtítulos sobre cada estilo (ONLY=estilo, BASE=fondo)
  *   pnpm tsx scripts/motion/preview.mts papers [salida]        # Collage (los 4 papeles) y Pizarra: escenas asentadas y a mitad de transición (BASE=fondo, FORMAT=reel|feed)
  *   pnpm tsx scripts/motion/preview.mts chat [salida]          # el gancho de chat (WhatsApp, DM, notificaciones): escribiendo, a mitad y al final (ONLY=estilo, FORMAT, BASE)
+ *   pnpm tsx scripts/motion/preview.mts dogs [salida]          # el perrito de Playroom: colores y estampados (FRAME=cuadro, FORMAT, BASE, KIND=pareja)
  *   pnpm tsx scripts/motion/preview.mts video receta.json out.mp4
  *
  * Usa el Chromium de la máquina si existe (CHROME_PATH o el de Playwright). */
@@ -100,6 +101,25 @@ if (mode === 'video') {
     }
     console.log(style, 'subtítulos listos');
   }
+} else if (mode === 'dogs') {
+  const out = a ?? 'motion-dogs';
+  mkdirSync(out, { recursive: true });
+  const combos: Array<[string, string]> = [
+    ['tinta', 'puntos'], ['linea-celeste', 'corazones'], ['linea-rosa', 'cuadricula'], ['tinta', 'manchas'],
+    ['magenta', 'puntos'], ['celeste', 'cuadros'], ['amarillo', 'manchas'], ['rosa', 'corazones'],
+    ['menta', 'estrellas'], ['violeta', 'rayas'], ['naranja', 'cuadricula'], ['multi', 'puntos'],
+  ];
+  const only = process.env.ONLY?.split(',');
+  for (const [color, pattern] of combos) {
+    if (only && !only.includes(color) && !only.includes(pattern)) continue;
+    const spec = normalizeMotionSpec({
+      template: 'anuncio', style: 'editorial', base: process.env.BASE ?? 'perla', format: process.env.FORMAT ?? 'reel', hud: false, outro: false, music: 'none', sfx: false, look: LOOK_CLASSIC, seed: 21,
+      scenes: [{ text: 'Playroom', highlight: 'Playroom', secs: 4 }, { text: 'Otra escena', secs: 3 }],
+      mascot: { kind: process.env.KIND ?? 'perrito', color, size: 'grande', pop: false, style: 'ilustrado', pattern },
+    });
+    await still(spec, Number(process.env.FRAME ?? 70), join(out, `${process.env.KIND ?? 'perrito'}-${color}-${pattern}.png`));
+  }
+  console.log('perritos listos');
 } else if (mode === 'chat') {
   const out = a ?? 'motion-chat';
   mkdirSync(out, { recursive: true });

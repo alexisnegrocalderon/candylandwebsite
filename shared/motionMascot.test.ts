@@ -16,7 +16,7 @@ describe('normalizeMascot', () => {
     for (const color of ['rojo', 'amarillo', 'multi', 'oro', 'plata']) expect(normalizeMascot({ kind: 'perrito', color })!.color).toBe(color);
   });
   it('limpia lo que llega', () => {
-    expect(normalizeMascot({ kind: 'perrito', color: 'verde', size: 'gigante' })).toEqual({ kind: 'perrito', color: 'magenta', size: 'grande', pop: true });
+    expect(normalizeMascot({ kind: 'perrito', color: 'verde', size: 'gigante' })).toEqual({ kind: 'perrito', color: 'magenta', size: 'grande', style: 'globo3d', pattern: 'auto', pop: true });
     expect(normalizeMascot({ ...dog, pop: false })).toMatchObject({ color: 'oro', size: 'chico', pop: false });
   });
 });

@@ -70,6 +70,22 @@ partes, y cada una se fija a mano o queda en **Auto** (la elige la semilla del v
 - Revisar a mano: `ONLY=liquid pnpm tsx scripts/motion/preview.mts looks ./looks` (cada opción) o con `SEEDS=5`
   (cinco semillas al azar, como «Sorpréndeme»).
 
+## El perrito de Playroom (mascota ilustrada)
+
+- **Dibujo** (`motion/playroom/dog.tsx`): el perrito de los vasos de Playroom. Línea negra gruesa, burbujas de globo de modelar y
+  **estampados** (puntos, corazones, cuadrícula de rombos, manchas de dálmata, rayas, cuadros de bola disco, estrellas o liso),
+  sin cara. Está dibujado en SVG, burbuja por burbuja: se **infla de a una** (hocico → cabeza → cuerpo → cola), la cola y las orejas
+  se mueven, y el estampado crece con cada burbuja como si estuviera impreso en el globo.
+- **Colores libres** (no solo los de la marca): magenta, rosa, celeste, rojo, amarillo, menta, violeta, naranja, multicolor (cada
+  burbuja de un color), oro y plata; y tres de **solo línea** (negra, celeste o rosa, el dibujo del vaso en un solo color sobre blanco).
+- **Estampado «automático»:** lo elige la semilla (`resolveMascotPattern`); en la pareja, el segundo perrito lleva otro.
+- **Se comporta como el globo 3D** (misma línea de tiempo, `shared/motionMascot.ts`): rebota en cada pulso de la música, da una
+  vuelta en cada corte, revienta en confeti y deja la firma. En «Dibujo» se elige entre **Ilustrado** (nuevo, por defecto) y
+  **Globo 3D**; los videos guardados con mascota antes de la ilustración quedan con el 3D.
+- **Pesa mucho menos que el 3D:** en un celular simulado (CPU 4× más lenta, sin GPU) el ilustrado va a 19–21 cuadros por segundo y
+  el 3D a 2; la pareja ilustrada, a 17.
+- Revisar a mano: `pnpm tsx scripts/motion/preview.mts dogs ./perritos` (`FRAME=`, `KIND=pareja`, `ONLY=color,estampado`).
+
 ## Gancho de chat (WhatsApp, DM y notificaciones)
 
 - **Qué es:** la escena 1 se dibuja como un celular donde llegan mensajes, en vez del titular (`spec.hook`, `motion/chat.tsx`). Frena
