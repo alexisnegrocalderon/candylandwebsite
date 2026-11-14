@@ -1,6 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const requestCrossCheck = vi.fn();
+vi.mock('./privateMembersList', () => ({
+  PRIVATE_MEMBERS_EMAILS: {
+    soltera: Array.from({ length: 7 }, (_, i) => `sola${i}@example.com`),
+    pareja: Array.from({ length: 38 }, (_, i) => `pareja${i}@example.com`),
+  },
+}));
 vi.mock('./crossCheck', async () => {
   class CrossCheckRetry extends Error {}
   return {

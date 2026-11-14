@@ -20,7 +20,7 @@ export function CrossCheckCard({ item, compact = false }: { item: CrossCheckItem
   });
   const discard = trpc.crossCheck.discard.useMutation({ onSuccess: () => { toast('Descartado'); refresh(); }, onError: (e) => toast.error(e.message) });
   const busy = report.isPending || discard.isPending;
-  const isMail = item.kind === 'outreach' || item.kind.startsWith('private-members:');
+  const isMail = item.kind === 'outreach' || item.kind.startsWith('private-members:') || item.kind === 'community-discount';
   const [previewOpen, setPreviewOpen] = useState(false);
   const preview = trpc.crossCheck.preview.useQuery({ id: item.id }, { enabled: isMail && previewOpen, staleTime: 60_000 });
   return (
