@@ -3685,6 +3685,7 @@ export const appRouter = router({
     // Los borradores de correos a personas externas se dejan listos al abrir la pantalla (una sola vez cada uno).
     list: adminReadProcedure.query(async ({ ctx }) => {
       if (ctx.user?.role !== 'viewer') await import("./outreach").then((m) => m.ensureOutreachDrafts()).catch((err) => console.error('[Outreach]', err));
+      if (ctx.user?.role !== 'viewer') await import("./privateMembers").then((m) => m.ensurePrivateMembersRequests()).catch((err) => console.error('[PrivateMembers]', err));
       const lists = await crossCheckSvc.listCrossChecks();
       // El invitado de demostración no ve correos a personas externas.
       return ctx.user?.role === 'viewer' ? { pending: lists.pending.filter((i) => i.kind !== 'outreach'), recent: lists.recent.filter((i) => i.kind !== 'outreach') } : lists;
