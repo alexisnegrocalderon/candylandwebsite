@@ -51,6 +51,14 @@ describe('correo PLAYMORE', () => {
     expect(html).toContain('Hola, Camila');
   });
 
+  it('invita a descargar la app con Playmatch, antes del cierre', () => {
+    const html = buildPrivateMembersEmail(soltera);
+    expect(html).toContain('Descarga la app de Playroom');
+    expect(html).toContain('Playmatch');
+    expect(html).toContain('/app?src=email-private-members');
+    expect(html.indexOf('Descarga la app')).toBeLessThan(html.indexOf('NOS VEMOS EL VIERNES'));
+  });
+
   it('nunca dice el recinto ni la dirección exacta', () => {
     const html = buildPrivateMembersEmail(soltera);
     expect(html).not.toMatch(/Mansi[oó]n Playroom\s*[—-]\s*\w+ \d+/);
