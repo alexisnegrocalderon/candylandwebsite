@@ -350,14 +350,14 @@ export async function memberCardContext(memberEmail: string | null | undefined, 
  * en db.ts, que ya la marcó paymentStatus="approved" y sumó el stock). Reusa
  * el mismo email de ticket que una compra pagada normal — no hay diferencia
  * pendiente que cobrar, así que nunca pasa por el flujo de abono/topup. */
-export async function confirmFreeOrder(orderNumber: string) {
+export async function confirmFreeOrder(orderNumber: string, opts: { silent?: boolean } = {}) {
   const db = await getDb();
   if (!db) return;
 
   const [order] = await db.select().from(orders).where(eq(orders.orderNumber, orderNumber)).limit(1);
   if (!order || order.paymentStatus !== 'approved' || order.emailSent) return;
 
-  await processApprovedOrder(order);
+  await processApprovedOrder(order, opts);
 }
 
 webhooksRouter.post('/api/webhooks/mercadopago', async (req: Request, res: Response) => {
@@ -667,7 +667,9 @@ export async function resendConfirmationEmail(orderNumber: string) {
   return { success: true };
 }
 
-async function processApprovedOrder(order: any) {
+/** `silent`: crea las entradas y deja al cliente registrado, pero NO manda el correo estándar de entrada ni el push de
+ * «Venta web». Lo usa quien manda su propio correo con la entrada (ej. server/privateMembers.ts). */
+async function processApprovedOrder(order: any, opts: { silent?: boolean } = {}) {
   const db = await getDb();
   if (!db) return;
 
@@ -989,6 +991,11 @@ async function processApprovedOrder(order: any) {
         url: '/admin?section=orders-web',
       });
     }
+    return;
+  }
+
+  if (opts.silent) {
+    await db.update(orders).set({ emailSent: 1 }).where(eq(orders.id, order.id));
     return;
   }
 

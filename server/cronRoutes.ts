@@ -123,6 +123,7 @@ export function registerCronRoutes(app: Express) {
     if (!requireCronSecret(req, res)) return;
     try {
       const outreach = await import("./outreach").then((m) => m.ensureOutreachDrafts()).catch((err) => { console.error('[Outreach]', err); return 0; });
+      await import("./privateMembers").then((m) => m.ensurePrivateMembersRequests()).catch((err) => console.error('[PrivateMembers]', err));
       res.json({ success: true, ...(await (await import("./eventPilot")).runPilotTick()), outreach });
     } catch (err) {
       console.error('[Cron] Error en el piloto de eventos:', err);

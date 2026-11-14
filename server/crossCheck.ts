@@ -146,6 +146,7 @@ async function execute(item: typeof crossChecks.$inferSelect): Promise<string> {
     }
     case 'outreach': return (await import('./outreach')).sendOutreach((item.payload as { key?: string } | null)?.key ?? '');
     default:
+      if (item.kind.startsWith('private-members:')) return (await import('./privateMembers')).sendPrivateMembers(item.kind);
       if (item.kind.startsWith('pilot:')) return (await import('./eventPilot')).runPilotStep(item.kind.slice(6), item.eventId, item.payload);
       throw new Error(`No sé ejecutar «${item.kind}».`);
   }
@@ -192,9 +193,10 @@ export async function pilotedEventIds(): Promise<Set<number>> {
 }
 
 /** El correo completo de un pedido de envío (para revisarlo antes de tocar «Reportar»). */
-export async function previewCrossCheck(id: number): Promise<{ to: string; replyTo: string; subject: string; html: string } | null> {
+export async function previewCrossCheck(id: number): Promise<{ to: string; replyTo: string; subject: string; html: string; recipients?: string[] } | null> {
   const db = await crossCheckDb();
   const [row] = await db.select().from(crossChecks).where(eq(crossChecks.id, id)).limit(1);
+  if (row?.kind.startsWith('private-members:')) return (await import('./privateMembers')).getPrivateMembersPreview(row.kind);
   if (!row || row.kind !== 'outreach') return null;
   return (await import('./outreach')).getOutreachPreview((row.payload as { key?: string } | null)?.key ?? '');
 }
