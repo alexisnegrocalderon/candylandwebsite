@@ -97,6 +97,16 @@ export function MotionPreview({
         />
       ) : <Player
         ref={ref}
+        // Música + voz + efectos montan varias etiquetas de audio a la vez; con el tope de fábrica (5) el video se caía.
+        numberOfSharedAudioTags={14}
+        // Si algo del dibujo falla, se dice qué (antes quedaba un triángulo diminuto sobre negro) y se puede reintentar.
+        errorFallback={({ error }) => (
+          <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-neutral-900 p-5 text-center text-white">
+            <p className="text-sm font-semibold">No se pudo mostrar la vista previa</p>
+            <p className="text-xs text-white/70">Cambia algo del video para reintentar. Si se repite, avísame con este texto:</p>
+            <p className="max-h-24 overflow-hidden break-words rounded-lg bg-black/50 p-2 text-[11px] text-white/80">{String(error?.message ?? error).slice(0, 220)}</p>
+          </div>
+        )}
         component={MotionVideo}
         inputProps={inputProps}
         durationInFrames={Math.max(1, total)}
