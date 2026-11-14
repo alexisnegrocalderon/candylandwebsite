@@ -61,6 +61,12 @@ export function buildPrivateMembersEmail(group: PrivateMembersGroup, opts: { nam
       ${qr}
       <p style="color:#C4B3A6;font-size:13px;line-height:1.5;margin:0;">También la encuentras siempre en <strong>Mi cuenta → Mis entradas</strong>, entrando con este mismo correo.</p>
     </div>
+    <div style="background-color:#25102B;border:1px solid #4A2A4E;border-radius:20px;padding:22px 18px;margin:0 0 24px;text-align:center;">
+      <p style="color:#F7E7A8;font-size:11px;font-weight:800;letter-spacing:2px;text-transform:uppercase;margin:0 0 8px;">Lleva la fiesta en tu celular</p>
+      <p style="color:#F3E9D2;font-size:18px;font-weight:800;line-height:1.3;margin:0 0 10px;">Descarga la app de Playroom</p>
+      <p style="color:#C4B3A6;font-size:14px;line-height:1.6;margin:0 0 16px;">Ten tu acceso siempre a mano y vive <strong style="color:#F3E9D2;">Playmatch</strong>: arma tu perfil, descubre quién está en la fiesta, mira tu afinidad con cada persona y entérate al tiro cuando hay match. Instálala antes del viernes y entra con este mismo correo.</p>
+      <a href="${EMAIL_BASE_URL}/app?src=email-private-members" style="display:inline-block;background-color:#E477EA;color:#16060F;text-decoration:none;padding:14px 32px;border-radius:999px;font-weight:800;font-size:15px;">📲 Descargar la app</a>
+    </div>
     <p style="color:#F3E9D2;font-size:15px;font-weight:800;letter-spacing:1.5px;text-align:center;margin:0 0 8px;">NOS VEMOS EL VIERNES 4 DE DICIEMBRE</p>`;
   return buildAnniversaryBlastEmail({
     theme: "playmore",
