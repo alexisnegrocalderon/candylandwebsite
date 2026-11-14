@@ -7,6 +7,8 @@ import { useBrandFonts } from './fonts';
 import { KITS } from './kits';
 import { Camera, HandleCard, Hud } from './hud';
 import { Glow, LoopFade } from './glow';
+import { Mascot } from './mascot';
+import { mascotTimes } from '../shared/motionMascot';
 import { Thread } from './thread';
 import { Grade, Grain, Vignette } from './layers';
 import { LOOK_CUT_FRAMES, LookCut, Texture } from './look';
@@ -52,6 +54,9 @@ const Soundtrack: React.FC = () => {
       hits.push(<Sfx key="mark" at={timeline.outroFrom} name="bass" volume={0.7 * sfxGain} />);
     }
     if (spec.template === 'sting') hits.push(<Sfx key="pop" at={14} name="pop" volume={0.6} />);
+    // El perrito globo revienta con un «pop».
+    const pop = mascotTimes(spec, timeline, fps).popAt;
+    if (pop != null) hits.push(<Sfx key="mascot-pop" at={pop} name="pop" volume={0.8} />);
   }
   return (
     <>
@@ -130,6 +135,8 @@ const Body: React.FC = () => {
       <Thread />
       {/* 2-3. Fotos, gráfica y texto por escena, con un empuje lento de cámara. */}
       <Camera>
+      {/* El perrito globo: detrás del texto, dentro de la cámara. */}
+      <Mascot />
       {timeline.scenes.map((t) => {
         const scene = spec.scenes[t.index];
         let content: React.ReactNode;
