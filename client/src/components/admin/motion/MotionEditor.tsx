@@ -48,10 +48,33 @@ function Field({ label, children, hint }: { label: string; children: React.React
   );
 }
 
+/** Una sección del formulario: título chico arriba, línea separadora y sus campos con aire parejo. */
+function Group({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <section className="space-y-3 border-t border-border/50 pt-5 first:border-t-0 first:pt-0">
+      <div className="space-y-0.5">
+        <h3 className="text-sm font-semibold">{title}</h3>
+        {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+/** Interruptor en una fila entera (el texto a la izquierda, el botón a la derecha): se toca en cualquier parte. */
+function ToggleRow({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <label className="flex min-h-11 cursor-pointer items-center justify-between gap-3 rounded-xl border border-border/60 px-3.5 py-2 text-sm">
+      <span className="min-w-0">{label}</span>
+      <Switch checked={checked} onCheckedChange={onChange} />
+    </label>
+  );
+}
+
 function Pick<T extends string>({ value, options, labels, onChange }: { value: T; options: readonly T[]; labels: Record<T, string>; onChange: (v: T) => void }) {
   return (
     <Select value={value} onValueChange={(v) => onChange(v as T)}>
-      <SelectTrigger><SelectValue /></SelectTrigger>
+      <SelectTrigger className="h-11 w-full min-w-0 [&_[data-slot=select-value]]:truncate"><SelectValue /></SelectTrigger>
       <SelectContent>
         {options.map((o) => <SelectItem key={o} value={o}>{labels[o]}</SelectItem>)}
       </SelectContent>
@@ -85,6 +108,28 @@ export function MotionEditor({ id: initialId, initial, restored, onBack }: {
   const isMobile = useIsMobile();
   const [previewOpen, setPreviewOpen] = useState(!restored);
   const [view, setView] = useState<'video' | 'laminas'>('video');
+  // La barra de arriba del panel es fija y alta (título + pestañas): el video se pega justo debajo de ella (si no, queda tapado
+  // al hacer scroll) y ocupa el alto que queda en pantalla. Se mide, porque cambia con el tamaño de letra y el ancho.
+  const [dock, setDock] = useState({ top: 96, room: 640 });
+  // Sin esto el sticky no funciona (ver `.motion-editing` en admin.css).
+  useEffect(() => {
+    document.documentElement.classList.add('motion-editing');
+    return () => document.documentElement.classList.remove('motion-editing');
+  }, []);
+  useEffect(() => {
+    const measure = () => {
+      const bar = document.querySelector('.admin-topbar')?.getBoundingClientRect();
+      // La barra queda pegada arriba (sticky top-0): su alto es lo que hay que dejarle libre.
+      const top = Math.round((bar ? bar.height : 80) + 12);
+      setDock({ top, room: Math.max(300, Math.min(900, window.innerHeight - top - 76)) });
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    const bar = document.querySelector('.admin-topbar');
+    const ro = typeof ResizeObserver !== 'undefined' && bar ? new ResizeObserver(measure) : null;
+    if (bar) ro?.observe(bar);
+    return () => { window.removeEventListener('resize', measure); ro?.disconnect(); };
+  }, []);
   const [voiceKey, setVoiceKey] = useState<TtsVoice>((initial.voice?.voice as TtsVoice) || 'catalina');
   // Lo que se escribe queda tal cual (con sus espacios) mientras se edita; la
   // vista previa, la duración y lo que se guarda pasan por normalizeMotionSpec.
@@ -255,7 +300,8 @@ export function MotionEditor({ id: initialId, initial, restored, onBack }: {
       {!!renderCfg?.missing.length && <p className="text-xs text-muted-foreground">Para grabar el MP4 falta configurar: {renderCfg.missing.join(', ')}. La vista previa funciona igual.</p>}
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,420px)_1fr]">
-        <div className="space-y-3 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:self-start lg:overflow-y-auto">
+        {/* Columna fija: el video queda a la vista y solo se desplaza el panel de la derecha. */}
+        <div className="space-y-3 lg:sticky lg:z-20 lg:self-start lg:overflow-y-auto lg:overscroll-contain" style={isMobile ? undefined : { top: dock.top, maxHeight: `calc(100dvh - ${dock.top}px - 1rem)` }}>
           <div className="flex gap-1.5">
             {([['video', 'Video'], ['laminas', 'Carrusel · Post · Historia']] as const).map(([k, label]) => (
               <button
@@ -269,7 +315,7 @@ export function MotionEditor({ id: initialId, initial, restored, onBack }: {
             ))}
           </div>
           {view !== 'video' ? <PackPanel spec={clean} />
-            : !isMobile ? <MotionPreview spec={clean} maxHeight={720} />
+            : !isMobile ? <MotionPreview spec={clean} maxHeight={dock.room} />
               : (
                 <p className="rounded-xl bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
                   La vista previa va en una ventanita flotante: ábrela o ciérrala con el ojo de la barra de abajo.
@@ -279,70 +325,90 @@ export function MotionEditor({ id: initialId, initial, restored, onBack }: {
 
         <div className="space-y-4">
           <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
-            <CardContent className="grid gap-3 pt-6 sm:grid-cols-2">
-              <Field label="Plantilla"><Pick value={spec.template} options={MOTION_TEMPLATES} labels={MOTION_TEMPLATE_LABEL} onChange={(template) => setSpec({ template })} /></Field>
-              <div className="space-y-3 rounded-xl border border-border/60 p-3">
-                <p className="text-xs font-semibold text-muted-foreground">Escribir guion con IA</p>
-                <Textarea rows={2} maxLength={2000} value={guionTema} onChange={(e) => setGuionTema(e.target.value)} placeholder="Ej: explicar cómo funciona el Playmatch y qué llevar a la fiesta." />
-                <div className="grid gap-3 sm:grid-cols-3">
+            <CardContent className="space-y-6 pt-6">
+              <Group title="Guion con IA" hint="Escribe las escenas por ti. Reemplaza las actuales (las fotos asignadas se quitan).">
+                <Textarea rows={3} maxLength={2000} value={guionTema} onChange={(e) => setGuionTema(e.target.value)} placeholder="Ej: explicar cómo funciona el Playmatch y qué llevar a la fiesta." />
+                <div className="grid gap-3 sm:grid-cols-2">
                   <Field label="Texto por escena"><Pick value={guionDensidad} options={['pocas', 'medias', 'muchas'] as const} labels={{ pocas: 'Pocas palabras', medias: 'Medias', muchas: 'Muchas palabras' }} onChange={setGuionDensidad} /></Field>
                   <Field label="Escenas"><Pick value={guionEscenas == null ? 'auto' : String(guionEscenas)} options={['auto', '3', '4', '5', '6', '7'] as const} labels={{ auto: 'Automático', '3': '3', '4': '4', '5': '5', '6': '6', '7': '7' }} onChange={(v) => setGuionEscenas(v === 'auto' ? null : Number(v))} /></Field>
-                  <Field label="Modelo"><Pick value={guionModelo} options={AI_MODELS} labels={Object.fromEntries(AI_MODELS.map((m) => [m, `${AI_MODEL_LABEL[m]} · ≈ US$ ${motionCallEstimateUsd(m).toFixed(3).replace('.', ',')}`])) as Record<AiModel, string>} onChange={setGuionModelo} /></Field>
+                  <div className="sm:col-span-2">
+                    <Field label="Modelo de IA" hint="Sonnet es el equilibrado; Opus escribe y dirige mejor, y cuesta más."><Pick value={guionModelo} options={AI_MODELS} labels={Object.fromEntries(AI_MODELS.map((m) => [m, `${AI_MODEL_LABEL[m]} · ≈ US$ ${motionCallEstimateUsd(m).toFixed(3).replace('.', ',')}`])) as Record<AiModel, string>} onChange={setGuionModelo} /></Field>
+                  </div>
                 </div>
-                <div className="flex flex-wrap items-center gap-3">
-                  <WriteButton size="sm" disabled={guion.isPending || guionTema.trim().length < 3} onClick={() => guion.mutate({ brief: guionTema, format: spec.format, keyword: spec.keyword, model: guionModelo, density: guionDensidad, escenas: guionEscenas, style: spec.style, template: null, eventId: spec.eventId, media: [] })}>
-                    {guion.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null} Escribir guion
-                  </WriteButton>
-                  <span className="text-xs text-muted-foreground">Reemplaza las escenas actuales (las fotos asignadas se quitan).</span>
+                <WriteButton className="h-11 w-full sm:w-auto" disabled={guion.isPending || guionTema.trim().length < 3} onClick={() => guion.mutate({ brief: guionTema, format: spec.format, keyword: spec.keyword, model: guionModelo, density: guionDensidad, escenas: guionEscenas, style: spec.style, template: null, eventId: spec.eventId, media: [] })}>
+                  {guion.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null} Escribir guion
+                </WriteButton>
+              </Group>
+
+              <Group title="Formato y estilo">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label="Plantilla"><Pick value={spec.template} options={MOTION_TEMPLATES} labels={MOTION_TEMPLATE_LABEL} onChange={(template) => setSpec({ template })} /></Field>
+                  <Field label="Formato"><Pick value={spec.format} options={MOTION_FORMATS} labels={MOTION_FORMAT_LABEL} onChange={(format) => setSpec({ format })} /></Field>
+                  <Field label="Estilo"><Pick value={spec.style} options={MOTION_STYLES.filter((st) => st !== 'custom' || !!canCustom)} labels={MOTION_STYLE_LABEL} onChange={(style) => setSpec({ style })} /></Field>
+                  <Field label="Evento">
+                    <Select value={spec.eventId != null ? String(spec.eventId) : 'none'} onValueChange={(v) => {
+                      const ev = events.find((e: any) => String(e.id) === v);
+                      // La fecha va en la receta para el calendario del estilo softui.
+                      setSpec({ eventId: v === 'none' ? null : Number(v), eventDate: ev ? chileIsoDate(new Date(ev.eventDate)) : '' });
+                    }}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Sin evento</SelectItem>
+                        {events.map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </Field>
                 </div>
-              </div>
-              <Field label="Estilo"><Pick value={spec.style} options={MOTION_STYLES.filter((st) => st !== 'custom' || !!canCustom)} labels={MOTION_STYLE_LABEL} onChange={(style) => setSpec({ style })} /></Field>
-              {spec.style === 'custom' && (
-                <div className="space-y-3 rounded-xl border border-border/60 p-3">
-                  <p className="text-xs font-semibold text-muted-foreground">Estilo personalizado</p>
-                  <Field label="Fuente"><Pick value={spec.custom.font} options={MOTION_CUSTOM_FONTS} labels={MOTION_CUSTOM_FONT_LABEL} onChange={(font) => setSpec({ custom: { ...spec.custom, font } })} /></Field>
-                  <Field label="Fondo"><Pick value={spec.custom.bg} options={MOTION_CUSTOM_BG} labels={MOTION_CUSTOM_BG_LABEL} onChange={(bg) => setSpec({ custom: { ...spec.custom, bg } })} /></Field>
-                  <Field label="Entrada del texto"><Pick value={spec.custom.entry} options={MOTION_CUSTOM_ENTRY} labels={MOTION_CUSTOM_ENTRY_LABEL} onChange={(entry) => setSpec({ custom: { ...spec.custom, entry } })} /></Field>
-                  <Field label="Velocidad (0,6 a 1,6)"><Input type="number" step={0.1} min={0.6} max={1.6} value={spec.custom.speed} onChange={(e) => setSpec({ custom: normalizeCustom({ ...spec.custom, speed: Number(e.target.value) }) })} /></Field>
-                  <Field label="Solo mayúsculas"><Switch checked={spec.custom.uppercase} onCheckedChange={(uppercase) => setSpec({ custom: { ...spec.custom, uppercase } })} /></Field>
+                {spec.style === 'custom' && (
+                  <div className="space-y-3 rounded-xl border border-border/60 p-3">
+                    <p className="text-xs font-semibold text-muted-foreground">Estilo personalizado</p>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <Field label="Fuente"><Pick value={spec.custom.font} options={MOTION_CUSTOM_FONTS} labels={MOTION_CUSTOM_FONT_LABEL} onChange={(font) => setSpec({ custom: { ...spec.custom, font } })} /></Field>
+                      <Field label="Fondo del estilo"><Pick value={spec.custom.bg} options={MOTION_CUSTOM_BG} labels={MOTION_CUSTOM_BG_LABEL} onChange={(bg) => setSpec({ custom: { ...spec.custom, bg } })} /></Field>
+                      <Field label="Entrada del texto"><Pick value={spec.custom.entry} options={MOTION_CUSTOM_ENTRY} labels={MOTION_CUSTOM_ENTRY_LABEL} onChange={(entry) => setSpec({ custom: { ...spec.custom, entry } })} /></Field>
+                      <Field label="Velocidad (0,6 a 1,6)"><Input className="h-11" type="number" inputMode="decimal" step={0.1} min={0.6} max={1.6} value={spec.custom.speed} onChange={(e) => setSpec({ custom: normalizeCustom({ ...spec.custom, speed: Number(e.target.value) }) })} /></Field>
+                    </div>
+                    <ToggleRow label="Solo mayúsculas" checked={spec.custom.uppercase} onChange={(uppercase) => setSpec({ custom: { ...spec.custom, uppercase } })} />
+                  </div>
+                )}
+              </Group>
+
+              <Group title="Look" hint="Lo que hace que cada video se vea distinto. Gratis, sin IA.">
+                <LookPanel clean={clean} onChange={setSpec} />
+              </Group>
+
+              <Group title="Color y sonido">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label="Fondo"><Pick value={spec.base} options={MOTION_BASES} labels={MOTION_BASE_LABEL} onChange={(base) => setSpec({ base })} /></Field>
+                  <Field label="Color de acento" hint="El protagonista: un solo elemento por cuadro."><Pick value={clean.accent} options={MOTION_ACCENTS} labels={MOTION_ACCENT_LABEL} onChange={(accent) => setSpec({ accent })} /></Field>
+                  <Field label="Música"><Pick value={spec.music} options={MOTION_MUSIC} labels={MOTION_MUSIC_LABEL} onChange={(music) => setSpec({ music })} /></Field>
                 </div>
-              )}
-              <LookPanel clean={clean} onChange={setSpec} />
-              <Field label="Fondo"><Pick value={spec.base} options={MOTION_BASES} labels={MOTION_BASE_LABEL} onChange={(base) => setSpec({ base })} /></Field>
-              <Field label="Color de acento" hint="El protagonista: un solo elemento por cuadro."><Pick value={clean.accent} options={MOTION_ACCENTS} labels={MOTION_ACCENT_LABEL} onChange={(accent) => setSpec({ accent })} /></Field>
-              <Field label="Formato"><Pick value={spec.format} options={MOTION_FORMATS} labels={MOTION_FORMAT_LABEL} onChange={(format) => setSpec({ format })} /></Field>
-              <Field label="Música"><Pick value={spec.music} options={MOTION_MUSIC} labels={MOTION_MUSIC_LABEL} onChange={(music) => setSpec({ music })} /></Field>
-              <Field label="Evento">
-                <Select value={spec.eventId != null ? String(spec.eventId) : 'none'} onValueChange={(v) => {
-                  const ev = events.find((e: any) => String(e.id) === v);
-                  // La fecha va en la receta para el calendario del estilo softui.
-                  setSpec({ eventId: v === 'none' ? null : Number(v), eventDate: ev ? chileIsoDate(new Date(ev.eventDate)) : '' });
-                }}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Sin evento</SelectItem>
-                    {events.map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </Field>
-              <label className="flex items-center gap-2 text-sm"><Switch checked={spec.sfx} onCheckedChange={(sfx) => setSpec({ sfx })} /> Efectos de sonido en los cortes</label>
-              <label className="flex items-center gap-2 text-sm"><Switch checked={clean.hud} onCheckedChange={(hud) => setSpec({ hud })} /> Micro-textos de revista (bordes)</label>
-              {spec.template !== 'sting' && (
-                <label className="flex items-center gap-2 text-sm"><Switch checked={spec.outro} onCheckedChange={(outro) => setSpec({ outro })} /> Cerrar con la firma de la marca</label>
-              )}
-              {spec.outro && spec.template !== 'sting' && (
-                <Field label="Cierre"><Pick value={clean.closing} options={MOTION_CLOSINGS} labels={MOTION_CLOSING_LABEL} onChange={(closing) => setSpec({ closing })} /></Field>
-              )}
-              <Field label="Palabra clave de comentarios"><Input value={spec.keyword} maxLength={20} onChange={(e) => setSpecRaw((s) => applyKeyword(s, e.target.value))} placeholder="INFO" /></Field>
-              {(spec.outro || spec.template === 'sting') && (
-                <Field label="Frase bajo el logo"><Input value={spec.outroLine} maxLength={60} onChange={(e) => setSpec({ outroLine: e.target.value })} placeholder="Comenta INFO" /></Field>
-              )}
-              {spec.template === 'countdown' && (
-                <div className="grid grid-cols-2 gap-3 sm:col-span-2">
-                  <Field label="Número"><Input type="number" min={0} max={999} value={spec.countdown.value} onChange={(e) => setSpec({ countdown: { ...spec.countdown, value: Number(e.target.value) } })} /></Field>
-                  <Field label="Unidad"><Input value={spec.countdown.unit} maxLength={16} onChange={(e) => setSpec({ countdown: { ...spec.countdown, unit: e.target.value } })} /></Field>
+                <ToggleRow label="Efectos de sonido en los cortes" checked={spec.sfx} onChange={(sfx) => setSpec({ sfx })} />
+                <ToggleRow label="Micro-textos de revista (bordes)" checked={clean.hud} onChange={(hud) => setSpec({ hud })} />
+              </Group>
+
+              <Group title="Cierre y comentarios">
+                {spec.template !== 'sting' && (
+                  <ToggleRow label="Cerrar con la firma de la marca" checked={spec.outro} onChange={(outro) => setSpec({ outro })} />
+                )}
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {spec.outro && spec.template !== 'sting' && (
+                    <Field label="Cierre"><Pick value={clean.closing} options={MOTION_CLOSINGS} labels={MOTION_CLOSING_LABEL} onChange={(closing) => setSpec({ closing })} /></Field>
+                  )}
+                  <Field label="Palabra clave de comentarios"><Input className="h-11" value={spec.keyword} maxLength={20} onChange={(e) => setSpecRaw((s) => applyKeyword(s, e.target.value))} placeholder="INFO" /></Field>
+                  {(spec.outro || spec.template === 'sting') && (
+                    <div className="sm:col-span-2">
+                      <Field label="Frase bajo el logo"><Input className="h-11" value={spec.outroLine} maxLength={60} onChange={(e) => setSpec({ outroLine: e.target.value })} placeholder="Comenta INFO" /></Field>
+                    </div>
+                  )}
                 </div>
-              )}
+                {spec.template === 'countdown' && (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Field label="Número"><Input className="h-11" type="number" inputMode="numeric" min={0} max={999} value={spec.countdown.value} onChange={(e) => setSpec({ countdown: { ...spec.countdown, value: Number(e.target.value) } })} /></Field>
+                    <Field label="Unidad"><Input className="h-11" value={spec.countdown.unit} maxLength={16} onChange={(e) => setSpec({ countdown: { ...spec.countdown, unit: e.target.value } })} /></Field>
+                  </div>
+                )}
+              </Group>
             </CardContent>
           </Card>
 
