@@ -25,6 +25,7 @@ import { formatChileDateTime } from '@shared/chileDate';
 import { BRAND_BLOCKS, SALES_BLOCKS, joinBlocks, splitBlocks, type BlockDef } from '@shared/agentKnowledgeBlocks';
 import { classifyHandoffNoise, NOISE_LABEL } from '@shared/agentKnowledge';
 import { IG_MAX_REPLY_CHARS, type InstagramAgentConfig } from '@shared/instagramAgentConfig';
+import { DEFAULT_SRTA_PERSONALITY } from '@shared/srtaPlayroom';
 import { biggestDrop, DROP_ADVICE, funnelStages } from '@shared/agentFunnel';
 
 /* Bandeja del agente que contesta el Instagram (server/instagram.ts).
@@ -238,11 +239,13 @@ function AgentKnowledgeCard({ agent }: { agent: AgentDraft }) {
 
   return (
     <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
-      <CardHeader><CardTitle className="flex items-center gap-2"><Bot className="w-5 h-5" /> Conocimiento y tono del agente</CardTitle></CardHeader>
+      <CardHeader><CardTitle className="flex items-center gap-2"><Bot className="w-5 h-5" /> Srta. Playroom: personalidad, conocimiento y tono</CardTitle></CardHeader>
       <CardContent className="space-y-5">
         <p className="text-xs text-muted-foreground">
           Instagram y WhatsApp usan este mismo conocimiento: se edita solo acá.
         </p>
+
+        <PersonalityField value={draft.personality} onChange={(personality) => setDraft({ ...draft, personality })} />
 
         <KnowledgeBlocks draft={draft} setDraft={setDraft} />
 
@@ -861,6 +864,24 @@ function KnowledgeCard() {
  * vistazo que un párrafo largo. Por dentro sigue siendo un solo string
  * (`InstagramAgentConfig.styleExamples`, una frase por línea): no hace
  * falta ningún cambio de esquema, esto es puramente presentación. */
+/** La personalidad de la Srta. Playroom (la host): quién es y cómo habla. Va al principio de todo lo que escribe
+ * el agente (DMs, comentarios, borradores). Las reglas de chileno y el filtro antiargentino van aparte y siempre. */
+function PersonalityField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <Label className="flex items-center gap-1.5"><Sparkles className="h-4 w-4 text-pink-500" /> Personalidad de la Srta. Playroom</Label>
+        <Button type="button" variant="ghost" size="sm" onClick={() => onChange(DEFAULT_SRTA_PERSONALITY)} disabled={value.trim() === DEFAULT_SRTA_PERSONALITY}>Volver a la original</Button>
+      </div>
+      <Textarea value={value} maxLength={4000} rows={7} onChange={(e) => onChange(e.target.value)} className="text-sm" />
+      <p className="text-xs text-muted-foreground">
+        Quién es y cómo se comporta la host. Que siempre hable en chileno (tú, nada de «vos», «dale» ni «genial») está
+        fijo: si se le escapa algo argentino, se corrige solo antes de enviarlo.
+      </p>
+    </div>
+  );
+}
+
 function StyleExamplesField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   const [draftPhrase, setDraftPhrase] = useState('');
   const phrases = value.split('\n').map((p) => p.trim()).filter(Boolean);

@@ -1,4 +1,5 @@
-import { DEFAULT_HOOKS } from './igEngagement';
+import { DEFAULT_HOOKS, LEGACY_DEFAULT_HOOKS } from './igEngagement';
+import { DEFAULT_SRTA_PERSONALITY } from './srtaPlayroom';
 /** Config del agente de IA que contesta los mensajes directos del Instagram
  * de la productora -- lo edita el dueño desde Ajustes, se guarda como JSON en
  * `siteSettings.instagramAgentConfig`.
@@ -25,6 +26,10 @@ export interface InstagramAgentConfig {
    * libre. Se le entrega al modelo como verdad de la casa, junto con los
    * datos reales de eventos y entradas que salen de la base. */
   brandNotes: string;
+  /** La personalidad de la Srta. Playroom, la host (agente de IA): cómo es y cómo habla. Va al principio de todos los
+   * prompts que escriben a nombre de la casa (DMs, comentarios, borradores). Vacío = la de siempre
+   * (shared/srtaPlayroom.ts). */
+  personality: string;
   /** Lo que se manda cuando el agente decide derivar a una persona (o cuando
    * falla la IA). Tiene que ser una frase que se pueda decir SIEMPRE, sin
    * importar la pregunta. */
@@ -110,6 +115,7 @@ export interface InstagramAgentConfig {
 
 export const DEFAULT_INSTAGRAM_AGENT_CONFIG: InstagramAgentConfig = {
   enabled: false,
+  personality: DEFAULT_SRTA_PERSONALITY,
   brandNotes: [
     'Mansion Playroom es una productora de fiestas liberales en Valparaíso / Viña del Mar, Chile.',
     'Tono: cercano, chileno, breve y respetuoso. Nada de doble sentido explícito ni lenguaje sexual en los mensajes.',
@@ -117,17 +123,17 @@ export const DEFAULT_INSTAGRAM_AGENT_CONFIG: InstagramAgentConfig = {
     'Las entradas se compran únicamente en mansionplayroom.cl -- no se reservan por Instagram ni se venden por transferencia.',
     'La dirección exacta del local se envía por correo junto con la entrada, después de comprar.',
   ].join('\n'),
-  handoffMessage: 'Te respondo esto con más calma en un rato, que lo vea alguien del equipo 💜',
+  handoffMessage: 'Lo reviso con el equipo y te respondo en un ratito 💜',
   historyLimit: 12,
   dailyReplyLimitPerThread: 30,
   styleExamples: '',
   followUpEnabled: true,
   followUpMinutes: 30,
   // Sin URL a propósito: el recordatorio va con el botón de compra abajo.
-  followUpMessage: 'Cuando quieras retomamos 💜 mientras tanto puedes ver fechas y entradas acá abajo 👇',
+  followUpMessage: 'Aquí sigo cuando quieras retomar ✨ Te dejo acá abajo las fechas y entradas 👇',
   followUpPersonalized: true,
   followUp2Hours: 20,
-  thanksMessage: 'Un gusto y cualquier otra cosa que necesites estamos aquí para poder ayudar',
+  thanksMessage: 'Un gusto 💜 Aquí estoy para lo que necesites.',
   autoResumeHours: 3,
   noAiAccounts: [],
   autoResumeMigrated: false,
@@ -142,7 +148,7 @@ export const DEFAULT_INSTAGRAM_AGENT_CONFIG: InstagramAgentConfig = {
     'TIPOS DE CLIENTE Y CÓMO ACOMPAÑAR A CADA UNO:',
     '- Primera vez, con nervios o dudas: mucha calidez y cero presión. Contarle que es un espacio seguro, con reglas claras de consentimiento, y que nadie hace nada que no quiera. Ofrecerle la guía de primera vez.',
     '- Pareja curiosa: hablarles en plural, que se sientan bienvenidos juntos. Destacar la experiencia compartida y el acceso Dúo si está en los datos.',
-    '- Soltera o soltero: que se sienta cómoda/o yendo sola/o, que mucha gente llega así y conoce gente adentro.',
+    '- Por su cuenta (soltera o soltero): que se sienta en confianza yendo sin compañía, que mucha gente llega así y conoce gente adentro.',
     '- Grupo de amigos: entusiasmo, que la pasen increíble juntos, preguntar cuántos son para darles el precio justo.',
     '- Cliente que ya vino: tratarlo como de la casa, "¡qué bueno tenerte de vuelta!", contarle qué trae de nuevo esta fecha.',
     '- Curioso sin apuro: dar la info justa, dejar la puerta abierta y cerrar con una pregunta suave, sin empujar.',
@@ -155,6 +161,19 @@ export const DEFAULT_INSTAGRAM_AGENT_CONFIG: InstagramAgentConfig = {
     '- "Lo voy a pensar": respetarlo, recordar al pasar si el precio sube pronto, y dejarle el botón para cuando se decida.',
   ].join('\n'),
 };
+
+/** Los mensajes fijos que venían por defecto antes de la Srta. Playroom: si siguen tal cual (nadie los cambió), pasan
+ * a los nuevos con su voz. Uno que el dueño escribió a mano se respeta. */
+const LEGACY_DEFAULTS: Partial<Record<'handoffMessage' | 'followUpMessage' | 'thanksMessage', string>> = {
+  handoffMessage: 'Te respondo esto con más calma en un rato, que lo vea alguien del equipo 💜',
+  followUpMessage: 'Cuando quieras retomamos 💜 mientras tanto puedes ver fechas y entradas acá abajo 👇',
+  thanksMessage: 'Un gusto y cualquier otra cosa que necesites estamos aquí para poder ayudar',
+};
+function fixedMessage(key: 'handoffMessage' | 'followUpMessage' | 'thanksMessage', raw: unknown): string {
+  if (typeof raw !== 'string' || raw.trim().length === 0 || raw.trim() === LEGACY_DEFAULTS[key]) return DEFAULT_INSTAGRAM_AGENT_CONFIG[key];
+  return raw;
+}
+const sameList = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((x, i) => x.trim() === b[i]);
 
 /** Completa con los valores por defecto cualquier campo faltante -- una
  * config vieja o parcial nunca deja un interruptor en `undefined` (que en un
@@ -169,9 +188,10 @@ export function normalizeInstagramAgentConfig(raw: unknown): InstagramAgentConfi
     brandNotes: typeof partial.brandNotes === 'string' && partial.brandNotes.trim().length > 0
       ? partial.brandNotes
       : DEFAULT_INSTAGRAM_AGENT_CONFIG.brandNotes,
-    handoffMessage: typeof partial.handoffMessage === 'string' && partial.handoffMessage.trim().length > 0
-      ? partial.handoffMessage
-      : DEFAULT_INSTAGRAM_AGENT_CONFIG.handoffMessage,
+    personality: typeof partial.personality === 'string' && partial.personality.trim().length > 0
+      ? partial.personality.slice(0, 4000)
+      : DEFAULT_INSTAGRAM_AGENT_CONFIG.personality,
+    handoffMessage: fixedMessage('handoffMessage', partial.handoffMessage),
     historyLimit: Number.isFinite(historyLimit) && historyLimit > 0
       ? Math.min(Math.floor(historyLimit), 40)
       : DEFAULT_INSTAGRAM_AGENT_CONFIG.historyLimit,
@@ -187,12 +207,8 @@ export function normalizeInstagramAgentConfig(raw: unknown): InstagramAgentConfi
     followUp2Hours: Number.isFinite(Number(partial.followUp2Hours)) && partial.followUp2Hours !== undefined
       ? Math.min(Math.max(Math.floor(Number(partial.followUp2Hours)), 0), 22)
       : DEFAULT_INSTAGRAM_AGENT_CONFIG.followUp2Hours,
-    followUpMessage: typeof partial.followUpMessage === 'string' && partial.followUpMessage.trim().length > 0
-      ? partial.followUpMessage
-      : DEFAULT_INSTAGRAM_AGENT_CONFIG.followUpMessage,
-    thanksMessage: typeof partial.thanksMessage === 'string' && partial.thanksMessage.trim().length > 0
-      ? partial.thanksMessage
-      : DEFAULT_INSTAGRAM_AGENT_CONFIG.thanksMessage,
+    followUpMessage: fixedMessage('followUpMessage', partial.followUpMessage),
+    thanksMessage: fixedMessage('thanksMessage', partial.thanksMessage),
     salesPlaybook: typeof partial.salesPlaybook === 'string' ? partial.salesPlaybook : DEFAULT_INSTAGRAM_AGENT_CONFIG.salesPlaybook,
     coachWeeklyEnabled: partial.coachWeeklyEnabled !== false,
     commentsEnabled: partial.commentsEnabled === true,
@@ -205,7 +221,8 @@ export function normalizeInstagramAgentConfig(raw: unknown): InstagramAgentConfi
       : [],
     autoResumeMigrated: partial.autoResumeMigrated === true,
     welcomeEnabled: partial.welcomeEnabled === true,
-    hooks: Array.isArray(partial.hooks)
+    // Los enganches de antes, sin tocar, pasan a los nuevos (los de antes traían un «te late» mexicano).
+    hooks: Array.isArray(partial.hooks) && !sameList(partial.hooks.filter((h): h is string => typeof h === 'string'), LEGACY_DEFAULT_HOOKS)
       ? partial.hooks.filter((h): h is string => typeof h === 'string').map((h) => h.trim().slice(0, 160)).filter(Boolean).slice(0, 20)
       : DEFAULT_HOOKS,
     customLinkCodes: Array.isArray(partial.customLinkCodes)

@@ -1,6 +1,15 @@
 /* Bienvenida, enganches y fans de Instagram: lo puro. */
 
 export const DEFAULT_HOOKS: string[] = [
+  '¿Vendrías en pareja, en grupo o por tu cuenta? 👀',
+  '¿Es tu primera vez en Playroom o ya nos conoces? 😉',
+  '¿Qué look te tinca para la próxima? ✨',
+  '¿Qué te llamó la atención de Playroom? 💜',
+  '¿Te tinca más bailar toda la noche o conocer gente nueva? ✨',
+];
+
+/** Los enganches por defecto de antes (con un «te late» mexicano): si una config los tiene tal cual, pasan a los nuevos. */
+export const LEGACY_DEFAULT_HOOKS: string[] = [
   '¿Vendrías solo/a, en pareja o con amigos? 👀',
   '¿Es tu primera vez en Playroom o ya nos conoces? 😉',
   '¿Qué disfraz te tinca para la próxima? 🔥',
@@ -26,7 +35,7 @@ export function welcomeInstruction(isFollower: boolean | undefined, hook: string
       ? 'Todavía no sigue la cuenta: invítale de forma suave y coqueta a seguirnos para enterarse primero de las fechas (una sola vez, sin presionar).'
       : '';
   return [
-    'PRIMER MENSAJE DE ESTA PERSONA: dale una bienvenida cálida y con estilo Playroom (amable, coqueta, con 1 emoji) antes de responder lo que pregunta, en la misma respuesta y sin alargarte.',
+    'PRIMER MENSAJE DE ESTA PERSONA: recíbela como la Srta. Playroom, la host (cálida, elegante y coqueta, con 1 emoji) antes de responder lo que pregunta, en la misma respuesta y sin alargarte. No hace falta que digas tu nombre.',
     follow,
     hook ? `Termina con esta pregunta de enganche (puedes ajustarla apenas para que calce): "${hook}"` : '',
   ].filter(Boolean).join(' ');

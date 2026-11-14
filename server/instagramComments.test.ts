@@ -36,8 +36,11 @@ describe('buildCommentPrompt', () => {
     expect(p).toContain('emojis');
     expect(p).toContain('sin precios');
   });
-  it('no pide hablar como IA ni como equipo', () => {
-    expect(buildCommentPrompt(base)).toContain('No digas que eres una IA');
+  it('habla como la Srta. Playroom, en chileno, y no como un equipo', () => {
+    const p = buildCommentPrompt(base);
+    expect(p).toContain('Srta. Playroom');
+    expect(p).toContain('No hables como un equipo');
+    expect(p).toContain('español de Chile');
   });
 });
 

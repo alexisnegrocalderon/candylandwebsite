@@ -11,6 +11,7 @@ import { invokeLLM, extractContent, NO_THINKING } from './_core/llm';
 import * as db from './db';
 import { buildInstagramContext } from './instagramAgent';
 import { replyToComment, hideComment, unhideComment, sendButtonMessage, sendPrivateReply, commentOnOwnMedia, fetchOwnMedia } from './instagramSend';
+import { chileanize, srtaPromptBlock } from '../shared/srtaPlayroom';
 import { resolveInstagramBuyLink } from './instagramInteractive';
 import { stripUrlsFromReply, resolvePageLink, AGENT_PAGE_KEYS, AGENT_SITE_PAGES } from './agentLinks';
 import { sendPushToAdmins } from './push';
@@ -29,7 +30,7 @@ const DM_BUTTON_TITLE = 'Comprar entrada 🔥';
 /** Limpia el texto que escribió la IA: sin links (van en el DM), sin marcas
  * de IA, sin exclamaciones en cadena, y con un largo de comentario. */
 export function finalizeCommentReply(raw: string): string {
-  let text = cleanAiMarks(stripUrlsFromReply(String(raw ?? '')).text)
+  let text = chileanize(cleanAiMarks(stripUrlsFromReply(String(raw ?? '')).text))
     .replace(/^["'«“]+|["'»”]+$/g, '')
     .replace(/[¡!]{2,}/g, '!')
     .replace(/\s*\n+\s*/g, ' ')
@@ -58,13 +59,14 @@ export function normalizeDmButton(raw: unknown, pageKeys: string[] = AGENT_PAGE_
 }
 
 export function buildCommentPrompt(input: {
-  brandNotes: string; styleExamples: string; recentReplies: string[]; category: CommentCategory; purchaseIntent: boolean; hook?: string | null;
+  brandNotes: string; styleExamples: string; recentReplies: string[]; category: CommentCategory; purchaseIntent: boolean; hook?: string | null; personality?: string;
 }): string {
   const wantsDm = input.category === 'question';
   return [
-    'Eres quien maneja el Instagram de Mansion Playroom y contestas un comentario público de una publicación. Escribe en español chileno, como una persona real desde el celular.',
-    'ESTILO PLAYROOM: amable, coqueto y entretenido, con picardía elegante (nunca vulgar ni sexual explícito). Usa 1 o 2 emojis que calcen (😉🔥💜👀😈✨🖤). La respuesta pública también la leen otras personas: que dé ganas de ir o de escribir.',
-    'REGLAS DE LA RESPUESTA PÚBLICA ("reply"): una sola frase cortita (máximo 110 caracteres), sin precios, fechas exactas, direcciones, links ni hashtags. No digas que eres una IA ni un equipo ("estamos encantados", "gracias por tu comentario" suenan a robot). No repitas cómo empezaron tus respuestas anteriores. Usa algo concreto de lo que escribió la persona.',
+    srtaPromptBlock(input.personality ?? ''),
+    'Contestas un comentario público en una publicación del Instagram de Mansion Playroom, con tu voz de Srta. Playroom, como desde el celular.',
+    'ESTILO: amable, coqueta y entretenida, con picardía elegante (nunca vulgar ni sexual explícito). Usa 1 o 2 emojis que calcen (💜✨😉👀🔥😈). La respuesta pública también la leen otras personas: que dé ganas de ir o de escribir.',
+    'REGLAS DE LA RESPUESTA PÚBLICA ("reply"): una sola frase cortita (máximo 110 caracteres), sin precios, fechas exactas, direcciones, links ni hashtags. No hables como un equipo ni como empresa ("estamos encantados", "gracias por tu comentario" suenan a robot). No repitas cómo empezaron tus respuestas anteriores. Usa algo concreto de lo que escribió la persona.',
     AI_PHRASES_PROMPT_LINE,
     CATEGORY_HINT[input.category],
     wantsDm
@@ -76,7 +78,7 @@ export function buildCommentPrompt(input: {
       ].join('\n')
       : 'Deja "dm" vacío y "button" en "none".',
     `NOTAS DE LA MARCA:\n${input.brandNotes}`,
-    input.styleExamples.trim() ? `ASÍ ESCRIBE EL DUEÑO (imita el tono):\n${input.styleExamples.trim()}` : '',
+    input.styleExamples.trim() ? `ASÍ ESCRIBE EL DUEÑO (imita el tono, siempre en chileno):\n${input.styleExamples.trim()}` : '',
     input.recentReplies.length
       ? `RESPUESTAS PÚBLICAS RECIENTES DEL DUEÑO (aprende el estilo y NO las copies ni empieces igual):\n${input.recentReplies.map((r) => `- ${r}`).join('\n')}`
       : '',
@@ -108,7 +110,7 @@ export async function draftCommentReply(input: {
   const context = wantsDm ? await buildInstagramContext(new Date()) : '';
   const result = await invokeLLM({ feature: "instagramComments",
     messages: [
-      { role: 'system', content: buildCommentPrompt({ brandNotes: config.brandNotes, styleExamples: config.styleExamples, recentReplies, category: input.category, purchaseIntent: input.purchaseIntent, hook: wantsDm ? pickHook(config.hooks, recentReplies) : null }) },
+      { role: 'system', content: buildCommentPrompt({ brandNotes: config.brandNotes, styleExamples: config.styleExamples, personality: config.personality, recentReplies, category: input.category, purchaseIntent: input.purchaseIntent, hook: wantsDm ? pickHook(config.hooks, recentReplies) : null }) },
       { role: 'user', content: `${context ? `${context}\n\n---\n` : ''}Comentario${input.username ? ` de @${input.username}` : ''}:\n"""${input.text}"""` },
     ],
     responseFormat: { type: 'json_schema', json_schema: COMMENT_SCHEMA as any },
@@ -127,7 +129,7 @@ export async function draftCommentReply(input: {
 
 /** El DM puede tener varias frases y saltos, pero nunca links. */
 export function finalizeCommentDm(raw: string): string {
-  return cleanAiMarks(stripUrlsFromReply(String(raw ?? '')).text).replace(/[¡!]{2,}/g, '!').trim().slice(0, 600);
+  return chileanize(cleanAiMarks(stripUrlsFromReply(String(raw ?? '')).text)).replace(/[¡!]{2,}/g, '!').trim().slice(0, 600);
 }
 
 /** Entrada desde el webhook, cuando ninguna campaña por palabra clave calzó.
@@ -262,10 +264,11 @@ async function resolveCommentButton(choice: string, mediaId: string | null): Pro
 // conversación (siempre con aprobación del dueño).
 // ---------------------------------------------------------------------------
 
-export function buildOwnCommentPrompt(input: { brandNotes: string; caption: string; mediaType: string; recent: string[] }): string {
+export function buildOwnCommentPrompt(input: { brandNotes: string; caption: string; mediaType: string; recent: string[]; personality?: string }): string {
   return [
-    'Eres quien maneja el Instagram de Mansion Playroom y vas a dejar UN comentario en una publicación propia para abrir conversación y que la gente responda.',
-    'ESTILO PLAYROOM: amable, coqueto y entretenido, con picardía elegante (nunca vulgar). 1 o 2 emojis. Español chileno natural.',
+    srtaPromptBlock(input.personality ?? ''),
+    'Vas a dejar UN comentario en una publicación propia del Instagram de Mansion Playroom para abrir conversación y que la gente responda.',
+    'ESTILO: amable, coqueta y entretenida, con picardía elegante (nunca vulgar). 1 o 2 emojis (💜✨😉👀🔥😈).',
     'Formato: una pregunta o invitación corta (máximo 120 caracteres) relacionada con el pie de foto, fácil de contestar (ej. elegir entre opciones, etiquetar a alguien, contar algo). Sin links, sin hashtags, sin precios. No suenes a marca ni a IA.',
     AI_PHRASES_PROMPT_LINE,
     `NOTAS DE LA MARCA:\n${input.brandNotes}`,
@@ -290,7 +293,7 @@ export async function suggestOwnComment(mediaId: string, opts: { notify?: boolea
   const caption = String(post.caption ?? '');
   const result = await invokeLLM({ feature: "instagramComments",
     messages: [
-      { role: 'system', content: buildOwnCommentPrompt({ brandNotes: config.brandNotes, caption, mediaType: String(post.media_type ?? ''), recent }) },
+      { role: 'system', content: buildOwnCommentPrompt({ brandNotes: config.brandNotes, personality: config.personality, caption, mediaType: String(post.media_type ?? ''), recent }) },
       { role: 'user', content: `Pie de foto de la publicación (${post.media_type === 'VIDEO' ? 'reel' : post.media_type === 'CAROUSEL_ALBUM' ? 'carrusel' : 'foto'}):\n"""${caption.slice(0, 1500) || '(sin pie de foto)'}"""` },
     ],
     responseFormat: { type: 'json_schema', json_schema: OWN_SCHEMA as any },

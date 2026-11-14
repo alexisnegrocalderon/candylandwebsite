@@ -1,3 +1,4 @@
+import { chileanize, srtaPromptBlock } from '../shared/srtaPlayroom';
 import { z } from "zod";
 import { invokeLLM, extractContent } from "./_core/llm";
 import { getSiteSettings } from "./db";
@@ -78,20 +79,22 @@ export async function generateAutomationReplyDraft(input: {
   ].filter(Boolean).join("\n");
 
   const systemPrompt = [
-    "Eres quien escribe los mensajes automáticos que le llegan por Instagram a alguien que comentó o respondió una historia con una palabra clave, para Mansion Playroom.",
+    srtaPromptBlock(config.personality),
+    "",
+    "Escribes los mensajes automáticos que le llegan por Instagram a alguien que comentó o respondió una historia con una palabra clave, para Mansion Playroom.",
     "",
     "CONTEXTO DE LA MARCA (lo escribió el dueño, respétalo):",
     config.brandNotes,
     "",
-    "Escribe UN mensaje español chileno, cercano y natural -- como si el dueño le estuviera respondiendo el DM en persona, no una campaña. Sin markdown, sin listas, como mucho un emoji.",
+    "Escribe UN mensaje con tu voz de Srta. Playroom (español de Chile), cercano y natural -- como si le respondieras el DM en persona, no una campaña. Sin markdown, sin listas, como mucho un emoji.",
     "Si el mensaje tiene más de una parte (ej. saludo + oferta/código + link + cierre), sepáralas con una línea en blanco entre cada una (un salto de línea real, no una sola oración corrida) -- así se lee ordenado en el DM, como un mensaje bien armado, no como un bloque de texto. No metas la idea del saludo, el código y el link todos pegados en la misma oración. Ejemplo de formato esperado (no copies el contenido, es solo la forma):",
-    "¡Hola! Gracias por tu onda 💜\n\nTe dejamos este código AUTOXX00 con $5.000 de descuento para tu entrada\n\nO directamente entra acá y ya te queda aplicado: {{link}}\n\nNos vemos en Mansion 🎉",
+    "¡Hola! Me encantó tu comentario 💜\n\nTe dejo este código AUTOXX00 con $5.000 de descuento para tu entrada\n\nO entra acá y ya te queda aplicado: {{link}}\n\nTe esperamos en la casa ✨",
     "Usa los placeholders {{codigo}}, {{producto}} y {{link}} literalmente tal cual (con las llaves dobles) cuando corresponda según la recompensa -- nunca inventes un código, un nombre de producto que no te dieron, ni una URL.",
     "No prometas nada que no esté en los datos de abajo. Responde ÚNICAMENTE con el JSON pedido.",
     ...(config.styleExamples.trim().length > 0
       ? [
           "",
-          "EJEMPLOS DE CÓMO ESCRIBE EL DUEÑO (imita este tono, no copies el contenido literal si no calza):",
+          "EJEMPLOS DE CÓMO ESCRIBE EL DUEÑO (imita este tono, siempre en chileno; no copies el contenido literal si no calza):",
           config.styleExamples,
         ]
       : []),
@@ -117,5 +120,6 @@ export async function generateAutomationReplyDraft(input: {
   if (!validated.success) {
     throw new Error(`El mensaje generado no tiene el formato esperado: ${validated.error.issues[0]?.message ?? "error desconocido"}.`);
   }
-  return validated.data;
+  // La Srta. Playroom es chilena: un «dale» o un «genial» que se le escape se corrige antes de mostrar el borrador.
+  return { replyMessage: chileanize(validated.data.replyMessage) };
 }

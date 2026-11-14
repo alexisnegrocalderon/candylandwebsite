@@ -323,6 +323,32 @@ describe('runInstagramAgent por canal', () => {
     expect(call.responseFormat.json_schema.name).toBe('respuesta_instagram_v2');
   });
 
+  it('si se le escapa un argentinismo, le pide reescribir y manda la versión chilena', async () => {
+    mockLlmJson({ reply: '¡Dale! ¿Vos venís en pareja?', handoff: false, handoffReason: '', isPersonal: false, isThanks: false, action: 'none' });
+    mockLlmJson({ reply: '¡Perfecto! ¿Vienes en pareja?', handoff: false, handoffReason: '', isPersonal: false, isThanks: false, action: 'none' });
+    const result = await runInstagramAgent({ incomingText: 'quiero ir', history: [], config: {} });
+    expect(result.reply).toBe('¡Perfecto! ¿Vienes en pareja?');
+    expect(invokeLLMMock).toHaveBeenCalledTimes(2);
+    const retry = invokeLLMMock.mock.calls[1][0] as any;
+    expect(JSON.stringify(retry.messages)).toContain('REESCRIBE TU RESPUESTA');
+  });
+
+  it('si la reescritura vuelve a fallar, corrige palabra por palabra', async () => {
+    mockLlmJson({ reply: 'Che, es re lindo, contame si venís', handoff: false, handoffReason: '', isPersonal: false, isThanks: false, action: 'none' });
+    mockLlmJson({ reply: 'Es re lindo, contame si venís', handoff: false, handoffReason: '', isPersonal: false, isThanks: false, action: 'none' });
+    const result = await runInstagramAgent({ incomingText: 'cómo es?', history: [], config: {} });
+    expect(result.reply).toBe('Es muy lindo, cuéntame si vienes');
+  });
+
+  it('una respuesta chilena sale de una, sin segunda llamada', async () => {
+    mockLlmJson({ reply: '¡Qué bueno! ¿Te tinca venir en pareja?', handoff: false, handoffReason: '', isPersonal: false, isThanks: false, action: 'none' });
+    const result = await runInstagramAgent({ incomingText: 'info', history: [], config: {} });
+    expect(result.reply).toBe('¡Qué bueno! ¿Te tinca venir en pareja?');
+    expect(invokeLLMMock).toHaveBeenCalledTimes(1);
+    const call = invokeLLMMock.mock.calls[0][0] as any;
+    expect(call.messages[0].content).toContain('Srta. Playroom');
+  });
+
   it('en Instagram fuerza action a "none" si el modelo pide "event_list" (no soportado en ese canal)', async () => {
     mockLlmJson({ reply: 'hola', handoff: false, handoffReason: '', isPersonal: false, isThanks: false, action: 'event_list' });
     const result = await runInstagramAgent({ incomingText: 'hola', history: [], config: {} });
