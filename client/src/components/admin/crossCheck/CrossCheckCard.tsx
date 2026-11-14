@@ -20,7 +20,7 @@ export function CrossCheckCard({ item, compact = false }: { item: CrossCheckItem
   });
   const discard = trpc.crossCheck.discard.useMutation({ onSuccess: () => { toast('Descartado'); refresh(); }, onError: (e) => toast.error(e.message) });
   const busy = report.isPending || discard.isPending;
-  const isMail = item.kind === 'outreach';
+  const isMail = item.kind === 'outreach' || item.kind.startsWith('private-members:');
   const [previewOpen, setPreviewOpen] = useState(false);
   const preview = trpc.crossCheck.preview.useQuery({ id: item.id }, { enabled: isMail && previewOpen, staleTime: 60_000 });
   return (
@@ -56,6 +56,12 @@ export function CrossCheckCard({ item, compact = false }: { item: CrossCheckItem
                 {preview.data ? <>Para <strong>{preview.data.to}</strong> · las respuestas llegan a <strong>{preview.data.replyTo}</strong><br />Asunto: {preview.data.subject}</> : 'Cargando…'}
               </DialogDescription>
             </DialogHeader>
+            {preview.data?.recipients && (
+              <details className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/80">
+                <summary className="cursor-pointer font-medium">Ver los {preview.data.recipients.length} correos</summary>
+                <p className="mt-1.5 break-words">{preview.data.recipients.join(' · ')}</p>
+              </details>
+            )}
             {preview.data && <iframe title="Vista previa del correo" sandbox="" srcDoc={preview.data.html} className="h-[62dvh] w-full rounded-xl border border-white/10 bg-black" />}
             {preview.isError && <p className="text-sm text-red-300">No se pudo cargar el correo.</p>}
           </DialogContent>
