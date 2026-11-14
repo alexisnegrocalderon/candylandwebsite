@@ -456,6 +456,20 @@ async function checkAdminPassword(ctx: any, password: string | undefined, keyPre
 }
 
 // Carga del inventario contado: el texto pegado y, por línea, a qué insumo va (id), «nuevo» u «omitir».
+const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Hora con formato 00:00');
+/** Contrato digital de un DJ (server/djContract.ts): lo que el dueño llena al crearlo. */
+const djContractInput = z.object({
+  eventId: z.number().int().positive().optional(),
+  artistName: z.string().min(2).max(120),
+  email: z.string().email().max(320),
+  phone: z.string().max(40).nullish(),
+  callTime: hhmm, soundcheckTime: hhmm, setStart: hhmm.optional(), setEnd: hhmm.optional(),
+  amountClp: z.number().int().min(1).max(50_000_000),
+  amountMode: z.enum(['liquido', 'bruto']),
+  proportionalDiscount: z.boolean(),
+  cancellation: z.object({ enabled: z.boolean(), noticeDays: z.number().int().min(1).max(120), penaltyPercent: z.number().int().min(1).max(100) }),
+});
+
 const inventarioInput = z.object({
   texto: z.string().max(40_000), grupoDefecto: z.enum(['bebida', 'desechable', 'limpieza', 'otro']),
   asignaciones: z.record(z.string().max(120), z.union([z.number().int(), z.literal('nuevo'), z.literal('omitir')])).optional(),
@@ -3686,10 +3700,11 @@ export const appRouter = router({
     list: adminReadProcedure.query(async ({ ctx }) => {
       if (ctx.user?.role !== 'viewer') await import("./outreach").then((m) => m.ensureOutreachDrafts()).catch((err) => console.error('[Outreach]', err));
       if (ctx.user?.role !== 'viewer') await import("./privateMembers").then((m) => m.ensurePrivateMembersRequests()).catch((err) => console.error('[PrivateMembers]', err));
+      if (ctx.user?.role !== 'viewer') await import("./djContract").then((m) => m.ensureDjContractRequests()).catch((err) => console.error('[DjContract]', err));
       if (ctx.user?.role !== 'viewer') await import("./communityDiscount").then((m) => m.ensureCommunityDiscountRequest()).catch((err) => console.error('[CommunityDiscount]', err));
       const lists = await crossCheckSvc.listCrossChecks();
       // El invitado de demostración no ve correos a personas externas.
-      return ctx.user?.role === 'viewer' ? { pending: lists.pending.filter((i) => i.kind !== 'outreach'), recent: lists.recent.filter((i) => i.kind !== 'outreach') } : lists;
+      return ctx.user?.role === 'viewer' ? { pending: lists.pending.filter((i) => i.kind !== 'outreach' && !i.kind.startsWith('dj-contract:')), recent: lists.recent.filter((i) => i.kind !== 'outreach' && !i.kind.startsWith('dj-contract:')) } : lists;
     }),
     // El correo completo de un envío por aprobar, para leerlo antes de «Reportar».
     preview: adminProcedure.input(z.object({ id: z.number().int().positive() })).query(async ({ input }) => crossCheckSvc.previewCrossCheck(input.id)),
@@ -3700,6 +3715,38 @@ export const appRouter = router({
       .mutation(async ({ input }) => crossCheckSvc.reportCrossCheck(input.id)),
     discard: adminProcedure.input(z.object({ id: z.number().int().positive() }))
       .mutation(async ({ input }) => { await crossCheckSvc.discardCrossCheck(input.id); return { ok: true }; }),
+  }),
+
+  /* Contratos digitales de DJs (server/djContract.ts): el panel crea y envía (con Cross check); la artista firma por su link. */
+  djContract: router({
+    list: adminReadProcedure.input(z.object({ eventId: z.number().int().positive().optional() }).optional())
+      .query(async ({ input }) => (await import("./djContract")).listDjContracts(input?.eventId)),
+    create: adminProcedure.input(djContractInput).mutation(async ({ input }) => (await import("./djContract")).createDjContract(input)),
+    update: adminProcedure.input(z.object({ id: z.number().int().positive() }).merge(djContractInput))
+      .mutation(async ({ input: { id, ...rest } }) => { await (await import("./djContract")).updateDjContract(id, rest); return { ok: true }; }),
+    requestSend: adminProcedure.input(z.object({ id: z.number().int().positive() }))
+      .mutation(async ({ input }) => ({ created: await (await import("./djContract")).requestSendDjContract(input.id) })),
+    void: adminProcedure.input(z.object({ id: z.number().int().positive() }))
+      .mutation(async ({ input }) => { await (await import("./djContract")).voidDjContract(input.id); return { ok: true }; }),
+    // Públicos: los usa la artista con su link privado.
+    view: publicProcedure.input(z.object({ token: z.string().min(3).max(80) })).query(async ({ input, ctx }) => {
+      const ipKey = `djc-view:${clientIp(ctx)}`;
+      if (!(await db.checkIpRateLimit(ipKey))) throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos. Espera unos minutos.' });
+      try { return await (await import("./djContract")).viewDjContract(input.token); }
+      catch (err) { await db.recordIpAttempt(ipKey, 60, 15 * 60_000); throw new TRPCError({ code: 'NOT_FOUND', message: err instanceof Error ? err.message : 'Contrato no encontrado.' }); }
+    }),
+    sign: publicProcedure.input(z.object({
+      token: z.string().min(3).max(80), legalName: z.string().min(3).max(160), rut: z.string().min(7).max(20), bank: z.string().min(8).max(300),
+      phone: z.string().max(40).optional(), accept: z.boolean(), signature: z.string().max(400_000),
+    })).mutation(async ({ input, ctx }) => {
+      const ip = clientIp(ctx);
+      const ipKey = `djc-sign:${ip}`;
+      if (!(await db.checkIpRateLimit(ipKey))) throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos. Espera unos minutos.' });
+      await db.recordIpAttempt(ipKey, 12, 15 * 60_000);
+      try {
+        return await (await import("./djContract")).signDjContract(input.token, { ...input, ip, userAgent: String(ctx.req.headers['user-agent'] ?? '') });
+      } catch (err) { throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo firmar.' }); }
+    }),
   }),
 
   /* Piloto automático de un evento (server/eventPilot.ts): se prende con un botón y sus pasos piden cross check. */

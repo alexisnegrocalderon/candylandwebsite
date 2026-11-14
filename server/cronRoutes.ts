@@ -124,6 +124,7 @@ export function registerCronRoutes(app: Express) {
     try {
       const outreach = await import("./outreach").then((m) => m.ensureOutreachDrafts()).catch((err) => { console.error('[Outreach]', err); return 0; });
       await import("./privateMembers").then((m) => m.ensurePrivateMembersRequests()).catch((err) => console.error('[PrivateMembers]', err));
+      await import("./djContract").then((m) => m.ensureDjContractRequests()).catch((err) => console.error('[DjContract]', err));
       await import("./communityDiscount").then((m) => m.ensureCommunityDiscountRequest()).catch((err) => console.error('[CommunityDiscount]', err));
       res.json({ success: true, ...(await (await import("./eventPilot")).runPilotTick()), outreach });
     } catch (err) {

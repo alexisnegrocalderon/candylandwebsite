@@ -17,7 +17,7 @@ import { canLeave } from '@/components/admin/shell/leaveGuard';
 import { markStudioOpen, wasStudioOpen } from '@/components/admin/motion/studioOpen';
 import { useSeo } from '@/hooks/useSeo';
 import { useInstallableApp } from '@/hooks/useInstallableApp';
-import { Home, Flame, Calendar, DollarSign, Ticket, Users, Plus, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, Contact, Mail, History, Gift, MessageCircle, Crown, Martini, Instagram, UserPlus, Ban, Receipt, Compass, Sparkles, Car, Send, ShieldAlert, Zap, Cake, Calculator, Star, FlaskConical, Palette, UserCheck, Banknote, Landmark, Headphones, ListChecks, PartyPopper, BellRing, Wine, Smartphone, Bot, TrendingUp, Link2, FileText, ShieldCheck, Plane, CalendarClock } from 'lucide-react';
+import { Home, Flame, Calendar, DollarSign, Ticket, Users, Plus, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, Contact, Mail, History, Gift, MessageCircle, Crown, Martini, Instagram, UserPlus, Ban, Receipt, Compass, Sparkles, Car, Send, ShieldAlert, Zap, Cake, Calculator, Star, FlaskConical, Palette, UserCheck, Banknote, Landmark, Headphones, ListChecks, PartyPopper, BellRing, Wine, Smartphone, Bot, TrendingUp, Link2, FileText, ShieldCheck, Plane, CalendarClock, FileSignature } from 'lucide-react';
 import { AdminLoginForm } from '@/components/admin/AdminLoginForm';
 import { OPEN_SECTION_EVENT } from '@/components/admin/shell/nav';
 import { parseAdminDeepLink } from '@shared/adminDeepLink';
@@ -92,6 +92,7 @@ const IphoneShortcutsCard = lazy(() => import('@/components/admin/IphoneShortcut
 // cuando se abre, para no sumarle peso al resto del panel.
 const MotionStudio = lazy(() => import('@/components/admin/motion/MotionStudio').then((m) => ({ default: m.MotionStudio })));
 const AmbassadorContentAdmin = lazy(() => import('@/components/admin/studio/AmbassadorContentAdmin').then((m) => ({ default: m.AmbassadorContentAdmin })));
+const DjContractsManager = lazy(() => import('@/components/admin/djContracts/DjContractsManager').then((m) => ({ default: m.DjContractsManager })));
 const CrossCheckView = lazy(() => import('@/components/admin/crossCheck/CrossCheckView').then((m) => ({ default: m.CrossCheckView })));
 const CompraFiestaView = lazy(() => import('@/components/admin/insumos/CompraFiestaView').then((m) => ({ default: m.CompraFiestaView })));
 const AutomationsView = lazy(() => import('@/components/admin/AutomationsView').then((m) => ({ default: m.AutomationsView })));
@@ -182,6 +183,7 @@ const ADMIN_SECTIONS = [
   { id: 'discounts', label: 'Descuentos', hub: 'preparar', icon: Percent, render: () => <DiscountsManager /> },
   { id: 'community', label: 'Códigos Comunidad', hub: 'preparar', icon: Users, render: () => <CommunityCodesManager /> },
   { id: 'staff', label: 'Staff', hub: 'preparar', icon: Users, render: () => <StaffManager /> },
+  { id: 'contratos-dj', label: 'Contratos DJ', hub: 'preparar', icon: FileSignature, render: () => <DjContractsManager /> },
   { id: 'compra-fiesta', onlyNoCaja: true, label: 'Compra de la fiesta', hub: 'preparar', icon: ShoppingBag, render: () => <CompraFiestaView /> },
   { id: 'caja', needsCaja: true, label: 'Caja', hub: 'preparar', icon: Store, render: () => <CajaAdminView /> },
   { id: 'carta', needsCaja: true, label: 'Carta de la Fiesta', hub: 'preparar', icon: Martini, render: () => <CartaManager /> },
