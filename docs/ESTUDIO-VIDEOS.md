@@ -70,6 +70,15 @@ partes, y cada una se fija a mano o queda en **Auto** (la elige la semilla del v
 - Revisar a mano: `ONLY=liquid pnpm tsx scripts/motion/preview.mts looks ./looks` (cada opción) o con `SEEDS=5`
   (cinco semillas al azar, como «Sorpréndeme»).
 
+## Sonido en la vista previa: tope de audios a la vez
+
+El reproductor del panel (`@remotion/player`) solo deja montar unas pocas etiquetas de audio a la vez; si se pasan, el video se
+cae y la pantalla queda en negro (con el tope de fábrica, 5). Por eso: (1) cada efecto de sonido ocupa su etiqueta solo lo que
+dura su WAV (`SFX_FRAMES` en `shared/motionSfx.ts`), no 1 s; (2) el calendario de efectos es una función pura (`sfxSchedule`) y
+`shared/motionSfx.test.ts` revisa, en miles de combinaciones de estilo, plantilla, gancho de chat, adorno y duración, que nunca
+suenen más de 8 a la vez; (3) el panel sube el tope a 14 (`numberOfSharedAudioTags`); y (4) si algo del dibujo falla, la vista
+previa muestra el motivo en vez de un triángulo sobre negro. Al sumar un efecto nuevo, agrégalo a `SFX_FRAMES` con lo que mida su WAV.
+
 ## El perrito de Playroom (mascota ilustrada)
 
 - **Dibujo** (`motion/playroom/dog.tsx`): el perrito de los vasos de Playroom. Línea negra gruesa, burbujas de globo de modelar y

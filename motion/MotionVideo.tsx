@@ -17,7 +17,7 @@ import { PosterScene } from './poster';
 import { SoftUiScene } from './softui';
 import { BrandSting, CountdownScene, TextScene } from './scenes';
 import { ChatHookScene } from './chat';
-import { chatMessages, chatSchedule } from '../shared/motionChat';
+import { SFX_FRAMES, sfxSchedule, type SfxName } from '../shared/motionSfx';
 import { beats, fonts } from './theme';
 
 /* La composición única del Estudio Motion. Recibe la receta (MotionSpec) y la
@@ -29,7 +29,7 @@ export type MotionVideoProps = { spec: MotionSpec; slide?: MotionSlideInfo | nul
 const clamp = { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' } as const;
 
 const Sfx: React.FC<{ at: number; name: string; volume?: number }> = ({ at, name, volume = 0.6 }) => (
-  <Sequence from={Math.max(0, at)} durationInFrames={30} layout="none">
+  <Sequence from={Math.max(0, at)} durationInFrames={SFX_FRAMES[name as SfxName] ?? 30} layout="none">
     <Html5Audio src={staticFile(`motion/sfx/${name}.wav`)} volume={volume} />
   </Sequence>
 );
@@ -41,48 +41,9 @@ const Soundtrack: React.FC = () => {
   const voiced = !!spec.voice;
   const song = spec.song;
   const bed = voiced ? 0.11 : 0.3;
-  // Con la canción de fondo los efectos van más bajos (ya trae su propio bombo) y no se agrega el golpe de apertura.
-  const sfxGain = song ? 0.55 : 1;
-  const hits: React.ReactNode[] = [];
-  if (spec.sfx) {
-    if (!song) hits.push(<Sfx key="open" at={0} name="bass" volume={0.7} />);
-    timeline.scenes.slice(1).forEach((t) => hits.push(<Sfx key={`cut${t.index}`} at={t.from - beats.cut / 2 - 2} name={kit.cutSfx} volume={(kit.cutSfx === 'glitch' ? 0.45 : 0.55) * sfxGain} />));
-    if (spec.template === 'countdown') {
-      for (let f = 4; f < 28; f += 4) hits.push(<Sfx key={`t${f}`} at={f} name="tick" volume={0.4} />);
-      hits.push(<Sfx key="slam" at={25} name="pop" volume={0.7} />);
-    }
-    if (timeline.outroFrom != null) {
-      hits.push(<Sfx key="rise" at={timeline.outroFrom - 26} name="riser" volume={0.4 * sfxGain} />);
-      hits.push(<Sfx key="mark" at={timeline.outroFrom} name="bass" volume={0.7 * sfxGain} />);
-    }
-    if (spec.template === 'sting') hits.push(<Sfx key="pop" at={14} name="pop" volume={0.6} />);
-    // Gancho de chat: ding cuando llega un mensaje, barrido cuando se envía el tuyo, y la notificación hace vibrar el celular.
-    if (spec.hook !== 'ninguno' && hookApplies(spec.template) && timeline.scenes[0]) {
-      const t0 = timeline.scenes[0];
-      const msgs = chatMessages(spec.scenes[0]);
-      chatSchedule(msgs, t0.frames).forEach((b) => {
-        const at = t0.from + b.showAt;
-        if (spec.hook === 'notificacion') {
-          hits.push(<Sfx key={`chat-buzz${b.index}`} at={at} name="buzz" volume={0.55 * sfxGain} />);
-          hits.push(<Sfx key={`chat-ding${b.index}`} at={at + 2} name="ding" volume={0.4 * sfxGain} />);
-        } else hits.push(<Sfx key={`chat${b.index}`} at={at} name={msgs[b.index].mine ? 'send' : 'ding'} volume={(msgs[b.index].mine ? 0.5 : 0.6) * sfxGain} />);
-      });
-    }
-    // Cada adorno del look suena cuando aparece (en cada escena), igual que se ve.
-    if (spec.template !== 'sting') {
-      timeline.scenes.forEach((t) => {
-        const at = (n: number) => t.from + n;
-        if (look.deco === 'sello') hits.push(<Sfx key={`deco-sello${t.index}`} at={at(10)} name="thud" volume={0.7 * sfxGain} />);
-        else if (look.deco === 'destellos') hits.push(<Sfx key={`deco-sparkle${t.index}`} at={at(4)} name="sparkle" volume={0.5 * sfxGain} />);
-        else if (look.deco === 'cintas') hits.push(<Sfx key={`deco-rip${t.index}`} at={at(3)} name="rip" volume={0.45 * sfxGain} />);
-        else if (look.deco === 'stickers') [5, 9, 13, 17].forEach((n) => hits.push(<Sfx key={`deco-st${t.index}-${n}`} at={at(n)} name="pop" volume={0.32 * sfxGain} />));
-        if (spec.style === 'arcade') hits.push(<Sfx key={`coin${t.index}`} at={at(2)} name="coin" volume={0.4 * sfxGain} />);
-      });
-    }
-    // El perrito globo revienta con un «pop».
-    const pop = mascotTimes(spec, timeline, fps).popAt;
-    if (pop != null) hits.push(<Sfx key="mascot-pop" at={pop} name="pop" volume={0.8} />);
-  }
+  // Los efectos salen de un calendario puro (shared/motionSfx.ts): ahí una prueba revisa que no suenen demasiados a la vez.
+  const hits = sfxSchedule({ spec, timeline, look, cutSfx: kit.cutSfx, cutFrames: beats.cut, popAt: spec.sfx ? mascotTimes(spec, timeline, fps).popAt : null })
+    .map((h) => <Sfx key={h.key} at={h.at} name={h.name} volume={h.volume} />);
   return (
     <>
       {song && !(song.muteOnExport && getRemotionEnvironment().isRendering) && (
