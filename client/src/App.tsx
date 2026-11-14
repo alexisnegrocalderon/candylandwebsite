@@ -36,6 +36,7 @@ import { dropOrphanLayers, goBack, holdScroll, navDirection, routeScrollTarget }
 import { hasWelcomeParam } from "@shared/welcome";
 import { DARK_CHROME_BG, isDarkRoute } from "@/lib/darkChrome";
 import { colabSlugForHost, isColabHost } from "@shared/colabHosts";
+import { trpc } from "@/lib/trpc";
 import { lockZoom } from "@/lib/lockZoom";
 // La portada "/" pasa por HalloweenHome: renderiza la Home oficial tal cual,
 // y solo le agrega la paleta Halloween en /halloween (la vista previa);
@@ -312,6 +313,14 @@ function App() {
   const isPoster = location === '/playmatch/afiche';
   // La landing de la co-producción con Dalmore tiene su propio botón de
   // compra: la navbar ("Comprar entradas" del evento de Playroom) confundiría.
+  // La compra de un evento de colab (PLAYMORE) también en mansionplayroom.cl: el evento se sabe recién al cargar, así que
+  // mientras carga y si es colab no se muestra el menú de Playroom (sería el sitio normal tapando la cabecera del checkout).
+  const checkoutSlug = location.startsWith('/checkout/') ? decodeURIComponent(location.split('/')[2] ?? '') : '';
+  const { data: checkoutBrand, isLoading: checkoutBrandLoading } = trpc.coproduction.brandForEvent.useQuery(
+    { eventSlug: checkoutSlug, preview: new URLSearchParams(window.location.search).get('preview') || undefined },
+    { enabled: !!checkoutSlug, retry: false, staleTime: 5 * 60_000 },
+  );
+  const colabCheckout = !!checkoutSlug && (checkoutBrandLoading || !!checkoutBrand);
   const isCoproLanding = location === '/playroomdalmore' || ((location === '/' || location.startsWith('/pago/') || location.startsWith('/checkout/')) && !!colabSlugForHost(window.location.hostname));
   // /ronda (juegos en vivo de PLAYMORE, para el anfitrión) es una pantalla propia, sin el menú del sitio.
   const isPlayGame = location === '/ronda';
@@ -367,7 +376,7 @@ function App() {
           )}
           {/* Modo app (la App de PlayRoom instalada, con sesión de socio): sin el menú
               del sitio; una barra de app con «Volver» en todo lo que se abra desde ahí. */}
-          {!hideChrome && !isCoproLanding && !memberApp && <Navbar />}
+          {!hideChrome && !isCoproLanding && !colabCheckout && !memberApp && <Navbar />}
           {/* La portada y la compra de la app (también la del link de la comunidad) traen su propia barra. */}
           {memberApp && !onAccount && location !== '/' && !location.startsWith('/checkout') && !location.startsWith('/electronica') && <AppTopBar />}
           {memberApp && <AppDarkChrome />}
@@ -379,7 +388,7 @@ function App() {
           {/* La notificación de bienvenida abre esta ventana (`/?bienvenida=1`) desde cualquier pantalla. */}
           <WelcomeGate />
           {/* La colab (dalmore./playmore.) no invita a instalar la app de Playroom. */}
-          {!hideChrome && !isColabHost(window.location.hostname) && <InstallAppPrompt />}
+          {!hideChrome && !colabCheckout && !isColabHost(window.location.hostname) && <InstallAppPrompt />}
           {holdForAccount ? (hasAccountSnapshot() ? <AccountSkeleton /> : <div className="fixed inset-0 bg-[#0b0612]" />) : memberApp ? (
             // Los colores de la app (oscuros) también en las páginas de contenido del sitio que se abren desde acá.
             // La transición es una sola, la del Router: antes había otra acá encima y se animaban dos a la vez.

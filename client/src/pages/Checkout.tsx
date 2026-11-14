@@ -32,7 +32,7 @@ import { useMemberSession } from '@/lib/member';
 import { isMemberEarlyAccess } from '@shared/memberConfig';
 import { isAppMode } from '@/lib/appMode';
 import { useDarkChrome } from '@/lib/darkChrome';
-import { isColabHost } from '@shared/colabHosts';
+import { COLAB_HOSTS, isColabHost } from '@shared/colabHosts';
 import { whoByKey, whoKeyFor } from '@shared/playmoreWho';
 import { instagramProblem } from '@shared/soltero';
 import { normalizeIgHandle } from '@shared/igCustomerLink';
@@ -2157,9 +2157,16 @@ export default function Checkout(props: { partnerSlug?: string } = {}) {
   // Evento de colab (PLAYMORE): el checkout toma su cara (negro, dorado y magenta), también en el celular.
   const { data: colabBrand, isLoading: brandLoading } = trpc.coproduction.brandForEvent.useQuery({ eventSlug: slug, preview: previewToken }, { enabled: !!slug, retry: false, staleTime: 5 * 60_000 });
   const { data: session, isLoading } = useMemberSession();
-  // En las direcciones de la colab, mientras no se sabe si el evento es PLAYMORE se muestra solo el fondo oscuro:
+  // Un evento de colab que se abrió por mansionplayroom.cl pasa a la dirección de la colab (mismo camino y mismo código):
+  // ahí el look PLAYMORE está desde el primer instante, sin el sitio normal de Playroom alrededor.
+  const colabHostName = colabBrand ? Object.keys(COLAB_HOSTS).find((h) => COLAB_HOSTS[h] === colabBrand.slug) : undefined;
+  const wrongHost = !!colabHostName && /(^|\.)mansionplayroom\.cl$/.test(window.location.hostname) && !isColabHost(window.location.hostname);
+  useEffect(() => {
+    if (wrongHost) window.location.replace(`https://${colabHostName}${window.location.pathname}${window.location.search}`);
+  }, [wrongHost, colabHostName]);
+  // Mientras no se sabe si el evento es PLAYMORE (o se está pasando a su dirección) se muestra solo el fondo oscuro:
   // antes asomaba un instante el checkout genérico de Playroom.
-  if (slug && brandLoading && isColabHost(window.location.hostname)) return <div className="min-h-dvh" style={{ background: '#0c0908' }} />;
+  if (slug && (brandLoading || wrongHost)) return <div className="min-h-dvh" style={{ background: '#0c0908' }} />;
   if (slug && event && isMemberEarlyAccess(event as any)) {
     if (isLoading) return <div className="min-h-dvh" />;
     if (!(session?.loggedIn && session.isMember)) return <MemberEarlyGate event={event as any} />;
