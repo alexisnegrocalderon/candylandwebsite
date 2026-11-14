@@ -66,3 +66,78 @@ describe('variedad de composiciones', () => {
     expect(resolveLayouts(starterSpec('anuncio', 'poster')).length).toBeGreaterThan(0);
   });
 });
+
+import {
+  LOOK_ALL_AUTO, LOOK_CLASSIC, LOOK_OPTIONS, LOOK_PARTS, freshSeed, lookDistance, lookHasAuto, lookSignature, lookSummary, normalizeLook, resolveLook, styleHasEntry,
+} from './motionVariety';
+import { MOTION_STYLES as STYLES, normalizeMotionSpec as normalize, starterSpec as starter } from './motionSpec';
+
+describe('look del video', () => {
+  it('un video guardado sin look se queda con el clásico: no cambia de cara', () => {
+    const old = normalize({ title: 'Video viejo', style: 'liquid', scenes: [{ text: 'Hola' }] });
+    expect(old.look).toEqual(LOOK_CLASSIC);
+    expect(resolveLook(old)).toEqual(LOOK_CLASSIC);
+    expect(lookSummary(old)).toBe('Clásico del estilo');
+  });
+
+  it('los videos nuevos (puntos de partida) parten con todo en automático', () => {
+    for (const style of STYLES) expect(starter('anuncio', style).look).toEqual(LOOK_ALL_AUTO);
+  });
+
+  it('limpia lo que llega: un valor desconocido vuelve al clásico de esa parte', () => {
+    const look = normalizeLook({ cut: 'iris', entry: 'explosion', texture: 'auto', deco: 7 });
+    expect(look).toEqual({ ...LOOK_CLASSIC, cut: 'iris', texture: 'auto' });
+  });
+
+  it('es determinista y siempre devuelve opciones que existen', () => {
+    for (const style of STYLES) {
+      for (let seed = 0; seed < 60; seed++) {
+        const spec = { style, seed, look: LOOK_ALL_AUTO };
+        const a = resolveLook(spec);
+        expect(resolveLook(spec)).toEqual(a);
+        for (const part of LOOK_PARTS) expect(LOOK_OPTIONS[part] as readonly string[]).toContain(a[part]);
+        if (!styleHasEntry(style)) expect(a.entry).toBe('estilo');
+      }
+    }
+  });
+
+  it('lo fijado a mano se respeta, y fijar una parte no cambia lo que la semilla eligió para las demás', () => {
+    const auto = resolveLook({ style: 'liquid', seed: 4242, look: LOOK_ALL_AUTO });
+    const pinned = resolveLook({ style: 'liquid', seed: 4242, look: { ...LOOK_ALL_AUTO, deco: 'sello', cut: 'iris' } });
+    expect(pinned.deco).toBe('sello');
+    expect(pinned.cut).toBe('iris');
+    for (const part of ['entry', 'texture', 'camera', 'kicker'] as const) expect(pinned[part]).toBe(auto[part]);
+  });
+
+  it('con semillas distintas salen muchos looks distintos del mismo estilo', () => {
+    for (const style of ['liquid', 'glitch', 'editorial', 'kinetic'] as const) {
+      const seen = new Set<string>();
+      for (let seed = 0; seed < 200; seed++) seen.add(lookSignature({ style, seed, look: LOOK_ALL_AUTO }));
+      expect(seen.size).toBeGreaterThan(60);
+    }
+  });
+
+  it('«Sorpréndeme» elige una semilla cuyo look no se parece al actual ni a los últimos', () => {
+    const rand = (() => { let n = 7; return () => { n = (n * 16807) % 2147483647; return n / 2147483647; }; })();
+    const avoid: string[] = [];
+    for (let k = 0; k < 8; k++) {
+      const seed = freshSeed({ style: 'liquid', look: LOOK_ALL_AUTO }, avoid, rand);
+      const sig = lookSignature({ style: 'liquid', seed, look: LOOK_ALL_AUTO });
+      // Distinto en al menos tres partes del video anterior.
+      if (avoid.length) expect(lookDistance(sig, avoid[0])).toBeGreaterThanOrEqual(3);
+      expect(avoid).not.toContain(sig);
+      avoid.unshift(sig);
+    }
+  });
+
+  it('la distancia entre huellas cuenta las partes distintas; otro estilo es lo más lejos', () => {
+    expect(lookDistance('liquid|iris|rebote|puntos|sello|empuje|caja', 'liquid|iris|rebote|puntos|sello|empuje|caja')).toBe(0);
+    expect(lookDistance('liquid|iris|rebote|puntos|sello|empuje|caja', 'liquid|flash|rebote|rayas|sello|empuje|caja')).toBe(2);
+    expect(lookDistance('liquid|iris|rebote|puntos|sello|empuje|caja', 'glitch|iris|rebote|puntos|sello|empuje|caja')).toBe(LOOK_PARTS.length);
+  });
+
+  it('sabe si queda algo en automático', () => {
+    expect(lookHasAuto(LOOK_ALL_AUTO)).toBe(true);
+    expect(lookHasAuto({ ...LOOK_CLASSIC })).toBe(false);
+  });
+});

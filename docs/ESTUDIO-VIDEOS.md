@@ -44,6 +44,32 @@ Un **estilo** es un lenguaje visual (colores, tipografía, movimiento). Lo que c
   llamada elige la composición de cada escena de cada variante y le da a cada una su propia semilla; (3) tú, con el
   selector **«Composición de esta escena»**, que fija una y deja el resto en automático.
 
+## Look: dos videos del mismo estilo no se ven iguales
+
+Encima del estilo va el **look** (`spec.look`, `shared/motionVariety.ts`; se dibuja en `motion/look.tsx`). Son seis
+partes, y cada una se fija a mano o queda en **Auto** (la elige la semilla del video):
+
+| Parte | Opciones |
+|---|---|
+| Transición | la del estilo, barrido de color, iris, persianas, diagonal, cortina, destello |
+| Entrada del texto | la del estilo, sube con máscara, rebote, enfoque, golpe, giro 3D, máquina de escribir (no aplica a kinetic ni póster) |
+| Trama del fondo | sin trama, puntos, rayas, cuadros, ondas, rayos |
+| Adornos | sin adornos, cintas (con la etiqueta o «Comenta X» corriendo), sello (+18 / palabra clave), recuadro, destellos, stickers |
+| Cámara | se acerca, se aleja, deriva lateral, late con la música, quieta |
+| Etiqueta | píldora, papelito, subrayada, caja con esquinas |
+
+- **En el editor** está el panel «Look del video»: una fila de botones por parte; el borde punteado marca lo que eligió
+  «Auto». **«Sorpréndeme»** cambia la semilla por una cuyo look se parezca lo menos posible al actual y a los últimos
+  12 videos guardados en ese dispositivo (`lookMemory.ts`); **«Otros colores»** cambia fondo y acento dentro de la
+  marca; **«Fijar este look»** deja todo a mano. Nada gasta IA.
+- **En «Auto» solo sale lo que le queda bien a cada estilo** (`autoPool`); a mano se puede elegir cualquier opción.
+- **Las 3 variantes de la IA** salen cada una con un look distinto (misma llamada, mismo costo).
+- **Los videos guardados antes** no traen look y se quedan con el clásico: no cambian de cara. Con «Sorpréndeme»
+  pasan a automático.
+- Los adornos van entre el fondo y el texto, en la zona que la composición deja libre; usan solo la paleta del video.
+- Revisar a mano: `ONLY=liquid pnpm tsx scripts/motion/preview.mts looks ./looks` (cada opción) o con `SEEDS=5`
+  (cinco semillas al azar, como «Sorpréndeme»).
+
 ## Pack: reel, carrusel, post e historia de una misma idea
 
 El contenido es **uno solo** (las escenas del video). En el editor, la pestaña **Carrusel · Post · Historia** dibuja

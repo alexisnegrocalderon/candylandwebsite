@@ -6,6 +6,7 @@ import { clamp } from './kits/shared';
 import { Headline } from './scenes';
 import { useExit } from './layers';
 import { SOFTUI } from './layouts';
+import { SceneDeco } from './look';
 import { beats, ease, fonts, rand, safeInsets, springs } from './theme';
 
 /* Escena del estilo SOFT UI (referencia B): una tarjeta de vidrio que entra
@@ -253,6 +254,8 @@ export const SoftUiScene: React.FC<{ scene: MotionScene; index: number; frames: 
   const second = g.cardFirst && card ? [kicker, title] : [card];
 
   return (
+    <>
+    <SceneDeco scene={scene} index={index} frames={frames} />
     <AbsoluteFill
       style={{
         paddingTop: inset.top + 40, paddingBottom: inset.bottom + (captionsOn ? height * 0.14 : 0),
@@ -265,5 +268,6 @@ export const SoftUiScene: React.FC<{ scene: MotionScene; index: number; frames: 
       {second.map((el, i) => el && <div key={`b${i}`} style={{ display: 'contents' }}>{el}</div>)}
       {sub}
     </AbsoluteFill>
+    </>
   );
 };

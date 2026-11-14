@@ -151,3 +151,196 @@ export function sceneJitter(seed: number, index: number): { x: number; y: number
   const rand = seededRandom(seed * 131 + index * 7919 + 5);
   return { x: rand() * 2 - 1, y: rand() * 2 - 1, r: rand() * 2 - 1, side: rand() < 0.5 ? -1 : 1 };
 }
+
+/* --- Look: lo que hace que dos videos del MISMO estilo no se vean iguales -------
+ * El estilo (liquid, glitch, editorial…) sigue siendo el lenguaje de la marca. El
+ * «look» es todo lo demás que se puede combinar encima: cómo se corta de una
+ * escena a otra, cómo entra el texto, qué trama lleva el fondo, qué adornos
+ * Playroom aparecen (cintas, sellos, stickers), cómo se mueve la cámara y qué
+ * forma tiene la etiqueta. Cada uno se elige a mano o queda en «auto», y
+ * entonces lo decide la semilla del video: otra semilla = otra combinación.
+ *
+ * Los videos guardados ANTES de esto no traen look: se quedan con el clásico
+ * (LOOK_CLASSIC), así no cambian de cara al abrirlos. */
+
+export const LOOK_AUTO_VALUE = 'auto';
+
+export const LOOK_CUTS = ['estilo', 'barrido', 'iris', 'persianas', 'diagonal', 'cortina', 'flash'] as const;
+export type LookCut = (typeof LOOK_CUTS)[number];
+export const LOOK_CUT_LABEL: Record<LookCut, string> = {
+  estilo: 'La del estilo', barrido: 'Barrido de color', iris: 'Iris (círculo)', persianas: 'Persianas', diagonal: 'Diagonal', cortina: 'Cortina', flash: 'Destello',
+};
+
+export const LOOK_ENTRIES = ['estilo', 'mascara', 'rebote', 'enfoque', 'golpe', 'giro', 'maquina'] as const;
+export type LookEntry = (typeof LOOK_ENTRIES)[number];
+export const LOOK_ENTRY_LABEL: Record<LookEntry, string> = {
+  estilo: 'La del estilo', mascara: 'Sube con máscara', rebote: 'Rebote', enfoque: 'Enfoque', golpe: 'Golpe (zoom)', giro: 'Giro 3D', maquina: 'Máquina de escribir',
+};
+
+export const LOOK_TEXTURES = ['ninguna', 'puntos', 'rayas', 'cuadros', 'ondas', 'rayos'] as const;
+export type LookTexture = (typeof LOOK_TEXTURES)[number];
+export const LOOK_TEXTURE_LABEL: Record<LookTexture, string> = {
+  ninguna: 'Sin trama', puntos: 'Puntos', rayas: 'Rayas', cuadros: 'Cuadros', ondas: 'Ondas', rayos: 'Rayos',
+};
+
+export const LOOK_DECOS = ['ninguno', 'cintas', 'sello', 'esquinas', 'destellos', 'stickers'] as const;
+export type LookDeco = (typeof LOOK_DECOS)[number];
+export const LOOK_DECO_LABEL: Record<LookDeco, string> = {
+  ninguno: 'Sin adornos', cintas: 'Cintas', sello: 'Sello', esquinas: 'Recuadro', destellos: 'Destellos', stickers: 'Stickers',
+};
+
+export const LOOK_CAMERAS = ['empuje', 'alejar', 'deriva', 'latido', 'quieta'] as const;
+export type LookCamera = (typeof LOOK_CAMERAS)[number];
+export const LOOK_CAMERA_LABEL: Record<LookCamera, string> = {
+  empuje: 'Se acerca', alejar: 'Se aleja', deriva: 'Deriva lateral', latido: 'Late con la música', quieta: 'Quieta',
+};
+
+export const LOOK_KICKERS = ['pildora', 'etiqueta', 'subrayado', 'caja'] as const;
+export type LookKicker = (typeof LOOK_KICKERS)[number];
+export const LOOK_KICKER_LABEL: Record<LookKicker, string> = {
+  pildora: 'Píldora', etiqueta: 'Papelito', subrayado: 'Subrayada', caja: 'Caja con esquinas',
+};
+
+type Auto = typeof LOOK_AUTO_VALUE;
+
+/** Lo que se guarda en la receta: cada parte fija, o «auto» (la elige la semilla). */
+export interface MotionLook {
+  cut: LookCut | Auto;
+  entry: LookEntry | Auto;
+  texture: LookTexture | Auto;
+  deco: LookDeco | Auto;
+  camera: LookCamera | Auto;
+  kicker: LookKicker | Auto;
+}
+
+/** Lo que se dibuja: ya sin «auto». */
+export interface ResolvedLook {
+  cut: LookCut;
+  entry: LookEntry;
+  texture: LookTexture;
+  deco: LookDeco;
+  camera: LookCamera;
+  kicker: LookKicker;
+}
+
+export type LookPart = keyof MotionLook;
+export const LOOK_PARTS: LookPart[] = ['cut', 'entry', 'texture', 'deco', 'camera', 'kicker'];
+export const LOOK_PART_LABEL: Record<LookPart, string> = {
+  cut: 'Transición', entry: 'Entrada del texto', texture: 'Trama del fondo', deco: 'Adornos', camera: 'Cámara', kicker: 'Etiqueta',
+};
+export const LOOK_OPTIONS: { [K in LookPart]: readonly ResolvedLook[K][] } = {
+  cut: LOOK_CUTS, entry: LOOK_ENTRIES, texture: LOOK_TEXTURES, deco: LOOK_DECOS, camera: LOOK_CAMERAS, kicker: LOOK_KICKERS,
+};
+export const LOOK_OPTION_LABEL: { [K in LookPart]: Record<ResolvedLook[K], string> } = {
+  cut: LOOK_CUT_LABEL, entry: LOOK_ENTRY_LABEL, texture: LOOK_TEXTURE_LABEL, deco: LOOK_DECO_LABEL, camera: LOOK_CAMERA_LABEL, kicker: LOOK_KICKER_LABEL,
+};
+
+/** El look de siempre (videos guardados antes de que existiera el look). */
+export const LOOK_CLASSIC: ResolvedLook = { cut: 'estilo', entry: 'estilo', texture: 'ninguna', deco: 'ninguno', camera: 'empuje', kicker: 'pildora' };
+/** Todo lo decide la semilla (videos nuevos). */
+export const LOOK_ALL_AUTO: MotionLook = { cut: 'auto', entry: 'auto', texture: 'auto', deco: 'auto', camera: 'auto', kicker: 'auto' };
+
+export function normalizeLook(raw: unknown): MotionLook {
+  if (!raw || typeof raw !== 'object') return { ...LOOK_CLASSIC };
+  const r = raw as Record<string, unknown>;
+  const out = {} as Record<LookPart, string>;
+  for (const part of LOOK_PARTS) {
+    const v = r[part];
+    out[part] = v === LOOK_AUTO_VALUE || (LOOK_OPTIONS[part] as readonly string[]).includes(v as string) ? (v as string) : LOOK_CLASSIC[part];
+  }
+  return out as unknown as MotionLook;
+}
+
+/** Los estilos cuyo titular lo dibuja la escena genérica: solo en ellos se puede cambiar la entrada del texto
+ * (kinetic y póster arman el texto a su manera, es parte de lo que son). */
+const ENTRY_STYLES: MotionStyle[] = ['liquid', 'glitch', 'editorial', 'arcade', 'custom', 'softui'];
+export const styleHasEntry = (style: MotionStyle): boolean => ENTRY_STYLES.includes(style);
+
+/** Qué puede salir en «auto» según el estilo: solo lo que le queda bien (a mano se puede elegir cualquiera).
+ * Una opción repetida pesa más. */
+function autoPool<K extends LookPart>(part: K, style: MotionStyle): readonly ResolvedLook[K][] {
+  const pools: { [P in LookPart]: readonly ResolvedLook[P][] } = {
+    cut: ['estilo', 'estilo', 'barrido', 'iris', 'persianas', 'diagonal', 'cortina', ...(style === 'glitch' || style === 'arcade' ? (['flash'] as const) : [])],
+    entry: !styleHasEntry(style) ? ['estilo']
+      : style === 'editorial' || style === 'softui' ? ['estilo', 'mascara', 'enfoque', 'giro', 'maquina']
+        : style === 'glitch' || style === 'arcade' ? ['estilo', 'estilo', 'golpe', 'maquina', 'mascara']
+          : ['estilo', 'rebote', 'enfoque', 'golpe', 'giro', 'mascara'],
+    texture: style === 'arcade' || style === 'custom' ? ['ninguna', 'puntos']
+      : style === 'liquid' ? ['ninguna', 'puntos', 'ondas', 'rayos']
+        : style === 'softui' ? ['ninguna', 'puntos', 'ondas']
+          : ['ninguna', 'puntos', 'rayas', 'cuadros', 'rayos'],
+    deco: style === 'softui' ? ['ninguno', 'esquinas', 'destellos']
+      : style === 'poster' ? ['ninguno', 'cintas', 'esquinas', 'sello']
+        : ['cintas', 'sello', 'esquinas', 'destellos', 'stickers', 'ninguno'],
+    camera: ['empuje', 'alejar', 'deriva', 'latido'],
+    kicker: style === 'poster' ? ['pildora'] : ['pildora', 'etiqueta', 'subrayado', 'caja'],
+  };
+  return pools[part];
+}
+
+/** El look que se dibuja: lo fijado a mano tal cual; lo «auto», elegido con la semilla. Determinista. */
+export function resolveLook(spec: Pick<MotionSpec, 'style' | 'seed' | 'look'>): ResolvedLook {
+  const out = {} as Record<LookPart, string>;
+  LOOK_PARTS.forEach((part, k) => {
+    const v = spec.look?.[part] ?? LOOK_CLASSIC[part];
+    if (v !== LOOK_AUTO_VALUE) {
+      out[part] = v;
+      return;
+    }
+    // Un generador por parte: fijar una a mano no cambia lo que la semilla eligió para las demás.
+    const rand = seededRandom(spec.seed * 53 + k * 104729 + 11);
+    const pool = autoPool(part, spec.style);
+    out[part] = pool[Math.floor(rand() * pool.length) % pool.length];
+  });
+  // La entrada solo existe en los estilos de titular genérico.
+  if (!styleHasEntry(spec.style)) out.entry = 'estilo';
+  return out as unknown as ResolvedLook;
+}
+
+/** Huella del look (para no repetir el de los últimos videos). */
+export function lookSignature(spec: Pick<MotionSpec, 'style' | 'seed' | 'look'>): string {
+  const l = resolveLook(spec);
+  return [spec.style, ...LOOK_PARTS.map((p) => l[p])].join('|');
+}
+
+/** En cuántas partes se diferencian dos huellas del mismo estilo (0 = idénticas; otro estilo = todas). */
+export function lookDistance(a: string, b: string): number {
+  const x = a.split('|');
+  const y = b.split('|');
+  if (x[0] !== y[0]) return LOOK_PARTS.length;
+  return LOOK_PARTS.reduce((n, _, i) => n + (x[i + 1] !== y[i + 1] ? 1 : 0), 0);
+}
+
+/** Una semilla cuyo look se parezca lo menos posible a los que se quieren evitar (el actual y los últimos
+ * videos). Prueba varias y se queda con la más distinta. `random` se puede pasar para tests. */
+export function freshSeed(spec: Pick<MotionSpec, 'style' | 'look'>, avoid: string[], random: () => number = Math.random): number {
+  let best = Math.floor(random() * 1_000_000);
+  let bestScore = -1;
+  for (let i = 0; i < 24; i++) {
+    const seed = Math.floor(random() * 1_000_000);
+    const sig = lookSignature({ ...spec, seed });
+    // Lo más reciente pesa más: `avoid` viene del más nuevo al más viejo.
+    const score = avoid.length === 0 ? LOOK_PARTS.length : Math.min(...avoid.map((a, k) => lookDistance(sig, a) + Math.min(k, 3) * 0.25));
+    if (score > bestScore) {
+      best = seed;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
+/** El look en palabras, para mostrarlo en el panel («Barrido de color · Rebote · Cintas»). Omite lo clásico. */
+export function lookSummary(spec: Pick<MotionSpec, 'style' | 'seed' | 'look'>): string {
+  const l = resolveLook(spec);
+  const parts: string[] = [];
+  if (l.cut !== 'estilo') parts.push(LOOK_CUT_LABEL[l.cut]);
+  if (l.entry !== 'estilo') parts.push(LOOK_ENTRY_LABEL[l.entry]);
+  if (l.texture !== 'ninguna') parts.push(LOOK_TEXTURE_LABEL[l.texture]);
+  if (l.deco !== 'ninguno') parts.push(LOOK_DECO_LABEL[l.deco]);
+  if (l.camera !== 'empuje') parts.push(`Cámara: ${LOOK_CAMERA_LABEL[l.camera].toLowerCase()}`);
+  if (l.kicker !== 'pildora') parts.push(`Etiqueta: ${LOOK_KICKER_LABEL[l.kicker].toLowerCase()}`);
+  return parts.length ? parts.join(' · ') : 'Clásico del estilo';
+}
+
+/** ¿Alguna parte del look la decide la semilla? (si no, «Sorpréndeme» no tendría qué cambiar). */
+export const lookHasAuto = (look: MotionLook): boolean => LOOK_PARTS.some((p) => look[p] === LOOK_AUTO_VALUE);

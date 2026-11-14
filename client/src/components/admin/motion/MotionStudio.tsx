@@ -23,7 +23,7 @@ import { saveVideoFile } from './saveVideo';
 import { MotionEditor } from './MotionEditor';
 import { MotionPreview } from './MotionPreview';
 import { PlanPanel } from './PlanPanel';
-import { randomSeed } from '@shared/motionVariety';
+import { lookSummary, randomSeed } from '@shared/motionVariety';
 import { takeStudioEvent } from './handoff';
 import { loadDraft, patchDraft } from './draft';
 import { isTouchDevice } from './touch';
@@ -153,6 +153,7 @@ export function MotionStudio() {
                 <div>
                   <p className="font-medium">{MOTION_STYLE_LABEL[v.style]}</p>
                   <p className="text-xs text-muted-foreground">{v.scenes.length} escenas · {MOTION_TEMPLATE_LABEL[v.template]}</p>
+                  <p className="text-[11px] text-muted-foreground">{lookSummary(v)}</p>
                 </div>
                 <Button onClick={() => setView({ kind: 'edit', id: null, spec: v })}><Check className="mr-1 h-4 w-4" /> Usar esta</Button>
               </div>

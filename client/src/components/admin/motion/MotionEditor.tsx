@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { ArrowDown, ArrowLeft, ArrowUp, Copy, Dices, Download, Eye, EyeOff, Film, ImagePlus, Loader2, Mic, Plus, Save, Trash2, X } from 'lucide-react';
+import { ArrowDown, ArrowLeft, ArrowUp, Copy, Download, Eye, EyeOff, Film, ImagePlus, Loader2, Mic, Plus, Save, Trash2, X } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
 import { WriteButton } from '@/components/admin/WriteButton';
@@ -21,11 +21,13 @@ import { applyKeyword } from '@shared/motionSpec';
 import { AI_MODELS, AI_MODEL_LABEL, motionCallEstimateUsd, type AiModel } from '@shared/studioAi';
 import { MOTION_CUSTOM_BG, MOTION_CUSTOM_BG_LABEL, MOTION_CUSTOM_ENTRY, MOTION_CUSTOM_ENTRY_LABEL, MOTION_CUSTOM_FONTS, MOTION_CUSTOM_FONT_LABEL, normalizeCustom } from '@shared/motionSpec';
 import { specHash } from '@shared/studioRender';
-import { LAYOUT_AUTO, LAYOUTS, randomSeed, resolveLayouts } from '@shared/motionVariety';
+import { LAYOUT_AUTO, LAYOUTS, lookSignature, resolveLayouts } from '@shared/motionVariety';
 import { chileIsoDate } from '@shared/contentPlan';
 import { TTS_VOICE_KEYS, TTS_VOICES, voiceScriptHash, type TtsVoice } from '@shared/studioVoice';
 import { MotionPreview } from './MotionPreview';
 import { PackPanel } from './PackPanel';
+import { LookPanel } from './LookPanel';
+import { rememberLook } from './lookMemory';
 import { PublicacionControls } from './PublicacionControls';
 import { saveVideoFile } from './saveVideo';
 import { patchDraft } from './draft';
@@ -137,6 +139,8 @@ export function MotionEditor({ id: initialId, initial, restored, onBack }: {
     onSuccess: ({ id: newId }) => {
       setId(newId);
       setSavedHash(JSON.stringify(spec));
+      // Queda en la memoria de looks: el próximo «Sorpréndeme» no repite esta combinación.
+      rememberLook(lookSignature(clean));
       utils.motionStudio.list.invalidate();
       utils.motionStudio.get.invalidate({ id: newId });
       toast.success('Video guardado.');
@@ -303,11 +307,7 @@ export function MotionEditor({ id: initialId, initial, restored, onBack }: {
                   <Field label="Solo mayúsculas"><Switch checked={spec.custom.uppercase} onCheckedChange={(uppercase) => setSpec({ custom: { ...spec.custom, uppercase } })} /></Field>
                 </div>
               )}
-              <Field label="Composición" hint="Cada escena usa una composición distinta del estilo; «Variar» prueba otras (gratis, sin IA).">
-                <Button type="button" variant="outline" className="w-full justify-start" onClick={() => setSpec({ seed: randomSeed() })}>
-                  <Dices className="mr-2 h-4 w-4" /> Variar composiciones
-                </Button>
-              </Field>
+              <LookPanel clean={clean} onChange={setSpec} />
               <Field label="Fondo"><Pick value={spec.base} options={MOTION_BASES} labels={MOTION_BASE_LABEL} onChange={(base) => setSpec({ base })} /></Field>
               <Field label="Color de acento" hint="El protagonista: un solo elemento por cuadro."><Pick value={clean.accent} options={MOTION_ACCENTS} labels={MOTION_ACCENT_LABEL} onChange={(accent) => setSpec({ accent })} /></Field>
               <Field label="Formato"><Pick value={spec.format} options={MOTION_FORMATS} labels={MOTION_FORMAT_LABEL} onChange={(format) => setSpec({ format })} /></Field>

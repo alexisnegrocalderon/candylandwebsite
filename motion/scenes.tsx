@@ -3,6 +3,7 @@ import { BRAND, type MotionScene } from '../shared/motionSpec';
 import { useMotion } from './context';
 import { bubbleShadow, KITS, rand } from './kits';
 import { MediaLayer, useBreathe, useExit } from './layers';
+import { EntryWord, onColor, SceneDeco, SETTLED_DELAY } from './look';
 import { CENTERED, useMagazine, type Align } from './layouts';
 import { syneWidth } from './measure';
 import { beats, ease, fonts, safeInsets, springs } from './theme';
@@ -37,7 +38,7 @@ export function heroWords(text: string, highlight: string): Set<number> {
 }
 
 export const Headline: React.FC<{ text: string; highlight: string; base: number; delay: number; maxWidth?: number; align?: Align; heroScale?: number }> = ({ text, highlight, base, delay, maxWidth, align: alignProp, heroScale = 1 }) => {
-  const { spec, width } = useMotion();
+  const { spec, width, look } = useMotion();
   const kit = KITS[spec.style];
   const breathe = useBreathe();
   const usable = maxWidth ?? width - safeInsets(width, 1).side * 2;
@@ -82,7 +83,14 @@ export const Headline: React.FC<{ text: string; highlight: string; base: number;
         const wordSize = kit.contrast && !heroes.has(i) ? small : size;
         return (
           <span key={`${i}-${w}`} style={{ fontSize: wordSize, display: 'inline-block' }}>
-            <kit.Word word={w} i={i} delay={delay} hero={heroes.has(i)} size={wordSize} />
+            {look.entry === 'estilo' ? (
+              <kit.Word word={w} i={i} delay={delay} hero={heroes.has(i)} size={wordSize} />
+            ) : (
+              // Otra entrada: el kit pinta la palabra ya asentada y el look la mueve.
+              <EntryWord kind={look.entry} i={i} delay={delay} size={wordSize} letters={w.length}>
+                <kit.Word word={w} i={i} delay={SETTLED_DELAY} hero={heroes.has(i)} size={wordSize} />
+              </EntryWord>
+            )}
           </span>
         );
       })}
@@ -93,10 +101,37 @@ export const Headline: React.FC<{ text: string; highlight: string; base: number;
 export const Kicker: React.FC<{ text: string; delay?: number }> = ({ text, delay = 0 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
-  const { palette, spec } = useMotion();
+  const { palette, spec, look } = useMotion();
   const p = spring({ frame: frame - delay, fps, config: springs.snappy });
   if (!text) return null;
   const glitch = spec.style === 'glitch';
+  const font: React.CSSProperties = { fontFamily: glitch ? fonts.grotesk : fonts.ui, fontWeight: 800, fontSize: 38, letterSpacing: '0.18em' };
+  const enter: React.CSSProperties = { opacity: p, transform: `translateY(${interpolate(p, [0, 1], [24, 0])}px) scale(${interpolate(p, [0, 1], [0.86, 1])})` };
+  if (look.kicker === 'etiqueta') {
+    // Papelito pegado: fondo del color protagonista, un poco ladeado.
+    return (
+      <div style={{ ...font, display: 'inline-block', padding: '14px 26px', borderRadius: 6, background: palette.hero, color: onColor(palette.hero), opacity: p, transform: `translateY(${interpolate(p, [0, 1], [24, 0])}px) rotate(${interpolate(p, [0, 1], [-9, -3])}deg)`, boxShadow: '0 10px 0 rgba(0,0,0,0.14)' }}>
+        {text.toUpperCase()}
+      </div>
+    );
+  }
+  if (look.kicker === 'subrayado') {
+    return (
+      <div style={{ ...font, display: 'inline-flex', flexDirection: 'column', gap: 10, color: palette.body, ...enter }}>
+        {text.toUpperCase()}
+        <span style={{ height: 6, borderRadius: 3, background: palette.hero, transform: `scaleX(${interpolate(frame - delay, [4, 20], [0, 1], { easing: ease.out, ...clamp })})`, transformOrigin: '0% 50%' }} />
+      </div>
+    );
+  }
+  if (look.kicker === 'caja') {
+    const dot = (pos: React.CSSProperties) => <span style={{ position: 'absolute', width: 14, height: 14, background: palette.hero, ...pos }} />;
+    return (
+      <div style={{ ...font, position: 'relative', display: 'inline-block', padding: '14px 28px', border: `3px solid ${palette.body}`, color: palette.body, ...enter }}>
+        {dot({ left: -8, top: -8 })}{dot({ right: -8, top: -8 })}{dot({ left: -8, bottom: -8 })}{dot({ right: -8, bottom: -8 })}
+        {text.toUpperCase()}
+      </div>
+    );
+  }
   return (
     <div
       style={{
@@ -180,6 +215,7 @@ export const TextScene: React.FC<{ scene: MotionScene; index: number; frames: nu
   return (
     <AbsoluteFill>
       {scene.media && (kit.Framed ? <kit.Framed media={scene.media} index={index} frames={frames} /> : <MediaLayer media={scene.media} index={index} frames={frames} dim={lowerThird ? 0.55 : 0.4} />)}
+      <SceneDeco scene={scene} index={index} frames={frames} />
       <AbsoluteFill
         style={{
           paddingTop: topPad,

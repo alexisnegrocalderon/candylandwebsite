@@ -5,6 +5,7 @@
  *   pnpm tsx scripts/motion/preview.mts stills [salida]        # todas las plantillas × estilos
  *   pnpm tsx scripts/motion/preview.mts pack [salida]          # láminas del carrusel, post e historia (ONLY=estilo, BASE=fondo)
  *   pnpm tsx scripts/motion/preview.mts layouts [salida]       # una lámina por composición de cada estilo (ONLY=estilo, FORMAT=reel|feed, BASE=fondo)
+ *   pnpm tsx scripts/motion/preview.mts looks [salida]         # el look: cada adorno, trama, etiqueta, entrada y transición (ONLY=estilo, FORMAT, SEEDS=3 para ver semillas al azar)
  *   pnpm tsx scripts/motion/preview.mts video receta.json out.mp4
  *
  * Usa el Chromium de la máquina si existe (CHROME_PATH o el de Playwright). */
@@ -12,7 +13,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { bundle } from '@remotion/bundler';
 import { renderMedia, renderStill, selectComposition } from '@remotion/renderer';
-import { LAYOUTS } from '../../shared/motionVariety';
+import { LAYOUTS, LOOK_ALL_AUTO, LOOK_CLASSIC, LOOK_CUTS, LOOK_DECOS, LOOK_ENTRIES, LOOK_KICKERS, LOOK_TEXTURES, lookSignature, type MotionLook } from '../../shared/motionVariety';
 import { MOTION_STYLES, MOTION_TEMPLATES, PACK_KINDS, motionTimeline, normalizeMotionSpec, packSlides, starterSpec, type MotionSpec } from '../../shared/motionSpec';
 
 const ROOT = resolve(import.meta.dirname, '..', '..');
@@ -74,6 +75,38 @@ if (mode === 'video') {
       await renderStill({ composition, serveUrl, output: join(out, `${style}-${String(i + 1).padStart(2, '0')}-${keys[i]}.png`), frame: t.from + t.frames - 12, inputProps, browserExecutable, chromiumOptions });
     }
     console.log(style, keys.length, 'composiciones');
+  }
+} else if (mode === 'looks') {
+  const out = a ?? 'motion-looks';
+  mkdirSync(out, { recursive: true });
+  const only = process.env.ONLY?.split(',') ?? ['liquid'];
+  const format = process.env.FORMAT ?? 'reel';
+  for (const style of MOTION_STYLES) {
+    if (!only.includes(style)) continue;
+    const base = { ...starterSpec('anuncio', style), format, outro: false, seed: Number(process.env.SEED ?? 11), ...(process.env.BASE ? { base: process.env.BASE } : {}) } as MotionSpec;
+    const shot = async (name: string, look: Partial<MotionLook>, pick: (tl: ReturnType<typeof motionTimeline>) => number, seed = base.seed) => {
+      const spec = normalizeMotionSpec({ ...base, seed, look: { ...LOOK_CLASSIC, ...look } });
+      await still(spec, pick(motionTimeline(spec)), join(out, `${style}-${name}.png`));
+    };
+    const settled = (i: number) => (tl: ReturnType<typeof motionTimeline>) => { const t = tl.scenes[Math.min(i, tl.scenes.length - 1)]; return t.from + Math.min(t.frames - 10, 40); };
+    if (process.env.SEEDS) {
+      // Semillas al azar, todo en automático: lo que ve el dueño al tocar «Sorpréndeme».
+      for (let k = 0; k < Number(process.env.SEEDS); k++) {
+        const seed = 1000 + k * 7919;
+        const spec = normalizeMotionSpec({ ...base, seed, look: LOOK_ALL_AUTO });
+        for (const i of [0, 1]) await still(spec, settled(i)(motionTimeline(spec)), join(out, `${style}-seed${k}-${i + 1}.png`));
+        console.log(style, seed, lookSignature(spec));
+      }
+      continue;
+    }
+    const part = process.env.PART; // PART=corte|deco|trama|etiqueta|entrada: solo esa parte
+    for (const deco of LOOK_DECOS) if (deco !== 'ninguno' && (!part || part === 'deco')) for (const i of [0, 1]) await shot(`deco-${deco}-${i + 1}`, { deco }, settled(i));
+    for (const texture of LOOK_TEXTURES) if (texture !== 'ninguna' && (!part || part === 'trama')) await shot(`trama-${texture}`, { texture }, settled(0));
+    for (const kicker of LOOK_KICKERS) if (!part || part === 'etiqueta') await shot(`etiqueta-${kicker}`, { kicker }, settled(0));
+    for (const entry of LOOK_ENTRIES) if (entry !== 'estilo' && (!part || part === 'entrada')) await shot(`entrada-${entry}`, { entry }, (tl) => tl.scenes[0].from + 12);
+    // Transiciones: un cuadro antes del medio (tapando) y uno después (destapando).
+    for (const cut of LOOK_CUTS) if (cut !== 'estilo' && (!part || part === 'corte')) for (const d of [-5, 4]) await shot(`corte-${cut}-${d < 0 ? 'a' : 'b'}`, { cut }, (tl) => tl.scenes[1].from + d);
+    console.log(style, 'look listo');
   }
 } else if (mode === 'pack') {
   const out = a ?? 'motion-pack';

@@ -4,6 +4,7 @@ import { useMotion } from './context';
 import { IgGlyph } from './hud';
 import { fitBlockSize, syneWidth } from './measure';
 import { KITS } from './kits';
+import { SceneDeco } from './look';
 import { clamp } from './kits/shared';
 import { heroWords } from './scenes';
 import { BrandObject } from './three/BrandObject';
@@ -72,6 +73,7 @@ export const PosterScene: React.FC<{ scene: MotionScene; index: number; frames: 
 
   return (
     <AbsoluteFill style={{ opacity: 1 - exit }}>
+      <SceneDeco scene={scene} index={index} frames={frames} />
       {/* Íconos de esquina. */}
       <div style={{ position: 'absolute', left: inset.side, top: iconTop, transform: `scale(${icons})` }}><Heart size={56} color={palette.hero} /></div>
       <div style={{ position: 'absolute', right: inset.side, top: iconTop, transform: `rotate(${frame * 2}deg) scale(${icons})` }}><Loop size={56} color={palette.display} /></div>

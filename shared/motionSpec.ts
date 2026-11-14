@@ -7,7 +7,7 @@
  * llega (normalizeMotionSpec) y la línea de tiempo (motionTimeline). Así la
  * composición, el servidor y los tests leen exactamente lo mismo. */
 
-import { ALL_LAYOUT_KEYS, LAYOUT_AUTO, seedFromText } from './motionVariety';
+import { ALL_LAYOUT_KEYS, LAYOUT_AUTO, LOOK_ALL_AUTO, normalizeLook, seedFromText, type MotionLook } from './motionVariety';
 
 export const MOTION_FPS = 30;
 
@@ -280,6 +280,9 @@ export interface MotionSpec {
   /** Semilla de la variedad: con ella se eligen las composiciones de las escenas «auto» y se mueven las formas.
    * Misma semilla = mismo resultado; «Variar» en el editor la cambia. */
   seed: number;
+  /** Lo que cambia entre dos videos del mismo estilo (transición, entrada del texto, trama, adornos, cámara y
+   * etiqueta): cada parte fija o «auto» (la elige la semilla). Ver shared/motionVariety.ts. */
+  look: MotionLook;
   /** Fecha del evento (YYYY-MM-DD, hora de Chile) para el calendario; vacía si no hay. */
   eventDate: string;
   template: MotionTemplate;
@@ -411,6 +414,8 @@ export function normalizeMotionSpec(raw: unknown): MotionSpec {
     eventId: Number.isInteger(eventId) && eventId > 0 ? eventId : null,
     // Los videos guardados sin semilla la sacan de su nombre: no cambian de cara al abrirlos.
     seed: Number.isInteger(r.seed) && (r.seed as number) >= 0 && (r.seed as number) < 1_000_000 ? (r.seed as number) : seedFromText(str(r.title, 200) || 'Video sin nombre'),
+    // Sin look (video guardado antes de que existiera) = el clásico: no cambia de cara.
+    look: normalizeLook(r.look),
     eventDate: typeof r.eventDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(r.eventDate) ? r.eventDate : '',
     template,
     style,
@@ -606,11 +611,11 @@ export function starterSpec(template: MotionTemplate, style: MotionStyle = 'liqu
             ];
   if (style === 'arcade' && template === 'anuncio') {
     return normalizeMotionSpec({
-      template, style, scenes, base: 'arcade', accent: 'magenta', music: 'drive', outroLine: 'dalmore.mansionplayroom.cl', title: 'PLAYMORE · Player 1 vs Player 2',
+      template, style, scenes, look: LOOK_ALL_AUTO, base: 'arcade', accent: 'magenta', music: 'drive', outroLine: 'dalmore.mansionplayroom.cl', title: 'PLAYMORE · Player 1 vs Player 2',
       caption: 'PLAYMORE: Player 1 vs Player 2 🕹️\nElige tu equipo: magenta (Player 1 · mundo Playroom) o celeste (Player 2 · mundo Dalmore). Base negra + tu color neón y ven a ganar.\nDados, ruletas y un marcador gigante toda la noche.\n\nViernes 4 de diciembre · Providencia · +21\nEntradas en dalmore.mansionplayroom.cl\n\n#PLAYMORE #Player1vsPlayer2 #MansionPlayroom #Dalmore',
     });
   }
-  return normalizeMotionSpec({ template, style, scenes, outroLine: 'mansionplayroom.cl', title: MOTION_TEMPLATE_LABEL[template] });
+  return normalizeMotionSpec({ template, style, scenes, look: LOOK_ALL_AUTO, outroLine: 'mansionplayroom.cl', title: MOTION_TEMPLATE_LABEL[template] });
 }
 
 /* --- Pack: reel + carrusel + post + historia de una misma idea ----------------
