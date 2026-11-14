@@ -349,6 +349,58 @@ describe('runInstagramAgent por canal', () => {
     expect(call.messages[0].content).toContain('Srta. Playroom');
   });
 
+  // Caso real (14/11): alguien escribió «solo» (un hombre) y el agente le ofreció la Soltera.
+  const SOLO_HISTORY = [
+    { direction: 'in', text: 'hola' }, { direction: 'out', text: '¡Hola! ¿Quieres saber de nuestra próxima fiesta?' },
+    { direction: 'in', text: 'si quiero ir' }, { direction: 'out', text: '¡Qué bacán! ¿Vienes en pareja, en grupo o por tu cuenta?' },
+  ] as any;
+  const soltera = { reply: 'La Soltera está en $12.500 esta tanda 💜', handoff: false, handoffReason: '', isPersonal: false, isThanks: false, action: 'buy_link', accessOption: 'soltera', quantity: 1 };
+  const pareja = { reply: 'Para tu primera vez te corresponde el acceso Pareja, con una chica acompañante: $25.000 💜', handoff: false, handoffReason: '', isPersonal: false, isThanks: false, action: 'buy_link', accessOption: 'pareja', quantity: 1 };
+
+  it('a quien dice «solo» no le ofrece la Soltera: reintenta y manda el acceso que le corresponde', async () => {
+    mockLlmJson(soltera);
+    mockLlmJson(pareja);
+    const result = await runInstagramAgent({ incomingText: 'solo', history: SOLO_HISTORY, config: {} });
+    expect(invokeLLMMock).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify((invokeLLMMock.mock.calls[1][0] as any).messages)).toContain('NO le ofrezcas ni le nombres el acceso Soltera');
+    expect(result.action).toBe('buy_link');
+    expect(result.accessOption).toBe('pareja');
+    expect(result.reply).not.toMatch(/soltera/i);
+  });
+
+  it('si insiste con la Soltera para un hombre, sale un mensaje seguro con el botón', async () => {
+    mockLlmJson(soltera);
+    mockLlmJson(soltera);
+    const result = await runInstagramAgent({ incomingText: 'solo', history: SOLO_HISTORY, config: {} });
+    expect(result.reply).not.toMatch(/soltera|\$\d/i);
+    expect(result.action).toBe('buy_link');
+    expect(result.accessOption).not.toBe('soltera');
+  });
+
+  it('si no dijo si es mujer u hombre, no asume: pregunta y manda el botón general', async () => {
+    mockLlmJson(soltera);
+    mockLlmJson({ ...soltera, reply: 'Para darte el acceso exacto, ¿vienes como mujer o como hombre? 💜', accessOption: '' });
+    const result = await runInstagramAgent({ incomingText: 'voy yo no más', history: SOLO_HISTORY, config: {} });
+    expect(JSON.stringify((invokeLLMMock.mock.calls[1][0] as any).messages)).toContain('NO sabes si la persona es mujer u hombre');
+    expect(result.reply).toContain('¿vienes como mujer o como hombre?');
+    expect(result.action).toBe('buy_link');
+    expect(result.accessOption).toBe('');
+  });
+
+  it('a una mujer que dice «sola» sí le ofrece la Soltera, sin segunda llamada', async () => {
+    mockLlmJson(soltera);
+    const result = await runInstagramAgent({ incomingText: 'voy sola', history: SOLO_HISTORY, config: {} });
+    expect(invokeLLMMock).toHaveBeenCalledTimes(1);
+    expect(result.accessOption).toBe('soltera');
+  });
+
+  it('una respuesta con precio siempre lleva el botón de compra aunque el modelo lo olvide', async () => {
+    mockLlmJson({ reply: 'La Pareja está en $25.000 esta tanda 💜', handoff: false, handoffReason: '', isPersonal: false, isThanks: false, action: 'none' });
+    const result = await runInstagramAgent({ incomingText: 'somos pareja, cuánto sale?', history: [], config: {} });
+    expect(result.action).toBe('buy_link');
+    expect(result.accessOption).toBe('pareja');
+  });
+
   it('en Instagram fuerza action a "none" si el modelo pide "event_list" (no soportado en ese canal)', async () => {
     mockLlmJson({ reply: 'hola', handoff: false, handoffReason: '', isPersonal: false, isThanks: false, action: 'event_list' });
     const result = await runInstagramAgent({ incomingText: 'hola', history: [], config: {} });
