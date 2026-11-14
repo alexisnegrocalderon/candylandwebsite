@@ -42,6 +42,18 @@ const ALLOWED_CONTENT_TYPES = [
 // nunca pasa por nuestra función de todos modos, así que esto es solo un
 // tope de buen criterio, no una limitación técnica de Vercel.
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
+// El video de fondo del Estudio (un reel con texto encima) puede ser un clip de celular de hasta unos minutos: se deja pasar
+// más, pero SOLO en su carpeta (studio-backdrops/) y SOLO si es video.
+const MAX_BACKDROP_BYTES = 150 * 1024 * 1024;
+const BACKDROP_PREFIX = "studio-backdrops/";
+const VIDEO_TYPES = ["video/mp4", "video/webm", "video/quicktime"];
+
+/** Los topes de un archivo según su carpeta. */
+export function uploadLimits(pathname: string): { allowedContentTypes: string[]; maximumSizeInBytes: number } {
+  return pathname.startsWith(BACKDROP_PREFIX)
+    ? { allowedContentTypes: VIDEO_TYPES, maximumSizeInBytes: MAX_BACKDROP_BYTES }
+    : { allowedContentTypes: ALLOWED_CONTENT_TYPES, maximumSizeInBytes: MAX_UPLOAD_BYTES };
+}
 
 /** El SDK solo lee BLOB_READ_WRITE_TOKEN. Al reconectar el store en Vercel, el token quedó
  * con otro nombre (NEW_BLOB_READ_WRITE_TOKEN), así que se acepta cualquiera de los dos. */
@@ -56,12 +68,11 @@ export function registerBlobUploadRoutes(app: Express) {
         body: req.body as HandleUploadBody,
         request: req,
         token: blobToken(),
-        onBeforeGenerateToken: async () => {
+        onBeforeGenerateToken: async (pathname: string) => {
           // requireAdmin ya corrió arriba -- acá solo se fijan las
           // restricciones del token en sí.
           return {
-            allowedContentTypes: ALLOWED_CONTENT_TYPES,
-            maximumSizeInBytes: MAX_UPLOAD_BYTES,
+            ...uploadLimits(pathname),
             addRandomSuffix: true,
           };
         },

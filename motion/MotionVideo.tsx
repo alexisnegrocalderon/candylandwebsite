@@ -17,6 +17,9 @@ import { PosterScene } from './poster';
 import { SoftUiScene } from './softui';
 import { BrandSting, CountdownScene, TextScene } from './scenes';
 import { ChatHookScene } from './chat';
+import { AdaptedPalette, AdaptedScene, BackdropLayer } from './backdrop';
+import { backdropPlan } from '../shared/motionBackdropPlan';
+import { layoutZone } from '../shared/motionVariety';
 import { SFX_FRAMES, sfxSchedule, type SfxName } from '../shared/motionSfx';
 import { beats, fonts } from './theme';
 
@@ -178,13 +181,17 @@ const Captions: React.FC = () => {
 };
 
 const Body: React.FC = () => {
-  const { spec, timeline, look } = useMotion();
+  const { spec, timeline, look, layouts, backdropPlan: plan } = useMotion();
   const kit = KITS[spec.style];
   const last = spec.scenes.length - 1;
   return (
     <>
-      {/* 1. Fondo (continuo entre escenas). */}
-      <kit.Background />
+      {/* 0. El video de fondo (si lo hay): continuo, debajo de todo. */}
+      {spec.backdrop && <BackdropLayer />}
+      {/* 1. Fondo (continuo entre escenas). Sobre un video, se ve solo lo que pide la mezcla. */}
+      {spec.backdrop ? (
+        <AbsoluteFill style={{ opacity: spec.backdrop.mix / 100 }}><kit.Background /></AbsoluteFill>
+      ) : <kit.Background />}
       {/* La luz de fondo (halo o haces) que respira con la música. */}
       <Glow />
       {/* La trama del look (puntos, rayas, ondas…) sobre el fondo del estilo. */}
@@ -215,22 +222,31 @@ const Body: React.FC = () => {
             ? <SoftUiScene scene={scene} index={t.index} frames={t.frames} />
             : <TextScene scene={scene} index={t.index} frames={t.frames} role={role} lowerThird={spec.template === 'montaje' && !!scene.media} />;
         }
+        // Sobre un video de fondo, el texto de cada escena se adapta a lo que hay detrás (menos el celular del gancho de chat, que trae su pantalla).
+        const legibility = plan?.scenes[t.index];
+        const isChat = spec.hook !== 'ninguno' && hookApplies(spec.template) && t.index === 0;
         return (
           <Sequence key={t.index} from={t.from} durationInFrames={t.frames} name={`Escena ${t.index + 1}`}>
-            {content}
+            {legibility && !isChat
+              ? <AdaptedScene legibility={legibility} zone={layoutZone(spec.style, layouts[t.index])} frames={t.frames}>{content}</AdaptedScene>
+              : content}
           </Sequence>
         );
       })}
       {timeline.outroFrom != null && (
         <Sequence from={timeline.outroFrom} durationInFrames={timeline.outroFrames} name="Cierre">
-          {spec.closing === 'handle'
-            ? <HandleCard frames={timeline.outroFrames} line={spec.outroLine} />
-            : <BrandSting frames={timeline.outroFrames} tagline={spec.outroLine} />}
+          <AdaptedPalette legibility={plan?.outro ?? null}>
+            {spec.closing === 'handle'
+              ? <HandleCard frames={timeline.outroFrames} line={spec.outroLine} />
+              : <BrandSting frames={timeline.outroFrames} tagline={spec.outroLine} />}
+          </AdaptedPalette>
         </Sequence>
       )}
       </Camera>
-      {spec.hud && <Hud />}
-      <Captions />
+      <AdaptedPalette legibility={plan?.edges ?? null}>
+        {spec.hud && <Hud />}
+        <Captions />
+      </AdaptedPalette>
       {/* Transiciones encima de todo el contenido, centradas en cada corte. */}
       {[...timeline.scenes.slice(1).map((t) => t.from), ...(timeline.outroFrom != null ? [timeline.outroFrom] : [])].map((cut, n) => (
         look.cut === 'estilo' ? (
@@ -256,11 +272,13 @@ const Body: React.FC = () => {
 
 export const MotionVideo: React.FC<MotionVideoProps> = ({ spec: raw, slide = null }) => {
   useBrandFonts();
-  const { width, height } = useVideoConfig();
+  const { width, height, fps } = useVideoConfig();
   const ctx = useMemo<MotionCtx>(() => {
     const spec = normalizeMotionSpec(raw);
-    return { spec, palette: motionPalette(spec.base, spec.accent), timeline: motionTimeline(spec), width, height, captionsOn: spec.captions && !!spec.voice, layouts: resolveLayouts(spec), look: resolveLook(spec), slide };
-  }, [raw, width, height, slide]);
+    const timeline = motionTimeline(spec);
+    const layouts = resolveLayouts(spec);
+    return { spec, palette: motionPalette(spec.base, spec.accent), timeline, width, height, captionsOn: spec.captions && !!spec.voice, layouts, look: resolveLook(spec), backdropPlan: backdropPlan(spec, timeline, layouts, fps), slide };
+  }, [raw, width, height, fps, slide]);
   return (
     <MotionContext.Provider value={ctx}>
       {/* La composición no depende del CSS de la página donde se dibuja: sin `border-box` el relleno

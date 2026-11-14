@@ -9,6 +9,7 @@
 
 import { chatMinSecs } from './motionChat';
 import { ALL_LAYOUT_KEYS, LAYOUT_AUTO, LOOK_ALL_AUTO, normalizeLook, seedFromText, type MotionLook } from './motionVariety';
+import { normalizeBackdrop, type MotionBackdrop } from './motionBackdrop';
 import { normalizeSong, songBeatGrid, type MotionSong } from './motionSong';
 import { normalizeMascot, type MotionMascot } from './motionMascot';
 
@@ -357,6 +358,8 @@ export interface MotionSpec {
   music: MotionMusic;
   /** Canción propia subida y analizada (shared/motionSong.ts): manda sobre `music` y marca el pulso de todo el video. */
   song: MotionSong | null;
+  /** Un video propio que corre continuo detrás de todo el reel, con el texto adaptado a lo que se ve (shared/motionBackdrop.ts). */
+  backdrop: MotionBackdrop | null;
   /** Luz de fondo que late con la música. */
   glow: MotionGlow;
   /** El perrito globo de Playroom en 3D (shared/motionMascot.ts), detrás del texto; null = sin perrito. */
@@ -522,6 +525,7 @@ export function normalizeMotionSpec(raw: unknown): MotionSpec {
     custom: normalizeCustom(r.custom),
     music: pick(r.music, MOTION_MUSIC, 'pulse'),
     song: normalizeSong(r.song, cleanMediaUrl),
+    backdrop: normalizeBackdrop(r.backdrop, cleanMediaUrl),
     glow: pick(r.glow, MOTION_GLOWS, 'ninguna'),
     mascot: normalizeMascot(r.mascot),
     durationSecs: r.durationSecs == null || r.durationSecs === '' || !Number.isFinite(Number(r.durationSecs))

@@ -10,6 +10,7 @@
  *   pnpm tsx scripts/motion/preview.mts papers [salida]        # Collage (los 4 papeles) y Pizarra: escenas asentadas y a mitad de transición (BASE=fondo, FORMAT=reel|feed)
  *   pnpm tsx scripts/motion/preview.mts chat [salida]          # el gancho de chat (WhatsApp, DM, notificaciones): escribiendo, a mitad y al final (ONLY=estilo, FORMAT, BASE)
  *   pnpm tsx scripts/motion/preview.mts dogs [salida]          # el perrito de Playroom: colores y estampados (FRAME=cuadro, FORMAT, BASE, KIND=pareja)
+ *   pnpm tsx scripts/motion/preview.mts backdrop [salida]      # texto sobre un video de fondo: una escena por tramo (BD=backdrop.json con el análisis, ONLY=estilos, ADAPT=auto|claro|oscuro|apagada, MIX=0-100)
  *   pnpm tsx scripts/motion/preview.mts video receta.json out.mp4
  *
  * Usa el Chromium de la máquina si existe (CHROME_PATH o el de Playwright). */
@@ -100,6 +101,28 @@ if (mode === 'video') {
       void tl;
     }
     console.log(style, 'subtítulos listos');
+  }
+} else if (mode === 'backdrop') {
+  const out = a ?? 'motion-backdrop';
+  mkdirSync(out, { recursive: true });
+  const bd = JSON.parse(readFileSync(process.env.BD ?? 'backdrop.json', 'utf8'));
+  const only = process.env.ONLY?.split(',') ?? ['liquid', 'editorial', 'glitch', 'collage', 'pizarra', 'kinetic'];
+  const lines = [
+    { kicker: 'SE VIENE', text: 'Una noche distinta', highlight: 'distinta', sub: 'Dirección exacta al comprar' },
+    { kicker: 'SÁBADO', text: 'Ven con tu pareja', highlight: 'pareja' },
+    { text: 'Comenta INFO', highlight: 'INFO' },
+  ];
+  for (const style of only as Array<(typeof MOTION_STYLES)[number]>) {
+    const base = starterSpec('anuncio', style);
+    // Cada escena dura lo que un tramo del video de prueba (4 s): la 1 cae sobre lo claro, la 2 sobre lo oscuro y la 3 sobre lo detallado.
+    const spec = normalizeMotionSpec({
+      ...base, format: process.env.FORMAT ?? 'reel', outro: false, music: 'none', sfx: false, look: LOOK_CLASSIC, seed: Number(process.env.SEED ?? 21), captionStyle: 'karaoke',
+      scenes: lines.map((l) => ({ ...l, secs: 4 })),
+      backdrop: { ...bd, adapt: process.env.ADAPT ?? 'auto', mix: Number(process.env.MIX ?? 0) },
+    });
+    const tl = motionTimeline(spec);
+    for (const t of tl.scenes) await still(spec, t.from + t.frames - 26, join(out, `${style}-${process.env.ADAPT ?? 'auto'}-escena${t.index + 1}.png`));
+    console.log(style, 'listo');
   }
 } else if (mode === 'dogs') {
   const out = a ?? 'motion-dogs';
