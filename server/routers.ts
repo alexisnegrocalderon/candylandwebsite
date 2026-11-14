@@ -3686,6 +3686,7 @@ export const appRouter = router({
     list: adminReadProcedure.query(async ({ ctx }) => {
       if (ctx.user?.role !== 'viewer') await import("./outreach").then((m) => m.ensureOutreachDrafts()).catch((err) => console.error('[Outreach]', err));
       if (ctx.user?.role !== 'viewer') await import("./privateMembers").then((m) => m.ensurePrivateMembersRequests()).catch((err) => console.error('[PrivateMembers]', err));
+      if (ctx.user?.role !== 'viewer') await import("./communityDiscount").then((m) => m.ensureCommunityDiscountRequest()).catch((err) => console.error('[CommunityDiscount]', err));
       const lists = await crossCheckSvc.listCrossChecks();
       // El invitado de demostración no ve correos a personas externas.
       return ctx.user?.role === 'viewer' ? { pending: lists.pending.filter((i) => i.kind !== 'outreach'), recent: lists.recent.filter((i) => i.kind !== 'outreach') } : lists;
