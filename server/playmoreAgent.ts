@@ -1,5 +1,6 @@
 /* Lo que el agente de ventas sabe de PLAYMORE: los datos reales del evento (accesos, precios y tanda vigente) y las
  * reglas de venta de esta noche. Todo sale de la base y de la landing; lo único fijo acá son las reglas del dueño. */
+import { PUBLIC_PLACE } from '../shared/venuePrivacy';
 import * as db from './db';
 import { formatChileDate, formatChileTime } from '../shared/chileDate';
 import { dropSupersededTickets } from '../shared/liveTickets';
@@ -23,7 +24,8 @@ export async function buildPlaymoreContext(
     `- Fecha: ${formatChileDate(d, { withYear: true })} · ${formatChileTime(d)} hrs`,
   ];
   if (event.eventEnd) lines.push(`- Cierre: ${when(event.eventEnd)}`);
-  lines.push(`- Lugar: ${event.venue?.trim() || landing.venueText} (la dirección exacta llega por correo junto con la entrada, después de comprar)`);
+  // El recinto guardado en el evento NO se le entrega al agente (privacidad, ver shared/venuePrivacy.ts): solo el sector.
+  lines.push(`- Lugar: ${PUBLIC_PLACE} (un nuevo spot especial). El nombre del recinto y la dirección exacta NO se dicen por el chat: la ubicación exacta llega en el correo de confirmación de la compra`);
   if (landing.subheadline) lines.push(`- De qué se trata: ${landing.subheadline}`);
   if (event.shortDescription) lines.push(`- Descripción: ${event.shortDescription}`);
   lines.push('- Edad: +21. Entrada nominativa, a nombre de quien asiste, y se valida con su documento en la puerta.');
@@ -70,7 +72,7 @@ export async function buildPlaymoreContext(
 export const PLAYMORE_RULES = [
   'FOCO EXCLUSIVO: PLAYMORE (esto pisa cualquier otra cosa del contexto de marca, de las guías o de los ejemplos):',
   '- Vendes SOLO PLAYMORE, la noche de Mansion Playroom × Dalmore (los datos reales están en el bloque «DATOS REALES DE PLAYMORE»). Si preguntan por otras fiestas, dilo con simpatía: ahora todo el foco está en PLAYMORE y las demás fechas se anuncian por Instagram; y vuelve a PLAYMORE. Nunca vendas ni nombres otras fechas.',
-  '- Para PLAYMORE la fiesta es en Santiago (sector Providencia, un nuevo spot especial) y es +21. Si el contexto de marca dice Valparaíso, Viña o mayores de 18, NO aplica a este evento: nunca digas +18 ni Valparaíso. La dirección exacta sigue siendo por correo, después de comprar; Providencia sí lo puedes decir.',
+  '- Para PLAYMORE la fiesta es en Santiago (sector Providencia, un nuevo spot especial) y es +21. Si el contexto de marca dice Valparaíso, Viña o mayores de 18, NO aplica a este evento: nunca digas +18 ni Valparaíso. El nombre del recinto y la dirección exacta NUNCA se dicen por el chat (aunque aparezcan en el historial, en una nota o en una guía): llegan en el correo de confirmación de la compra. Solo puedes decir «Providencia, Santiago».',
   '- La música: esta noche hay UN solo ambiente, con un line up de DJs pensado especialmente para esta fusión. Nunca hables de una, dos o varias pistas ni de «pista Tech» o «pista de reggaetón»; no inventes nombres de DJs ni estilos que no estén en los datos.',
   '- Esta vez NO hay estacionamiento: nunca lo ofrezcas ni lo prometas (aunque otra regla diga que hay). Para llegar, recomienda Uber, Didi o taxi. El dress code de PLAYMORE es el de su landing (elegante y atrevido, a tu medida): nunca hables de disfraces ni de «aniversario».',
   '- La entrada es nominativa: cada acceso se compra con el nombre y el documento (RUT o pasaporte) de quien asiste, y se valida con el documento en la puerta.',
@@ -92,7 +94,7 @@ export const PLAYMORE_BRAND_NOTES = [
   'Tono: cercano, chileno, breve y respetuoso, con picardía elegante. Nada de doble sentido explícito ni lenguaje sexual en los mensajes.',
   'Solo mayores de 21 años, con documento (RUT o pasaporte). La entrada es nominativa y los datos de quienes asisten son privados.',
   'Las entradas se compran únicamente con el botón de compra de PLAYMORE: no se reservan por Instagram ni se pagan por transferencia.',
-  'La dirección exacta del lugar se envía por correo junto con la entrada, después de comprar.',
+  'El nombre del recinto y la dirección exacta nunca se dicen por el chat: la ubicación exacta llega en el correo de confirmación de la compra. Solo se dice «Providencia, Santiago».',
 ].join('\n');
 
 export const PLAYMORE_SALES_PLAYBOOK = [

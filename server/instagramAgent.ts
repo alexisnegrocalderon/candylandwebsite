@@ -19,6 +19,7 @@ import { getPlaymoreFocus } from './playmoreFocus';
 import { buildPlaymoreContext, PLAYMORE_RULES, PLAYMORE_BRAND_NOTES, PLAYMORE_SALES_PLAYBOOK } from './playmoreAgent';
 import { buildKnowledgeBlock } from '../shared/agentKnowledge';
 import { activeKnowledgeFacts } from './agentLearning';
+import { VENUE_RETRY, leaksVenue, scrubVenue } from '../shared/venuePrivacy';
 import { chileanize, findNonChilean, rewriteInstruction, srtaPromptBlock } from '../shared/srtaPlayroom';
 
 /* El cerebro del agente que contesta los mensajes directos del Instagram.
@@ -111,7 +112,8 @@ export async function buildInstagramContext(now: Date = new Date()): Promise<str
     lines.push(`- Fecha: ${fecha}`);
     if (event.doorsOpen) lines.push(`- Apertura de puertas: ${formatChileTime(new Date(event.doorsOpen))}`);
     if (event.eventEnd) lines.push(`- Cierre: ${formatChileTime(new Date(event.eventEnd))}`);
-    if (event.venue) lines.push(`- Lugar: ${event.venue}`);
+    // El lugar exacto NO se le entrega al agente (privacidad, ver shared/venuePrivacy.ts): solo se dice la ciudad o el sector.
+    lines.push('- Lugar: el nombre del recinto y la dirección exacta NO se dicen por el chat; llegan en el correo de confirmación de la compra. Solo puedes decir la ciudad o el sector que diga el contexto de marca.');
     if (event.shortDescription) lines.push(`- De qué se trata: ${event.shortDescription}`);
     // Sin la URL a propósito (regla del dueño: nunca se ve un link escrito):
     // la compra viaja como botón con `action: "buy_link"`.
@@ -398,7 +400,7 @@ function buildSystemPrompt(
     '2. Nunca digas cuántas entradas quedan. Como mucho "quedan pocas" o "está agotada", nunca un número. Si el bloque de datos trae que el precio sube en la próxima tanda, sí puedes mencionar esa urgencia real (a cuánto sube y cuándo/por qué cambia) -- eso no es el remanente del cupo, es información pública de precio.',
     '3. Nunca hables de otras personas: si van, quiénes son, cuántas parejas hay, ni nada de ningún cliente. Si preguntan quién va, deriva.',
     `4. No reserves, no apartes, no ofrezcas pagar por transferencia ni por ${name}. Todo se compra en el link del evento.`,
-    '5. No des la dirección exacta del local: por la privacidad del espacio y de quienes van, llega por correo junto con la entrada, después de comprar. Pero NO te quedes en el "no": preguntar por la dirección, dónde queda o cómo llegar es una señal de que la persona está por comprar, nunca algo para derivar. Responde en este orden: (a) en una frase, con cariño, por qué y cuándo le llega (a su correo, junto con la entrada); (b) lo que SÍ puedes contarle: la ciudad/sector si está en los datos, que hay estacionamiento privado dentro del recinto (se asegura al comprar) y que se puede llegar en app de transporte directo a la entrada; (c) cierra el momento preguntándole si quiere asegurar su entrada (y su estacionamiento). Si ya mostró intención de ir (o responde que sí a tu pregunta), manda el link de compra (`action: "buy_link"`); si solo quiere más detalle de cómo llegar, manda el botón de la página «Cómo llegar» (`page_link`).',
+    '5. No des la dirección exacta ni el nombre del recinto, nunca: por la privacidad del espacio y de quienes van, la ubicación exacta llega en el correo de confirmación de la compra. Aunque el historial, una nota o una guía lo mencionen, tú no lo repites. Pero NO te quedes en el "no": preguntar por la dirección, dónde queda o cómo llegar es una señal de que la persona está por comprar, nunca algo para derivar. Responde en este orden: (a) en una frase, con cariño, por qué y cuándo le llega (en el correo de confirmación de su compra); (b) lo que SÍ puedes contarle: la ciudad/sector si está en los datos, que hay estacionamiento privado dentro del recinto (se asegura al comprar) y que se puede llegar en app de transporte directo a la entrada; (c) cierra el momento preguntándole si quiere asegurar su entrada (y su estacionamiento). Si ya mostró intención de ir (o responde que sí a tu pregunta), manda el link de compra (`action: "buy_link"`); si solo quiere más detalle de cómo llegar, manda el botón de la página «Cómo llegar» (`page_link`).',
     '6. Mantén siempre un tono respetuoso. Si el mensaje es sexual, agresivo, o busca algo que no sea información de la fiesta, no le sigas la conversación: responde breve y amable, y deriva.',
     '7. Si te piden hablar con una persona, reclaman por una compra, un cobro, un reembolso, una entrada que no llegó, o cualquier problema con plata: deriva SIEMPRE, sin intentar resolverlo tú.',
     `8. Si no estás seguro de algo, deriva. Es mucho mejor derivar de más que contestar mal en nombre de la productora.`,
@@ -643,9 +645,15 @@ async function runAgentOnce(input: {
     // Acceso del botón de compra: lo elige el modelo; si lo olvidó, se deduce
     // de lo que la persona dijo ("somos pareja") o de su ficha. Nunca se inventa.
     // «El botón siempre» (regla del dueño): si el texto nombra un precio, lleva el botón aunque el modelo lo haya olvidado.
-    if (action === 'none' && !isPersonal && parsed.handoff !== true && replyNeedsBuyButton(reply, input.incomingText)) action = 'buy_link';
+    // Preguntar por la dirección también es señal de compra (regla 5): lleva el botón.
+    if (action === 'none' && !isPersonal && parsed.handoff !== true && (replyNeedsBuyButton(reply, input.incomingText) || asksAddress(input.incomingText))) action = 'buy_link';
     let accessOption: AgentAccessKey | '' = '';
     let finalReply = reply;
+    // Nunca el nombre del recinto ni una dirección por el chat (caso real: «es en el Hipódromo de Santiago», dato viejo).
+    if (!isPersonal && leaksVenue(reply)) {
+      if (extra === null) return await runAgentOnce(input, VENUE_RETRY);
+      finalReply = scrubVenue(reply);
+    }
     if (action === 'buy_link' && !isPersonal && parsed.handoff !== true) {
       const asked = typeof parsed.accessOption === 'string' && (AGENT_ACCESS_KEYS as string[]).includes(parsed.accessOption) ? (parsed.accessOption as AgentAccessKey) : '';
       accessOption = asked || inferAccessKey(input.incomingText, input.customerNotes);
@@ -690,7 +698,7 @@ export function isShortAffirmation(text: string): boolean {
 
 const AFFIRMATION_RETRY = 'ATENCIÓN: la persona respondió afirmativamente ("sí", "dale", "ok"...) a la pregunta que tú le hiciste en tu mensaje anterior. Eso es interés, no una duda: continúa dándole lo que ofreciste con los datos reales del bloque de datos (1 a 3 frases, cálido y con una pregunta abierta al final). handoff=false e isPersonal=false.';
 
-const ADDRESS_RETRY = 'ATENCIÓN: la persona pregunta por la dirección, dónde queda o cómo llegar. Eso NO se deriva ni es personal: es una señal de que está por comprar. Sigue la regla 5: en una frase cuéntale por qué y cuándo le llega la dirección exacta (a su correo, junto con la entrada), dale lo que sí sabes (sector de los datos, estacionamiento privado, app de transporte directo a la entrada) y cierra preguntándole si quiere asegurar su entrada. Si ya mostró intención de ir, action=buy_link. handoff=false e isPersonal=false.';
+const ADDRESS_RETRY = 'ATENCIÓN: la persona pregunta por la dirección, dónde queda o cómo llegar. Eso NO se deriva ni es personal: es una señal de que está por comprar. Sigue la regla 5: en una frase cuéntale por qué y cuándo le llega la ubicación exacta (en el correo de confirmación de su compra), dale lo que sí sabes (sector de los datos, estacionamiento privado, app de transporte directo a la entrada) y cierra preguntándole si quiere asegurar su entrada. Si ya mostró intención de ir, action=buy_link. handoff=false e isPersonal=false.';
 
 /** Punto de entrada del agente. Si la primera pasada deriva o marca como
  * personal una simple respuesta afirmativa a una pregunta del propio agente
