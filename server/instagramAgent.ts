@@ -1,6 +1,6 @@
 import { invokeLLM, extractContent, type Message } from './_core/llm';
 import * as db from './db';
-import { AGENT_ACCESS_KEYS, accessKeyForSlug, cleanQuantity, inferAccessKey, type AgentAccessKey } from '../shared/agentAccess';
+import { AGENT_ACCESS_KEYS, accessKeyForSlug, accessProblem, cleanQuantity, inferAccessKey, replyNeedsBuyButton, safeAccessReply, type AgentAccessKey } from '../shared/agentAccess';
 import { asksAddress } from '../shared/dmTriage';
 import { formatChileDate, formatChileTime } from '../shared/chileDate';
 import {
@@ -215,7 +215,7 @@ const RESPONSE_SCHEMA = {
       customerNotes: {
         type: 'string',
         description:
-          'Ficha breve y actualizada de esta persona (máx. 300 caracteres) para recordarla en los próximos mensajes: nombre si lo dijo, si viene por su cuenta, en pareja o en grupo (y cuántos), su género si lo dijo, si es su primera vez o ya vino, qué le interesa, qué dudas u objeciones tuvo, y si ya le mandaste el botón de compra. Parte de lo que ya sabías (bloque "LO QUE YA SABES DE ESTA PERSONA") y súmale lo nuevo. Sin datos sensibles (nada de lo que pase adentro de la fiesta ni de su vida íntima). Vacío si todavía no sabes nada útil.',
+          'Ficha breve y actualizada de esta persona (máx. 300 caracteres) para recordarla en los próximos mensajes: nombre si lo dijo, si viene por su cuenta, en pareja o en grupo (y cuántos), su género si lo dijo, si es su primera vez o ya vino, qué le interesa, qué dudas u objeciones tuvo, y si ya le mandaste el botón de compra. Parte de lo que ya sabías (bloque "LO QUE YA SABES DE ESTA PERSONA") y súmale lo nuevo. Anota solo lo que la persona dijo: nunca su género ni el acceso que le corresponde si no lo dijo ella. Sin datos sensibles (nada de lo que pase adentro de la fiesta ni de su vida íntima). Vacío si todavía no sabes nada útil.',
       },
     },
     required: ['reply', 'handoff', 'handoffReason', 'isPersonal', 'isThanks', 'customerNotes'],
@@ -337,6 +337,8 @@ const INSTAGRAM_BUTTON_RULES = [
  * cliente y objeciones sí es editable (`salesPlaybook`). */
 const WARM_SALES_RULES = [
   'VENTA CÁLIDA (tu objetivo es que la persona termine con su entrada, pero como lo haría alguien de la productora genuinamente entusiasmado con la fiesta, no un vendedor):',
+  '- NUNCA ASUMAS EL GÉNERO DE LA PERSONA: «sola» o «soltera» es mujer; «solo» o «soltero» es hombre. Si dice que viene por su cuenta sin decir quién es, no le ofrezcas ni le nombres un acceso individual (Soltera o Voy solo): pregúntale con respeto «¿vienes como mujer o como hombre? Es para darte el acceso correcto». El acceso Soltera es solo para mujeres.',
+  '- EL BOTÓN SIEMPRE: toda respuesta que nombra un precio, un acceso o habla de comprar lleva el botón de compra (`action: "buy_link"`) con el acceso que le corresponde a SU caso (`accessOption`). Si todavía no sabes cuál es, manda el botón general (`accessOption` vacío) junto con la pregunta que falta.',
   '- Primero conecta, después vende. Lee qué tipo de cliente es (ver la guía de ventas) y acompáñalo desde donde está: al nervioso, calma; al curioso, info justa; al decidido, rapidez.',
   '- Vende la experiencia, no la entrada: cuenta lo épico de esta fecha con lo que dice la descripción real del evento, con emoción contagiosa pero creíble. Nada de inventar shows, invitados ni sorpresas que no estén en los datos.',
   '- Urgencia solo si es real y dicha como un dato útil: que el precio sube en la próxima tanda, que quedan pocas, que la fecha está cerca. Como mucho una vez por conversación, no en cada mensaje. Jamás inventes escasez.',
@@ -563,7 +565,8 @@ async function runAgentOnce(input: {
     const history = toLlmMessages(input.history).slice(-config.historyLimit);
 
     const learned = await activeKnowledgeFacts();
-    const systemPrompt = buildSystemPrompt(config, { playmore: !!(await getPlaymoreFocus(input.now ?? new Date())), learned, isFinalReplyOfDay: input.isFinalReplyOfDay, channel, customerNotes: input.customerNotes, welcome: input.welcome, isFan: input.isFan, extra });
+    const playmore = !!(await getPlaymoreFocus(input.now ?? new Date()));
+    const systemPrompt = buildSystemPrompt(config, { playmore, learned, isFinalReplyOfDay: input.isFinalReplyOfDay, channel, customerNotes: input.customerNotes, welcome: input.welcome, isFan: input.isFan, extra });
     const result = await invokeLLM({ feature: "instagramAgent",
       messages: [
         { role: 'system', content: systemPrompt.stable, cache: true },
@@ -639,14 +642,27 @@ async function runAgentOnce(input: {
 
     // Acceso del botón de compra: lo elige el modelo; si lo olvidó, se deduce
     // de lo que la persona dijo ("somos pareja") o de su ficha. Nunca se inventa.
+    // «El botón siempre» (regla del dueño): si el texto nombra un precio, lleva el botón aunque el modelo lo haya olvidado.
+    if (action === 'none' && !isPersonal && parsed.handoff !== true && replyNeedsBuyButton(reply, input.incomingText)) action = 'buy_link';
     let accessOption: AgentAccessKey | '' = '';
+    let finalReply = reply;
     if (action === 'buy_link' && !isPersonal && parsed.handoff !== true) {
       const asked = typeof parsed.accessOption === 'string' && (AGENT_ACCESS_KEYS as string[]).includes(parsed.accessOption) ? (parsed.accessOption as AgentAccessKey) : '';
       accessOption = asked || inferAccessKey(input.incomingText, input.customerNotes);
+      // Un acceso individual nunca se asume (caso real: a un hombre que escribió «solo» se le ofreció la Soltera). Se
+      // mira solo lo que la persona escribió. Primero se le pide al modelo que lo corrija; si insiste, sale un mensaje seguro.
+      const userTexts = [...input.history.filter((m) => m.direction === 'in').map((m) => m.text ?? ''), input.incomingText];
+      const problem = accessProblem(accessOption, userTexts, { playmore });
+      if (problem) {
+        if (extra === null) return await runAgentOnce(input, problem.instruction);
+        const safe = safeAccessReply(problem, { playmore });
+        finalReply = safe.reply;
+        accessOption = safe.accessOption;
+      }
     }
 
     return {
-      reply: reply.slice(0, IG_MAX_REPLY_CHARS),
+      reply: finalReply.slice(0, IG_MAX_REPLY_CHARS),
       handoff: parsed.handoff === true,
       handoffReason: typeof parsed.handoffReason === 'string' ? parsed.handoffReason.slice(0, 500) : '',
       isPersonal,
