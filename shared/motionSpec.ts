@@ -165,19 +165,31 @@ export function motionPalette(base: MotionBase, accent: MotionAccent = MOTION_DE
   }
 }
 
+/** Estilo de los subtítulos (con voz en off). Los videos guardados antes quedan en «clásico»: no cambian de cara. */
+export const MOTION_CAPTION_STYLES = ['clasico', 'karaoke', 'palabra'] as const;
+export type MotionCaptionStyle = (typeof MOTION_CAPTION_STYLES)[number];
+export const MOTION_CAPTION_STYLE_LABEL: Record<MotionCaptionStyle, string> = {
+  clasico: 'Clásico (3 palabras)',
+  karaoke: 'Karaoke (la palabra que suena, en caja)',
+  palabra: 'Una palabra a la vez (grande)',
+};
+
 /** Cómo cierra el video: la firma con el isotipo, o la tarjeta del @ (como las referencias). */
 export const MOTION_CLOSINGS = ['firma', 'handle'] as const;
 export type MotionClosing = (typeof MOTION_CLOSINGS)[number];
 export const MOTION_CLOSING_LABEL: Record<MotionClosing, string> = { firma: 'Firma con el logo', handle: 'Tarjeta @mansionplayroom.cl' };
 export const MOTION_HANDLE = '@mansionplayroom.cl';
 
-export const MOTION_MUSIC = ['none', 'pulse', 'drive', 'dream'] as const;
+export const MOTION_MUSIC = ['none', 'pulse', 'drive', 'dream', 'neon', 'latino', 'hype'] as const;
 export type MotionMusic = (typeof MOTION_MUSIC)[number];
 export const MOTION_MUSIC_LABEL: Record<MotionMusic, string> = {
   none: 'Sin música',
   pulse: 'Pulse (electrónica, 120 BPM)',
   drive: 'Drive (house, 124 BPM)',
   dream: 'Dream (suave, 96 BPM)',
+  neon: 'Neon (synthwave, 110 BPM)',
+  latino: 'Latino (dembow, 98 BPM)',
+  hype: 'Hype (fuerte, 140 BPM)',
 };
 /** Luz de fondo (estilo Apple): una atmósfera de color que respira con la música y se enciende en los golpes. */
 export const MOTION_GLOWS = ['ninguna', 'halo', 'haces'] as const;
@@ -189,7 +201,7 @@ export const MOTION_GLOW_LABEL: Record<MotionGlow, string> = {
 };
 
 /** Pulsos por minuto de cada pista (client/public/motion/audio/*.wav). */
-export const MOTION_MUSIC_BPM: Record<Exclude<MotionMusic, 'none'>, number> = { pulse: 120, drive: 124, dream: 96 };
+export const MOTION_MUSIC_BPM: Record<Exclude<MotionMusic, 'none'>, number> = { pulse: 120, drive: 124, dream: 96, neon: 110, latino: 98, hype: 140 };
 
 export interface MotionMedia {
   url: string;
@@ -330,6 +342,8 @@ export interface MotionSpec {
   sfx: boolean;
   voice: MotionVoice | null;
   captions: boolean;
+  /** Cómo se dibujan los subtítulos. */
+  captionStyle: MotionCaptionStyle;
 }
 
 /** Fondo con que parte cada estilo. */
@@ -374,6 +388,25 @@ function normalizeMedia(raw: unknown): MotionMedia | null {
   if (!url) return null;
   const kind = r.kind === 'video' || /\.(mp4|mov|webm)(\?|$)/i.test(url) ? 'video' : 'image';
   return { url, kind };
+}
+
+/** «Ritmo en arco» (regla de beat-sync): un reel no corta a ritmo de metrónomo. El gancho es corto y seco, las escenas del
+ * medio se van acortando para subir la tensión hasta el clímax, y la última (la acción) se queda más tiempo para respirar.
+ * Reparte los mismos segundos totales con esa forma; nunca deja dos escenas seguidas iguales. Con menos de 3 escenas no hay
+ * arco que dar y las deja como están. */
+export function shapePacing(scenes: MotionScene[]): MotionScene[] {
+  const n = scenes.length;
+  if (n < 3) return scenes;
+  const total = scenes.reduce((sum, sc) => sum + sc.secs, 0);
+  const weights = scenes.map((_, i) => (i === 0 ? 0.9 : i === n - 1 ? 1.45 : 1.2 - 0.45 * ((i - 1) / Math.max(1, n - 3))));
+  const sum = weights.reduce((a, b) => a + b, 0);
+  const secs = weights.map((w) => Math.min(4.5, Math.max(1.2, Math.round(((w / sum) * total) * 10) / 10)));
+  // Si el redondeo o los topes cambiaron el total, la diferencia se la lleva la última (la que respira).
+  const diff = Math.round((total - secs.reduce((a, b) => a + b, 0)) * 10) / 10;
+  secs[n - 1] = Math.min(MOTION_SCENE_SECS.max, Math.max(MOTION_SCENE_SECS.min, Math.round((secs[n - 1] + diff) * 10) / 10));
+  // Nunca dos iguales seguidas (se siente metrónomo): se empuja 0,1 s a la segunda.
+  for (let i = 1; i < n - 1; i++) if (secs[i] === secs[i - 1]) secs[i] = Math.round((secs[i] - 0.1) * 10) / 10;
+  return scenes.map((sc, i) => ({ ...sc, secs: secs[i] }));
 }
 
 export function emptyScene(text = ''): MotionScene {
@@ -466,6 +499,7 @@ export function normalizeMotionSpec(raw: unknown): MotionSpec {
     sfx: r.sfx !== false,
     voice,
     captions: !!voice && r.captions !== false,
+    captionStyle: pick(r.captionStyle, MOTION_CAPTION_STYLES, 'clasico'),
   };
 }
 
@@ -650,6 +684,32 @@ export function captionWords(spec: MotionSpec, fps = MOTION_FPS): CaptionWord[] 
   return words;
 }
 
+/** Cómo se reparten las palabras en «páginas» (lo que se ve junto): una por vez, o hasta 3 palabras / 24 letras, cortando
+ * en cada fin de frase o coma para que una página nunca cruce de una frase a otra. Devuelve, por palabra, su página. */
+export function captionPages(words: Pick<CaptionWord, 'text'>[], style: MotionCaptionStyle): number[] {
+  const out: number[] = [];
+  let page = 0;
+  let inPage = 0;
+  let letters = 0;
+  words.forEach((w, i) => {
+    const len = w.text.length;
+    const full = style === 'palabra' ? inPage >= 1 : inPage >= 3 || letters + len > 24;
+    if (i > 0 && full) {
+      page++;
+      inPage = 0;
+      letters = 0;
+    }
+    out.push(page);
+    inPage++;
+    letters += len + 1;
+    // Fin de frase o coma: la página siguiente parte limpia.
+    if (/[.,;:!?…»)]$/.test(w.text)) {
+      inPage = 99;
+    }
+  });
+  return out;
+}
+
 /** Frases que lee la voz (una por escena; vacía = se usa el texto grande). */
 export function voiceSays(spec: MotionSpec): string[] {
   return spec.scenes.map((s) => (s.say || s.text).trim());
@@ -734,11 +794,11 @@ export function starterSpec(template: MotionTemplate, style: MotionStyle = 'liqu
             ];
   if (style === 'arcade' && template === 'anuncio') {
     return normalizeMotionSpec({
-      template, style, scenes, look: LOOK_ALL_AUTO, base: 'arcade', accent: 'magenta', music: 'drive', outroLine: 'dalmore.mansionplayroom.cl', title: 'PLAYMORE · Player 1 vs Player 2',
+      template, style, scenes, look: LOOK_ALL_AUTO, captionStyle: 'karaoke', base: 'arcade', accent: 'magenta', music: 'drive', outroLine: 'dalmore.mansionplayroom.cl', title: 'PLAYMORE · Player 1 vs Player 2',
       caption: 'PLAYMORE: Player 1 vs Player 2 🕹️\nElige tu equipo: magenta (Player 1 · mundo Playroom) o celeste (Player 2 · mundo Dalmore). Base negra + tu color neón y ven a ganar.\nDados, ruletas y un marcador gigante toda la noche.\n\nViernes 4 de diciembre · Providencia · +21\nEntradas en dalmore.mansionplayroom.cl\n\n#PLAYMORE #Player1vsPlayer2 #MansionPlayroom #Dalmore',
     });
   }
-  return normalizeMotionSpec({ template, style, scenes, look: LOOK_ALL_AUTO, outroLine: 'mansionplayroom.cl', title: MOTION_TEMPLATE_LABEL[template] });
+  return normalizeMotionSpec({ template, style, scenes, look: LOOK_ALL_AUTO, captionStyle: 'karaoke', outroLine: 'mansionplayroom.cl', title: MOTION_TEMPLATE_LABEL[template] });
 }
 
 /* --- Pack: reel + carrusel + post + historia de una misma idea ----------------

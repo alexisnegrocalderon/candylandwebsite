@@ -415,3 +415,42 @@ describe('duración fija y audio «tal cual»', () => {
     expect(motionTimeline(mk({ loop: true, song: clip({ bpm: 124 }) })).total).toBe(612);
   });
 });
+
+import { captionPages, normalizeMotionSpec as normCap, starterSpec as starterCap } from './motionSpec';
+describe('subtítulos', () => {
+  it('los videos guardados antes quedan en clásico y los nuevos en karaoke', () => {
+    expect(normCap({ scenes: [{ text: 'a' }] }).captionStyle).toBe('clasico');
+    expect(normCap({ captionStyle: 'otra cosa' }).captionStyle).toBe('clasico');
+    expect(starterCap('anuncio', 'liquid').captionStyle).toBe('karaoke');
+  });
+  it('arma páginas de hasta 3 palabras, corta en cada frase y respeta el largo', () => {
+    const w = (t: string) => ({ text: t });
+    const words = 'Esto es una noche distinta. Ven con tu pareja, sin juicios'.split(' ').map(w);
+    const pages = captionPages(words, 'karaoke');
+    // Ninguna página cruza el punto ni tiene más de 3 palabras.
+    for (let p = 0; p <= Math.max(...pages); p++) {
+      const inPage = words.filter((_, i) => pages[i] === p);
+      expect(inPage.length).toBeLessThanOrEqual(3);
+      expect(inPage.slice(0, -1).some((x) => /[.,]$/.test(x.text))).toBe(false);
+    }
+    expect(pages[words.findIndex((x) => x.text === 'distinta.')]).not.toBe(pages[words.findIndex((x) => x.text === 'Ven')]);
+    expect(new Set(captionPages(words, 'palabra')).size).toBe(words.length);
+  });
+});
+
+import { shapePacing, emptyScene as emptyS } from './motionSpec';
+describe('ritmo en arco', () => {
+  const scenes = (secs: number[]) => secs.map((s) => ({ ...emptyS('x'), secs: s }));
+  it('reparte los mismos segundos: gancho corto, medio que se acelera y cierre largo', () => {
+    const out = shapePacing(scenes([2.5, 2.5, 2.5, 2.5, 2.5, 2.5]));
+    const total = out.reduce((s, x) => s + x.secs, 0);
+    expect(Math.abs(total - 15)).toBeLessThanOrEqual(0.3);
+    expect(out[0].secs).toBeLessThan(out[out.length - 1].secs);
+    for (let i = 2; i < out.length - 1; i++) expect(out[i].secs).toBeLessThanOrEqual(out[i - 1].secs);
+    out.forEach((x, i) => { if (i > 0) expect(x.secs).not.toBe(out[i - 1].secs); expect(x.secs).toBeGreaterThanOrEqual(1.2); expect(x.secs).toBeLessThanOrEqual(8); });
+  });
+  it('con menos de 3 escenas no toca nada', () => {
+    const two = scenes([2, 3]);
+    expect(shapePacing(two)).toEqual(two);
+  });
+});

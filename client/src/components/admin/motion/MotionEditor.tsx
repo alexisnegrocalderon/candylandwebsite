@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { ArrowDown, ArrowLeft, ArrowUp, Copy, Download, Eye, EyeOff, Film, ImagePlus, Loader2, Mic, Plus, Save, Trash2, X } from 'lucide-react';
+import { Activity, ArrowDown, ArrowLeft, ArrowUp, Copy, Download, Eye, EyeOff, Film, ImagePlus, Loader2, Mic, Plus, Save, Trash2, X } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
 import { WriteButton } from '@/components/admin/WriteButton';
@@ -13,8 +13,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ImageUploadField } from '@/components/admin/ImageUploadField';
 import { CaptionReviewBox } from '@/components/admin/CaptionReview';
 import {
-  MOTION_ACCENT_LABEL, MOTION_ACCENTS, MOTION_CARD_LABEL, MOTION_CARDS, MOTION_BASE_LABEL, MOTION_BASES, MOTION_CLOSING_LABEL, MOTION_CLOSINGS, MOTION_DURATION_PRESETS, MOTION_FORMAT_LABEL, MOTION_FORMATS, MOTION_GLOW_LABEL, MOTION_GLOWS, MOTION_MAX_SCENES, MOTION_MUSIC, MOTION_MUSIC_LABEL,
-  MOTION_STYLE_LABEL, MOTION_STYLES, MOTION_TEMPLATE_LABEL, MOTION_TEMPLATES, emptyScene, motionTimeline, normalizeMotionSpec, voiceSays,
+  MOTION_ACCENT_LABEL, MOTION_ACCENTS, MOTION_CAPTION_STYLE_LABEL, MOTION_CAPTION_STYLES, MOTION_CARD_LABEL, MOTION_CARDS, MOTION_BASE_LABEL, MOTION_BASES, MOTION_CLOSING_LABEL, MOTION_CLOSINGS, MOTION_DURATION_PRESETS, MOTION_FORMAT_LABEL, MOTION_FORMATS, MOTION_GLOW_LABEL, MOTION_GLOWS, MOTION_MAX_SCENES, MOTION_MUSIC, MOTION_MUSIC_LABEL,
+  MOTION_STYLE_LABEL, MOTION_STYLES, MOTION_TEMPLATE_LABEL, MOTION_TEMPLATES, emptyScene, motionTimeline, shapePacing, normalizeMotionSpec, voiceSays,
   type MotionScene, type MotionSpec,
 } from '@shared/motionSpec';
 import { applyKeyword } from '@shared/motionSpec';
@@ -537,9 +537,17 @@ export function MotionEditor({ id: initialId, initial, restored, onBack }: {
               </Card>
             ))}
             {canAddScene && (
-              <Button variant="outline" className="w-full" onClick={() => setSpec({ scenes: [...spec.scenes, emptyScene('Nueva escena')], voice: null })}>
+              <Button variant="outline" className="h-11 w-full" onClick={() => setSpec({ scenes: [...spec.scenes, emptyScene('Nueva escena')], voice: null })}>
                 <Plus className="mr-1 h-4 w-4" /> Agregar escena
               </Button>
+            )}
+            {spec.template !== 'sting' && spec.scenes.length >= 3 && (
+              <div className="space-y-1">
+                <Button variant="outline" className="h-11 w-full" disabled={!!spec.voice || !!spec.song?.asIs} onClick={() => { setSpec({ scenes: shapePacing(spec.scenes) }); toast.success('Ritmo en arco: gancho corto, clímax rápido y cierre con aire.'); }}>
+                  <Activity className="mr-1 h-4 w-4" /> Ritmo en arco
+                </Button>
+                <p className="text-[11px] text-muted-foreground">{spec.voice ? 'Con voz en off manda lo que dura cada frase.' : 'Reparte los mismos segundos: gancho corto, las del medio cada vez más rápidas y la última con aire. Gratis.'}</p>
+              </div>
             )}
           </div>
 
@@ -565,6 +573,7 @@ export function MotionEditor({ id: initialId, initial, restored, onBack }: {
                   {spec.voice && (
                     <>
                       <label className="flex items-center gap-2 text-sm"><Switch checked={spec.captions} onCheckedChange={(captions) => setSpec({ captions })} /> Subtítulos</label>
+                      {spec.captions && <div className="w-full sm:w-72"><Pick value={clean.captionStyle} options={MOTION_CAPTION_STYLES} labels={MOTION_CAPTION_STYLE_LABEL} onChange={(captionStyle) => setSpec({ captionStyle })} /></div>}
                       <Button variant="ghost" size="sm" onClick={() => setSpec({ voice: null, captions: false })}><X className="mr-1 h-4 w-4" /> Quitar voz</Button>
                     </>
                   )}
