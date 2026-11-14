@@ -13,6 +13,7 @@ import { COMMUNITY_DISCOUNT_EMAILS } from "./communityDiscountList";
 import { normalizeRecipients, appInviteBlock } from "./privateMembers";
 import { buildAnniversaryBlastEmail } from "./emailAniversario";
 import { EMAIL_BASE_URL } from "./emailLayout";
+import { COLAB_HOSTS } from "../shared/colabHosts";
 
 export const COMMUNITY_DISCOUNT_KIND = "community-discount";
 export const COMMUNITY_DISCOUNT_PERCENT = 30;
@@ -82,7 +83,7 @@ export function getCommunityDiscountPreview() {
   const list = communityRecipients();
   return {
     to: `${list.length} destinatarios`, replyTo: REPLY_TO, subject: COMMUNITY_DISCOUNT_SUBJECT, recipients: list,
-    html: buildCommunityDiscountEmail({ name: "Camila", code: `${CODE_PREFIX}EJEMPLO`, checkoutUrl: `${EMAIL_BASE_URL}/checkout/playmore` }),
+    html: buildCommunityDiscountEmail({ name: "Camila", code: `${CODE_PREFIX}EJEMPLO`, checkoutUrl: "https://dalmore.mansionplayroom.cl/checkout/playmore?code=DALMORE30-EJEMPLO" }),
   };
 }
 
@@ -139,6 +140,8 @@ export async function sendCommunityDiscount(): Promise<string> {
   if (!cp || !event) throw new Error("Todavía no hay evento enlazado a la co-producción de Dalmore.");
   const validUntil = endOfChileDay(new Date(event.eventDate));
   const tags = [{ name: "campaign", value: resendTagValue("community-dalmore-30") }];
+  // El link va a la dirección de la colab: el checkout nace con el look PLAYMORE, sin pasar por el sitio de Playroom.
+  const host = Object.entries(COLAB_HOSTS).find(([, slug]) => slug === cp.slug)?.[0] ?? "dalmore.mansionplayroom.cl";
 
   const list = communityRecipients();
   let sent = 0, failed = 0, optedOut = 0;
@@ -151,7 +154,7 @@ export async function sendCommunityDiscount(): Promise<string> {
       const name = known?.fullName ?? null;
       const { id, code } = await codeFor(db, email, event.id, validUntil);
       await tagDalmoreCustomer(db, email, name);
-      const checkoutUrl = `${EMAIL_BASE_URL}/checkout/${event.slug}?code=${encodeURIComponent(code)}`;
+      const checkoutUrl = `https://${host}/checkout/${event.slug}?code=${encodeURIComponent(code)}`;
       const res = await sendEmail({ to: email, subject: COMMUNITY_DISCOUNT_SUBJECT, html: buildCommunityDiscountEmail({ name, code, checkoutUrl }), replyTo: REPLY_TO, marketing: true, tags });
       if (res.success) {
         await db.update(discountCodes).set({ isActive: 1 }).where(and(eq(discountCodes.id, id), eq(discountCodes.isActive, 0)));
