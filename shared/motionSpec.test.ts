@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BRAND, MOTION_ACCENTS, MOTION_BASES, MOTION_FPS, MOTION_MUSIC_BPM, MOTION_OUTRO_SECS, MOTION_STYLES, MOTION_TEMPLATES, MOTION_VOICE_LEAD, MOTION_VOICE_TAIL, captionWords, cleanMediaUrl, packFileNames, packSlides, motionPalette, motionTimeline, normalizeMotionSpec, starterSpec, voiceSays, applyKeyword, normalizeKeyword, MOTION_CUSTOM_DEFAULT, normalizeCustom } from './motionSpec';
+import { BRAND, MOTION_ACCENTS, MOTION_BASES, MOTION_FPS, MOTION_MUSIC_BPM, MOTION_OUTRO_SECS, MOTION_STYLES, MOTION_TEMPLATES, MOTION_VOICE_LEAD, MOTION_VOICE_TAIL, captionWords, cleanMediaUrl, packFileNames, packSlides, motionPalette, motionTimeline, normalizeMotionSpec, starterSpec, voiceSays, applyKeyword, normalizeKeyword, MOTION_CUSTOM_DEFAULT, normalizeCustom, motionTargetFrames } from './motionSpec';
 
 describe('normalizeMotionSpec', () => {
   it('cualquier cosa rota queda en una receta válida', () => {
@@ -260,5 +260,158 @@ describe('estilo personalizado', () => {
 
   it('la IA no puede elegir el estilo personalizado por su cuenta', () => {
     expect(MOTION_STYLES).toContain('custom');
+  });
+});
+
+describe('canción propia, luz y loop', () => {
+  const song = {
+    url: 'https://blob.example/a.mp3', name: 'a', bpm: 124, downbeat: 0.3, start: 0.3, duration: 120,
+    energy: Array(1200).fill(60), hits: [0.3, 0.78, 1.26], volume: 0.9, muteOnExport: false, asIs: false,
+  };
+  const withSong = (extra: Record<string, unknown> = {}) => normalizeMotionSpec({
+    template: 'anuncio', outro: true, music: 'none', song,
+    scenes: [{ text: 'Uno', secs: 3 }, { text: 'Dos', secs: 2.4 }, { text: 'Tres', secs: 4 }], ...extra,
+  });
+
+  it('un video viejo no trae canción, luz ni loop', () => {
+    const s = normalizeMotionSpec({});
+    expect(s.song).toBeNull();
+    expect(s.glow).toBe('ninguna');
+    expect(s.loop).toBe(false);
+  });
+
+  it('limpia la canción y la luz que llegan', () => {
+    expect(normalizeMotionSpec({ song: { ...song, url: 'http://x/a.mp3' } }).song).toBeNull();
+    expect(normalizeMotionSpec({ glow: 'haces', loop: true }).glow).toBe('haces');
+    expect(normalizeMotionSpec({ glow: 'neon' }).glow).toBe('ninguna');
+    expect(normalizeMotionSpec({ loop: 'sí' }).loop).toBe(false);
+  });
+
+  it('con canción, cada escena y la firma duran pulsos pares y los cortes caen en el pulso', () => {
+    const tl = motionTimeline(withSong());
+    const beat = (MOTION_FPS * 60) / 124;
+    expect(tl.beatFrames).toBeCloseTo(beat, 5);
+    for (const t of tl.scenes) {
+      const beats = t.frames / beat;
+      expect(Math.abs(beats / 2 - Math.round(beats / 2))).toBeLessThan(0.02);
+      const startBeats = t.from / beat;
+      expect(Math.abs(startBeats - Math.round(startBeats))).toBeLessThan(0.02);
+    }
+    const outroBeats = tl.outroFrames / beat;
+    expect(Math.abs(outroBeats / 2 - Math.round(outroBeats / 2))).toBeLessThan(0.02);
+    expect(tl.outroFrom).toBe(tl.scenes[2].from + tl.scenes[2].frames);
+    expect(tl.total).toBe(tl.outroFrom! + tl.outroFrames);
+  });
+
+  it('con voz, la canción no mueve los cortes (manda la frase)', () => {
+    const voice = { url: 'https://blob.example/v.wav', hash: 'h', voice: 'catalina', rate: 0, pitch: 0, secs: [2, 2, 2] };
+    const withVoice = motionTimeline(withSong({ voice }));
+    const noSong = motionTimeline(withSong({ voice, song: null, music: 'drive' }));
+    expect(withVoice.scenes.map((t) => t.frames)).toEqual(noSong.scenes.map((t) => t.frames));
+  });
+
+  it('loop: dura compases enteros', () => {
+    for (const outro of [true, false]) {
+      const tl = motionTimeline(withSong({ loop: true, outro }));
+      const bars = tl.total / (((MOTION_FPS * 60) / 124) * 4);
+      expect(Math.abs(bars - Math.round(bars))).toBeLessThan(0.01);
+      // Lo que se agrega no se pierde: las escenas y la firma siguen llegando hasta el final.
+      const lastScene = tl.scenes[tl.scenes.length - 1];
+      expect(tl.outroFrom != null ? tl.outroFrom + tl.outroFrames : lastScene.from + lastScene.frames).toBe(tl.total);
+    }
+  });
+
+  it('loop sin pulso (sin música) no cambia nada', () => {
+    const a = motionTimeline(normalizeMotionSpec({ music: 'none', loop: true }));
+    const b = motionTimeline(normalizeMotionSpec({ music: 'none', loop: false }));
+    expect(a.total).toBe(b.total);
+  });
+
+  it('loop con la plantilla de marca (sting) también cae en compás', () => {
+    const tl = motionTimeline(withSong({ template: 'sting', loop: true }));
+    const bars = tl.total / (((MOTION_FPS * 60) / 124) * 4);
+    expect(Math.abs(bars - Math.round(bars))).toBeLessThan(0.01);
+    expect(tl.scenes).toHaveLength(1);
+    expect(tl.scenes[0].frames).toBe(tl.total);
+  });
+});
+
+describe('duración fija y audio «tal cual»', () => {
+  const scenes = [{ text: 'Uno', secs: 3 }, { text: 'Dos', secs: 2 }, { text: 'Tres', secs: 5 }];
+  const mk = (extra: Record<string, unknown> = {}) => normalizeMotionSpec({ template: 'anuncio', music: 'none', outro: false, scenes, ...extra });
+  const clip = (extra: Record<string, unknown> = {}) => ({
+    url: 'https://blob.example/a.mp3', name: 'a', bpm: 120, downbeat: 0.23, start: 0, duration: 20.4,
+    energy: Array(204).fill(60), hits: [0.23, 0.73], volume: 0.9, asIs: true, ...extra,
+  });
+
+  it('sin duración, nada cambia', () => {
+    expect(mk().durationSecs).toBeNull();
+    expect(motionTargetFrames(mk())).toBeNull();
+    expect(normalizeMotionSpec({ durationSecs: 'x' }).durationSecs).toBeNull();
+    expect(normalizeMotionSpec({ durationSecs: '' }).durationSecs).toBeNull();
+  });
+
+  it('limpia la duración elegida', () => {
+    expect(mk({ durationSecs: 2 }).durationSecs).toBe(5);
+    expect(mk({ durationSecs: 600 }).durationSecs).toBe(60);
+    expect(mk({ durationSecs: 17.26 }).durationSecs).toBe(17.3);
+  });
+
+  it('el video dura exacto lo elegido y las escenas se reparten en proporción', () => {
+    const tl = motionTimeline(mk({ durationSecs: 20 }));
+    expect(tl.total).toBe(600);
+    expect(tl.scenes.map((t) => t.frames)).toEqual([180, 120, 300]);
+    expect(tl.scenes[1].from).toBe(180);
+  });
+
+  it('con firma, la firma entra en la duración', () => {
+    const tl = motionTimeline(mk({ durationSecs: 15, outro: true }));
+    expect(tl.total).toBe(450);
+    expect(tl.outroFrom! + tl.outroFrames).toBe(450);
+    const sum = tl.scenes.reduce((n, t) => n + t.frames, 0);
+    expect(sum).toBe(tl.outroFrom);
+  });
+
+  it('con voz manda la voz, no la duración', () => {
+    const voice = { url: 'https://blob.example/v.wav', hash: 'h', voice: 'catalina', rate: 0, pitch: 0, secs: [2, 2, 2] };
+    expect(motionTargetFrames(mk({ durationSecs: 30, voice }))).toBeNull();
+    expect(motionTimeline(mk({ durationSecs: 30, voice })).total).toBe(motionTimeline(mk({ voice })).total);
+  });
+
+  it('con canción, los cortes interiores caen en el pulso y el final queda exacto', () => {
+    const tl = motionTimeline(mk({ durationSecs: 20, song: clip({ asIs: false, downbeat: 0, duration: 120 }) }));
+    const beat = (MOTION_FPS * 60) / 120;
+    expect(tl.total).toBe(600);
+    for (const t of tl.scenes.slice(1)) expect(Math.abs(t.from / beat - Math.round(t.from / beat))).toBeLessThan(0.02);
+  });
+
+  it('audio «tal cual»: sin duración elegida el video dura lo que el audio', () => {
+    const spec = mk({ song: clip() });
+    expect(motionTargetFrames(spec)).toBe(612);
+    expect(motionTimeline(spec).total).toBe(612);
+  });
+
+  it('audio «tal cual»: si se elige una duración más corta manda la elegida, y si es más larga el audio', () => {
+    expect(motionTimeline(mk({ song: clip(), durationSecs: 15 })).total).toBe(450);
+    expect(motionTimeline(mk({ song: clip(), durationSecs: 30 })).total).toBe(612);
+  });
+
+  it('audio «tal cual»: los cortes caen en los pulsos desde el primer golpe (no desde el cuadro 0)', () => {
+    const tl = motionTimeline(mk({ song: clip({ downbeat: 0.23 }) }));
+    const beat = (MOTION_FPS * 60) / 120;
+    const off = 0.23 * MOTION_FPS;
+    for (const t of tl.scenes.slice(1)) {
+      const n = (t.from - off) / beat;
+      expect(Math.abs(n - Math.round(n))).toBeLessThan(0.1);
+    }
+  });
+
+  it('el audio «tal cual» no pasa de 60 s', () => {
+    expect(motionTimeline(mk({ song: clip({ duration: 90 }) })).total).toBe(1800);
+  });
+
+  it('el loop no estira un video de duración fija ni uno con audio «tal cual»', () => {
+    expect(motionTimeline(mk({ durationSecs: 20, loop: true, song: clip({ asIs: false, downbeat: 0, duration: 120, bpm: 124 }) })).total).toBe(600);
+    expect(motionTimeline(mk({ loop: true, song: clip({ bpm: 124 }) })).total).toBe(612);
   });
 });

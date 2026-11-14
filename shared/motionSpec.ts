@@ -8,6 +8,7 @@
  * composición, el servidor y los tests leen exactamente lo mismo. */
 
 import { ALL_LAYOUT_KEYS, LAYOUT_AUTO, LOOK_ALL_AUTO, normalizeLook, seedFromText, type MotionLook } from './motionVariety';
+import { normalizeSong, songBeatGrid, type MotionSong } from './motionSong';
 
 export const MOTION_FPS = 30;
 
@@ -177,6 +178,15 @@ export const MOTION_MUSIC_LABEL: Record<MotionMusic, string> = {
   drive: 'Drive (house, 124 BPM)',
   dream: 'Dream (suave, 96 BPM)',
 };
+/** Luz de fondo (estilo Apple): una atmósfera de color que respira con la música y se enciende en los golpes. */
+export const MOTION_GLOWS = ['ninguna', 'halo', 'haces'] as const;
+export type MotionGlow = (typeof MOTION_GLOWS)[number];
+export const MOTION_GLOW_LABEL: Record<MotionGlow, string> = {
+  ninguna: 'Sin luz',
+  halo: 'Halo (manchas de luz que respiran)',
+  haces: 'Haces (rayos desde abajo, como la carpeta)',
+};
+
 /** Pulsos por minuto de cada pista (client/public/motion/audio/*.wav). */
 export const MOTION_MUSIC_BPM: Record<Exclude<MotionMusic, 'none'>, number> = { pulse: 120, drive: 124, dream: 96 };
 
@@ -305,6 +315,15 @@ export interface MotionSpec {
   /** Solo para el estilo «custom»: fuente, fondo, entrada y velocidad. */
   custom: MotionCustom;
   music: MotionMusic;
+  /** Canción propia subida y analizada (shared/motionSong.ts): manda sobre `music` y marca el pulso de todo el video. */
+  song: MotionSong | null;
+  /** Luz de fondo que late con la música. */
+  glow: MotionGlow;
+  /** Cuánto debe durar el video (s). Las escenas se reparten ese tiempo en proporción a sus segundos; null = lo que sumen.
+   * Con la voz en off manda la voz, y con el audio «tal cual» (song.asIs) sin duración manda el largo del audio. */
+  durationSecs: number | null;
+  /** Video que se repite sin corte: dura compases enteros, el final calza con el inicio y la música no se apaga. */
+  loop: boolean;
   sfx: boolean;
   voice: MotionVoice | null;
   captions: boolean;
@@ -316,6 +335,9 @@ export const MOTION_DEFAULT_BASE: Record<MotionStyle, MotionBase> = { liquid: 'a
 export const MOTION_MAX_SCENES = 10;
 export const MOTION_SCENE_SECS = { min: 1, max: 8 } as const;
 export const MOTION_MAX_TOTAL_SECS = 60;
+export const MOTION_DURATION_RANGE = { min: 5, max: 60 } as const;
+/** Duraciones que ofrece el panel (el audio «tal cual» puede dejar otra). */
+export const MOTION_DURATION_PRESETS = [7, 10, 15, 20, 25, 30, 45, 60] as const;
 export const MOTION_OUTRO_SECS = 2.6;
 export const MOTION_STING_SECS = 3.6;
 /** Silencio de la voz (igual que server/studioVoice.ts). */
@@ -431,6 +453,12 @@ export function normalizeMotionSpec(raw: unknown): MotionSpec {
     keyword: normalizeKeyword(r.keyword),
     custom: normalizeCustom(r.custom),
     music: pick(r.music, MOTION_MUSIC, 'pulse'),
+    song: normalizeSong(r.song, cleanMediaUrl),
+    glow: pick(r.glow, MOTION_GLOWS, 'ninguna'),
+    durationSecs: r.durationSecs == null || r.durationSecs === '' || !Number.isFinite(Number(r.durationSecs))
+      ? null
+      : Math.round(clampNum(r.durationSecs, MOTION_DURATION_RANGE.min, MOTION_DURATION_RANGE.max, 20) * 10) / 10,
+    loop: r.loop === true,
     sfx: r.sfx !== false,
     voice,
     captions: !!voice && r.captions !== false,
@@ -458,38 +486,129 @@ export interface MotionTimeline {
   beatFrames: number | null;
 }
 
+/** Cuántos cuadros debe durar el video si se fijó (duración elegida o audio «tal cual»); null = lo que sumen las escenas. */
+export function motionTargetFrames(spec: MotionSpec, fps = MOTION_FPS): number | null {
+  if (spec.template === 'sting') return null;
+  // Con voz en off mandan las frases.
+  if (spec.voice && spec.voice.secs.length === spec.scenes.length) return null;
+  const max = MOTION_MAX_TOTAL_SECS * fps;
+  const chosen = spec.durationSecs != null ? Math.round(spec.durationSecs * fps) : null;
+  if (spec.song?.asIs) {
+    // El audio es el tramo exacto: el video dura lo que él (o lo elegido, si es más corto).
+    const clip = Math.floor(spec.song.duration * fps);
+    return Math.min(max, chosen != null ? Math.min(chosen, clip) : clip);
+  }
+  return chosen != null ? Math.min(max, chosen) : null;
+}
+
 export function motionTimeline(spec: MotionSpec, fps = MOTION_FPS): MotionTimeline {
-  const beatFrames = spec.music === 'none' ? null : (fps * 60) / MOTION_MUSIC_BPM[spec.music];
+  // La canción propia manda sobre las pistas de la casa; sin ninguna de las dos no hay pulso.
+  const beatFrames = spec.song ? (fps * 60) / spec.song.bpm : spec.music === 'none' ? null : (fps * 60) / MOTION_MUSIC_BPM[spec.music];
+  const scenes: TimelineScene[] = [];
+  let outroFrom: number | null = null;
+  let outroFrames = 0;
+  let total = 0;
+  const targetFrames = motionTargetFrames(spec, fps);
   if (spec.template === 'sting') {
     const frames = Math.round(MOTION_STING_SECS * fps);
-    return { scenes: [{ index: 0, from: 0, frames }], outroFrom: null, outroFrames: 0, total: frames, beatFrames };
-  }
-  const voice = spec.voice && spec.voice.secs.length === spec.scenes.length ? spec.voice : null;
-  const last = spec.scenes.length - 1;
-  let from = 0;
-  const scenes = spec.scenes.map((scene, index): TimelineScene => {
-    let secs: number;
-    if (voice) {
-      secs = voice.secs[index] + (index === 0 ? MOTION_VOICE_LEAD : 0) + (index === last ? MOTION_VOICE_TAIL : MOTION_VOICE_GAP);
+    scenes.push({ index: 0, from: 0, frames });
+    total = frames;
+  } else {
+    const voice = spec.voice && spec.voice.secs.length === spec.scenes.length ? spec.voice : null;
+    const last = spec.scenes.length - 1;
+    // Con canción (y sin voz) todo cae en el pulso: cada escena dura un número par de pulsos (mínimo dos) y los
+    // cortes se cuentan desde el primer golpe, así no se acumula el redondeo cuadro a cuadro. Con el audio «tal cual»
+    // el primer golpe puede caer pasado el cuadro 0: `off` es ese desfase.
+    const onBeat = !voice && spec.song ? beatFrames : null;
+    const off = onBeat && spec.song ? songBeatGrid(spec.song).offsetSecs * fps : 0;
+    const edge = (n: number) => (n === 0 ? 0 : Math.round(off + n * (onBeat as number)));
+    const minFrames = Math.round(fps * 0.8);
+    // Lo que dura cada escena por sí sola (sus segundos, o lo que se tarda en leer en kinetic).
+    const natural = spec.scenes.map((scene, index) => {
+      let secs: number;
+      if (voice) {
+        secs = voice.secs[index] + (index === 0 ? MOTION_VOICE_LEAD : 0) + (index === last ? MOTION_VOICE_TAIL : MOTION_VOICE_GAP);
+      } else {
+        secs = scene.secs;
+      }
+      let frames = Math.max(minFrames, Math.round(secs * fps));
+      // Kinetic sin voz: que alcance a leerse (≈0,3 s por palabra + 0,9 s de pausa).
+      if (!voice && spec.style === 'kinetic') {
+        const words = scene.text.split(/\s+/).filter(Boolean).length;
+        frames = Math.max(frames, Math.round((words * 0.3 + 0.9) * fps));
+      }
+      return frames;
+    });
+    outroFrames = spec.outro ? Math.round(MOTION_OUTRO_SECS * fps) : 0;
+
+    if (targetFrames != null) {
+      // Duración fija: las escenas se reparten lo que queda (sin la firma) en proporción a lo que dura cada una.
+      const room = Math.max(natural.length * minFrames, targetFrames - outroFrames);
+      const sum = natural.reduce((a, b) => a + b, 0);
+      const ideal: number[] = [];
+      let acc = 0;
+      natural.forEach((f, i) => { acc += f; ideal.push(i === last ? room : (acc / sum) * room); });
+      let ends = ideal.map((x) => Math.round(x));
+      if (onBeat) {
+        // Los cortes interiores se acercan al pulso más próximo (de a dos pulsos como mínimo), si sobra espacio.
+        const snapped: number[] = [];
+        let beatsAcc = 0;
+        for (let i = 0; i < last; i++) {
+          beatsAcc = Math.max(beatsAcc + 2, Math.round((ideal[i] - off) / onBeat));
+          snapped.push(edge(beatsAcc));
+        }
+        snapped.push(room);
+        if (snapped.every((e, i) => e - (i ? snapped[i - 1] : 0) >= minFrames)) ends = snapped;
+      }
+      // Que ninguna escena quede más corta que el mínimo y que la última termine justo donde corresponde.
+      for (let i = 0; i < ends.length; i++) ends[i] = Math.max(ends[i], (i ? ends[i - 1] : 0) + minFrames);
+      if (ends[last] !== room) ends[last] = Math.max(room, ends[last]);
+      ends.forEach((end, index) => scenes.push({ index, from: index ? ends[index - 1] : 0, frames: end - (index ? ends[index - 1] : 0) }));
+      const sceneEnd = ends[last];
+      outroFrom = spec.outro ? sceneEnd : null;
+      total = sceneEnd + outroFrames;
     } else {
-      secs = scene.secs;
+      let from = 0;
+      let beatsAcc = 0;
+      natural.forEach((n, index) => {
+        let frames = n;
+        if (onBeat) {
+          const beatsN = Math.max(2, 2 * Math.round(frames / onBeat / 2));
+          const a = edge(beatsAcc);
+          beatsAcc += beatsN;
+          const b = edge(beatsAcc);
+          scenes.push({ index, from: a, frames: b - a });
+          from = b;
+          return;
+        }
+        // Montaje sin voz: el corte cae en un pulso (mínimo dos pulsos por toma).
+        if (!voice && beatFrames && spec.template === 'montaje') {
+          frames = Math.round(Math.max(2, Math.round(frames / beatFrames)) * beatFrames);
+        }
+        scenes.push({ index, from, frames });
+        from += frames;
+      });
+      if (onBeat && spec.outro) {
+        const n = Math.max(2, 2 * Math.round(outroFrames / onBeat / 2));
+        outroFrames = edge(beatsAcc + n) - from;
+      }
+      outroFrom = spec.outro ? from : null;
+      total = from + outroFrames;
     }
-    let frames = Math.max(Math.round(fps * 0.8), Math.round(secs * fps));
-    // Kinetic sin voz: que alcance a leerse (≈0,3 s por palabra + 0,9 s de pausa).
-    if (!voice && spec.style === 'kinetic') {
-      const words = scene.text.split(/\s+/).filter(Boolean).length;
-      frames = Math.max(frames, Math.round((words * 0.3 + 0.9) * fps));
+  }
+  // Loop: compases enteros, para que el final calce con el inicio y la música vuelva a partir sobre el tiempo 1. Con una
+  // duración fija o el audio «tal cual» el largo ya está decidido: ahí no se toca.
+  if (spec.loop && beatFrames && targetFrames == null) {
+    const bar = beatFrames * 4;
+    const target = Math.round(Math.ceil(total / bar - 1e-6) * bar);
+    const extra = target - total;
+    if (extra > 0) {
+      if (outroFrom != null) outroFrames += extra;
+      else scenes[scenes.length - 1].frames += extra;
+      total = target;
     }
-    // Montaje sin voz: el corte cae en un pulso (mínimo dos pulsos por toma).
-    if (!voice && beatFrames && spec.template === 'montaje') {
-      frames = Math.round(Math.max(2, Math.round(frames / beatFrames)) * beatFrames);
-    }
-    const out = { index, from, frames };
-    from += frames;
-    return out;
-  });
-  const outroFrames = spec.outro ? Math.round(MOTION_OUTRO_SECS * fps) : 0;
-  return { scenes, outroFrom: spec.outro ? from : null, outroFrames, total: from + outroFrames, beatFrames };
+  }
+  return { scenes, outroFrom, outroFrames, total, beatFrames };
 }
 
 /* --- Subtítulos -------------------------------------------------------------
