@@ -70,6 +70,26 @@ partes, y cada una se fija a mano o queda en **Auto** (la elige la semilla del v
 - Revisar a mano: `ONLY=liquid pnpm tsx scripts/motion/preview.mts looks ./looks` (cada opción) o con `SEEDS=5`
   (cinco semillas al azar, como «Sorpréndeme»).
 
+## Gancho de chat (WhatsApp, DM y notificaciones)
+
+- **Qué es:** la escena 1 se dibuja como un celular donde llegan mensajes, en vez del titular (`spec.hook`, `motion/chat.tsx`). Frena
+  el scroll en el primer segundo. Tres versiones: **WhatsApp** (cabecera de color, fondo con puntitos, hora y doble check),
+  **DM de Instagram** (burbujas redondas, degradé de marca, «Visto») y **notificaciones de pantalla de bloqueo** (apiladas,
+  vibra el celular al llegar cada una; se ven las 3 más nuevas).
+- **Los mensajes salen de la escena 1:** el «Texto grande» es el primer mensaje que llega y las líneas de abajo (una por línea,
+  máximo 5 de 70 letras) son los siguientes; se alternan (llega, responde el espectador, llega…). Antes de cada mensaje que
+  llega aparece «escribiendo…». Nombre del contacto editable (por defecto Mansion Playroom).
+- **No cambia la línea de tiempo:** la escena 1 dura lo mismo que siempre (con voz, lo que dura su frase), así la voz, los
+  subtítulos, la canción y el carrusel siguen calzando. Al activarlo, si la escena 1 es muy corta se alarga a lo que pide la
+  conversación (`chatMinSecs`: unos 1 s por mensaje).
+- **Sonido:** ding cuando llega un mensaje, barrido cuando se envía el tuyo y vibración en las notificaciones (`ding`, `send` y
+  `buzz`, sintetizados en `gen-audio.mjs`). El cuadro de cada mensaje (`shared/motionChat.ts`) es el mismo para la imagen y el audio.
+- **Colores:** los de la marca (la cabecera y las burbujas salen del color protagonista y del acento del video), nunca el verde de
+  WhatsApp ni el azul de iOS.
+- Solo en plantillas anuncio y montaje. Los videos guardados antes quedan sin gancho. La IA puede proponerlo en UNA de las 3
+  variantes, y hay un punto de partida sin IA («Gancho de chat»).
+- Revisar a mano: `pnpm tsx scripts/motion/preview.mts chat ./chat` (`STRESS=1` prueba seis mensajes largos).
+
 ## Collage y papel, y Pizarra (estilos de dibujo a mano)
 
 - **Collage y papel** (`motion/kits/collage.tsx`): cuatro papeles dentro de un mismo estilo, que se elige en «Papel» o, en

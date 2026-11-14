@@ -6,7 +6,7 @@ import { AI_PHRASES_PROMPT_LINE } from '../shared/aiPhrasesEs';
 import { ALL_LAYOUT_KEYS, LAYOUT_AUTO, LAYOUTS, LOOK_ALL_AUTO, freshSeed, lookSignature } from '../shared/motionVariety';
 import { chileIsoDate } from '../shared/contentPlan';
 import {
-  MOTION_ACCENTS, MOTION_BASES, MOTION_CARDS, MOTION_MAX_SCENES, MOTION_MUSIC, MOTION_STYLES, MOTION_TEMPLATES, normalizeKeyword, normalizeMotionSpec,
+  MOTION_ACCENTS, MOTION_BASES, MOTION_HOOKS, hookApplies, MOTION_CARDS, MOTION_MAX_SCENES, MOTION_MUSIC, MOTION_STYLES, MOTION_TEMPLATES, normalizeKeyword, normalizeMotionSpec,
   type MotionFormat, type MotionMedia, type MotionSpec, type MotionStyle, type MotionTemplate,
 } from '../shared/motionSpec';
 import type { AiModel, AiUsage } from '../shared/studioAi';
@@ -34,7 +34,7 @@ const SCENE_SCHEMA = {
     mediaIndex: { type: 'integer', description: 'Índice de la foto/clip entregado que va de fondo en esta escena, o -1 para ninguno.' },
     layout: { type: 'string', enum: [LAYOUT_AUTO, ...ALL_LAYOUT_KEYS], description: 'Composición de la escena, SOLO una de las del estilo de esta variante (ver el catálogo). Varía de una escena a otra; "auto" si no importa.' },
     card: { type: 'string', enum: [...MOTION_CARDS], description: 'Solo en softui: tarjeta de vidrio de la escena. En los demás estilos, "ninguna".' },
-    items: { type: 'array', items: { type: 'string' }, description: 'Solo para tarjetas checklist (ítems), chat (mensajes, alternando quién habla) o evento (2-3 datos cortos). Máximo 5, cortos. Si no, lista vacía.' },
+    items: { type: 'array', items: { type: 'string' }, description: 'Solo para tarjetas checklist (ítems), chat (mensajes, alternando quién habla) o evento (2-3 datos cortos); o, en la ESCENA 1 de una variante con gancho de chat, los mensajes que siguen al primero (se alternan: responde el espectador, vuelve a escribir la marca…). Máximo 5, cortos. Si no, lista vacía.' },
   },
   required: ['kicker', 'text', 'highlight', 'sub', 'say', 'secs', 'mediaIndex', 'layout', 'card', 'items'],
   additionalProperties: false,
@@ -47,9 +47,10 @@ const VARIANT_SCHEMA = {
     base: { type: 'string', enum: [...MOTION_BASES], description: 'Fondo: azul (celeste), rosa o tinta (de marca); perla o niebla (neutros editoriales); noche (PLAYMORE, fiesta).' },
     accent: { type: 'string', enum: [...MOTION_ACCENTS], description: 'Color protagonista (distinto del fondo). Oro solo con noche.' },
     music: { type: 'string', enum: MOTION_MUSIC.filter((m) => m !== 'none') },
+    hook: { type: 'string', enum: [...MOTION_HOOKS], description: 'Gancho de chat: la escena 1 se dibuja como un celular donde llegan mensajes. "ninguno" salvo en UNA variante como máximo (y solo en plantilla anuncio o montaje).' },
     scenes: { type: 'array', items: SCENE_SCHEMA, description: `De 2 a ${MOTION_MAX_SCENES - 4} escenas.` },
   },
-  required: ['style', 'base', 'accent', 'music', 'scenes'],
+  required: ['style', 'base', 'accent', 'music', 'hook', 'scenes'],
   additionalProperties: false,
 } as const;
 
@@ -87,6 +88,7 @@ export const MOTION_SYSTEM = [
   '- Gancho en el PRIMER segundo: la escena 1 frena el scroll con una pregunta o una afirmación que rompe un prejuicio.',
   '- Una idea por escena, 5 palabras o menos en `text`. 1,2 a 2,5 s por escena (hasta 3,5 si hay bajada). Total entre 6 y 18 s.',
   '- Ritmo en arco, NUNCA a ritmo de metrónomo: la escena 1 es la más corta y seca (1,2 a 1,8 s); las del medio se van acortando hacia el clímax; la última (la acción) es la más larga (2,5 a 3,5 s) para que respire. Dos escenas seguidas no duran lo mismo. Un cambio visual cada 2 a 4 s.',
+  '- Gancho de chat (campo `hook` de cada variante, opcional): la escena 1 se dibuja como un celular donde llegan mensajes (whatsapp, dm de Instagram o notificaciones de pantalla de bloqueo) y frena el scroll en el primer segundo. Úsalo en UNA variante como máximo y solo en plantilla anuncio o montaje, cuando el pedido sea invitar, contar algo o despertar curiosidad. Entonces `text` de la escena 1 es el primer mensaje que llega (conversacional, 4 a 12 palabras, como lo escribiría una persona), `items` son los mensajes que siguen (0 a 3: responde el espectador, la marca vuelve a escribir…), `kicker` y `sub` van vacíos, y `secs` ≥ 3,5. Mismas reglas de marca: nada explícito, nada inventado.',
   '- Cierre: la última escena es la acción (invitar a comentar una palabra clave y se les envía todo, etiquetar a alguien). Después viene sola la firma animada de la marca: no la escribas como escena.',
   '- `highlight`: la palabra que carga el sentido, máximo una por escena, y no en todas.',
   '',
@@ -135,6 +137,7 @@ interface RawVariant {
   accent?: string;
   music?: string;
   scenes?: Array<Record<string, unknown>>;
+  hook?: string;
 }
 
 interface RawOutput {
@@ -199,6 +202,7 @@ export function variantsFromAi(raw: RawOutput, input: Pick<MotionIdeaInput, 'for
       sfx: true,
       // Subtítulos de karaoke en los videos nuevos (los guardados antes siguen como estaban).
       captionStyle: 'karaoke',
+      hook: hookApplies(template) && v.hook ? v.hook : 'ninguno',
     });
   });
 }
