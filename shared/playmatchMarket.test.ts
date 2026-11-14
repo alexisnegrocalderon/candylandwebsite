@@ -12,6 +12,8 @@ describe('config', () => {
     expect([c.superLikePrice, c.superLikePackSize, c.superLikePackPrice, c.maxPaidSuperLikes]).toEqual([500, 10, 2500, 10]);
     expect(c.enabled && c.superLikes && c.costumes && c.likesUnlock).toBe(true);
     expect(c.costumeRevealed).toBe(false);
+    // Las zonas del local parten apagadas: se prenden por fiesta.
+    expect(c.zones).toBe(false);
   });
   it('lee la config aunque el motor la entregue como texto', () => {
     const c = normalizePlaymatchConfig(JSON.stringify({ superLikePrice: 700, hostGoal: { profiles: 30 } }));

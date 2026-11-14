@@ -7233,6 +7233,7 @@ export async function listPartyMansion(profileId: number, eventId: number) {
   }
 
   const me = profiles.find((p: any) => p.id === profileId);
+  const zones = (await getPartyConfig(eventId)).zones;
   const people = profiles
     .filter((p: any) => p.id !== profileId && !hidden.has(p.id))
     .map((p: any) => {
@@ -7249,7 +7250,7 @@ export async function listPartyMansion(profileId: number, eventId: number) {
         costume: (p.costume as string | null) ?? null,
         ...partyVibe(p),
         common: me ? compatibility(me, p).common : [],
-        affinity: me ? affinityPercent(me, p) : null,
+        affinity: me ? affinityPercent(me, p, { zones }) : null,
         lastSeenAt: p.lastSeenAt,
         connectionId: c?.id ?? null,
         // `declined` se le muestra a quien tocó como si siguiera pendiente:
@@ -7979,13 +7980,14 @@ export async function getPartySwipeDeck(viewer: { id: number; eventId: number; s
   for (const p of withPhoto as any[]) photoCount.set(p.profileId, (photoCount.get(p.profileId) ?? 0) + 1);
   const me = profiles.find((p: any) => p.id === viewer.id) ?? (await db.select().from(partyProfiles).where(eq(partyProfiles.id, viewer.id)).limit(1))[0];
 
+  const zones = (await getPartyConfig(viewer.eventId)).zones;
   const toCard = (p: any, caramelo: boolean) => ({
     id: p.id as number, alias: p.alias as string, gender: p.gender as PartyGender, zone: p.zone as PartyZone,
     costume: (p.costume as string | null) ?? null, photoCount: photoCount.get(p.id) ?? 1, caramelo,
     ...partyVibe(p),
     // Lo que tienen en común con quien mira («Amistad · Relaciones abiertas») y qué tan afines son (% o null si falta con qué comparar).
     common: me ? compatibility(me, p).common : [],
-    affinity: me ? affinityPercent(me, p) : null,
+    affinity: me ? affinityPercent(me, p, { zones }) : null,
   });
   // Quien me mandó un Caramelo (★) va primero, con su marca: ♥ = match al tiro. Basta con que yo
   // busque a alguien como esa persona (ella ya dijo que yo le intereso).

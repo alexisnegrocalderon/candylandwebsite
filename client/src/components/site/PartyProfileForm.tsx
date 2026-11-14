@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { trpc } from '@/lib/trpc';
+import { useHalloweenMode } from '@/lib/halloween';
 import { PartyAvatar } from '@/components/party/Avatar';
 import {
   AVATARS_PER_GENDER, DEFAULT_LOOKING_FOR, GENDER_LABELS, INTENTS, INTENT_EMOJI, INTENT_LABELS, LOOKING_FOR_KEYS, LOOKING_LABELS,
@@ -36,6 +37,8 @@ export function CreateProfile({ ticketCode, onCreated, mode = 'inside', initial,
   };
   embedded?: boolean;
 }) {
+  // «Mi disfraz» solo en la noche de disfraces; el resto del año el mismo campo es cómo reconocerte en la fiesta.
+  const halloween = useHalloweenMode();
   const [alias, setAlias] = useState(initial?.alias ?? '');
   const [gender, setGender] = useState<PartyGender>(initial?.gender ?? 'mujer');
   const [avatarId, setAvatarId] = useState(initial?.avatarId ?? 1);
@@ -163,16 +166,16 @@ export function CreateProfile({ ticketCode, onCreated, mode = 'inside', initial,
         </div>
         <p className="mb-6 text-caption1 text-white/60">Solo lo ve quien ya entró a la fiesta, y se borra cuando termina.</p>
 
-        <label className={LABEL}>Mi disfraz <span className="normal-case tracking-normal text-white/60">· opcional</span></label>
+        <label className={LABEL}>{halloween ? 'Mi disfraz' : 'Cómo encontrarme'} <span className="normal-case tracking-normal text-white/60">· opcional</span></label>
         <input
           value={costume}
           onChange={(e) => setCostume(e.target.value)}
           maxLength={MAX_COSTUME_LENGTH}
-          placeholder="Ej: Vampira, Joker, Los Cazafantasmas"
+          placeholder={halloween ? 'Ej: Vampira, Joker, Los Cazafantasmas' : 'Ej: vestido rojo, camisa blanca'}
           className="h-13 w-full rounded-2xl border border-white/15 bg-white/[0.06] px-4 text-body text-white placeholder:text-white/45 focus:border-pink-400/60 focus:outline-none"
         />
         <p className={`mb-6 mt-1.5 text-caption1 ${costumeError ? 'text-rose-300' : 'text-white/60'}`}>
-          {costumeError ?? 'Sale grande en tu tarjeta: ayuda a que te encuentren en la fiesta.'}
+          {costumeError?.replace('en el disfraz', 'acá') ?? 'Sale en tu tarjeta: ayuda a que te reconozcan en la fiesta.'}
         </p>
 
         <p className={LABEL}>Tu ficha <span className="normal-case tracking-normal text-white/60">· si no pones foto</span></p>

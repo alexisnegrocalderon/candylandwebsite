@@ -1,7 +1,7 @@
 import { Camera, Crown, Loader2, Sparkles, Trophy } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import type { CostumeVoting } from '@/components/party/costumeVotes';
-import { PM_CTA, PersonPhoto, tap } from '@/components/party/ui';
+import { PM_CTA, PersonPhoto, tap, usePartyFlags } from '@/components/party/ui';
 import { MAX_COSTUME_VOTES_PER_EVENT, ZONE_LABELS, type PartyGender, type PartyZone } from '@shared/party';
 
 /* «Disfraces»: el concurso del mejor disfraz dentro de Playmatch. Todos los disfraces de la fiesta en una galería para
@@ -23,6 +23,7 @@ export function CostumesView({ ticketCode, viewerAlias, canPhoto, voting, onOpen
   voting: CostumeVoting;
   onOpenPhoto: () => void;
 }) {
+  const { zones } = usePartyFlags();
   const gallery = trpc.party.costumeGallery.useQuery({ ticketCode }, { refetchInterval: 20_000 });
   const data = gallery.data;
 
@@ -97,7 +98,7 @@ export function CostumesView({ ticketCode, viewerAlias, canPhoto, voting, onOpen
                 <PersonPhoto ticketCode={ticketCode} viewerAlias={viewerAlias} canPhoto={canPhoto} person={p} className="absolute inset-0 h-full w-full" quiet />
                 <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent px-3 pb-3 pt-14">
                   <p className="flex items-center gap-1 truncate text-subhead font-bold text-amber-200"><Sparkles className="h-3.5 w-3.5 shrink-0" /> {p.costume}</p>
-                  <p className="truncate text-caption1 text-white/70">{p.alias} · {ZONE_LABELS[p.zone]}</p>
+                  <p className="truncate text-caption1 text-white/70">{p.alias}{zones ? ` · ${ZONE_LABELS[p.zone]}` : ''}</p>
                 </div>
                 {open && canPhoto && (
                   <button type="button" onClick={() => { tap(); voting.toggle(p.id, p.alias); }} aria-pressed={voted} aria-label={voted ? `Quitar mi voto a ${p.alias}` : `Votar por el disfraz de ${p.alias}`}

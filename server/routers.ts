@@ -120,6 +120,17 @@ async function animadorAccess(email: string) {
   return { staff };
 }
 
+/** El look de Playmatch en una fiesta: una colaboración activa (PLAYMORE) lo viste con sus colores. Se guarda un minuto
+ * en memoria: la sesión se pide cada 20 s por celular y esto no cambia durante la noche. */
+const partyThemeCache = new Map<number, { at: number; theme: 'playmore' | null }>();
+async function partyTheme(eventId: number): Promise<'playmore' | null> {
+  const hit = partyThemeCache.get(eventId);
+  if (hit && Date.now() - hit.at < 60_000) return hit.theme;
+  const theme = (await coproductionSvc.getEventColabBrand(eventId).catch(() => null)) ? 'playmore' as const : null;
+  partyThemeCache.set(eventId, { at: Date.now(), theme });
+  return theme;
+}
+
 /** Igual que la anterior, pero además exige tener el perfil creado. */
 async function requirePartyProfile(ticketCode: string) {
   const actor = await requirePartyActor(ticketCode);
@@ -2955,7 +2966,7 @@ export const appRouter = router({
     }),
     getSession: publicProcedure.input(z.object({ ticketCode: z.string() })).query(async ({ input }) => {
       const actor = await db.getPartyActor(input.ticketCode);
-      if (!actor) return { denial: 'sin_ticket' as const, preRegister: false, event: null, profile: null, config: null };
+      if (!actor) return { denial: 'sin_ticket' as const, preRegister: false, event: null, profile: null, config: null, theme: null };
 
       const now = new Date();
       const denial = partyEntryDenial(actor.ticket, actor.event, now);
@@ -2972,6 +2983,8 @@ export const appRouter = router({
         },
         // Lo que el administrador prende y apaga en vivo, y los precios (shared/playmatchMarket.ts).
         config: publicPlaymatchConfig(await db.getPartyConfig(actor.event.id)),
+        // El look de la fiesta: una colaboración (PLAYMORE) viste Playmatch con sus colores.
+        theme: await partyTheme(actor.event.id),
         profile: actor.profile
           ? await (async (p) => {
             const photoCount = await db.countPartyPhotos(p.id);
@@ -2990,7 +3003,8 @@ export const appRouter = router({
       alias: z.string(),
       gender: z.enum(PARTY_GENDERS),
       avatarId: z.number().int().min(1).max(AVATARS_PER_GENDER),
-      zone: z.enum(PARTY_ZONES),
+      // Sin zonas en la fiesta (config `zones` apagada) la app no la manda.
+      zone: z.enum(PARTY_ZONES).default('living'),
       lookingFor: z.array(z.enum([...LOOKING_FOR_KEYS, 'pareja'])).min(1).max(7).optional(),
       // Opcionales (null = «Prefiero no decir»).
       pairType: z.enum(PAIR_TYPES).nullish(),
@@ -3250,7 +3264,7 @@ export const appRouter = router({
     adminSetConfig: adminProcedure.input(z.object({
       eventId: z.number(),
       enabled: z.boolean().optional(), superLikes: z.boolean().optional(), likesUnlock: z.boolean().optional(),
-      costumes: z.boolean().optional(), costumeRevealed: z.boolean().optional(),
+      costumes: z.boolean().optional(), costumeRevealed: z.boolean().optional(), zones: z.boolean().optional(),
       superLikePrice: z.number().int().min(0).max(50_000).optional(), superLikePackSize: z.number().int().min(2).max(50).optional(),
       superLikePackPrice: z.number().int().min(0).max(500_000).optional(), maxPaidSuperLikes: z.number().int().min(0).max(100).optional(),
       likesUnlockPrice: z.number().int().min(0).max(50_000).optional(),

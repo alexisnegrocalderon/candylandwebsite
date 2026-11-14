@@ -270,7 +270,7 @@ function Ajustes({ eventId }: { eventId: number }) {
   const [draft, setDraft] = useState<Record<string, string>>({});
   if (!cfg) return <p className="text-sm text-muted-foreground">Cargando…</p>;
 
-  const toggle = (key: 'enabled' | 'superLikes' | 'likesUnlock' | 'costumes', label: string, hint: string) => (
+  const toggle = (key: 'enabled' | 'superLikes' | 'likesUnlock' | 'costumes' | 'zones', label: string, hint: string) => (
     <div className="flex items-center justify-between gap-4 rounded-2xl border border-border/60 bg-card/50 px-4 py-3">
       <div className="min-w-0"><p className="font-semibold">{label}</p><p className="text-xs text-muted-foreground">{hint}</p></div>
       <Switch checked={cfg[key]} disabled={save.isPending} onCheckedChange={(v) => save.mutate({ eventId, [key]: v })} aria-label={label} />
@@ -299,6 +299,7 @@ function Ajustes({ eventId }: { eventId: number }) {
         {toggle('superLikes', 'Super Likes', 'Apagado: no se pueden mandar ni comprar Super Likes.')}
         {toggle('likesUnlock', 'Ver quién me dio ♥', 'Apagado: sigue el número, pero no se puede desbloquear quién es.')}
         {toggle('costumes', 'Concurso de disfraces', 'Apagado: la pestaña Disfraces y los votos se esconden.')}
+        {toggle('zones', 'Zonas del local', 'Prendido: cada persona elige en qué zona está (Living, Playground, Piscina, Barra). Apagado: «Fiesta» muestra a todos juntos.')}
       </section>
 
       <section className="space-y-3">

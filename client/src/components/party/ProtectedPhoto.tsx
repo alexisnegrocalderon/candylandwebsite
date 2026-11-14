@@ -118,20 +118,22 @@ export function ProtectedPhoto({ ticketCode, profileId, position = 0, viewerAlia
 
 function drawWatermark(ctx: CanvasRenderingContext2D, w: number, h: number, viewerAlias: string) {
   const label = `${viewerAlias} · Playmatch`;
-  const fontPx = Math.max(14, Math.round(w / 22));
+  // Discreta: letra chica, muy transparente y espaciada. Se sigue leyendo en una captura (que es para lo que está)
+  // sin tapar la foto.
+  const fontPx = Math.max(12, Math.round(w / 30));
   ctx.save();
   ctx.translate(w / 2, h / 2);
   ctx.rotate(-Math.PI / 6);
-  ctx.font = `700 ${fontPx}px sans-serif`;
+  ctx.font = `600 ${fontPx}px sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillStyle = 'rgba(255,255,255,0.28)';
-  ctx.strokeStyle = 'rgba(0,0,0,0.22)';
-  ctx.lineWidth = Math.max(1, fontPx / 12);
-  const step = fontPx * 3;
+  ctx.fillStyle = 'rgba(255,255,255,0.13)';
+  ctx.strokeStyle = 'rgba(0,0,0,0.08)';
+  ctx.lineWidth = 1;
+  const step = fontPx * 7;
   const reach = Math.hypot(w, h);
   for (let y = -reach; y <= reach; y += step) {
-    for (let x = -reach; x <= reach; x += ctx.measureText(label).width + fontPx * 2) {
+    for (let x = -reach; x <= reach; x += ctx.measureText(label).width + fontPx * 5) {
       ctx.strokeText(label, x, y);
       ctx.fillText(label, x, y);
     }
