@@ -31,6 +31,8 @@ export const fonts = {
   ui: "'Inter', sans-serif",
   script: "'Allura', cursive",
   numbers: "'Anton', 'Unbounded', sans-serif",
+  /** Marcador de pizarra (estilo Pizarra). */
+  marker: "'Permanent Marker', 'Unbounded', sans-serif",
 } as const;
 
 /** Escala tipográfica (px a 1080 de ancho). Contraste grande = look editorial. */
@@ -50,6 +52,7 @@ export const FONT_FILES: Array<{ family: string; file: string; weight?: string }
   { family: 'Inter', file: 'studio/fonts/inter.woff2', weight: '100 900' },
   { family: 'Allura', file: 'studio/fonts/allura.woff2', weight: '400' },
   { family: 'Anton', file: 'studio/fonts/Anton-Regular.ttf', weight: '400' },
+  { family: 'Permanent Marker', file: 'studio/fonts/permanent-marker.woff2', weight: '400' },
   { family: 'Space Grotesk', file: 'fonts/space-grotesk-variable.woff2', weight: '300 700' },
   { family: 'Syne', file: 'fonts/syne-variable.woff2', weight: '400 800' },
 ];

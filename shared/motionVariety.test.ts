@@ -141,3 +141,29 @@ describe('look del video', () => {
     expect(lookHasAuto({ ...LOOK_CLASSIC })).toBe(false);
   });
 });
+
+import { resolvePaper } from './motionVariety';
+describe('collage y pizarra', () => {
+  it('el papel «auto» sale de la semilla (determinista) y se reparte entre los cuatro', () => {
+    const seen = new Set<string>();
+    for (let seed = 0; seed < 200; seed++) {
+      const p = resolvePaper({ seed, paper: 'auto' });
+      expect(resolvePaper({ seed, paper: 'auto' })).toBe(p);
+      seen.add(p);
+    }
+    expect([...seen].sort()).toEqual(['diario', 'rasgado', 'riso', 'scrapbook']);
+    expect(resolvePaper({ seed: 5, paper: 'riso' })).toBe('riso');
+  });
+  it('los dos estilos nuevos existen con composiciones, fondo por defecto y puntos de partida', () => {
+    for (const style of ['collage', 'pizarra'] as const) {
+      expect(LAYOUTS[style].length).toBeGreaterThanOrEqual(5);
+      const s = starterSpec('anuncio', style);
+      expect(s.style).toBe(style);
+      expect(s.scenes.length).toBeGreaterThanOrEqual(3);
+      expect(s.base).toBe(style === 'collage' ? 'perla' : 'niebla');
+    }
+    // Un video guardado sin papel queda en automático y uno con un valor raro también.
+    expect(normalizeMotionSpec({ style: 'collage' }).paper).toBe('auto');
+    expect(normalizeMotionSpec({ style: 'collage', paper: 'otro' }).paper).toBe('auto');
+  });
+});

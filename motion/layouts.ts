@@ -108,7 +108,7 @@ const GLIDE_FRAMES = 18;
 
 /** Qué escena está en pantalla y cuántos cuadros lleva. Dentro de una escena (`index`) usa su cuadro local; fuera de
  * las escenas (el fondo) la busca en la línea de tiempo (después de la última queda en la última: la firma). */
-function useSceneCursor(index?: number): { idx: number; local: number } {
+export function useSceneCursor(index?: number): { idx: number; local: number } {
   const frame = useCurrentFrame();
   const { timeline } = useMotion();
   if (index !== undefined) return { idx: index, local: frame };

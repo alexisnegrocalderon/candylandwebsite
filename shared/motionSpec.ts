@@ -22,7 +22,7 @@ export const MOTION_TEMPLATE_LABEL: Record<MotionTemplate, string> = {
   sting: 'Intro / outro de marca',
 };
 
-export const MOTION_STYLES = ['liquid', 'glitch', 'editorial', 'kinetic', 'poster', 'softui', 'arcade', 'custom'] as const;
+export const MOTION_STYLES = ['liquid', 'glitch', 'editorial', 'kinetic', 'poster', 'softui', 'arcade', 'collage', 'pizarra', 'custom'] as const;
 export type MotionStyle = (typeof MOTION_STYLES)[number];
 export const MOTION_STYLE_LABEL: Record<MotionStyle, string> = {
   liquid: 'Liquid',
@@ -32,6 +32,8 @@ export const MOTION_STYLE_LABEL: Record<MotionStyle, string> = {
   poster: 'Póster 3D',
   softui: 'Soft UI (tarjetas)',
   arcade: 'Arcade neón (PLAYMORE · Player 1 vs Player 2)',
+  collage: 'Collage y papel (recortes, risografía, scrapbook, diario)',
+  pizarra: 'Pizarra (dibujado a mano)',
   custom: 'Personalizado',
 };
 
@@ -164,6 +166,17 @@ export function motionPalette(base: MotionBase, accent: MotionAccent = MOTION_DE
       return solid({ bg: BRAND.blue, display: BRAND.white, shadow: BRAND.ink, body: BRAND.white, muted: BRAND.white, accent: BRAND.magenta, deep: BRAND.ink, micro: BRAND.white, surface: BRAND.white, dark: false });
   }
 }
+
+/** Papel del estilo Collage. «auto» lo elige la semilla del video (shared/motionVariety.ts → resolvePaper). */
+export const MOTION_PAPERS = ['auto', 'rasgado', 'riso', 'scrapbook', 'diario'] as const;
+export type MotionPaper = (typeof MOTION_PAPERS)[number];
+export const MOTION_PAPER_LABEL: Record<MotionPaper, string> = {
+  auto: 'Automático (lo elige la semilla)',
+  rasgado: 'Papel rasgado (cada palabra, un recorte)',
+  riso: 'Risografía (tintas que se desalinean)',
+  scrapbook: 'Scrapbook (letras recortadas, cinta y cuaderno)',
+  diario: 'Diario (semitono y titular de prensa)',
+};
 
 /** Estilo de los subtítulos (con voz en off). Los videos guardados antes quedan en «clásico»: no cambian de cara. */
 export const MOTION_CAPTION_STYLES = ['clasico', 'karaoke', 'palabra'] as const;
@@ -344,10 +357,12 @@ export interface MotionSpec {
   captions: boolean;
   /** Cómo se dibujan los subtítulos. */
   captionStyle: MotionCaptionStyle;
+  /** Solo estilo Collage: qué papel (o «auto»). */
+  paper: MotionPaper;
 }
 
 /** Fondo con que parte cada estilo. */
-export const MOTION_DEFAULT_BASE: Record<MotionStyle, MotionBase> = { liquid: 'azul', glitch: 'tinta', editorial: 'perla', kinetic: 'perla', poster: 'perla', softui: 'niebla', arcade: 'arcade', custom: 'tinta' };
+export const MOTION_DEFAULT_BASE: Record<MotionStyle, MotionBase> = { liquid: 'azul', glitch: 'tinta', editorial: 'perla', kinetic: 'perla', poster: 'perla', softui: 'niebla', arcade: 'arcade', collage: 'perla', pizarra: 'niebla', custom: 'tinta' };
 
 export const MOTION_MAX_SCENES = 10;
 export const MOTION_SCENE_SECS = { min: 1, max: 8 } as const;
@@ -500,6 +515,7 @@ export function normalizeMotionSpec(raw: unknown): MotionSpec {
     voice,
     captions: !!voice && r.captions !== false,
     captionStyle: pick(r.captionStyle, MOTION_CAPTION_STYLES, 'clasico'),
+    paper: pick(r.paper, MOTION_PAPERS, 'auto'),
   };
 }
 
@@ -779,6 +795,13 @@ export function starterSpec(template: MotionTemplate, style: MotionStyle = 'liqu
                 { kicker: 'PLAYER 2 · MUNDO DALMORE', text: 'Equipo celeste', highlight: 'celeste', sub: 'Cromo, tech-wear, guantes, visor y delineado neón', secs: 3.2 },
                 { kicker: 'DADOS · RULETAS · MARCADOR', text: 'Gana tu equipo', highlight: 'equipo', sub: 'Rondas toda la noche. Todo opcional, siempre con respeto', secs: 3 },
                 { kicker: 'VIERNES 4 DIC · PROVIDENCIA · +21', text: 'Press start', highlight: 'start', sub: 'Entradas en dalmore.mansionplayroom.cl', secs: 2.8 },
+              ]
+          : style === 'pizarra'
+            ? [
+                { kicker: '¿PRIMERA VEZ?', text: 'Te lo contamos fácil', highlight: 'fácil', secs: 2.6 },
+                { kicker: 'PASO 1', text: 'Compra tu entrada', highlight: 'entrada', sub: 'Te llega al correo', secs: 3 },
+                { kicker: 'PASO 2', text: 'Ven con respeto', highlight: 'respeto', sub: 'Consentimiento siempre', secs: 3 },
+                { text: 'Comenta INFO', highlight: 'INFO', secs: 2.6 },
               ]
           : style === 'kinetic'
             ? [

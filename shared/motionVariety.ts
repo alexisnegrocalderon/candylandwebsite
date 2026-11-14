@@ -62,6 +62,20 @@ export const LAYOUTS: Record<MotionStyle, LayoutOption[]> = {
     { key: 'izquierda', label: 'A la izquierda' },
     { key: 'derecha', label: 'A la derecha' },
   ],
+  collage: [
+    { key: 'centro', label: 'Centrado' },
+    { key: 'bajo', label: 'Abajo' },
+    { key: 'alto', label: 'Arriba' },
+    { key: 'izquierda', label: 'A la izquierda' },
+    { key: 'derecha', label: 'A la derecha' },
+  ],
+  pizarra: [
+    { key: 'centro', label: 'Centrado' },
+    { key: 'alto', label: 'Arriba' },
+    { key: 'bajo', label: 'Abajo' },
+    { key: 'izquierda', label: 'A la izquierda' },
+    { key: 'derecha', label: 'A la derecha' },
+  ],
   arcade: [
     { key: 'centro', label: 'Centrado' },
     { key: 'alto', label: 'Arriba' },
@@ -265,7 +279,9 @@ function autoPool<K extends LookPart>(part: K, style: MotionStyle): readonly Res
       : style === 'editorial' || style === 'softui' ? ['estilo', 'mascara', 'enfoque', 'giro', 'maquina']
         : style === 'glitch' || style === 'arcade' ? ['estilo', 'estilo', 'golpe', 'maquina', 'mascara']
           : ['estilo', 'rebote', 'enfoque', 'golpe', 'giro', 'mascara'],
-    texture: style === 'arcade' || style === 'custom' ? ['ninguna', 'puntos']
+    // Collage y pizarra ya traen su propio papel o cuadrícula: la trama va muy de vez en cuando.
+    texture: style === 'collage' || style === 'pizarra' ? ['ninguna', 'ninguna', 'ninguna', 'puntos']
+      : style === 'arcade' || style === 'custom' ? ['ninguna', 'puntos']
       : style === 'liquid' ? ['ninguna', 'puntos', 'ondas', 'rayos']
         : style === 'softui' ? ['ninguna', 'puntos', 'ondas']
           : ['ninguna', 'puntos', 'rayas', 'cuadros', 'rayos'],
@@ -298,9 +314,16 @@ export function resolveLook(spec: Pick<MotionSpec, 'style' | 'seed' | 'look'>): 
 }
 
 /** Huella del look (para no repetir el de los últimos videos). */
-export function lookSignature(spec: Pick<MotionSpec, 'style' | 'seed' | 'look'>): string {
+/** El papel del estilo Collage que se dibuja: el fijado a mano o, en «auto», uno elegido con la semilla. Determinista. */
+export function resolvePaper(spec: Pick<MotionSpec, 'seed' | 'paper'>): Exclude<MotionSpec['paper'], 'auto'> {
+  if (spec.paper && spec.paper !== 'auto') return spec.paper;
+  const papers = ['rasgado', 'riso', 'scrapbook', 'diario'] as const;
+  return papers[Math.floor(seededRandom(spec.seed * 7 + 3)() * papers.length) % papers.length];
+}
+
+export function lookSignature(spec: Pick<MotionSpec, 'style' | 'seed' | 'look'> & { paper?: MotionSpec['paper'] }): string {
   const l = resolveLook(spec);
-  return [spec.style, ...LOOK_PARTS.map((p) => l[p])].join('|');
+  return [spec.style + (spec.style === 'collage' ? `:${resolvePaper({ seed: spec.seed, paper: spec.paper ?? 'auto' })}` : ''), ...LOOK_PARTS.map((p) => l[p])].join('|');
 }
 
 /** En cuántas partes se diferencian dos huellas del mismo estilo (0 = idénticas; otro estilo = todas). */

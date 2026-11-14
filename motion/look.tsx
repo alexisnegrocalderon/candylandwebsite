@@ -77,15 +77,15 @@ export const Texture: React.FC = () => {
 type Zone = 'top' | 'center' | 'bottom' | 'split';
 
 /** Dónde está el texto en esta composición (los adornos van a la zona que queda libre). */
-function textZone(style: MotionStyle, layout: string | undefined): Zone {
+export function textZone(style: MotionStyle, layout: string | undefined): Zone {
   if (style === 'editorial' || style === 'kinetic') return MAGAZINE[layout ?? '']?.anchor ?? 'bottom';
   if (style === 'poster') return 'split';
-  if (style === 'liquid' || style === 'glitch' || style === 'arcade') return CENTERED[layout ?? '']?.v ?? 'center';
+  if (style === 'liquid' || style === 'glitch' || style === 'arcade' || style === 'collage' || style === 'pizarra') return CENTERED[layout ?? '']?.v ?? 'center';
   return 'center';
 }
 
 /** Alturas libres (fracción del alto) según dónde va el texto. */
-function freeBands(zone: Zone, tall: boolean): number[] {
+export function freeBands(zone: Zone, tall: boolean): number[] {
   const top = tall ? 0.215 : 0.2;
   const bottom = tall ? 0.79 : 0.82;
   if (zone === 'top') return [bottom];

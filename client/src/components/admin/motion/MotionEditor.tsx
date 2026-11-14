@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ImageUploadField } from '@/components/admin/ImageUploadField';
 import { CaptionReviewBox } from '@/components/admin/CaptionReview';
 import {
-  MOTION_ACCENT_LABEL, MOTION_ACCENTS, MOTION_CAPTION_STYLE_LABEL, MOTION_CAPTION_STYLES, MOTION_CARD_LABEL, MOTION_CARDS, MOTION_BASE_LABEL, MOTION_BASES, MOTION_CLOSING_LABEL, MOTION_CLOSINGS, MOTION_DURATION_PRESETS, MOTION_FORMAT_LABEL, MOTION_FORMATS, MOTION_GLOW_LABEL, MOTION_GLOWS, MOTION_MAX_SCENES, MOTION_MUSIC, MOTION_MUSIC_LABEL,
+  MOTION_ACCENT_LABEL, MOTION_ACCENTS, MOTION_PAPER_LABEL, MOTION_PAPERS, MOTION_CAPTION_STYLE_LABEL, MOTION_CAPTION_STYLES, MOTION_CARD_LABEL, MOTION_CARDS, MOTION_BASE_LABEL, MOTION_BASES, MOTION_CLOSING_LABEL, MOTION_CLOSINGS, MOTION_DURATION_PRESETS, MOTION_FORMAT_LABEL, MOTION_FORMATS, MOTION_GLOW_LABEL, MOTION_GLOWS, MOTION_MAX_SCENES, MOTION_MUSIC, MOTION_MUSIC_LABEL,
   MOTION_STYLE_LABEL, MOTION_STYLES, MOTION_TEMPLATE_LABEL, MOTION_TEMPLATES, emptyScene, motionTimeline, shapePacing, normalizeMotionSpec, voiceSays,
   type MotionScene, type MotionSpec,
 } from '@shared/motionSpec';
@@ -21,7 +21,7 @@ import { applyKeyword } from '@shared/motionSpec';
 import { AI_MODELS, AI_MODEL_LABEL, motionCallEstimateUsd, type AiModel } from '@shared/studioAi';
 import { MOTION_CUSTOM_BG, MOTION_CUSTOM_BG_LABEL, MOTION_CUSTOM_ENTRY, MOTION_CUSTOM_ENTRY_LABEL, MOTION_CUSTOM_FONTS, MOTION_CUSTOM_FONT_LABEL, normalizeCustom } from '@shared/motionSpec';
 import { specHash } from '@shared/studioRender';
-import { LAYOUT_AUTO, LAYOUTS, lookSignature, resolveLayouts } from '@shared/motionVariety';
+import { LAYOUT_AUTO, LAYOUTS, lookSignature, resolveLayouts, resolvePaper } from '@shared/motionVariety';
 import { chileIsoDate } from '@shared/contentPlan';
 import { TTS_VOICE_KEYS, TTS_VOICES, voiceScriptHash, type TtsVoice } from '@shared/studioVoice';
 import { MotionPreview } from './MotionPreview';
@@ -364,6 +364,11 @@ export function MotionEditor({ id: initialId, initial, restored, onBack }: {
                     />
                   </Field>
                   <Field label="Estilo"><Pick value={spec.style} options={MOTION_STYLES.filter((st) => st !== 'custom' || !!canCustom)} labels={MOTION_STYLE_LABEL} onChange={(style) => setSpec({ style })} /></Field>
+                  {spec.style === 'collage' && (
+                    <Field label="Papel" hint={spec.paper === 'auto' ? `Automático: ${MOTION_PAPER_LABEL[resolvePaper(clean)].split(' (')[0]}.` : undefined}>
+                      <Pick value={spec.paper} options={MOTION_PAPERS} labels={MOTION_PAPER_LABEL} onChange={(paper) => setSpec({ paper })} />
+                    </Field>
+                  )}
                   <Field label="Evento">
                     <Select value={spec.eventId != null ? String(spec.eventId) : 'none'} onValueChange={(v) => {
                       const ev = events.find((e: any) => String(e.id) === v);
