@@ -18,6 +18,7 @@ import { stripUrlsFromReply, trackedUrl } from './agentLinks';
 import { BUTTON_CARD_CAPTION } from './instagram';
 import { normalizeInstagramAgentConfig, DEFAULT_INSTAGRAM_AGENT_CONFIG } from '../shared/instagramAgentConfig';
 import { followUpIntent, planFollowUp } from '../shared/followUp';
+import { chileanize } from '../shared/srtaPlayroom';
 import { normalizeIgHandle, saysAlreadyBought } from '../shared/igCustomerLink';
 
 /* Seguimientos del agente de ventas (pedido del dueño: llevar a la persona a
@@ -72,7 +73,7 @@ export async function runInstagramFollowUps(now: Date = new Date()): Promise<Ins
   // Regla del dueño (27/09): nunca una URL a la vista. Un texto guardado
   // antes de esta regla ("...en mansionplayroom.cl/entradas") se limpia acá,
   // y el link va como botón de compra debajo, con su UTM de recordatorio.
-  const fixedText = stripUrlsFromReply(config.followUpMessage).text || DEFAULT_INSTAGRAM_AGENT_CONFIG.followUpMessage;
+  const fixedText = chileanize(stripUrlsFromReply(config.followUpMessage).text || DEFAULT_INSTAGRAM_AGENT_CONFIG.followUpMessage);
 
   let sent = 0, skipped = 0, failed = 0;
   for (const { thread, lastFromBot } of rows) {

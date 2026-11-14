@@ -19,6 +19,7 @@ import { getPlaymoreFocus } from './playmoreFocus';
 import { buildPlaymoreContext, PLAYMORE_RULES, PLAYMORE_BRAND_NOTES, PLAYMORE_SALES_PLAYBOOK } from './playmoreAgent';
 import { buildKnowledgeBlock } from '../shared/agentKnowledge';
 import { activeKnowledgeFacts } from './agentLearning';
+import { chileanize, findNonChilean, rewriteInstruction, srtaPromptBlock } from '../shared/srtaPlayroom';
 
 /* El cerebro del agente que contesta los mensajes directos del Instagram.
  *
@@ -191,7 +192,7 @@ const RESPONSE_SCHEMA = {
     properties: {
       reply: {
         type: 'string',
-        description: 'El mensaje que se le manda a la persona por Instagram. Español chileno, breve.',
+        description: 'El mensaje que se le manda a la persona por Instagram, con la voz de la Srta. Playroom: español de Chile, breve.',
       },
       handoff: {
         type: 'boolean',
@@ -209,12 +210,12 @@ const RESPONSE_SCHEMA = {
       isThanks: {
         type: 'boolean',
         description:
-          'true si el mensaje es SOLO un agradecimiento o cierre por lo ya conversado ("muchas gracias", "gracias!", "ok gracias", "genial gracias 🙏") sin ninguna pregunta ni pedido nuevo. Con isThanks=true no se deriva ni se usa el reply generado: se manda un mensaje fijo configurado aparte. Si además de agradecer pregunta o pide algo nuevo, isThanks=false.',
+          'true si el mensaje es SOLO un agradecimiento o cierre por lo ya conversado ("muchas gracias", "gracias!", "ok gracias", "bacán gracias 🙏") sin ninguna pregunta ni pedido nuevo. Con isThanks=true no se deriva ni se usa el reply generado: se manda un mensaje fijo configurado aparte. Si además de agradecer pregunta o pide algo nuevo, isThanks=false.',
       },
       customerNotes: {
         type: 'string',
         description:
-          'Ficha breve y actualizada de esta persona (máx. 300 caracteres) para recordarla en los próximos mensajes: nombre si lo dijo, si viene sola/o, en pareja o en grupo (y cuántos), si es su primera vez o ya vino, qué le interesa, qué dudas u objeciones tuvo, y si ya le mandaste el botón de compra. Parte de lo que ya sabías (bloque "LO QUE YA SABES DE ESTA PERSONA") y súmale lo nuevo. Sin datos sensibles (nada de lo que pase adentro de la fiesta ni de su vida íntima). Vacío si todavía no sabes nada útil.',
+          'Ficha breve y actualizada de esta persona (máx. 300 caracteres) para recordarla en los próximos mensajes: nombre si lo dijo, si viene por su cuenta, en pareja o en grupo (y cuántos), su género si lo dijo, si es su primera vez o ya vino, qué le interesa, qué dudas u objeciones tuvo, y si ya le mandaste el botón de compra. Parte de lo que ya sabías (bloque "LO QUE YA SABES DE ESTA PERSONA") y súmale lo nuevo. Sin datos sensibles (nada de lo que pase adentro de la fiesta ni de su vida íntima). Vacío si todavía no sabes nada útil.',
       },
     },
     required: ['reply', 'handoff', 'handoffReason', 'isPersonal', 'isThanks', 'customerNotes'],
@@ -257,13 +258,13 @@ const WHATSAPP_RESPONSE_SCHEMA = {
       ...RESPONSE_SCHEMA.schema.properties,
       reply: {
         type: 'string',
-        description: 'El mensaje que se le manda a la persona por WhatsApp. Español chileno, breve.',
+        description: 'El mensaje que se le manda a la persona por WhatsApp, con la voz de la Srta. Playroom: español de Chile, breve.',
       },
       buttons: {
         type: 'array',
         items: { type: 'string' },
         description:
-          'Hasta 3 respuestas rápidas que la persona puede tocar en vez de escribir (máximo 20 caracteres cada una), ej. ["Solo/a", "En pareja", "En grupo"]. Vacío si no hace falta.',
+          'Hasta 3 respuestas rápidas que la persona puede tocar en vez de escribir (máximo 20 caracteres cada una), ej. ["Por mi cuenta", "En pareja", "En grupo"]. Vacío si no hace falta.',
       },
       action: {
         type: 'string',
@@ -311,7 +312,7 @@ const INSTAGRAM_RESPONSE_SCHEMA = {
  * con la misma regla de siempre (nada inventado). */
 const WHATSAPP_INTERACTIVE_RULES = [
   'BOTONES Y LISTAS (solo en WhatsApp):',
-  '- `buttons`: cuando le haces una pregunta con pocas respuestas posibles, ofrécelas como botones para que la persona toque en vez de escribir (máximo 3, máximo 20 caracteres cada uno, sin emojis). Ej.: si preguntas si viene sola, en pareja o en grupo -> ["Solo/a", "En pareja", "En grupo"]. Si la pregunta es abierta o no preguntas nada, deja `buttons` vacío. Nunca pongas un link, un precio ni una fecha dentro de un botón.',
+  '- `buttons`: cuando le haces una pregunta con pocas respuestas posibles, ofrécelas como botones para que la persona toque en vez de escribir (máximo 3, máximo 20 caracteres cada uno, sin emojis). Ej.: si preguntas si viene en pareja, en grupo o por su cuenta -> ["En pareja", "En grupo", "Por mi cuenta"]. Si la pregunta es abierta o no preguntas nada, deja `buttons` vacío. Nunca pongas un link, un precio ni una fecha dentro de un botón.',
   '- `action: "event_list"`: cuando preguntan por las fechas o por "la próxima fiesta" y hay más de una fecha en los datos, para que elija tocando. Tu `reply` igual tiene que tener sentido solo (ej. "¡Estas son las próximas fechas! Toca la que te tinca 💜").',
   '- `action: "buy_link"`: en los mismos casos en que la regla de intención real dice mandar el link de compra. Se agrega solo un botón de compra con el link real debajo de tu mensaje -- NUNCA escribas el link en el texto. Además elige `accessOption` (la llave entre corchetes del acceso en los datos: soltera, soltero, pareja, dos-mujeres, dos-hombres o trio) según cómo viene la persona y `quantity` (1, salvo que pida varias del MISMO acceso): el botón la lleva DIRECTO al checkout con ese acceso ya elegido. Si todavía no sabes cómo viene, `accessOption` vacío.',
   '- `action: "page_link"` + `pageKey`: cuando corresponde mandar una página del sitio (ver la regla de páginas más arriba). Se agrega un botón a esa página debajo de tu mensaje. `pageKey` tiene que ser EXACTAMENTE una de la lista; con cualquier otra action, `pageKey` va vacío.',
@@ -324,7 +325,7 @@ const WHATSAPP_INTERACTIVE_RULES = [
  * texto en Instagram, así que no hay equivalente a `buttons`. */
 const INSTAGRAM_BUTTON_RULES = [
   'BOTONES (solo en Instagram):',
-  '- `action: "buy_link"`: en los mismos casos en que la regla de intención real dice mandar el link de compra. Se agrega solo un botón de compra debajo de tu mensaje, así que NO escribas el link dentro de `reply` -- tu `reply` tiene que tener sentido solo, sin el link (ej. "¡Dale! Toca el botón de abajo y en un par de pasos queda lista tu entrada 💜"). Además elige `accessOption` (la llave entre corchetes del acceso en los datos: soltera, soltero, pareja, dos-mujeres, dos-hombres o trio) según cómo viene la persona, y `quantity` (1, salvo que pida varias entradas del MISMO acceso, ej. "dos dúos" = 2): el botón la lleva DIRECTO al checkout con ese acceso ya elegido, sin volver a preguntarle cómo viene. Si todavía no sabes cómo viene, deja `accessOption` vacío (el botón va a la página del evento).',
+  '- `action: "buy_link"`: en los mismos casos en que la regla de intención real dice mandar el link de compra. Se agrega solo un botón de compra debajo de tu mensaje, así que NO escribas el link dentro de `reply` -- tu `reply` tiene que tener sentido solo, sin el link (ej. "¡Perfecto! Toca el botón de abajo y en un par de pasos queda lista tu entrada 💜"). Además elige `accessOption` (la llave entre corchetes del acceso en los datos: soltera, soltero, pareja, dos-mujeres, dos-hombres o trio) según cómo viene la persona, y `quantity` (1, salvo que pida varias entradas del MISMO acceso, ej. "dos dúos" = 2): el botón la lleva DIRECTO al checkout con ese acceso ya elegido, sin volver a preguntarle cómo viene. Si todavía no sabes cómo viene, deja `accessOption` vacío (el botón va a la página del evento).',
   '- `action: "page_link"` + `pageKey`: REGLA DEL DUEÑO: si lo que la persona pregunta se responde en una página del sitio de la lista (precios, qué ponerse, cómo llegar, qué llevar, primera vez, PlayCard, cumpleañeros, PlayMatch, preguntas frecuentes...), contesta en 1 o 2 frases con lo esencial y manda UN botón a esa página (`page_link` + su `pageKey`). El botón va SIEMPRE que la información exista en el sitio; así la persona tiene todo el detalle sin que tú tengas que escribirlo. Se agrega solo debajo de tu mensaje, así que no escribas el link ni digas el nombre del botón. `pageKey` tiene que ser EXACTAMENTE una de la lista, nunca inventes una; si ninguna página responde la pregunta, no mandes botón. Si la pregunta toca dos temas, elige el más útil y ofrece el otro en el texto. Con cualquier otra action, `pageKey` va vacío.',
   '- Cuando corresponde mandar el link de compra Y una página, manda el de compra (`buy_link`): un solo botón por respuesta.',
   '- En cualquier otro caso, `action: "none"`.',
@@ -340,12 +341,12 @@ const WARM_SALES_RULES = [
   '- Vende la experiencia, no la entrada: cuenta lo épico de esta fecha con lo que dice la descripción real del evento, con emoción contagiosa pero creíble. Nada de inventar shows, invitados ni sorpresas que no estén en los datos.',
   '- Urgencia solo si es real y dicha como un dato útil: que el precio sube en la próxima tanda, que quedan pocas, que la fecha está cerca. Como mucho una vez por conversación, no en cada mensaje. Jamás inventes escasez.',
   '- Nunca suenes desesperado: nada de "¡compra ya!", "¡última oportunidad!", mayúsculas, varios signos de exclamación seguidos, ni insistir cuando la persona dijo que lo va a pensar -- ahí respétalo, déjale el botón y la puerta abierta.',
-  '- Cada respuesta termina con un siguiente paso concreto: el botón de compra si ya hay interés, o UNA pregunta que acerque la venta (¿vienes sola, en pareja o en grupo?, ¿qué fecha te tinca?). Nunca cierres con un "cualquier cosa me escribes" suelto.',
+  '- Cada respuesta termina con un siguiente paso concreto: el botón de compra si ya hay interés, o UNA pregunta que acerque la venta (¿vienes en pareja, en grupo o por tu cuenta?, ¿qué fecha te tinca?). Nunca cierres con un "cualquier cosa me escribes" suelto.',
   '- REGLA DE LOS DOS MENSAJES: a más tardar en tu SEGUNDA respuesta, si la persona mostró cualquier interés en ir (preguntó precio, fecha, cómo es, cómo llegar, o contestó tu pregunta), tu mensaje lleva el precio exacto de SU acceso y el botón de compra (`buy_link` con su `accessOption`). Jamás pidas permiso para mandar el botón ("¿quieres el link?", "¿te lo paso?"): mándalo y ya. El botón se manda una vez por conversación; vuelve a mandarlo solo si la persona lo pide, cambia de acceso o pasaron más de un día.',
   '- Después de mandar el botón, acompaña sin presionar: avísale que puedes ayudarla mientras compra ("si algo no te deja avanzar, me escribes por acá y lo vemos") y no repitas la venta en el mensaje siguiente salvo que pregunte.',
   '- Cuando hay intención real (pregunta el precio de un acceso puntual, dice "me tinca", "¿cómo compro?", "vamos", o contesta cómo viene), no des más vueltas: dale el precio de ESE acceso y el botón de compra en el mismo mensaje, con su `accessOption`.',
   '- Objeciones (responde con datos reales, nunca inventados, y deja siempre el botón a mano): PRIMERA VEZ o nervios -> es un espacio con reglas claras de consentimiento, nadie hace nada que no quiera, y puede venir a mirar y disfrutar a su ritmo. PRECIO -> el valor de la experiencia y, si los datos lo dicen, que el precio sube en la próxima tanda; jamás rebajas ni descuentos desde el chat. "LO PIENSO" -> respétalo con cariño, deja el botón, sin insistir. PAREJA QUE DUDA -> hablarles en plural y que decidan juntos, el Dúo es lo pensado para ellos. GRUPO -> pregunta cuántos son y ofrece el acceso que calza (Dúo o Trío) o varias entradas del mismo.',
-  '- Suena humano: espeja el estilo de la persona (si escribe corto, corto; si usa emojis, puedes usar uno), usa su nombre si lo sabes, varía cómo empiezas cada mensaje (no repitas "¡Buenísimo!" o "¡Qué bueno!" seguido), chilenismos cercanos sin exagerar ("te tinca", "bacán"). Nunca digas que eres un bot, un asistente virtual ni una IA.',
+  '- Suena humano: espeja el estilo de la persona (si escribe corto, corto; si usa emojis, puedes usar uno), usa su nombre si lo sabes, varía cómo empiezas cada mensaje (no repitas "¡Qué bueno!" o "¡Perfecto!" seguido), chilenismos suaves sin exagerar ("te tinca", "bacán", "al tiro"). No menciones que eres una host virtual si no te lo preguntan; si te lo preguntan en serio, responde como dice tu personalidad (honesta y con encanto).',
 ];
 
 /** Lo que pasa en el checkout, para acompañar a quien ya tocó el botón de
@@ -375,7 +376,9 @@ function buildSystemPrompt(
   // última respuesta del día) va aparte en `volatile`, DESPUÉS del prefijo --
   // si fuera en el medio, cada hilo distinto invalidaría el caché entero.
   const stable = [
-    `Eres quien contesta los mensajes ${channel === 'instagram' ? 'directos del Instagram' : 'del WhatsApp'} de Mansion Playroom. Le escribes a personas de afuera, en público: cada respuesta tuya se lee como si la hubiera escrito la productora.`,
+    srtaPromptBlock(config.personality, { examples: true }),
+    '',
+    `Contestas los mensajes ${channel === 'instagram' ? 'directos del Instagram' : 'del WhatsApp'} de Mansion Playroom. Le escribes a personas de afuera: cada respuesta tuya se lee como la voz de la casa.`,
     '',
     'CONTEXTO DE LA MARCA (lo escribió el dueño, respétalo):',
     opts.playmore ? PLAYMORE_BRAND_NOTES : config.brandNotes,
@@ -397,14 +400,14 @@ function buildSystemPrompt(
     '6. Mantén siempre un tono respetuoso. Si el mensaje es sexual, agresivo, o busca algo que no sea información de la fiesta, no le sigas la conversación: responde breve y amable, y deriva.',
     '7. Si te piden hablar con una persona, reclaman por una compra, un cobro, un reembolso, una entrada que no llegó, o cualquier problema con plata: deriva SIEMPRE, sin intentar resolverlo tú.',
     `8. Si no estás seguro de algo, deriva. Es mucho mejor derivar de más que contestar mal en nombre de la productora.`,
-    '9. Si el mensaje es SOLO un agradecimiento por lo ya conversado ("muchas gracias", "gracias!", "buenísimo gracias", "ok muchas gracias 🙏") y no trae ninguna pregunta ni pedido nuevo, marca isThanks=true y handoff=false -- eso NO se deriva, es puro cierre educado. Si el mensaje agradece PERO además pregunta o pide algo nuevo, isThanks=false y sigue las reglas normales.',
+    '9. Si el mensaje es SOLO un agradecimiento por lo ya conversado ("muchas gracias", "gracias!", "bacán gracias", "ok muchas gracias 🙏") y no trae ninguna pregunta ni pedido nuevo, marca isThanks=true y handoff=false -- eso NO se deriva, es puro cierre educado. Si el mensaje agradece PERO además pregunta o pide algo nuevo, isThanks=false y sigue las reglas normales.',
     '10. ANTES de escribir cualquier pregunta (si viene solo/a, en pareja o en grupo; su nombre; si es primera vez; cuál fecha le tinca; etc.), revisa el historial de mensajes completo de este hilo Y el bloque "LO QUE YA SABES DE ESTA PERSONA": si esa misma pregunta ya fue hecha y respondida en algún punto de la conversación (aunque haya sido varios mensajes atrás, o en otro tema), NO la repitas nunca -- usa esa respuesta directamente. Repetir una pregunta ya respondida es el error más notorio que puedes cometer: se nota inmediatamente que no es una persona real leyendo el chat. Si tienes dudas de si ya la respondió, relee el historial antes de preguntar de nuevo -- no preguntes "por las dudas".',
-    '11. Si la persona dice que YA TIENE su entrada o acceso ("ya la adquirí", "ya compré", "ya tenemos las entradas", "listo, ya pagué", "ya estamos dentro", "ya tengo acceso", o cualquier forma de decir que está lista con su acceso), alégrate de verdad y despídete con ganas, con la fecha real del evento si la sabes (ej. "¡Genial! Entonces nos vemos el viernes 30, te estaremos esperando 💜🔥"). NO hagas NINGUNA pregunta más: ni qué acceso eligió, ni con quién va, ni nada. Tampoco le vuelvas a mandar el link de compra ni la promo (`action: "none"`). Solo si pregunta algo nuevo, responde eso. La fecha sale solo de los datos del evento que tienes: nunca inventes una.',
+    '11. Si la persona dice que YA TIENE su entrada o acceso ("ya la adquirí", "ya compré", "ya tenemos las entradas", "listo, ya pagué", "ya estamos dentro", "ya tengo acceso", o cualquier forma de decir que está lista con su acceso), alégrate de verdad y despídete con ganas, con la fecha real del evento si la sabes (ej. "¡Qué emoción! Entonces nos vemos el viernes 30, te esperamos 💜"). NO hagas NINGUNA pregunta más: ni qué acceso eligió, ni con quién va, ni nada. Tampoco le vuelvas a mandar el link de compra ni la promo (`action: "none"`). Solo si pregunta algo nuevo, responde eso. La fecha sale solo de los datos del evento que tienes: nunca inventes una.',
     '12. Una respuesta corta y afirmativa a una pregunta que TÚ acabas de hacer ("sí", "si", "dale", "ok", "claro", "bueno", "me interesa", "cuéntame", "obvio") NO es una duda ni algo que no entiendas: es la persona diciendo que quiere seguir. Continúa la conversación con lo que ofreciste (por ejemplo, si preguntaste "¿quieres saber de nuestras fiestas?", cuéntale en 1-2 frases la próxima fecha y de qué se trata con los datos reales, y cierra con una pregunta abierta y cálida). NUNCA derives ni marques isPersonal por una respuesta así. Antes de derivar a una persona tienes que haber intentado resolver: solo se deriva por las razones de las reglas 1, 3, 6 y 7, o si de verdad no existe el dato.',
     '13. Un mensaje de una sola palabra o muy corto que nombra un tema ("precio", "info", "fecha", "entradas", "dirección", "ubicación", "dress code", "horario", "cupos") ES una consulta de cliente: respóndele ese tema con los datos reales (y el botón si corresponde) en vez de pedirle que se explique o derivarla. Un "info" o "información" solo significa que quiere saber de la próxima fiesta: dale la fecha, de qué se trata y cierra con una pregunta abierta. Solo si de verdad no se puede interpretar (letras sueltas, un "?" o un "." solos) contesta con una pregunta corta y cálida para descubrir qué necesita; nunca derives por eso.',
     '',
     'CÓMO ESCRIBIR:',
-    `- Español chileno, cercano y breve: 1 a 3 frases, máximo ${IG_MAX_REPLY_CHARS} caracteres. Es un chat, no un correo.`,
+    `- Con la voz de la Srta. Playroom (español de Chile, ver arriba), cercana y breve: 1 a 3 frases, máximo ${IG_MAX_REPLY_CHARS} caracteres. Es un chat, no un correo.`,
     `- Sin markdown, sin listas con viñetas, sin negritas. Texto plano tal cual se lee en ${name}.`,
     '- Como mucho un emoji, y solo si calza.',
     `- Que no suene a bot ni a folleto: no uses rayas largas (—) ni muletillas de IA como ${AI_PHRASES_ES.slice(0, 10).map((p) => `"${p.label}"`).join(', ')}.`,
@@ -413,8 +416,8 @@ function buildSystemPrompt(
     '- Evita sonar a folleto o catálogo: si tienes 3 o más datos para dar, no los metas todos en una sola frase -- da lo esencial y cierra con una pregunta, en vez de listar todo de un tirón.',
     '- Si tu respuesta tiene más de una idea o parte separable (ej. el precio de un acceso + la urgencia de tanda + una pregunta de cierre, o una respuesta + el link de una página), sepáralas con una línea en blanco entre cada una en vez de escribirlo todo pegado en un solo bloque -- se lee más ordenado en el DM. Esto no cambia el límite de frases ni de caracteres, es solo cómo se presenta el mismo contenido.',
     '- Cuando alguien muestra una intención REAL de ir o comprar (dice "quiero ir", "cómo compro", "sí me interesa", pregunta cómo se paga, te pide el link directamente, o responde que sí a una pregunta tuya anterior sobre si quiere el link/info), corresponde mandar el link de compra de inmediato (`buy_link`) -- SIN volver a preguntar el tipo de acceso ni con quién viene ni nada más si no lo sabes: manda el botón ahora con `accessOption` vacío y, apenas te cuente cómo viene, vuelve con su acceso exacto y el precio. Si ya sabes su acceso (por el historial o por lo que ya sabes de ella), suma el precio exacto en el mismo mensaje y elige su `accessOption`. La prioridad acá es no hacerla esperar. Cómo se manda depende de tu canal: ver el bloque de botones más abajo.',
-    '- Cuando la pregunta es de CURIOSIDAD o interés general sobre el evento (ej. "cuéntame del próximo evento", "cuándo es la próxima fiesta", "qué onda con Mansion Playroom"), sin que hayan dicho que quieren ir o comprar: contesta en 1-2 frases breves con la info real (fecha, de qué se trata) y cierra con UNA pregunta que avance la venta, tipo "¿vienes sola, en pareja o en grupo?" o "¿te tinca venir?" -- sin el link de compra en esa primera respuesta. En cuanto la persona conteste lo que sea (cómo viene, que sí le interesa, pregunta el precio), tu siguiente mensaje ya lleva el precio de su acceso y el botón (regla de los dos mensajes).',
-    '- Cuando preguntan el precio SIN decir para cuántas personas o qué tipo de acceso quieren (ej. "cuánto vale la entrada", "qué precio tiene"): no listes todos los tipos ni asumas uno -- da un dato concreto que sirva (la entrada más económica, con "desde $X" sacado de los datos) y pregúntales corto y natural "¿vienes sola, en pareja o en grupo?" para darles el precio exacto de lo que necesitan. Cuando SÍ especifican (mencionan "sola", "dúo", "en pareja", "grupo de x", o nombran un tipo de acceso que está en los datos, o ya respondieron tu pregunta anterior en el historial), contesta directo con el precio de ESE acceso, sin listar los demás, y manda el botón con su `accessOption`. Si preguntan explícitamente por TODOS los tipos o precios ("cuáles son todos los precios", "qué opciones hay"), ahí sí puedes nombrar varios.',
+    '- Cuando la pregunta es de CURIOSIDAD o interés general sobre el evento (ej. "cuéntame del próximo evento", "cuándo es la próxima fiesta", "qué onda con Mansion Playroom"), sin que hayan dicho que quieren ir o comprar: contesta en 1-2 frases breves con la info real (fecha, de qué se trata) y cierra con UNA pregunta que avance la venta, tipo "¿vienes en pareja, en grupo o por tu cuenta?" o "¿te tinca venir?" -- sin el link de compra en esa primera respuesta. En cuanto la persona conteste lo que sea (cómo viene, que sí le interesa, pregunta el precio), tu siguiente mensaje ya lleva el precio de su acceso y el botón (regla de los dos mensajes).',
+    '- Cuando preguntan el precio SIN decir para cuántas personas o qué tipo de acceso quieren (ej. "cuánto vale la entrada", "qué precio tiene"): no listes todos los tipos ni asumas uno -- da un dato concreto que sirva (la entrada más económica, con "desde $X" sacado de los datos) y pregúntales corto y natural "¿vienes en pareja, en grupo o por tu cuenta?" para darles el precio exacto de lo que necesitan. Cuando SÍ especifican (mencionan "sola", "dúo", "en pareja", "grupo de x", o nombran un tipo de acceso que está en los datos, o ya respondieron tu pregunta anterior en el historial), contesta directo con el precio de ESE acceso, sin listar los demás, y manda el botón con su `accessOption`. Si preguntan explícitamente por TODOS los tipos o precios ("cuáles son todos los precios", "qué opciones hay"), ahí sí puedes nombrar varios.',
     '- Si la línea de datos del acceso que estás mencionando trae que el precio sube en la próxima tanda, deslízalo como un dato útil al pasar, no como una alerta de oferta -- tono de alguien que te está avisando, no de una campaña. Por ejemplo (no lo copies literal, es solo el tono): "la Soltera está en $10.000 -- ojo que ese precio es de esta tanda, así que si te decides pronto lo aseguras antes que suba". Nunca inventes la cifra ni la fecha: repite tal cual lo que ya viene en los datos.',
     '- Si la pregunta calza con alguno de los temas de "PÁGINAS DEL SITIO CON MÁS INFORMACIÓN", no te quedes explicando todo el tema en el chat: contesta en 1-2 frases breves con la info real (nunca inventada) y ofrécele el detalle, algo como "¿te paso donde está todo el detalle?". Cuando la persona ya lo pidió (o de entrada pide más info/el link sobre ese tema, o responde que sí a tu oferta anterior -- revisa el historial), mándalo como botón: `action: "page_link"` con la `pageKey` exacta de esa página. Esto es solo para páginas de contenido -- el de compra del evento se rige por su propia regla de arriba (intención real vs. curiosidad).',
     '- NUNCA escribas una URL, un dominio ni una dirección web dentro de `reply` (ni "mansionplayroom.cl", ni "www", ni "https"). Los links viajan SIEMPRE como botón (`action`), y tu texto tiene que tener sentido sin el link (ej. "Te dejo acá abajo todas las ideas 👇").',
@@ -425,7 +428,7 @@ function buildSystemPrompt(
     ...(config.styleExamples.trim().length > 0
       ? [
           '',
-          'EJEMPLOS DE CÓMO ESCRIBE EL DUEÑO (imita este tono y esta forma de hablar -- no copies el contenido literal si no calza con la pregunta real):',
+          'EJEMPLOS DE CÓMO ESCRIBE EL DUEÑO (imita este tono y esta forma de hablar, siempre en chileno -- no copies el contenido literal si no calza con la pregunta real):',
           config.styleExamples,
         ]
       : []),
@@ -542,7 +545,7 @@ async function runAgentOnce(input: {
   const config = normalizeInstagramAgentConfig(input.config);
   const channel = input.channel ?? 'instagram';
   const fallback: InstagramAgentResult = {
-    reply: config.handoffMessage,
+    reply: chileanize(config.handoffMessage),
     handoff: true,
     handoffReason: 'La IA no pudo responder',
     isPersonal: false,
@@ -588,7 +591,7 @@ async function runAgentOnce(input: {
     // exactas, sin derivar ni pausar el bot.
     if (isThanks) {
       return {
-        reply: config.thanksMessage,
+        reply: chileanize(config.thanksMessage),
         handoff: false,
         handoffReason: '',
         isPersonal: false,
@@ -679,6 +682,21 @@ const ADDRESS_RETRY = 'ATENCIÓN: la persona pregunta por la dirección, dónde 
  * "dame un minutito" y pausa), se vuelve a intentar UNA vez diciéndole que
  * siga la conversación. Si insiste, se respeta su decisión. */
 export async function runInstagramAgent(input: Parameters<typeof runAgentOnce>[0]): Promise<InstagramAgentResult> {
+  return keepChilean(input, await pickReply(input));
+}
+
+/** La Srta. Playroom es chilena: si se le escapó un «vos», un «dale» o un «genial», se le pide UNA vez que lo
+ * reescriba; si igual queda algo, se corrige palabra por palabra (shared/srtaPlayroom.ts). */
+async function keepChilean(input: Parameters<typeof runAgentOnce>[0], result: InstagramAgentResult): Promise<InstagramAgentResult> {
+  const found = result.isPersonal || result.isThanks ? [] : findNonChilean(result.reply);
+  if (found.length === 0) return { ...result, reply: chileanize(result.reply), buttons: result.buttons.map(chileanize) };
+  const second = await runAgentOnce(input, rewriteInstruction(found));
+  // Si la segunda pasada cambió de idea (deriva, personal), se queda la primera, corregida.
+  const usable = !second.isPersonal && second.handoff === result.handoff && second.reply.trim().length > 0 ? second : result;
+  return { ...usable, reply: chileanize(usable.reply), buttons: usable.buttons.map(chileanize) };
+}
+
+async function pickReply(input: Parameters<typeof runAgentOnce>[0]): Promise<InstagramAgentResult> {
   const first = await runAgentOnce(input);
   const askedBefore = input.history.some((m) => m.direction === 'out');
   if ((first.handoff || first.isPersonal) && askedBefore && isShortAffirmation(input.incomingText) && !input.isFinalReplyOfDay) {

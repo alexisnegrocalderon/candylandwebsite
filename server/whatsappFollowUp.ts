@@ -1,3 +1,4 @@
+import { chileanize } from '../shared/srtaPlayroom';
 import { getWaThreadsAwaitingFollowUp, markWaThreadFollowUpSent, appendWaMessage, getSiteSettings } from './db';
 import { canReplyWithinWindow } from './instagramSend';
 import { sendWhatsAppPayload } from './whatsappSend';
@@ -24,7 +25,7 @@ export async function runWhatsAppFollowUps(now: Date = new Date()): Promise<What
 
   // Nunca una URL a la vista (regla del dueño, 27/09): el texto se limpia y
   // el link va como botón de compra, con su UTM de recordatorio.
-  const text = stripUrlsFromReply(config.followUpMessage).text || DEFAULT_WHATSAPP_AGENT_CONFIG.followUpMessage;
+  const text = chileanize(stripUrlsFromReply(config.followUpMessage).text || DEFAULT_WHATSAPP_AGENT_CONFIG.followUpMessage);
 
   let sent = 0, skipped = 0, failed = 0;
   for (const thread of threads) {

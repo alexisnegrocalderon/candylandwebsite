@@ -26,13 +26,22 @@ export interface WhatsAppAgentConfig {
 export const DEFAULT_WHATSAPP_AGENT_CONFIG: WhatsAppAgentConfig = {
   enabled: false,
   welcomeMenuEnabled: true,
-  welcomeMessage: '¡Hola! 💜 Te escribe Mansion Playroom. ¿En qué te puedo ayudar? Toca una opción o escríbeme tu pregunta.',
+  welcomeMessage: '¡Hola! 💜 Qué bueno tenerte en Mansion Playroom. ¿En qué te ayudo? Toca una opción o escríbeme tu pregunta.',
   dailyReplyLimitPerThread: 30,
   followUpEnabled: true,
   followUpMinutes: 120,
   // Sin URL a propósito: el recordatorio va con el botón de compra abajo.
+  followUpMessage: 'Aquí sigo cuando quieras retomar ✨ Te dejo acá abajo las fechas y entradas 👇',
+};
+
+/** Los textos por defecto de antes de la Srta. Playroom: si siguen tal cual, pasan a los nuevos. */
+const LEGACY: Record<'welcomeMessage' | 'followUpMessage', string> = {
+  welcomeMessage: '¡Hola! 💜 Te escribe Mansion Playroom. ¿En qué te puedo ayudar? Toca una opción o escríbeme tu pregunta.',
   followUpMessage: 'Cuando quieras retomamos 💜 mientras tanto puedes ver fechas y entradas acá abajo 👇',
 };
+function fixedText(key: 'welcomeMessage' | 'followUpMessage', raw: unknown): string {
+  return typeof raw === 'string' && raw.trim().length > 0 && raw.trim() !== LEGACY[key] ? raw : DEFAULT_WHATSAPP_AGENT_CONFIG[key];
+}
 
 /** Completa con los valores por defecto cualquier campo faltante -- mismo
  * criterio que normalizeInstagramAgentConfig. */
@@ -43,9 +52,7 @@ export function normalizeWhatsAppAgentConfig(raw: unknown): WhatsAppAgentConfig 
   return {
     enabled: partial.enabled === true,
     welcomeMenuEnabled: partial.welcomeMenuEnabled !== false,
-    welcomeMessage: typeof partial.welcomeMessage === 'string' && partial.welcomeMessage.trim().length > 0
-      ? partial.welcomeMessage
-      : DEFAULT_WHATSAPP_AGENT_CONFIG.welcomeMessage,
+    welcomeMessage: fixedText('welcomeMessage', partial.welcomeMessage),
     dailyReplyLimitPerThread: Number.isFinite(dailyLimit) && dailyLimit > 0
       ? Math.min(Math.floor(dailyLimit), 200)
       : DEFAULT_WHATSAPP_AGENT_CONFIG.dailyReplyLimitPerThread,
@@ -53,9 +60,7 @@ export function normalizeWhatsAppAgentConfig(raw: unknown): WhatsAppAgentConfig 
     followUpMinutes: Number.isFinite(followUpMinutes) && followUpMinutes > 0
       ? Math.min(Math.floor(followUpMinutes), 1440)
       : DEFAULT_WHATSAPP_AGENT_CONFIG.followUpMinutes,
-    followUpMessage: typeof partial.followUpMessage === 'string' && partial.followUpMessage.trim().length > 0
-      ? partial.followUpMessage
-      : DEFAULT_WHATSAPP_AGENT_CONFIG.followUpMessage,
+    followUpMessage: fixedText('followUpMessage', partial.followUpMessage),
   };
 }
 

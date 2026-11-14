@@ -4151,6 +4151,7 @@ export const appRouter = router({
     saveConfig: adminProcedure.input(z.object({
       enabled: z.boolean(),
       brandNotes: z.string().max(4000),
+      personality: z.string().max(4000).optional(),
       handoffMessage: z.string().min(1).max(IG_MAX_REPLY_CHARS),
       historyLimit: z.number().int().min(2).max(40),
       dailyReplyLimitPerThread: z.number().int().min(1).max(200),
@@ -4170,7 +4171,7 @@ export const appRouter = router({
       hooks: z.array(z.string().max(160)).max(20).optional(),
     })).mutation(async ({ input }) => {
       const current = normalizeInstagramAgentConfig((await db.getSiteSettings() as any).instagramAgentConfig);
-      return db.updateSiteSettings({ instagramAgentConfig: { ...input, commentsEnabled: input.commentsEnabled ?? current.commentsEnabled, hideSpam: input.hideSpam ?? current.hideSpam, customLinkCodes: current.customLinkCodes, trustedAccounts: current.trustedAccounts, noAiAccounts: current.noAiAccounts, autoResumeMigrated: true, welcomeEnabled: input.welcomeEnabled ?? current.welcomeEnabled, hooks: input.hooks ?? current.hooks, followUpPersonalized: input.followUpPersonalized ?? current.followUpPersonalized, followUp2Hours: input.followUp2Hours ?? current.followUp2Hours } });
+      return db.updateSiteSettings({ instagramAgentConfig: { ...input, personality: input.personality ?? current.personality, commentsEnabled: input.commentsEnabled ?? current.commentsEnabled, hideSpam: input.hideSpam ?? current.hideSpam, customLinkCodes: current.customLinkCodes, trustedAccounts: current.trustedAccounts, noAiAccounts: current.noAiAccounts, autoResumeMigrated: true, welcomeEnabled: input.welcomeEnabled ?? current.welcomeEnabled, hooks: input.hooks ?? current.hooks, followUpPersonalized: input.followUpPersonalized ?? current.followUpPersonalized, followUp2Hours: input.followUp2Hours ?? current.followUp2Hours } });
     }),
     /* Cuentas de confianza sin IA: el agente nunca les contesta ni se les reactiva solo. */
     setNoAiAccount: adminProcedure.input(z.object({ username: z.string().max(60), noAi: z.boolean(), threadId: z.number().int().optional() })).mutation(async ({ input }) => {

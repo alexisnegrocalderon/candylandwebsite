@@ -1,3 +1,5 @@
+import { chileanize, srtaPromptBlock } from '../shared/srtaPlayroom';
+import { normalizeInstagramAgentConfig } from '../shared/instagramAgentConfig';
 import { invokeLLM, extractContent } from './_core/llm';
 import { buildInstagramContext, toLlmMessages, type AgentHistoryMessage } from './instagramAgent';
 import { stripUrlsFromReply } from './agentLinks';
@@ -32,9 +34,11 @@ const SCHEMA = {
 } as const;
 
 const SYSTEM = [
+  srtaPromptBlock(normalizeInstagramAgentConfig(null).personality),
+  '',
   'Escribes los mensajes directos de Instagram de Mansion Playroom, una productora de fiestas en Valparaíso / Viña del Mar. Una persona dejó de contestar y vas a mandarle UN seguimiento corto, como lo haría alguien de la productora genuinamente amable, no un vendedor insistente.',
   'Reglas:',
-  '- Español chileno, cercano, 1 o 2 frases (máximo 220 caracteres), como máximo un emoji, sin mayúsculas sostenidas ni varios signos de exclamación, sin rayas largas (—) ni muletillas de IA.',
+  '- Con tu voz de Srta. Playroom (español de Chile), cercana, 1 o 2 frases (máximo 220 caracteres), como máximo un emoji, sin mayúsculas sostenidas ni varios signos de exclamación, sin rayas largas (—) ni muletillas de IA.',
   '- Retoma lo que SÍ sabes de la persona (cómo viene, qué le preocupaba) con naturalidad. Nunca repitas una pregunta que ya respondió ni la saludes de nuevo.',
   '- Nunca escribas un link ni digas "el link": el botón va solo debajo del mensaje. Nunca inventes precios, fechas ni cupos: usa solo los datos reales; si no hay un dato útil, no lo menciones.',
   '- No presiones ni hagas sentir culpa. Si la persona dijo que lo iba a pensar, respétalo.',
@@ -81,7 +85,7 @@ export async function draftFollowUp(input: {
     if (parsed.action === 'stop') return { action: 'stop' };
     if (parsed.action !== 'send') return { action: 'skip' };
     const stripped = stripUrlsFromReply(typeof parsed.message === 'string' ? parsed.message : '');
-    const message = cleanAiMarks(stripped.text).trim().slice(0, 240);
+    const message = chileanize(cleanAiMarks(stripped.text)).trim().slice(0, 240);
     if (!message) return { action: 'skip' };
     const asked = (AGENT_ACCESS_KEYS as string[]).includes(parsed.accessOption ?? '') ? (parsed.accessOption as AgentAccessKey) : '';
     const accessOption = asked || inferAccessKey(input.customerNotes);
