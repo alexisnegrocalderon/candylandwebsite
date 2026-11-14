@@ -1,5 +1,6 @@
 import { upload } from '@vercel/blob/client';
 import { analyzeSong, SONG_MAX_SECS, SONG_MIN_SECS, bestSongStart, type MotionSong } from '@shared/motionSong';
+import { MOTION_MAX_TOTAL_SECS } from '@shared/motionSpec';
 
 /* Subir y analizar la canción del video, todo en el navegador: el archivo va directo a Vercel Blob (igual que las
  * fotos, sin pasar por el servidor) y el análisis (tempo, pulso, golpes fuertes, energía) corre acá, sin costo. */
@@ -47,8 +48,15 @@ export async function analyzeSongFile(file: File): Promise<PickedSong> {
   return { analysis: analyzeSong(mono, SAMPLE_RATE), sampleRate: SAMPLE_RATE };
 }
 
-/** Sube el archivo a Vercel Blob y arma la canción lista para la receta, partiendo en su mejor tramo. */
-export async function uploadAndBuildSong(file: File, picked: PickedSong, videoSecs: number): Promise<MotionSong> {
+/** ¿El archivo ya es el tramo exacto del video? Dura lo que un video (≤ 60 s) y, si se eligió una duración, calza con ella
+ * (±2,5 s). Entonces va «tal cual»: parte en su segundo 0 y no se busca otro compás. */
+export function looksLikeExactClip(duration: number, targetSecs: number | null): boolean {
+  return duration <= MOTION_MAX_TOTAL_SECS + 1 && (targetSecs == null || Math.abs(duration - targetSecs) <= 2.5);
+}
+
+/** Sube el archivo a Vercel Blob y arma la canción lista para la receta: «tal cual» si es el tramo exacto; si es una
+ * canción más larga, partiendo en su mejor tramo. `targetSecs` = la duración elegida (null = automática). */
+export async function uploadAndBuildSong(file: File, picked: PickedSong, videoSecs: number, targetSecs: number | null): Promise<MotionSong> {
   const safe = file.name.replace(/[^\w.\-]+/g, '_').slice(-80);
   const blob = await upload(`studio-songs/${Date.now()}-${safe}`, file, { access: 'public', handleUploadUrl: '/api/admin/blob/upload' });
   const a = picked.analysis;
@@ -63,6 +71,8 @@ export async function uploadAndBuildSong(file: File, picked: PickedSong, videoSe
     hits: a.hits,
     volume: 0.9,
     muteOnExport: false,
+    asIs: looksLikeExactClip(a.duration, targetSecs),
   };
+  if (base.asIs) return { ...base, start: 0 };
   return { ...base, start: bestSongStart(base, Math.min(videoSecs, a.duration)) };
 }

@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ImageUploadField } from '@/components/admin/ImageUploadField';
 import { CaptionReviewBox } from '@/components/admin/CaptionReview';
 import {
-  MOTION_ACCENT_LABEL, MOTION_ACCENTS, MOTION_CARD_LABEL, MOTION_CARDS, MOTION_BASE_LABEL, MOTION_BASES, MOTION_CLOSING_LABEL, MOTION_CLOSINGS, MOTION_FORMAT_LABEL, MOTION_FORMATS, MOTION_GLOW_LABEL, MOTION_GLOWS, MOTION_MAX_SCENES, MOTION_MUSIC, MOTION_MUSIC_LABEL,
+  MOTION_ACCENT_LABEL, MOTION_ACCENTS, MOTION_CARD_LABEL, MOTION_CARDS, MOTION_BASE_LABEL, MOTION_BASES, MOTION_CLOSING_LABEL, MOTION_CLOSINGS, MOTION_DURATION_PRESETS, MOTION_FORMAT_LABEL, MOTION_FORMATS, MOTION_GLOW_LABEL, MOTION_GLOWS, MOTION_MAX_SCENES, MOTION_MUSIC, MOTION_MUSIC_LABEL,
   MOTION_STYLE_LABEL, MOTION_STYLES, MOTION_TEMPLATE_LABEL, MOTION_TEMPLATES, emptyScene, motionTimeline, normalizeMotionSpec, voiceSays,
   type MotionScene, type MotionSpec,
 } from '@shared/motionSpec';
@@ -345,6 +345,23 @@ export function MotionEditor({ id: initialId, initial, restored, onBack }: {
                 <div className="grid gap-3 sm:grid-cols-2">
                   <Field label="Plantilla"><Pick value={spec.template} options={MOTION_TEMPLATES} labels={MOTION_TEMPLATE_LABEL} onChange={(template) => setSpec({ template })} /></Field>
                   <Field label="Formato"><Pick value={spec.format} options={MOTION_FORMATS} labels={MOTION_FORMAT_LABEL} onChange={(format) => setSpec({ format })} /></Field>
+                  <Field
+                    label="Duración del video"
+                    hint={spec.voice
+                      ? 'Con voz en off manda lo que dura la voz.'
+                      : spec.song?.asIs && spec.durationSecs == null
+                        ? `Sale de tu audio: ${secs.toFixed(1).replace('.', ',')} s.`
+                        : spec.durationSecs != null
+                          ? 'Las escenas se reparten ese tiempo según sus segundos.'
+                          : 'Automática: lo que sumen las escenas.'}
+                  >
+                    <Pick
+                      value={spec.durationSecs == null ? 'auto' : String(spec.durationSecs)}
+                      options={['auto', ...Array.from(new Set([...MOTION_DURATION_PRESETS, ...(spec.durationSecs != null ? [spec.durationSecs] : [])])).sort((a, b) => a - b).map(String)]}
+                      labels={Object.fromEntries(['auto', ...Array.from(new Set([...MOTION_DURATION_PRESETS, ...(spec.durationSecs != null ? [spec.durationSecs] : [])])).map(String)].map((v) => [v, v === 'auto' ? 'Automática' : `${v.replace('.', ',')} s`]))}
+                      onChange={(v) => setSpec({ durationSecs: v === 'auto' ? null : Number(v) })}
+                    />
+                  </Field>
                   <Field label="Estilo"><Pick value={spec.style} options={MOTION_STYLES.filter((st) => st !== 'custom' || !!canCustom)} labels={MOTION_STYLE_LABEL} onChange={(style) => setSpec({ style })} /></Field>
                   <Field label="Evento">
                     <Select value={spec.eventId != null ? String(spec.eventId) : 'none'} onValueChange={(v) => {
@@ -389,13 +406,15 @@ export function MotionEditor({ id: initialId, initial, restored, onBack }: {
               </Group>
 
               <Group title="Ritmo y luz" hint="Sube una canción y todo el video se mueve a su pulso. La luz respira con la música.">
-                <SongPanel song={spec.song} videoSecs={secs} onChange={(song) => setSpec({ song })} />
+                <SongPanel song={spec.song} videoSecs={secs} targetSecs={spec.durationSecs} onChange={(song) => setSpec({ song })} />
                 <div className="grid gap-3 sm:grid-cols-2">
                   <Field label="Luz de fondo"><Pick value={spec.glow} options={MOTION_GLOWS} labels={MOTION_GLOW_LABEL} onChange={(glow) => setSpec({ glow })} /></Field>
                 </div>
                 <ToggleRow label="Loop: que se repita sin corte" checked={spec.loop} onChange={(loop) => setSpec({ loop })} />
                 {spec.loop && !(spec.song || spec.music !== 'none') && <p className="text-xs text-amber-700">Sin música ni canción no hay pulso: el loop no cambia la duración.</p>}
-                {spec.loop && <p className="text-xs text-muted-foreground">Dura compases enteros, se funde al fondo al final y la música no se apaga, para que al repetirse el golpe caiga justo.</p>}
+                {spec.loop && (spec.durationSecs != null || spec.song?.asIs
+                  ? <p className="text-xs text-muted-foreground">Se funde al fondo al final y la música no se apaga. Como la duración ya está fijada, no se ajusta a compases: para que el golpe caiga justo al repetirse, corta tu audio en compases enteros.</p>
+                  : <p className="text-xs text-muted-foreground">Dura compases enteros, se funde al fondo al final y la música no se apaga, para que al repetirse el golpe caiga justo.</p>)}
               </Group>
 
               <Group title="Cierre y comentarios">

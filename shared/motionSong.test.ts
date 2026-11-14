@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  analyzeSong, bestSongStart, normalizeSong, snapToBar, songBarStarts, songBeatState, songEnergyAt, songHitFrames,
+  analyzeSong, bestSongStart, normalizeSong, snapToBar, songBarStarts, songBeatGrid, songBeatState, songEnergyAt, songHitFrames,
   type MotionSong,
 } from './motionSong';
 
@@ -59,7 +59,7 @@ describe('analyzeSong', () => {
 
   it('el mejor fragmento es el que tiene el drop', () => {
     const a = analyzeSong(track(120, 60, 0, 30), SR);
-    const song: MotionSong = { ...a, url: 'https://x/a.mp3', name: 'a', start: 0, volume: 0.9, muteOnExport: false };
+    const song: MotionSong = { ...a, url: 'https://x/a.mp3', name: 'a', start: 0, volume: 0.9, muteOnExport: false, asIs: false };
     const start = bestSongStart(song, 20);
     // Con el doble de volumen desde el segundo 30, el tramo elegido está dentro (o arranca justo antes) del drop.
     expect(start).toBeGreaterThanOrEqual(26);
@@ -70,7 +70,7 @@ describe('analyzeSong', () => {
 describe('rejilla y compases', () => {
   const song: MotionSong = {
     url: 'https://x/a.mp3', name: 'a', bpm: 120, downbeat: 0.5, start: 0.5, duration: 60,
-    energy: Array.from({ length: 600 }, (_, i) => (i < 300 ? 20 : 90)), hits: [0.5, 1, 1.5, 2, 2.5], volume: 0.9, muteOnExport: false,
+    energy: Array.from({ length: 600 }, (_, i) => (i < 300 ? 20 : 90)), hits: [0.5, 1, 1.5, 2, 2.5], volume: 0.9, muteOnExport: false, asIs: false,
   };
 
   it('los compases parten cada 4 pulsos desde el tiempo 1', () => {
@@ -100,6 +100,32 @@ describe('rejilla y compases', () => {
     expect(songBeatState(song, hitFrames, 61, 30).inBar).toBe(0 + (4 % 4));
   });
 
+  it('un tramo que parte en el compás tiene el primer pulso en el cuadro 0', () => {
+    expect(songBeatGrid(song)).toEqual({ offsetSecs: 0, firstInBar: 0 });
+    // Parte 2 compases después (2 s cada compás a 120 BPM): sigue siendo el tiempo 1.
+    expect(songBeatGrid({ ...song, start: 4.5 })).toEqual({ offsetSecs: 0, firstInBar: 0 });
+    // Parte un pulso después: el primer pulso es el tiempo 2 del compás.
+    expect(songBeatGrid({ ...song, start: 1 })).toEqual({ offsetSecs: 0, firstInBar: 1 });
+  });
+
+  it('audio «tal cual»: el primer golpe cae más adelante y el pulso lo sigue', () => {
+    // El audio parte en 0 y su primer tiempo 1 está en 0,23 s.
+    const cut: MotionSong = { ...song, downbeat: 0.23, start: 0, asIs: true };
+    const g = songBeatGrid(cut);
+    expect(g.offsetSecs).toBeCloseTo(0.23, 3);
+    expect(g.firstInBar).toBe(0);
+    const f0 = Math.round(0.23 * 30);
+    const on = songBeatState(cut, [], f0, 30);
+    expect(on.index).toBe(0);
+    expect(on.pulse).toBeGreaterThan(0.9);
+    // Antes del primer golpe cuenta el pulso anterior (el último tiempo del compás anterior).
+    const before = songBeatState(cut, [], 2, 30);
+    expect(before.index).toBe(-1);
+    expect(before.inBar).toBe(3);
+    // Un pulso después (0,5 s a 120 BPM) es el tiempo 2.
+    expect(songBeatState(cut, [], Math.round((0.23 + 0.5) * 30), 30).inBar).toBe(1);
+  });
+
   it('la energía se lee desde el inicio del video', () => {
     expect(songEnergyAt(song, 0)).toBeCloseTo(20 / 99, 3);
     expect(songEnergyAt(song, 40)).toBeCloseTo(90 / 99, 3);
@@ -119,6 +145,9 @@ describe('normalizeSong', () => {
     expect(s.muteOnExport).toBe(false);
     expect(normalizeSong({ ...ok, muteOnExport: true }, clean)!.muteOnExport).toBe(true);
     expect(normalizeSong({ ...ok, muteOnExport: 'sí' }, clean)!.muteOnExport).toBe(false);
+    // «Tal cual»: el audio siempre parte en su segundo 0.
+    expect(normalizeSong({ ...ok, asIs: true, start: 40 }, clean)).toMatchObject({ asIs: true, start: 0 });
+    expect(normalizeSong({ ...ok, start: 40 }, clean)).toMatchObject({ asIs: false, start: 40 });
   });
 
   it('rechaza lo inservible', () => {

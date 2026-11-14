@@ -62,7 +62,7 @@ function EnergyMap({ song, videoSecs, onPick }: { song: MotionSong; videoSecs: n
   );
 }
 
-export function SongPanel({ song, videoSecs, onChange }: { song: MotionSong | null; videoSecs: number; onChange: (song: MotionSong | null) => void }) {
+export function SongPanel({ song, videoSecs, targetSecs, onChange }: { song: MotionSong | null; videoSecs: number; targetSecs: number | null; onChange: (song: MotionSong | null) => void }) {
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState<'analizando' | 'subiendo' | null>(null);
   const bars = useMemo(() => (song ? songBarStarts(song) : []), [song]);
@@ -74,9 +74,9 @@ export function SongPanel({ song, videoSecs, onChange }: { song: MotionSong | nu
       setBusy('analizando');
       const picked = await analyzeSongFile(file);
       setBusy('subiendo');
-      const next = await uploadAndBuildSong(file, picked, videoSecs);
+      const next = await uploadAndBuildSong(file, picked, videoSecs, targetSecs);
       onChange(next);
-      toast.success(`Listo: ${Math.round(next.bpm)} BPM. Todo el video va al ritmo.`);
+      toast.success(next.asIs ? `Listo: ${Math.round(next.bpm)} BPM. Usé tu audio tal cual (${next.duration.toFixed(1).replace('.', ',')} s).` : `Listo: ${Math.round(next.bpm)} BPM. Elegí el mejor tramo de tu canción.`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'No se pudo usar la canción.');
     } finally {
@@ -94,6 +94,11 @@ export function SongPanel({ song, videoSecs, onChange }: { song: MotionSong | nu
         <p className="flex items-center gap-1.5 text-sm font-semibold"><Music2 className="h-4 w-4" /> Tu canción</p>
         <p className="text-xs text-muted-foreground">
           Sube una canción (MP3, M4A o WAV) y el video entero se mueve a su ritmo: los cortes caen en el pulso, la cámara late con el bombo y la luz se enciende en los golpes fuertes.
+        </p>
+        <p className="rounded-lg bg-muted/60 px-3 py-2 text-xs">
+          {targetSecs != null
+            ? <>Elegiste <b>{String(targetSecs).replace('.', ',')} s</b>: sube el tramo de esa duración, ya cortado, y el video parte y termina justo con tu audio. Si subes la canción entera, busco yo el mejor tramo.</>
+            : <>Si subes el tramo ya cortado (hasta 60 s), el video dura lo que tu audio. Si subes la canción entera, busco el mejor tramo para la duración del video.</>}
         </p>
         <Button type="button" variant="outline" className="h-11 w-full" disabled={!!busy} onClick={() => input.current?.click()}>
           {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
@@ -115,8 +120,21 @@ export function SongPanel({ song, videoSecs, onChange }: { song: MotionSong | nu
         <Button type="button" size="icon" variant="ghost" className="h-9 w-9 shrink-0 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11" aria-label="Quitar canción" onClick={() => onChange(null)}><X className="h-4 w-4" /></Button>
       </div>
 
-      <EnergyMap song={song} videoSecs={videoSecs} onPick={(secs) => onChange({ ...song, start: snapToBar(song, secs) })} />
+      <ToggleLine
+        label="Usar mi audio tal cual"
+        hint="Ya es el tramo exacto: parte en el segundo 0 y el video dura lo que él."
+        checked={song.asIs}
+        onChange={(asIs) => onChange(asIs ? { ...song, asIs: true, start: 0 } : { ...song, asIs: false, start: bestSongStart(song, Math.min(videoSecs, song.duration)) })}
+      />
 
+      <EnergyMap song={song} videoSecs={videoSecs} onPick={(secs) => { if (!song.asIs) onChange({ ...song, start: snapToBar(song, secs) }); }} />
+
+      {song.asIs ? (
+        <p className="text-xs text-muted-foreground">
+          El video dura {videoSecs.toFixed(1).replace('.', ',')} s{targetSecs == null ? ', lo que dura tu audio' : ''}.
+          {targetSecs != null && targetSecs > song.duration + 0.05 && <span className="text-amber-700"> Tu audio dura {song.duration.toFixed(1).replace('.', ',')} s: el video se acorta a eso (sube un tramo más largo para llegar a {String(targetSecs).replace('.', ',')} s).</span>}
+        </p>
+      ) : (
       <div className="space-y-1.5">
         <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
           <span>Parte en {mmss(song.start)} · el video dura {videoSecs.toFixed(1).replace('.', ',')} s</span>
@@ -137,6 +155,7 @@ export function SongPanel({ song, videoSecs, onChange }: { song: MotionSong | nu
         {!fits && <p className="text-xs text-amber-700">Desde acá la canción no alcanza para todo el video ({mmss(song.duration - song.start)} restantes): elige un tramo más al inicio.</p>}
         <p className="text-xs text-muted-foreground">Siempre parte en el tiempo 1 de un compás, para que el primer golpe caiga justo con el inicio.</p>
       </div>
+      )}
 
       <label className="flex items-center gap-3 text-sm">
         <span className="w-24 shrink-0">Volumen</span>

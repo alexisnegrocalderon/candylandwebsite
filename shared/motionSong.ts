@@ -21,7 +21,7 @@ export interface MotionSong {
   bpm: number;
   /** Segundo de la canción donde cae el primer tiempo fuerte (tiempo 1 del compás). */
   downbeat: number;
-  /** Segundo de la canción donde parte el video: siempre sobre el tiempo 1 de un compás. */
+  /** Segundo de la canción donde parte el video: sobre el tiempo 1 de un compás, o 0 si el audio va «tal cual». */
   start: number;
   /** Lo que dura la canción entera (s). */
   duration: number;
@@ -34,6 +34,8 @@ export interface MotionSong {
   /** El MP4 se graba SIN la canción (sigue sonando en la vista previa): para una canción comercial, que se agrega desde
    * la biblioteca de música de Instagram y así queda con su licencia. El video sale igual de sincronizado. */
   muteOnExport: boolean;
+  /** El audio ya es el tramo exacto del video: parte en el segundo 0 (sin buscar compás) y manda la duración del video. */
+  asIs: boolean;
 }
 
 export interface SongAnalysis {
@@ -308,7 +310,8 @@ export function snapToBar(song: Pick<MotionSong, 'bpm' | 'downbeat' | 'duration'
 /* --- Qué pasa en cada cuadro ---------------------------------------------- */
 
 export interface BeatState {
-  /** Número de pulso desde el inicio del video (0 = el primero). */
+  /** Número de pulso desde el inicio del video (0 = el primero; -1 = el que cae antes del primer golpe, si el audio parte
+   * con silencio). */
   index: number;
   /** Tiempo dentro del compás: 0, 1, 2 o 3 (0 = el fuerte). */
   inBar: number;
@@ -342,12 +345,24 @@ export function songEnergyAt(song: Pick<MotionSong, 'energy' | 'start'>, secs: n
   return (a * (1 - f) + b * f) / 99;
 }
 
+/** Dónde cae el primer pulso del video. Con un tramo que parte en un compás es el cuadro 0; con el audio «tal cual» (corte
+ * cualquiera) el primer golpe puede caer más adelante. `firstInBar` = qué tiempo del compás (0–3) es ese primer pulso. */
+export function songBeatGrid(song: Pick<MotionSong, 'bpm' | 'downbeat' | 'start'>): { offsetSecs: number; firstInBar: number } {
+  const T = songBeatSecs(song.bpm);
+  // 6 ms de tolerancia: un tramo que parte «casi» sobre el pulso se trata como sobre el pulso.
+  const n = Math.ceil((song.start - song.downbeat) / T - 0.006 / T);
+  const first = song.downbeat + n * T - song.start;
+  return { offsetSecs: first < 0.006 ? 0 : round(first, 4), firstInBar: ((n % 4) + 4) % 4 };
+}
+
 /** Pulso, golpe y energía de un cuadro. `hitFrames` sale de `songHitFrames` (se calcula una vez). */
-export function songBeatState(song: Pick<MotionSong, 'bpm' | 'energy' | 'start'>, hitFrames: number[], frame: number, fps: number): BeatState {
+export function songBeatState(song: Pick<MotionSong, 'bpm' | 'energy' | 'start' | 'downbeat'>, hitFrames: number[], frame: number, fps: number): BeatState {
   const beatFrames = (fps * 60) / song.bpm;
-  const pos = frame / beatFrames;
-  const index = Math.max(0, Math.floor(pos));
-  const phase = pos - Math.floor(pos);
+  const grid = songBeatGrid(song);
+  const pos = (frame - grid.offsetSecs * fps) / beatFrames;
+  // Antes del primer pulso (audio «tal cual» con silencio al inicio) cuenta el pulso anterior: index = -1.
+  const index = Math.floor(pos);
+  const phase = pos - index;
   let last = -1;
   // Búsqueda binaria del último golpe a o antes de este cuadro.
   let lo = 0, hi = hitFrames.length - 1;
@@ -358,7 +373,7 @@ export function songBeatState(song: Pick<MotionSong, 'bpm' | 'energy' | 'start'>
   const sinceHit = last < 0 ? Infinity : (frame - last) / fps;
   return {
     index,
-    inBar: index % 4,
+    inBar: (((grid.firstInBar + index) % 4) + 4) % 4,
     phase,
     pulse: Math.exp(-phase * beatFrames / 3.5),
     hit: Math.exp(-sinceHit / 0.11),
@@ -388,7 +403,9 @@ export function normalizeSong(raw: unknown, cleanUrl: (v: unknown) => string): M
     .sort((a, b) => a - b)
     .map((v) => round(v, 3));
   const downbeat = clamp(Number(r.downbeat) || 0, 0, duration);
-  const start = clamp(Number(r.start) || 0, 0, duration);
+  const asIs = r.asIs === true;
+  // «Tal cual»: el audio parte en su segundo 0.
+  const start = asIs ? 0 : clamp(Number(r.start) || 0, 0, duration);
   return {
     url,
     name: strClean(r.name, 80) || 'Canción',
@@ -400,5 +417,6 @@ export function normalizeSong(raw: unknown, cleanUrl: (v: unknown) => string): M
     hits,
     volume: round(clamp(Number.isFinite(Number(r.volume)) ? Number(r.volume) : 0.9, 0, 1), 2),
     muteOnExport: r.muteOnExport === true,
+    asIs,
   };
 }
